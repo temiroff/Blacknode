@@ -4,7 +4,7 @@ import {
   NodeChange, EdgeChange, Connection,
 } from 'reactflow'
 import { api, type CookEvent } from './api'
-import { BnNodeMeta } from './types'
+import { BnNodeDef, BnNodeMeta, ConnectionDraft } from './types'
 import { VALUE_NODE_TYPES } from './categories'
 import { portsCompatible, portColor } from './portColors'
 
@@ -35,6 +35,7 @@ interface Store {
   nodes: Node<NodeData>[]
   edges: Edge[]
   nodeTypes: string[]
+  nodeDefs: Record<string, BnNodeDef>
   selectedId: string | null
   serverOk: boolean
   apiKeys: Record<string, string>
@@ -67,6 +68,7 @@ interface Store {
   saveActiveTabSnapshot: () => Promise<GraphSnapshot | null>
 
   addNode: (typeName: string, pos: { x: number; y: number }) => Promise<void>
+  addNodeFromConnection: (typeName: string, pos: { x: number; y: number }, draft: ConnectionDraft) => Promise<void>
   removeNode: (id: string) => Promise<void>
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
@@ -79,15 +81,23 @@ interface Store {
   reset: () => Promise<void>
 }
 
+function reactNodeType(typeName: string): string {
+  return OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode'
+}
+
+function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
+  return {
+    id: meta.id,
+    type: reactNodeType(meta.type),
+    position: { x: meta.pos[0], y: meta.pos[1] },
+    data: { ...meta },
+    ...(meta.type === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
+    ...(meta.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
+  }
+}
+
 function parseGraph(bnNodes: BnNodeMeta[], bnEdges: any[]): { nodes: Node<NodeData>[]; edges: Edge[] } {
-  const nodes: Node<NodeData>[] = bnNodes.map(n => ({
-    id: n.id,
-    type: OUTPUT_NODE_TYPES.has(n.type) ? 'outputnode' : MODEL_NODE_TYPES.has(n.type) ? 'modelnode' : VALUE_NODE_TYPES.has(n.type) ? 'valuenode' : 'blacknode',
-    position: { x: n.pos[0], y: n.pos[1] },
-    data: { ...n },
-    ...(n.type === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
-    ...(n.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
-  }))
+  const nodes: Node<NodeData>[] = bnNodes.map(n => makeReactNode(n))
   const edges: Edge[] = bnEdges.map((e: any, i: number) => {
     const fromType = bnNodes.find(n => n.id === e.from)?.output_types?.[e.from_port] ?? 'Any'
     return {
@@ -100,6 +110,28 @@ function parseGraph(bnNodes: BnNodeMeta[], bnEdges: any[]): { nodes: Node<NodeDa
     }
   })
   return { nodes, edges }
+}
+
+function firstCompatibleInput(def: BnNodeDef, fromType: string): string | undefined {
+  return def.inputs.find(port => portsCompatible(fromType, def.input_types?.[port] ?? 'Any'))
+}
+
+function firstCompatibleOutput(def: BnNodeDef, toType: string): string | undefined {
+  return def.outputs.find(port => portsCompatible(def.output_types?.[port] ?? 'Any', toType))
+}
+
+function defFromMeta(meta: BnNodeMeta): BnNodeDef {
+  return {
+    type: meta.type,
+    inputs: meta.inputs,
+    outputs: meta.outputs,
+    input_types: meta.input_types,
+    output_types: meta.output_types,
+  }
+}
+
+function nextEdgeId(): string {
+  return `e${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
 function makeTabId(): string {
@@ -128,6 +160,7 @@ export const useStore = create<Store>((set, get) => ({
   nodes: [],
   edges: [],
   nodeTypes: [],
+  nodeDefs: {},
   selectedId: null,
   serverOk: false,
   apiKeys: {},
@@ -146,8 +179,13 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   loadNodeTypes: async () => {
-    const types = await api.nodeTypes()
-    set({ nodeTypes: types })
+    try {
+      const defs = await api.nodeDefs()
+      set({ nodeTypes: Object.keys(defs).sort(), nodeDefs: defs })
+    } catch {
+      const types = await api.nodeTypes()
+      set({ nodeTypes: types, nodeDefs: {} })
+    }
   },
 
   loadApiKeys: async () => {
@@ -372,16 +410,65 @@ export const useStore = create<Store>((set, get) => ({
   // ── Graph actions ─────────────────────────────────────────────────────────
 
   addNode: async (typeName, pos) => {
-    const meta: BnNodeMeta = await api.addNode(typeName, [pos.x, pos.y]) as BnNodeMeta
-    const node: Node<NodeData> = {
-      id: meta.id,
-      type: OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode',
-      position: pos,
-      data: { ...meta },
-      ...(typeName === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
-      ...(typeName === 'Output' ? { style: { width: 320, height: 200 } } : {}),
-    }
+    const meta = await api.addNode(typeName, [pos.x, pos.y])
+    const node = makeReactNode(meta)
     set(s => ({ nodes: [...s.nodes, node], ...markActiveTabDirty(s) }))
+  },
+
+  addNodeFromConnection: async (typeName, pos, draft) => {
+    const { nodes } = get()
+    const existing = nodes.find(n => n.id === draft.nodeId)
+    if (!existing) return
+
+    const meta = await api.addNode(typeName, [pos.x, pos.y])
+    const node = makeReactNode(meta)
+    const def = defFromMeta(meta)
+    let nextConn: Connection | null = null
+    let edgeType = draft.portType
+
+    if (draft.handleType === 'source') {
+      const fromType = existing.data.output_types?.[draft.handleId] ?? draft.portType
+      const toPort = firstCompatibleInput(def, fromType)
+      if (!toPort) {
+        set(s => ({ nodes: [...s.nodes, node], ...markActiveTabDirty(s) }))
+        return
+      }
+      edgeType = fromType
+      nextConn = {
+        source: draft.nodeId,
+        sourceHandle: draft.handleId,
+        target: meta.id,
+        targetHandle: toPort,
+      }
+    } else {
+      const toType = existing.data.input_types?.[draft.handleId] ?? draft.portType
+      const fromPort = firstCompatibleOutput(def, toType)
+      if (!fromPort) {
+        set(s => ({ nodes: [...s.nodes, node], ...markActiveTabDirty(s) }))
+        return
+      }
+      edgeType = def.output_types?.[fromPort] ?? 'Any'
+      nextConn = {
+        source: meta.id,
+        sourceHandle: fromPort,
+        target: draft.nodeId,
+        targetHandle: draft.handleId,
+      }
+    }
+
+    if (nextConn?.source && nextConn.sourceHandle && nextConn.target && nextConn.targetHandle) {
+      await api.connect(nextConn.source, nextConn.sourceHandle, nextConn.target, nextConn.targetHandle)
+    }
+
+    set(s => ({
+      nodes: [...s.nodes, node],
+      edges: nextConn?.source && nextConn.target ? addEdge({
+        ...nextConn,
+        id: nextEdgeId(),
+        style: { stroke: portColor(edgeType), strokeWidth: 1.5 },
+      }, s.edges) : s.edges,
+      ...markActiveTabDirty(s),
+    }))
   },
 
   removeNode: async (id) => {

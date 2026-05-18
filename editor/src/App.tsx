@@ -13,23 +13,32 @@ import OutputNode from './components/OutputNode'
 import NodePalette from './components/NodePalette'
 import Inspector from './components/Inspector'
 import NodeSearch from './components/NodeSearch'
+import { portsCompatible } from './portColors'
+import type { BnNodeDef, ConnectionDraft } from './types'
 
 const NODE_TYPES = { blacknode: BlackNode, valuenode: ValueNode, modelnode: ModelNode, outputnode: OutputNode }
 
 const TAB_H = 36  // workflow tab bar height
 
+interface SearchState {
+  screenPos: { x: number; y: number }
+  flowPos: { x: number; y: number }
+  connect?: ConnectionDraft
+}
+
 export default function App() {
   const {
-    nodes, edges, serverOk,
+    nodes, edges, nodeTypes, nodeDefs, serverOk,
     tabs, activeTabId,
-    onNodesChange, onEdgesChange, onConnect, disconnectEdge, reconnectEdge,
+    onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels,
+    addNodeFromConnection,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     renameTab, saveActiveWorkflow,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
-  const [search, setSearch] = useState<{ screenPos: { x: number; y: number }; flowPos: { x: number; y: number } } | null>(null)
+  const [search, setSearch] = useState<SearchState | null>(null)
   const [isDark, setIsDark] = useState(true)
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
   const [tabDraft, setTabDraft] = useState('')
@@ -37,6 +46,9 @@ export default function App() {
   const [saveOk, setSaveOk] = useState(false)
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tabId: string } | null>(null)
   const saveOkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const connectionMade = useRef(false)
+  const connectionDraft = useRef<ConnectionDraft | null>(null)
+  const suppressPaneClick = useRef(false)
   const activeTab = tabs.find(tab => tab.id === activeTabId)
   const needsSave = Boolean(activeTab && (activeTab.dirty || !activeTab.slug))
   const menuTab = tabMenu ? tabs.find(tab => tab.id === tabMenu.tabId) : null
@@ -98,9 +110,13 @@ export default function App() {
 
   const handleSearchSelect = useCallback((type: string) => {
     if (!search) return
-    addNode(type, search.flowPos)
+    if (search.connect) {
+      addNodeFromConnection(type, search.flowPos, search.connect)
+    } else {
+      addNode(type, search.flowPos)
+    }
     setSearch(null)
-  }, [search, addNode])
+  }, [search, addNode, addNodeFromConnection])
 
   const edgeReconnected = useRef(false)
   const onEdgeUpdateStart = useCallback(() => { edgeReconnected.current = false }, [])
@@ -114,6 +130,40 @@ export default function App() {
   const onEdgeDoubleClick = useCallback((_: React.MouseEvent, edge: any) => {
     disconnectEdge(edge.id)
   }, [disconnectEdge])
+  const handleConnect = useCallback((conn: Connection) => {
+    connectionMade.current = true
+    connectionDraft.current = null
+    return storeOnConnect(conn)
+  }, [storeOnConnect])
+  const onConnectStart = useCallback((_: React.MouseEvent | React.TouchEvent, params: any) => {
+    connectionMade.current = false
+    const nodeId = params?.nodeId
+    const handleId = params?.handleId
+    const handleType = params?.handleType
+    if (!nodeId || !handleId || (handleType !== 'source' && handleType !== 'target')) {
+      connectionDraft.current = null
+      return
+    }
+    const node = nodes.find(n => n.id === nodeId)
+    const portType = handleType === 'source'
+      ? node?.data.output_types?.[handleId]
+      : node?.data.input_types?.[handleId]
+    connectionDraft.current = { nodeId, handleId, handleType, portType: portType ?? 'Any' }
+  }, [nodes])
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent) => {
+    const draft = connectionDraft.current
+    connectionDraft.current = null
+    if (connectionMade.current || !draft || !rfInstance.current) return
+    const point = clientPointFromEvent(event)
+    if (!point) return
+    const hasNodeDefs = Object.keys(nodeDefs).length > 0
+    const compatibleTypes = hasNodeDefs ? getCompatibleNodeTypes(draft, nodeDefs) : []
+    if (hasNodeDefs && compatibleTypes.length === 0) return
+    const flowPos = rfInstance.current.screenToFlowPosition(point)
+    suppressPaneClick.current = true
+    window.setTimeout(() => { suppressPaneClick.current = false }, 200)
+    setSearch({ screenPos: point, flowPos, connect: draft })
+  }, [nodeDefs])
 
   const startTabRename = useCallback((tab: { id: string; name: string }) => {
     setTabMenu(null)
@@ -421,14 +471,24 @@ export default function App() {
           nodeTypes={NODE_TYPES}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
+          onConnect={handleConnect}
+          onConnectStart={onConnectStart}
+          onConnectEnd={onConnectEnd}
           onEdgeDoubleClick={onEdgeDoubleClick}
           onEdgeUpdateStart={onEdgeUpdateStart}
           onEdgeUpdate={onEdgeUpdate}
           onEdgeUpdateEnd={onEdgeUpdateEnd}
           onInit={i => { rfInstance.current = i }}
           onNodeClick={(_, node) => selectNode(node.id)}
-          onPaneClick={() => { selectNode(null); setSearch(null); setTabMenu(null) }}
+          onPaneClick={() => {
+            if (suppressPaneClick.current) {
+              suppressPaneClick.current = false
+              return
+            }
+            selectNode(null)
+            setSearch(null)
+            setTabMenu(null)
+          }}
           onPaneContextMenu={onPaneContextMenu}
           fitView
           deleteKeyCode={['Delete', 'Backspace']}
@@ -454,12 +514,35 @@ export default function App() {
       {search && (
         <NodeSearch
           screenPos={search.screenPos}
+          nodeTypes={nodeTypes}
+          allowedTypes={search.connect && Object.keys(nodeDefs).length > 0 ? getCompatibleNodeTypes(search.connect, nodeDefs) : undefined}
+          title={search.connect ? `${search.connect.portType} port` : undefined}
+          emptyMessage={search.connect ? 'No nodes can connect to this port' : undefined}
+          actionLabel={search.connect ? 'add + connect' : 'add node'}
           onSelect={handleSearchSelect}
           onClose={() => setSearch(null)}
         />
       )}
     </div>
   )
+}
+
+function clientPointFromEvent(event: MouseEvent | TouchEvent): { x: number; y: number } | null {
+  if ('changedTouches' in event) {
+    const touch = event.changedTouches[0]
+    return touch ? { x: touch.clientX, y: touch.clientY } : null
+  }
+  return { x: event.clientX, y: event.clientY }
+}
+
+function getCompatibleNodeTypes(draft: ConnectionDraft, nodeDefs: Record<string, BnNodeDef>): string[] {
+  return Object.values(nodeDefs)
+    .filter(def => draft.handleType === 'source'
+      ? def.inputs.some(port => portsCompatible(draft.portType, def.input_types?.[port] ?? 'Any'))
+      : def.outputs.some(port => portsCompatible(def.output_types?.[port] ?? 'Any', draft.portType))
+    )
+    .map(def => def.type)
+    .sort()
 }
 
 function menuItemStyle(disabled = false, color = 'var(--tx2)'): React.CSSProperties {

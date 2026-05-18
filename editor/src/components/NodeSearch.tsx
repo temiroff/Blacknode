@@ -3,26 +3,56 @@ import { CATEGORIES } from '../categories'
 
 interface Props {
   screenPos: { x: number; y: number }
+  nodeTypes?: string[]
+  allowedTypes?: string[]
+  title?: string
+  emptyMessage?: string
+  actionLabel?: string
   onSelect: (type: string) => void
   onClose: () => void
 }
 
-const ALL_NODES = Object.entries(CATEGORIES).flatMap(([cat, { color, nodes }]) =>
+interface SearchNode {
+  type: string
+  category: string
+  color: string
+}
+
+const KNOWN_NODES = Object.entries(CATEGORIES).flatMap(([cat, { color, nodes }]) =>
   nodes.map(n => ({ type: n, category: cat, color }))
 )
+const KNOWN_BY_TYPE = new Map(KNOWN_NODES.map(n => [n.type, n]))
 
-export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
+function buildNodeItems(nodeTypes?: string[], allowedTypes?: string[]): SearchNode[] {
+  const allowed = allowedTypes ? new Set(allowedTypes) : null
+  const source = nodeTypes && nodeTypes.length > 0 ? nodeTypes : KNOWN_NODES.map(n => n.type)
+  return source
+    .filter(type => !allowed || allowed.has(type))
+    .map(type => KNOWN_BY_TYPE.get(type) ?? { type, category: 'Custom', color: 'var(--tx3)' })
+}
+
+export default function NodeSearch({
+  screenPos,
+  nodeTypes,
+  allowedTypes,
+  title,
+  emptyMessage,
+  actionLabel = 'add node',
+  onSelect,
+  onClose,
+}: Props) {
   const [query, setQuery]   = useState('')
   const [cursor, setCursor] = useState(0)
   const inputRef            = useRef<HTMLInputElement>(null)
   const listRef             = useRef<HTMLDivElement>(null)
+  const nodes               = buildNodeItems(nodeTypes, allowedTypes)
 
   const filtered = query.trim()
-    ? ALL_NODES.filter(n =>
+    ? nodes.filter(n =>
         n.type.toLowerCase().includes(query.toLowerCase()) ||
         n.category.toLowerCase().includes(query.toLowerCase())
       )
-    : ALL_NODES
+    : nodes
 
   const safeCursor = Math.min(cursor, Math.max(filtered.length - 1, 0))
 
@@ -43,7 +73,7 @@ export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
     }
   }
 
-  const grouped: { cat: string; color: string; nodes: typeof ALL_NODES }[] = []
+  const grouped: { cat: string; color: string; nodes: SearchNode[] }[] = []
   for (const item of filtered) {
     const g = grouped.find(g => g.cat === item.category)
     if (g) g.nodes.push(item)
@@ -86,12 +116,24 @@ export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
           gap: 8,
         }}>
           <span style={{ color: 'var(--tx3)', fontSize: 14, flexShrink: 0 }}>⌕</span>
+          {title && (
+            <span style={{
+              color: 'var(--tx3)',
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 0,
+              textTransform: 'uppercase',
+              flexShrink: 0,
+            }}>
+              {title}
+            </span>
+          )}
           <input
             ref={inputRef}
             value={query}
             onChange={e => { setQuery(e.target.value); setCursor(0) }}
             onKeyDown={handleKey}
-            placeholder="Search nodes…"
+            placeholder="Search nodes..."
             style={{
               flex: 1,
               background: 'transparent',
@@ -113,7 +155,7 @@ export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
               fontSize: 13,
               textAlign: 'center',
             }}>
-              No results for "{query}"
+              {query ? `No results for "${query}"` : emptyMessage ?? 'No nodes available'}
             </div>
           )}
 
@@ -177,7 +219,7 @@ export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
           fontSize: 11,
         }}>
           <span>↑↓ navigate</span>
-          <span>↵ add node</span>
+          <span>↵ {actionLabel}</span>
           <span>esc close</span>
         </div>
       </div>

@@ -1,3 +1,5 @@
+import type { BnNodeDef, BnNodeMeta } from './types'
+
 const BASE = 'http://127.0.0.1:7777'
 
 export type CookEvent =
@@ -21,10 +23,11 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 
 export const api = {
   nodeTypes: ()                              => req<string[]>('GET', '/node-types'),
+  nodeDefs:  ()                              => req<Record<string, BnNodeDef>>('GET', '/node-defs'),
   getGraph:  ()                              => req<{ nodes: any[]; edges: any[] }>('GET', '/graph'),
   setGraph:  (nodes: any[], edges: any[])    => req<{ nodes: any[]; edges: any[] }>('POST', '/graph', { nodes, edges }),
   addNode:   (type_name: string, pos: [number,number], params = {}) =>
-    req('POST', '/nodes', { type_name, pos, params }),
+    req<BnNodeMeta>('POST', '/nodes', { type_name, pos, params }),
   removeNode: (id: string)                  => req('DELETE', `/nodes/${id}`),
   updateParam:(id: string, key: string, value: unknown) =>
     req('PATCH', `/nodes/${id}/params`, { key, value }),

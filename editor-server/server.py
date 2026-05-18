@@ -200,6 +200,20 @@ def list_node_types():
     return sorted(_NODE_REGISTRY.keys())
 
 
+@app.get("/node-defs")
+def list_node_defs():
+    return {
+        name: {
+            "type": name,
+            "inputs": getattr(fn, "_bn_inputs", []),
+            "outputs": getattr(fn, "_bn_outputs", ["output"]),
+            "input_types": getattr(fn, "_bn_input_types", {}),
+            "output_types": getattr(fn, "_bn_output_types", {}),
+        }
+        for name, fn in sorted(_NODE_REGISTRY.items())
+    }
+
+
 @app.get("/graph")
 def get_graph():
     """Return nodes with types always read fresh from registry."""
