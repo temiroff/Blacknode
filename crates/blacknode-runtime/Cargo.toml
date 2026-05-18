@@ -1,0 +1,10 @@
+[package]
+name    = "blacknode-runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+blacknode-core  = { path = "../blacknode-core" }
+blacknode-types = { path = "../blacknode-types" }
+tokio           = { workspace = true }
+anyhow          = { workspace = true }

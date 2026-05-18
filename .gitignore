@@ -1,0 +1,22 @@
+# Rust
+/target
+Cargo.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Blacknode artifacts
+*.bn.cache

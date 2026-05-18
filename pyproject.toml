@@ -1,0 +1,23 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "blacknode"
+version = "0.1.0"
+description = "Houdini-style node graph for AI agents and scene assembly"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.25",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "maturin",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "blacknode.blacknode_rs"

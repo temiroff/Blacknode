@@ -1,0 +1,14 @@
+[package]
+name    = "blacknode-py"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name       = "blacknode_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+blacknode-core  = { path = "../blacknode-core" }
+blacknode-types = { path = "../blacknode-types" }
+pyo3            = { workspace = true }
+uuid            = { workspace = true }
