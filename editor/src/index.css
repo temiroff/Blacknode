@@ -1,0 +1,21 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #030712;
+  color: #f8fafc;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  overflow: hidden;
+}
+
+/* React Flow overrides */
+.react-flow__controls button {
+  background: #0f172a;
+  border-color: #1e293b;
+  color: #94a3b8;
+}
+.react-flow__controls button:hover { background: #1e293b; }
+
+.react-flow__edge-path { stroke: #4b5563; }
+.react-flow__edge.selected .react-flow__edge-path { stroke: #6366f1; }
+
+.react-flow__handle { border-radius: 3px !important; }

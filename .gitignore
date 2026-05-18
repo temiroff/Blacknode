@@ -17,6 +17,10 @@ venv/
 .vscode/
 .idea/
 *.swp
+node_modules/
+
+# Claude Code — local only, not for repo
+CLAUDE.md
 
 # Blacknode artifacts
 *.bn.cache
