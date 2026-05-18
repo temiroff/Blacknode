@@ -5,6 +5,7 @@ from .node import node, _NODE_REGISTRY
 import blacknode.nodes.values  # noqa: F401
 import blacknode.nodes.core    # noqa: F401
 import blacknode.nodes.ai      # noqa: F401
+import blacknode.nodes.nvidia  # noqa: F401
 import blacknode.nodes.flow    # noqa: F401
 import blacknode.nodes.io      # noqa: F401
 
