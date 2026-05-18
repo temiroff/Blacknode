@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useRef, useEffect } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import { useStore } from '../store'
@@ -21,6 +21,16 @@ const COLOR = '#8b5cf6'
 function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode   = useStore(s => s.cookNode)
   const selectNode = useStore(s => s.selectNode)
+
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const stop = (e: WheelEvent) => { e.stopPropagation() }
+    el.addEventListener('wheel', stop)
+    return () => el.removeEventListener('wheel', stop)
+  }, [])
 
   const { cooking, cookResult, cookError } = data
   const hasResult = cookResult !== undefined || !!cookError
@@ -119,10 +129,11 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
       </div>
 
       {/* result area */}
-      <div style={{
+      <div ref={scrollRef} style={{
         flex: 1,
         overflow: 'auto',
         padding: '10px 12px',
+        cursor: 'text',
       }}>
         {cooking && (
           <div style={{
