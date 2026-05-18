@@ -73,7 +73,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
     if (open) setTimeout(() => searchRef.current?.focus(), 30)
   }, [open])
 
-  // close on outside click
+  // close on outside click — capture phase so React Flow pane clicks are caught too
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
@@ -81,8 +81,8 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         setOpen(false); setSearch('')
       }
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    window.addEventListener('mousedown', handler, true)
+    return () => window.removeEventListener('mousedown', handler, true)
   }, [open])
 
   const select = (value: string) => {
