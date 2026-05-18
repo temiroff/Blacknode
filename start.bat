@@ -6,7 +6,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0banner.ps1"
 
 :: Python deps
 echo  Checking Python dependencies...
-pip install -r "%~dp0editor-server\requirements.txt" -q --disable-pip-version-check
+pip install -r "%~dp0editor-server\requirements.txt" -q --disable-pip-version-check 2>nul
 echo  Done.
 echo.
 
