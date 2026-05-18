@@ -95,10 +95,16 @@ export const useStore = create<Store>((set, get) => ({
 
   onNodesChange: (changes) => {
     set(s => ({ nodes: applyNodeChanges(changes, s.nodes) }))
-    // sync position changes to server
     changes.forEach(c => {
       if (c.type === 'position' && c.position) {
         api.updatePos(c.id, [c.position.x, c.position.y]).catch(() => {})
+      }
+      if (c.type === 'remove') {
+        api.removeNode(c.id).catch(() => {})
+        set(s => ({
+          edges: s.edges.filter(e => e.source !== c.id && e.target !== c.id),
+          selectedId: s.selectedId === c.id ? null : s.selectedId,
+        }))
       }
     })
   },

@@ -82,6 +82,7 @@ export default function App() {
           onNodeClick={(_, node) => selectNode(node.id)}
           onPaneClick={() => selectNode(null)}
           fitView
+          deleteKeyCode={['Delete', 'Backspace']}
           style={{ paddingTop: 40 }}
           defaultEdgeOptions={{ style: { stroke: '#4b5563', strokeWidth: 1.5 }, animated: false }}
         >
