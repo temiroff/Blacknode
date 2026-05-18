@@ -118,6 +118,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         boxShadow: selected
           ? `0 0 0 2px ${provColor}55, 0 4px 16px rgba(0,0,0,.4)`
           : '0 2px 10px rgba(0,0,0,.25)',
+        overflow: 'visible',
       }}
     >
       <NodeResizer

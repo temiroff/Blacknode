@@ -171,6 +171,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         display: 'flex',
         flexDirection: 'column',
         boxSizing: 'border-box',
+        overflow: 'visible',
       }}
     >
       <NodeResizer
@@ -212,7 +213,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       </div>
 
       {/* ports */}
-      <div ref={portsRef} style={{ flex: 1, padding: '6px 0', overflowY: 'auto' }}>
+      <div ref={portsRef} style={{ flex: 1, padding: '6px 0' }}>
         {data.inputs.map(inp => (
           <PortRow key={inp} name={inp} type={data.input_types?.[inp] ?? 'Any'} dir="input" />
         ))}
