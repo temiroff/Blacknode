@@ -167,6 +167,24 @@ export default function NodePalette() {
             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
           />
 
+          {/* panel title */}
+          <div style={{
+            padding: '10px 14px 8px',
+            borderBottom: '1px solid var(--line)',
+            flexShrink: 0,
+          }}>
+            <span style={{
+              fontSize: 11,
+              fontWeight: 700,
+              fontFamily: 'var(--font-ui)',
+              letterSpacing: '0.09em',
+              textTransform: 'uppercase',
+              color: 'var(--tx2)',
+            }}>
+              {TABS.find(t => t.id === activeTab)?.label}
+            </span>
+          </div>
+
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
             {/* ── NODES ── */}
