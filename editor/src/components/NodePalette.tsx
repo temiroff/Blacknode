@@ -1,11 +1,7 @@
 import { useStore } from '../store'
+import { CATEGORIES } from '../categories'
 
-const GROUPS: Record<string, string[]> = {
-  AI:     ['LLMAgent', 'AgentLoop', 'EmbedText', 'ToolCall'],
-  Flow:   ['Branch', 'Gate', 'Map', 'Filter', 'Reduce', 'ForEach'],
-  IO:     ['FileRead', 'FileWrite', 'HTTPGet', 'JSONParse', 'JSONDump'],
-  Core:   ['Literal', 'Print', 'Concat', 'Switch'],
-}
+const ALL_CATEGORISED = Object.values(CATEGORIES).flatMap(c => c.nodes)
 
 export default function NodePalette() {
   const { nodeTypes, addNode } = useStore()
@@ -15,12 +11,13 @@ export default function NodePalette() {
     e.dataTransfer.effectAllowed = 'move'
   }
 
-  const groupedTypes = Object.entries(GROUPS).map(([group, types]) => ({
+  const groups = Object.entries(CATEGORIES).map(([group, { color, nodes }]) => ({
     group,
-    types: types.filter(t => nodeTypes.includes(t)),
+    color,
+    types: nodes.filter(t => nodeTypes.includes(t)),
   })).filter(g => g.types.length > 0)
 
-  const ungrouped = nodeTypes.filter(t => !Object.values(GROUPS).flat().includes(t))
+  const ungrouped = nodeTypes.filter(t => !ALL_CATEGORISED.includes(t))
 
   return (
     <aside style={{
@@ -35,9 +32,9 @@ export default function NodePalette() {
         NODES
       </div>
 
-      {groupedTypes.map(({ group, types }) => (
+      {groups.map(({ group, color, types }) => (
         <div key={group}>
-          <div style={{ padding: '4px 12px', color: '#475569', fontSize: 10, fontFamily: 'monospace' }}>
+          <div style={{ padding: '4px 12px', color, fontSize: 10, fontFamily: 'monospace', fontWeight: 600 }}>
             {group}
           </div>
           {types.map(type => (
@@ -46,7 +43,7 @@ export default function NodePalette() {
               draggable
               onDragStart={e => handleDragStart(e, type)}
               style={{
-                padding: '6px 16px',
+                padding: '5px 16px',
                 color: '#cbd5e1',
                 fontSize: 12,
                 fontFamily: 'monospace',
@@ -54,9 +51,16 @@ export default function NodePalette() {
                 borderRadius: 4,
                 margin: '1px 6px',
                 userSelect: 'none',
+                borderLeft: `2px solid transparent`,
               }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#1e293b')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = '#1e293b'
+                e.currentTarget.style.borderLeftColor = color
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.borderLeftColor = 'transparent'
+              }}
             >
               {type}
             </div>
@@ -66,7 +70,7 @@ export default function NodePalette() {
 
       {ungrouped.length > 0 && (
         <div>
-          <div style={{ padding: '4px 12px', color: '#475569', fontSize: 10, fontFamily: 'monospace' }}>
+          <div style={{ padding: '4px 12px', color: '#475569', fontSize: 10, fontFamily: 'monospace', fontWeight: 600 }}>
             OTHER
           </div>
           {ungrouped.map(type => (
@@ -75,7 +79,7 @@ export default function NodePalette() {
               draggable
               onDragStart={e => handleDragStart(e, type)}
               style={{
-                padding: '6px 16px',
+                padding: '5px 16px',
                 color: '#cbd5e1',
                 fontSize: 12,
                 fontFamily: 'monospace',

@@ -2,6 +2,7 @@ import { memo, useState } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
+import { headerColor } from '../categories'
 
 interface NodeData {
   id: string
@@ -14,31 +15,6 @@ interface NodeData {
   cookResult?: unknown
   cookError?: string
   cooking?: boolean
-}
-
-const HEADER_COLORS: Record<string, string> = {
-  LLMAgent:  '#6366f1',
-  AgentLoop: '#8b5cf6',
-  EmbedText: '#7c3aed',
-  ToolCall:  '#a855f7',
-  FileRead:  '#0891b2',
-  FileWrite: '#0891b2',
-  HTTPGet:   '#0891b2',
-  JSONParse: '#0891b2',
-  JSONDump:  '#0891b2',
-  Branch:    '#d97706',
-  Gate:      '#d97706',
-  Map:       '#d97706',
-  Filter:    '#d97706',
-  Reduce:    '#d97706',
-  Literal:   '#374151',
-  Print:     '#374151',
-  Concat:    '#374151',
-  Switch:    '#374151',
-}
-
-function headerColor(type: string) {
-  return HEADER_COLORS[type] ?? '#1f2937'
 }
 
 function previewValue(v: unknown): string {
