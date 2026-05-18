@@ -120,6 +120,15 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   onEdgesChange: (changes) => {
+    const { edges } = get()
+    changes.forEach(c => {
+      if (c.type === 'remove') {
+        const edge = edges.find(e => e.id === c.id)
+        if (edge?.source && edge.target && edge.sourceHandle && edge.targetHandle) {
+          api.disconnect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle).catch(() => {})
+        }
+      }
+    })
     set(s => ({ edges: applyEdgeChanges(changes, s.edges) }))
   },
 
