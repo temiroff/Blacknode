@@ -11,6 +11,8 @@ html[data-theme="dark"] {
   --node:    #353535;
   --lift:    #2a2a2a;
   --hover:   #2e2e2e;
+  --menu-active: #36363d;
+  --menu-hover: #323238;
   --line:    #2a2a2a;
   --line2:   #383838;
   --tx1:     #ffffff;
@@ -34,6 +36,8 @@ html[data-theme="light"] {
   --node:    #ffffff;
   --lift:    #f5f5fb;
   --hover:   #ededf6;
+  --menu-active: #e3e5f3;
+  --menu-hover: #e8e9f4;
   --line:    #dcdde9;
   --line2:   #bbbcce;
   --tx1:     #11121e;
@@ -100,7 +104,7 @@ body {
 
 /* menus */
 .bn-menu-item:hover:not(:disabled) {
-  background: var(--hover) !important;
+  background: var(--menu-hover) !important;
   color: var(--tx1) !important;
 }
 

@@ -9,6 +9,12 @@ const ALL_CATEGORISED = Object.values(CATEGORIES).flatMap(c => c.nodes)
 
 type Tab = 'nodes' | 'templates' | 'workflows' | 'script'
 
+const TOP_BAR_H = 44
+const RAIL_W = 78
+const PANEL_DEFAULT_W = 240
+const PANEL_MIN_W = 188
+const PANEL_MAX_W = 520
+
 const ICON_NODES = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
     <circle cx="4" cy="9" r="2.5" fill="currentColor" opacity="0.85"/>
@@ -49,7 +55,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 export default function NodePalette() {
   const { nodeTypes, addNode } = useStore()
   const [activeTab, setActiveTab] = useState<Tab | null>('nodes')
-  const [panelWidth, setPanelWidth] = useState(220)
+  const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
 
   const startResize = (e: React.MouseEvent) => {
@@ -57,7 +63,7 @@ export default function NodePalette() {
     dragRef.current = { startX: e.clientX, startW: panelWidth }
     const onMove = (ev: MouseEvent) => {
       if (!dragRef.current) return
-      setPanelWidth(Math.max(160, Math.min(520, dragRef.current.startW + ev.clientX - dragRef.current.startX)))
+      setPanelWidth(Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, dragRef.current.startW + ev.clientX - dragRef.current.startX)))
     }
     const onUp = () => {
       dragRef.current = null
@@ -85,59 +91,95 @@ export default function NodePalette() {
 
       {/* ── Icon rail ── */}
       <div style={{
-        width: 52,
+        width: RAIL_W,
         background: 'var(--panel)',
         borderRight: '1px solid var(--line)',
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'center',
-        paddingTop: 8,
-        gap: 2,
+        alignItems: 'stretch',
         flexShrink: 0,
       }}>
-        {TABS.map(tab => {
-          const active = activeTab === tab.id
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(active ? null : tab.id)}
-              title={tab.label}
-              style={{
-                width: 40,
-                height: 46,
-                background: active ? 'var(--hover)' : 'transparent',
-                border: 'none',
-                borderRadius: 8,
-                color: active ? 'var(--accent)' : 'var(--tx3)',
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 3,
-                padding: 0,
-                transition: 'color 0.13s, background 0.13s',
-              }}
-              onMouseEnter={e => {
-                if (!active) (e.currentTarget as HTMLButtonElement).style.color = 'var(--tx1)'
-              }}
-              onMouseLeave={e => {
-                if (!active) (e.currentTarget as HTMLButtonElement).style.color = 'var(--tx3)'
-              }}
-            >
-              {tab.icon}
-              <span style={{
-                fontSize: 9,
-                fontFamily: 'var(--font-ui)',
-                letterSpacing: '0.04em',
-                fontWeight: active ? 600 : 400,
-                userSelect: 'none',
-              }}>
-                {tab.label}
-              </span>
-            </button>
-          )
-        })}
+        <div style={{
+          height: TOP_BAR_H,
+          borderBottom: '1px solid var(--line)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}>
+          <span style={{
+            width: 28,
+            height: 24,
+            border: '1px solid var(--line2)',
+            borderRadius: 6,
+            color: 'var(--tx2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontFamily: 'var(--font-ui)',
+            fontSize: 10,
+            fontWeight: 800,
+          }}>
+            BN
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', padding: '4px 0' }}>
+          {TABS.map(tab => {
+            const active = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(active ? null : tab.id)}
+                title={tab.label}
+                style={{
+                  width: '100%',
+                  height: 50,
+                  background: active ? 'var(--menu-active)' : 'transparent',
+                  border: 'none',
+                  borderRadius: 0,
+                  color: active ? 'var(--tx1)' : 'var(--tx3)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 3,
+                  padding: '0 4px',
+                  boxShadow: active ? 'inset 3px 0 0 var(--accent)' : 'none',
+                  transition: 'color 0.13s, background 0.13s',
+                }}
+                onMouseEnter={e => {
+                  if (!active) {
+                    e.currentTarget.style.background = 'var(--menu-hover)'
+                    e.currentTarget.style.color = 'var(--tx1)'
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (!active) {
+                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.color = 'var(--tx3)'
+                  }
+                }}
+              >
+                {tab.icon}
+                <span style={{
+                  width: '100%',
+                  textAlign: 'center',
+                  whiteSpace: 'nowrap',
+                  fontSize: 9,
+                  fontFamily: 'var(--font-ui)',
+                  letterSpacing: 0,
+                  fontWeight: active ? 700 : 500,
+                  lineHeight: 1.1,
+                  userSelect: 'none',
+                }}>
+                  {tab.label}
+                </span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* ── Content panel ── */}
@@ -169,15 +211,18 @@ export default function NodePalette() {
 
           {/* panel title */}
           <div style={{
-            padding: '10px 14px 8px',
+            height: TOP_BAR_H,
+            padding: '0 14px',
             borderBottom: '1px solid var(--line)',
+            display: 'flex',
+            alignItems: 'center',
             flexShrink: 0,
           }}>
             <span style={{
               fontSize: 11,
               fontWeight: 700,
               fontFamily: 'var(--font-ui)',
-              letterSpacing: '0.09em',
+              letterSpacing: 0,
               textTransform: 'uppercase',
               color: 'var(--tx2)',
             }}>

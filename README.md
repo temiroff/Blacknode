@@ -4,6 +4,18 @@ A node-based framework for building AI agent pipelines — scriptable in Python,
 
 ---
 
+## Screenshots
+
+### Template canvas
+
+![Blacknode template canvas](docs/images/blacknode-template-canvas.png)
+
+### Cooked result view
+
+![Blacknode cooked result view](docs/images/blacknode-result-view.png)
+
+---
+
 ## Quick Start
 
 ### Prerequisites

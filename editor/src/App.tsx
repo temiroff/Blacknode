@@ -179,7 +179,7 @@ export default function App() {
             color: 'var(--tx2)',
             fontWeight: 700,
             fontSize: 15,
-            letterSpacing: '0.12em',
+            letterSpacing: 0,
             fontFamily: 'var(--font-ui)',
           }}>
             BLACKNODE
@@ -266,9 +266,9 @@ export default function App() {
                   height: 26,
                   borderRadius: 6,
                   cursor: 'pointer',
-                  background: active ? 'var(--panel)' : 'transparent',
+                  background: active ? 'var(--menu-active)' : 'transparent',
                   color: active ? 'var(--tx1)' : 'var(--tx3)',
-                  border: `1px solid ${active ? 'var(--line2)' : 'transparent'}`,
+                  border: `1px solid ${active ? 'var(--accent)' : 'transparent'}`,
                   fontSize: 12,
                   fontFamily: 'var(--font-ui)',
                   whiteSpace: 'nowrap',
