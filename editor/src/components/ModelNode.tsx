@@ -1,5 +1,7 @@
 import { memo, useRef, useState, useEffect } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
+import { NodeResizer } from '@reactflow/node-resizer'
+import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { MODEL_GROUPS, modelProviderColor, modelProviderName, DEFAULT_MODEL } from '../models'
@@ -105,7 +107,9 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
       onClick={() => selectNode(id)}
       style={{
         position: 'relative',
-        width: 230,
+        width: '100%',
+        minWidth: 200,
+        boxSizing: 'border-box' as const,
         background: 'var(--node)',
         border: `1px solid ${selected ? provColor : 'var(--line2)'}`,
         borderRadius: 9,
@@ -116,6 +120,14 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
           : '0 2px 10px rgba(0,0,0,.25)',
       }}
     >
+      <NodeResizer
+        minWidth={200}
+        minHeight={100}
+        isVisible={selected}
+        lineStyle={{ borderColor: provColor }}
+        handleStyle={{ background: provColor, borderColor: provColor, width: 8, height: 8, borderRadius: 2 }}
+      />
+
       {/* header */}
       <div style={{
         background: provColor,
@@ -221,7 +233,8 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
             position: 'absolute',
             top: '100%',
             left: 0,
-            width: 230,
+            width: '100%',
+            minWidth: 200,
             background: 'var(--panel)',
             border: '1px solid var(--line2)',
             borderRadius: 8,

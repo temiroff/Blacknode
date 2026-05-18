@@ -1,5 +1,7 @@
-import { memo, useState } from 'react'
+import { memo, useState, useRef, useEffect } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
+import { NodeResizer } from '@reactflow/node-resizer'
+import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { headerColor } from '../categories'
@@ -138,13 +140,25 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode   = useStore(s => s.cookNode)
   const selectNode = useStore(s => s.selectNode)
   const color      = headerColor(data.type)
+  const portsRef   = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = portsRef.current
+    if (!el) return
+    const stop = (e: WheelEvent) => e.stopPropagation()
+    el.addEventListener('wheel', stop)
+    return () => el.removeEventListener('wheel', stop)
+  }, [])
 
   return (
     <div
       onClick={() => selectNode(id)}
       style={{
         position: 'relative',
+        width: '100%',
+        height: '100%',
         minWidth: 160,
+        minHeight: 60,
         background: 'var(--node)',
         border: `1px solid ${selected ? color : 'var(--line2)'}`,
         borderRadius: 9,
@@ -154,8 +168,18 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           ? `0 0 0 2px ${color}55, 0 4px 16px rgba(0,0,0,.4)`
           : '0 2px 10px rgba(0,0,0,.25)',
         cursor: 'default',
+        display: 'flex',
+        flexDirection: 'column',
+        boxSizing: 'border-box',
       }}
     >
+      <NodeResizer
+        minWidth={160}
+        minHeight={60}
+        isVisible={selected}
+        lineStyle={{ borderColor: color }}
+        handleStyle={{ background: color, borderColor: color, width: 8, height: 8, borderRadius: 2 }}
+      />
       <StatusDot data={data} />
 
       {/* header */}
@@ -188,7 +212,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       </div>
 
       {/* ports */}
-      <div style={{ padding: '6px 0' }}>
+      <div ref={portsRef} style={{ flex: 1, padding: '6px 0', overflowY: 'auto' }}>
         {data.inputs.map(inp => (
           <PortRow key={inp} name={inp} type={data.input_types?.[inp] ?? 'Any'} dir="input" />
         ))}
