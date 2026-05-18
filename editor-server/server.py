@@ -110,6 +110,10 @@ class SetApiKeyReq(BaseModel):
     provider: str
     key: str
 
+class SaveWorkflowReq(BaseModel):
+    name: str
+    previous_slug: str | None = None
+
 _PROVIDER_ENV: dict[str, str] = {
     "Anthropic":     "ANTHROPIC_API_KEY",
     "OpenAI":        "OPENAI_API_KEY",
@@ -363,7 +367,27 @@ def _slug(name: str) -> str:
     return re.sub(r'[^a-zA-Z0-9_-]', '_', name.strip())[:60] or "workflow"
 
 def _workflow_path(slug: str) -> str:
+    if not re.fullmatch(r"[a-zA-Z0-9_-]{1,60}", slug):
+        raise HTTPException(400, "Invalid workflow slug")
     return os.path.join(_WORKFLOWS_DIR, f"{slug}.json")
+
+def _save_workflow(name: str, previous_slug: str | None = None):
+    os.makedirs(_WORKFLOWS_DIR, exist_ok=True)
+    clean_name = name.strip() or "Untitled"
+    slug = _slug(clean_name)
+    data = {
+        "name":      clean_name,
+        "saved_at":  datetime.now().isoformat(timespec="seconds"),
+        "node_meta": _session.node_meta,
+        "edges":     _session.graph._edges,
+    }
+    with open(_workflow_path(slug), "w") as f:
+        json.dump(data, f, indent=2)
+    if previous_slug and previous_slug != slug:
+        old_path = _workflow_path(previous_slug)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+    return {"ok": True, "slug": slug}
 
 def _restore_session(node_meta: dict, edges: list):
     """Replace current session with the given node_meta + edges."""
@@ -404,19 +428,14 @@ def list_workflows():
     return result
 
 
+@app.post("/workflows")
+def save_workflow(req: SaveWorkflowReq):
+    return _save_workflow(req.name, req.previous_slug)
+
+
 @app.post("/workflows/{name}")
-def save_workflow(name: str):
-    os.makedirs(_WORKFLOWS_DIR, exist_ok=True)
-    slug = _slug(name)
-    data = {
-        "name":      name,
-        "saved_at":  datetime.now().isoformat(timespec="seconds"),
-        "node_meta": _session.node_meta,
-        "edges":     _session.graph._edges,
-    }
-    with open(_workflow_path(slug), "w") as f:
-        json.dump(data, f, indent=2)
-    return {"ok": True, "slug": slug}
+def save_workflow_legacy(name: str):
+    return _save_workflow(name)
 
 
 @app.post("/workflows/{slug}/load")

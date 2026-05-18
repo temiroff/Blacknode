@@ -39,8 +39,8 @@ export const api = {
 
   listWorkflows: () =>
     req<{ slug: string; name: string; saved_at: string }[]>('GET', '/workflows'),
-  saveWorkflow: (name: string) =>
-    req<{ ok: boolean; slug: string }>('POST', `/workflows/${encodeURIComponent(name)}`),
+  saveWorkflow: (name: string, previousSlug?: string | null) =>
+    req<{ ok: boolean; slug: string }>('POST', '/workflows', { name, previous_slug: previousSlug ?? null }),
   loadWorkflow: (slug: string) =>
     req<{ nodes: any[]; edges: any[] }>('POST', `/workflows/${encodeURIComponent(slug)}/load`),
   deleteWorkflow: (slug: string) =>

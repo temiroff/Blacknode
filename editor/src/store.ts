@@ -11,6 +11,12 @@ import { portsCompatible, portColor } from './portColors'
 const MODEL_NODE_TYPES  = new Set(['Model'])
 const OUTPUT_NODE_TYPES = new Set(['Output'])
 
+export interface WorkflowTab {
+  id: string
+  name: string
+  slug: string | null  // null = unsaved
+}
+
 interface NodeData extends BnNodeMeta {
   cookResult?: unknown
   cookError?: string
@@ -25,6 +31,9 @@ interface Store {
   serverOk: boolean
   apiKeys: Record<string, string>
   customModels: string[]
+  tabs: WorkflowTab[]
+  activeTabId: string
+  workflowRevision: number
 
   loadNodeTypes: () => Promise<void>
   loadGraph: () => Promise<void>
@@ -34,6 +43,14 @@ interface Store {
   addCustomModel: (value: string) => Promise<void>
   removeCustomModel: (value: string) => Promise<void>
   checkServer: () => Promise<void>
+
+  newTab: () => Promise<void>
+  switchTab: (tabId: string) => Promise<void>
+  closeTab: (tabId: string) => Promise<void>
+  openWorkflowAsTab: (slug: string, name: string) => Promise<void>
+  renameTab: (tabId: string, name: string) => void
+  saveActiveWorkflow: (name?: string) => Promise<{ name: string; slug: string }>
+  deleteWorkflow: (slug: string) => Promise<void>
 
   addNode: (typeName: string, pos: { x: number; y: number }) => Promise<void>
   removeNode: (id: string) => Promise<void>
@@ -48,6 +65,37 @@ interface Store {
   reset: () => Promise<void>
 }
 
+function parseGraph(bnNodes: BnNodeMeta[], bnEdges: any[]): { nodes: Node<NodeData>[]; edges: Edge[] } {
+  const nodes: Node<NodeData>[] = bnNodes.map(n => ({
+    id: n.id,
+    type: OUTPUT_NODE_TYPES.has(n.type) ? 'outputnode' : MODEL_NODE_TYPES.has(n.type) ? 'modelnode' : VALUE_NODE_TYPES.has(n.type) ? 'valuenode' : 'blacknode',
+    position: { x: n.pos[0], y: n.pos[1] },
+    data: { ...n },
+    ...(n.type === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
+    ...(n.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
+  }))
+  const edges: Edge[] = bnEdges.map((e: any, i: number) => {
+    const fromType = bnNodes.find(n => n.id === e.from)?.output_types?.[e.from_port] ?? 'Any'
+    return {
+      id: `e${i}`,
+      source: e.from,
+      sourceHandle: e.from_port,
+      target: e.to,
+      targetHandle: e.to_port,
+      style: { stroke: portColor(fromType), strokeWidth: 1.5 },
+    }
+  })
+  return { nodes, edges }
+}
+
+function makeTabId(): string {
+  return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function cleanWorkflowName(name: string | undefined | null): string {
+  return name?.trim() || 'Untitled'
+}
+
 export const useStore = create<Store>((set, get) => ({
   nodes: [],
   edges: [],
@@ -56,6 +104,9 @@ export const useStore = create<Store>((set, get) => ({
   serverOk: false,
   apiKeys: {},
   customModels: [],
+  tabs: [{ id: 'default', name: 'Untitled', slug: null }],
+  activeTabId: 'default',
+  workflowRevision: 0,
 
   checkServer: async () => {
     try {
@@ -104,27 +155,96 @@ export const useStore = create<Store>((set, get) => ({
 
   loadGraph: async () => {
     const { nodes: bnNodes, edges: bnEdges } = await api.getGraph()
-    const nodes: Node<NodeData>[] = bnNodes.map((n: BnNodeMeta) => ({
-      id: n.id,
-      type: OUTPUT_NODE_TYPES.has(n.type) ? 'outputnode' : MODEL_NODE_TYPES.has(n.type) ? 'modelnode' : VALUE_NODE_TYPES.has(n.type) ? 'valuenode' : 'blacknode',
-      position: { x: n.pos[0], y: n.pos[1] },
-      data: { ...n },
-      ...(n.type === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
-      ...(n.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
-    }))
-    const edges: Edge[] = bnEdges.map((e: any, i: number) => {
-      const fromType = bnNodes.find((n: BnNodeMeta) => n.id === e.from)?.output_types?.[e.from_port] ?? 'Any'
-      return {
-        id: `e${i}`,
-        source: e.from,
-        sourceHandle: e.from_port,
-        target: e.to,
-        targetHandle: e.to_port,
-        style: { stroke: portColor(fromType), strokeWidth: 1.5 },
-      }
-    })
-    set({ nodes, edges })
+    set({ ...parseGraph(bnNodes, bnEdges), selectedId: null })
   },
+
+  // ── Tab management ────────────────────────────────────────────────────────
+
+  newTab: async () => {
+    const id = makeTabId()
+    set(s => ({ tabs: [...s.tabs, { id, name: 'Untitled', slug: null }], activeTabId: id }))
+    await api.reset()
+    set({ nodes: [], edges: [], selectedId: null })
+  },
+
+  switchTab: async (tabId) => {
+    const { tabs, activeTabId } = get()
+    if (tabId === activeTabId) return
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab) return
+    set({ activeTabId: tabId, selectedId: null })
+    if (tab.slug) {
+      await api.loadWorkflow(tab.slug)
+      await get().loadGraph()
+    } else {
+      await api.reset()
+      set({ nodes: [], edges: [], selectedId: null })
+    }
+  },
+
+  closeTab: async (tabId) => {
+    const { tabs, activeTabId } = get()
+    if (tabs.length <= 1) return
+    const idx = tabs.findIndex(t => t.id === tabId)
+    const newTabs = tabs.filter(t => t.id !== tabId)
+    if (tabId === activeTabId) {
+      const next = newTabs[Math.max(0, idx - 1)]
+      set({ tabs: newTabs, activeTabId: next.id, selectedId: null })
+      if (next.slug) {
+        await api.loadWorkflow(next.slug)
+        await get().loadGraph()
+      } else {
+        await api.reset()
+        set({ nodes: [], edges: [], selectedId: null })
+      }
+    } else {
+      set({ tabs: newTabs })
+    }
+  },
+
+  openWorkflowAsTab: async (slug, name) => {
+    const { tabs } = get()
+    const existing = tabs.find(t => t.slug === slug)
+    if (existing) {
+      await get().switchTab(existing.id)
+      return
+    }
+    const id = makeTabId()
+    set(s => ({ tabs: [...s.tabs, { id, name, slug }], activeTabId: id, selectedId: null }))
+    await api.loadWorkflow(slug)
+    await get().loadGraph()
+  },
+
+  renameTab: (tabId, name) => {
+    const nextName = cleanWorkflowName(name)
+    set(s => ({
+      tabs: s.tabs.map(t => t.id === tabId ? { ...t, name: nextName } : t),
+    }))
+  },
+
+  saveActiveWorkflow: async (name) => {
+    const { tabs, activeTabId } = get()
+    const active = tabs.find(t => t.id === activeTabId)
+    const nextName = cleanWorkflowName(name ?? active?.name)
+    const res = await api.saveWorkflow(nextName, active?.slug)
+    set(s => ({
+      tabs: s.tabs.map(t =>
+        t.id === activeTabId ? { ...t, name: nextName, slug: res.slug } : t
+      ),
+      workflowRevision: s.workflowRevision + 1,
+    }))
+    return { name: nextName, slug: res.slug }
+  },
+
+  deleteWorkflow: async (slug) => {
+    await api.deleteWorkflow(slug)
+    set(s => ({
+      tabs: s.tabs.map(t => t.slug === slug ? { ...t, slug: null } : t),
+      workflowRevision: s.workflowRevision + 1,
+    }))
+  },
+
+  // ── Graph actions ─────────────────────────────────────────────────────────
 
   addNode: async (typeName, pos) => {
     const meta: BnNodeMeta = await api.addNode(typeName, [pos.x, pos.y]) as BnNodeMeta

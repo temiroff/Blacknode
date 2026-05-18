@@ -19,10 +19,16 @@ function fmtDate(iso: string): string {
 }
 
 export default function WorkflowManager() {
-  const { loadGraph, loadNodeTypes } = useStore()
+  const {
+    tabs, activeTabId, workflowRevision,
+    openWorkflowAsTab, saveActiveWorkflow, deleteWorkflow,
+  } = useStore()
+  const activeTab = tabs.find(tab => tab.id === activeTabId)
+  const openSlugs = new Set(tabs.map(tab => tab.slug).filter(Boolean))
 
   const [workflows, setWorkflows] = useState<WorkflowMeta[]>([])
   const [saveName,  setSaveName]  = useState('')
+  const [filter,    setFilter]    = useState('')
   const [saving,    setSaving]    = useState(false)
   const [loading,   setLoading]   = useState<string | null>(null)
   const [deleting,  setDeleting]  = useState<string | null>(null)
@@ -32,7 +38,13 @@ export default function WorkflowManager() {
     try { setWorkflows(await api.listWorkflows()) } catch {}
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { refresh() }, [refresh, workflowRevision])
+  useEffect(() => { setSaveName(activeTab?.name ?? '') }, [activeTabId, activeTab?.name])
+
+  const filteredWorkflows = workflows.filter(w => {
+    const query = filter.trim().toLowerCase()
+    return !query || w.name.toLowerCase().includes(query) || w.slug.toLowerCase().includes(query)
+  })
 
   const handleSave = async () => {
     const name = saveName.trim()
@@ -40,9 +52,9 @@ export default function WorkflowManager() {
     setSaving(true)
     setSaveOk(false)
     try {
-      await api.saveWorkflow(name)
+      const saved = await saveActiveWorkflow(name)
       setSaveOk(true)
-      setSaveName('')
+      setSaveName(saved.name)
       await refresh()
       setTimeout(() => setSaveOk(false), 2000)
     } catch (e) {
@@ -55,9 +67,8 @@ export default function WorkflowManager() {
   const handleLoad = async (slug: string) => {
     setLoading(slug)
     try {
-      await api.loadWorkflow(slug)
-      await loadGraph()
-      await loadNodeTypes()
+      const workflow = workflows.find(w => w.slug === slug)
+      await openWorkflowAsTab(slug, workflow?.name ?? slug)
     } catch (e) {
       console.error(e)
     } finally {
@@ -68,7 +79,7 @@ export default function WorkflowManager() {
   const handleDelete = async (slug: string) => {
     setDeleting(slug)
     try {
-      await api.deleteWorkflow(slug)
+      await deleteWorkflow(slug)
       await refresh()
     } catch (e) {
       console.error(e)
@@ -127,6 +138,25 @@ export default function WorkflowManager() {
         </button>
       </div>
 
+      <div style={{ padding: '8px 10px 4px', borderBottom: '1px solid var(--line)' }}>
+        <input
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+          placeholder="Find workflow…"
+          style={{
+            width: '100%',
+            background: 'var(--lift)',
+            border: '1px solid var(--line2)',
+            borderRadius: 6,
+            color: 'var(--tx1)',
+            fontFamily: 'var(--font-ui)',
+            fontSize: 12,
+            padding: '5px 8px',
+            outline: 'none',
+          }}
+        />
+      </div>
+
       {/* list */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px' }}
            onWheel={e => e.stopPropagation()}>
@@ -142,7 +172,21 @@ export default function WorkflowManager() {
           </div>
         )}
 
-        {workflows.map(w => (
+        {workflows.length > 0 && filteredWorkflows.length === 0 && (
+          <div style={{
+            color: 'var(--tx3)',
+            fontSize: 12,
+            fontStyle: 'italic',
+            padding: '12px 6px',
+          }}>
+            No matching workflows.
+          </div>
+        )}
+
+        {filteredWorkflows.map(w => {
+          const isOpen = openSlugs.has(w.slug)
+          const isActive = activeTab?.slug === w.slug
+          return (
           <div
             key={w.slug}
             style={{
@@ -157,16 +201,30 @@ export default function WorkflowManager() {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-              <span style={{
-                color: 'var(--tx1)',
-                fontSize: 13,
-                fontWeight: 600,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}>
-                {w.name}
-              </span>
+              <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  color: 'var(--tx1)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {w.name}
+                </span>
+                {(isActive || isOpen) && (
+                  <span style={{
+                    color: isActive ? 'var(--ok)' : 'var(--tx3)',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    flexShrink: 0,
+                  }}>
+                    {isActive ? 'Active' : 'Open'}
+                  </span>
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                 <button
                   onClick={() => handleLoad(w.slug)}
@@ -184,7 +242,7 @@ export default function WorkflowManager() {
                     opacity: loading === w.slug ? 0.6 : 1,
                   }}
                 >
-                  {loading === w.slug ? '…' : '▶ Load'}
+                  {loading === w.slug ? '…' : isOpen ? 'Switch' : 'Open'}
                 </button>
                 <button
                   onClick={() => handleDelete(w.slug)}
@@ -211,7 +269,7 @@ export default function WorkflowManager() {
               </span>
             )}
           </div>
-        ))}
+        )})}
       </div>
     </div>
   )
