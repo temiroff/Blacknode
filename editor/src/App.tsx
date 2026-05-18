@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactFlow, {
   Background, Controls, MiniMap,
   BackgroundVariant, ReactFlowInstance,
@@ -10,6 +10,7 @@ import BlackNode from './components/BlackNode'
 import ValueNode from './components/ValueNode'
 import NodePalette from './components/NodePalette'
 import Inspector from './components/Inspector'
+import NodeSearch from './components/NodeSearch'
 
 const NODE_TYPES = { blacknode: BlackNode, valuenode: ValueNode }
 
@@ -21,6 +22,7 @@ export default function App() {
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
+  const [search, setSearch] = useState<{ screenPos: { x: number; y: number }; flowPos: { x: number; y: number } } | null>(null)
 
   useEffect(() => {
     checkServer().then(() => {
@@ -44,12 +46,23 @@ export default function App() {
     e.dataTransfer.dropEffect = 'move'
   }
 
+  const onPaneContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    if (!rfInstance.current) return
+    const flowPos = rfInstance.current.screenToFlowPosition({ x: e.clientX, y: e.clientY })
+    setSearch({ screenPos: { x: e.clientX, y: e.clientY }, flowPos })
+  }, [])
+
+  const handleSearchSelect = useCallback((type: string) => {
+    if (!search) return
+    addNode(type, search.flowPos)
+    setSearch(null)
+  }, [search, addNode])
+
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#030712' }}>
-      {/* palette */}
       <NodePalette />
 
-      {/* canvas */}
       <div style={{ flex: 1, position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver}>
         {/* top bar */}
         <div style={{
@@ -60,9 +73,9 @@ export default function App() {
         }}>
           <span style={{ color: '#6366f1', fontWeight: 700, letterSpacing: 2 }}>BLACKNODE</span>
           <div style={{ flex: 1 }} />
+          <span style={{ color: '#334155', fontSize: 10 }}>right-click to add</span>
           <span style={{
-            padding: '2px 8px',
-            borderRadius: 12,
+            padding: '2px 8px', borderRadius: 12,
             background: serverOk ? '#14532d' : '#450a0a',
             color: serverOk ? '#4ade80' : '#f87171',
             fontSize: 10,
@@ -81,7 +94,8 @@ export default function App() {
           onConnect={onConnect}
           onInit={i => { rfInstance.current = i }}
           onNodeClick={(_, node) => selectNode(node.id)}
-          onPaneClick={() => selectNode(null)}
+          onPaneClick={() => { selectNode(null); setSearch(null) }}
+          onPaneContextMenu={onPaneContextMenu}
           fitView
           deleteKeyCode={['Delete', 'Backspace']}
           style={{ paddingTop: 40 }}
@@ -96,21 +110,23 @@ export default function App() {
         </ReactFlow>
       </div>
 
-      {/* inspector */}
       <Inspector />
+
+      {search && (
+        <NodeSearch
+          screenPos={search.screenPos}
+          onSelect={handleSearchSelect}
+          onClose={() => setSearch(null)}
+        />
+      )}
     </div>
   )
 }
 
 function topBtn(bg: string): React.CSSProperties {
   return {
-    background: bg,
-    border: 'none',
-    borderRadius: 4,
-    color: '#fff',
-    cursor: 'pointer',
-    fontFamily: 'monospace',
-    fontSize: 11,
-    padding: '4px 10px',
+    background: bg, border: 'none', borderRadius: 4,
+    color: '#fff', cursor: 'pointer',
+    fontFamily: 'monospace', fontSize: 11, padding: '4px 10px',
   }
 }
