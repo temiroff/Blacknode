@@ -5,6 +5,8 @@ export interface BnNodeMeta {
   pos: [number, number]
   inputs: string[]
   outputs: string[]
+  input_types: Record<string, string>
+  output_types: Record<string, string>
 }
 
 export interface BnEdge {

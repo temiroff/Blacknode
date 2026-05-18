@@ -1,28 +1,23 @@
-"""IO nodes: FileRead, FileWrite, HTTPGet, JSONParse, JSONDump."""
 from blacknode.node import node
 
 
-@node(inputs=["path", "encoding"], outputs=["text"], name="FileRead")
+@node(inputs=["path:Text", "encoding:Text"], outputs=["text:Text"], name="FileRead")
 def file_read(ctx: dict) -> dict:
-    path = ctx.get("path", "")
-    enc  = ctx.get("encoding", "utf-8")
-    with open(path, encoding=enc) as f:
+    with open(ctx.get("path", ""), encoding=ctx.get("encoding", "utf-8")) as f:
         return {"text": f.read()}
 
 
-@node(inputs=["path", "text", "encoding"], outputs=["path"], name="FileWrite")
+@node(inputs=["path:Text", "text:Text", "encoding:Text"], outputs=["path:Text"], name="FileWrite")
 def file_write(ctx: dict) -> dict:
     path = ctx.get("path", "")
-    text = ctx.get("text", "")
-    enc  = ctx.get("encoding", "utf-8")
-    with open(path, "w", encoding=enc) as f:
-        f.write(text)
+    with open(path, "w", encoding=ctx.get("encoding", "utf-8")) as f:
+        f.write(ctx.get("text", ""))
     return {"path": path}
 
 
-@node(inputs=["url", "headers"], outputs=["text", "status"], name="HTTPGet")
+@node(inputs=["url:Text", "headers:Dict"], outputs=["text:Text", "status:Int"], name="HTTPGet")
 def http_get(ctx: dict) -> dict:
-    import urllib.request, json as _json
+    import urllib.request
     url     = ctx.get("url", "")
     headers = ctx.get("headers", {})
     req = urllib.request.Request(url, headers=headers)
@@ -30,14 +25,13 @@ def http_get(ctx: dict) -> dict:
         return {"text": resp.read().decode(), "status": resp.status}
 
 
-@node(inputs=["text"], outputs=["data"], name="JSONParse")
+@node(inputs=["text:Text"], outputs=["data:Dict"], name="JSONParse")
 def json_parse(ctx: dict) -> dict:
     import json
     return {"data": json.loads(ctx.get("text", "{}"))}
 
 
-@node(inputs=["data", "indent"], outputs=["text"], name="JSONDump")
+@node(inputs=["data:Dict", "indent:Int"], outputs=["text:Text"], name="JSONDump")
 def json_dump(ctx: dict) -> dict:
     import json
-    indent = ctx.get("indent", 2)
-    return {"text": json.dumps(ctx.get("data"), indent=indent)}
+    return {"text": json.dumps(ctx.get("data"), indent=ctx.get("indent", 2))}

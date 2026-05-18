@@ -68,13 +68,16 @@ def add_node(req: AddNodeReq):
     if req.type_name not in _NODE_REGISTRY:
         raise HTTPException(400, f"Unknown node type '{req.type_name}'")
     proxy = _session.graph.node(req.type_name, **req.params)
+    fn = _NODE_REGISTRY[req.type_name]
     meta = {
         "id": proxy._id,
         "type": req.type_name,
         "params": req.params,
         "pos": list(req.pos),
-        "inputs": getattr(_NODE_REGISTRY[req.type_name], "_bn_inputs", []),
-        "outputs": getattr(_NODE_REGISTRY[req.type_name], "_bn_outputs", ["output"]),
+        "inputs": getattr(fn, "_bn_inputs", []),
+        "outputs": getattr(fn, "_bn_outputs", ["output"]),
+        "input_types": getattr(fn, "_bn_input_types", {}),
+        "output_types": getattr(fn, "_bn_output_types", {}),
     }
     _session.node_meta[proxy._id] = meta
     return meta
@@ -154,4 +157,4 @@ def reset():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=7777, reload=True)
+    uvicorn.run(app, host="127.0.0.1", port=7777)
