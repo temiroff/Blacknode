@@ -5,6 +5,7 @@ import {
 } from 'reactflow'
 import { api } from './api'
 import { BnNodeMeta } from './types'
+import { VALUE_NODE_TYPES } from './categories'
 
 interface NodeData extends BnNodeMeta {
   cookResult?: unknown
@@ -59,7 +60,7 @@ export const useStore = create<Store>((set, get) => ({
     const { nodes: bnNodes, edges: bnEdges } = await api.getGraph()
     const nodes: Node<NodeData>[] = bnNodes.map((n: BnNodeMeta) => ({
       id: n.id,
-      type: 'blacknode',
+      type: VALUE_NODE_TYPES.has(n.type) ? 'valuenode' : 'blacknode',
       position: { x: n.pos[0], y: n.pos[1] },
       data: { ...n },
     }))
@@ -77,7 +78,7 @@ export const useStore = create<Store>((set, get) => ({
     const meta: BnNodeMeta = await api.addNode(typeName, [pos.x, pos.y]) as BnNodeMeta
     const node: Node<NodeData> = {
       id: meta.id,
-      type: 'blacknode',
+      type: VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode',
       position: pos,
       data: { ...meta },
     }

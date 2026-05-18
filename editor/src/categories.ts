@@ -1,9 +1,12 @@
 export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
-  AI:   { color: '#6366f1', nodes: ['LLMAgent', 'AgentLoop', 'EmbedText', 'ToolCall'] },
-  Flow: { color: '#d97706', nodes: ['Branch', 'Gate', 'Map', 'Filter', 'Reduce', 'ForEach'] },
-  IO:   { color: '#0891b2', nodes: ['FileRead', 'FileWrite', 'HTTPGet', 'JSONParse', 'JSONDump'] },
-  Core: { color: '#374151', nodes: ['Literal', 'Print', 'Concat', 'Switch'] },
+  Values: { color: '#0f766e', nodes: ['Text', 'Float', 'Int', 'Bool'] },
+  AI:     { color: '#6366f1', nodes: ['LLMAgent', 'AgentLoop', 'EmbedText', 'ToolCall'] },
+  Flow:   { color: '#d97706', nodes: ['Branch', 'Gate', 'Map', 'Filter', 'Reduce', 'ForEach'] },
+  IO:     { color: '#0891b2', nodes: ['FileRead', 'FileWrite', 'HTTPGet', 'JSONParse', 'JSONDump'] },
+  Core:   { color: '#374151', nodes: ['Literal', 'Print', 'Concat', 'Switch'] },
 }
+
+export const VALUE_NODE_TYPES = new Set(CATEGORIES.Values.nodes)
 
 // node type → header color, derived from CATEGORIES
 const _nodeColor: Record<string, string> = {}
