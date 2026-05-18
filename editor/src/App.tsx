@@ -21,7 +21,7 @@ export default function App() {
   const {
     nodes, edges, serverOk,
     onNodesChange, onEdgesChange, onConnect, disconnectEdge,
-    addNode, selectNode, loadNodeTypes, loadGraph, checkServer, reset,
+    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, checkServer, reset,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -33,16 +33,8 @@ export default function App() {
   }, [isDark])
 
   useEffect(() => {
-    checkServer().then(async () => {
-      // sync any previously saved API keys into the server environment
-      try {
-        const saved: Record<string, string> = JSON.parse(localStorage.getItem('blacknode_api_keys') || '{}')
-        await Promise.all(
-          Object.entries(saved)
-            .filter(([, v]) => !!v)
-            .map(([provider, key]) => api.setApiKey(provider, key))
-        )
-      } catch {}
+    checkServer().then(() => {
+      loadApiKeys()
       loadNodeTypes()
       loadGraph()
     })

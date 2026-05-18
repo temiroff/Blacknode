@@ -111,10 +111,43 @@ class SetApiKeyReq(BaseModel):
     key: str
 
 _PROVIDER_ENV: dict[str, str] = {
-    "Anthropic":  "ANTHROPIC_API_KEY",
-    "OpenAI":     "OPENAI_API_KEY",
-    "NVIDIA NIM": "NVIDIA_API_KEY",
+    "Anthropic":     "ANTHROPIC_API_KEY",
+    "OpenAI":        "OPENAI_API_KEY",
+    "NVIDIA NIM":    "NVIDIA_API_KEY",
+    "Ollama (local)": "",
 }
+
+_KEYS_PATH = os.path.join(os.path.dirname(__file__), "api_keys.json")
+_api_keys: dict[str, str] = {}
+
+
+def _load_api_keys() -> None:
+    global _api_keys
+    if not os.path.exists(_KEYS_PATH):
+        return
+    try:
+        with open(_KEYS_PATH) as f:
+            _api_keys = json.load(f)
+        for provider, key in _api_keys.items():
+            env_var = _PROVIDER_ENV.get(provider)
+            if env_var and key:
+                os.environ[env_var] = key
+        loaded = [p for p, k in _api_keys.items() if k]
+        if loaded:
+            print(f"[blacknode] Loaded API keys for: {', '.join(loaded)}")
+    except Exception as e:
+        print(f"[blacknode] Could not load api_keys.json: {e}")
+
+
+def _save_api_keys() -> None:
+    try:
+        with open(_KEYS_PATH, "w") as f:
+            json.dump(_api_keys, f, indent=2)
+    except Exception as e:
+        print(f"[blacknode] Could not save api_keys.json: {e}")
+
+
+_load_api_keys()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -233,11 +266,21 @@ def cook(req: CookReq):
         raise HTTPException(500, traceback.format_exc())
 
 
+@app.get("/settings/api-keys")
+def get_api_keys():
+    return _api_keys
+
+
 @app.post("/settings/api-key")
 def set_api_key(req: SetApiKeyReq):
     env_var = _PROVIDER_ENV.get(req.provider)
-    if env_var and req.key:
-        os.environ[env_var] = req.key
+    if env_var is not None:
+        if req.key:
+            os.environ[env_var] = req.key
+        elif env_var in os.environ:
+            del os.environ[env_var]
+    _api_keys[req.provider] = req.key
+    _save_api_keys()
     return {"ok": True}
 
 

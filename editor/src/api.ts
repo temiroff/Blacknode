@@ -31,6 +31,7 @@ export const api = {
     req<{ value: unknown; port: string }>('POST', '/cook', { node_id, port }),
   reset:      ()                             => req('POST', '/reset'),
   execNode:   (code: string)                 => req<{ ok: boolean; new_types: string[] }>('POST', '/exec-node', { code }),
+  getApiKeys: () => req<Record<string, string>>('GET', '/settings/api-keys'),
   setApiKey:  (provider: string, key: string) => req('POST', '/settings/api-key', { provider, key }),
 
   listWorkflows: () =>

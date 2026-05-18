@@ -17,19 +17,13 @@ interface NodeData {
   cookError?: string
 }
 
-const LS_KEY = 'blacknode_api_keys'
-
-function loadSavedKeys(): Record<string, string> {
-  try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') } catch { return {} }
-}
-
 function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
-  const { updateParam, selectNode } = useStore()
+  const { updateParam, selectNode, apiKeys, setApiKey } = useStore()
 
   const current   = String(data.params.value ?? DEFAULT_MODEL)
-  const apiKey    = String(data.params.api_key ?? '')
   const provColor = modelProviderColor(current)
   const provName  = modelProviderName(current)
+  const apiKey    = apiKeys[provName] ?? ''
 
   const currentLabel = MODEL_GROUPS
     .flatMap(g => g.models)
@@ -51,24 +45,8 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
     return () => el.removeEventListener('wheel', stop)
   }, [open])
 
-  // load persisted key for this provider on mount / provider change
-  useEffect(() => {
-    const saved = loadSavedKeys()[provName]
-    if (saved && !apiKey) {
-      updateParam(id, 'api_key', saved)
-      import('../api').then(({ api }) => api.setApiKey(provName, saved))
-    }
-  }, [provName])
-
   const handleApiKeyChange = (val: string) => {
-    updateParam(id, 'api_key', val)
-    // persist to localStorage by provider
-    const saved = loadSavedKeys()
-    if (val) saved[provName] = val
-    else delete saved[provName]
-    localStorage.setItem(LS_KEY, JSON.stringify(saved))
-    // push to server env so agents pick it up immediately
-    import('../api').then(({ api }) => api.setApiKey(provName, val))
+    setApiKey(provName, val)
   }
 
   useEffect(() => {

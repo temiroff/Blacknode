@@ -23,9 +23,12 @@ interface Store {
   nodeTypes: string[]
   selectedId: string | null
   serverOk: boolean
+  apiKeys: Record<string, string>
 
   loadNodeTypes: () => Promise<void>
   loadGraph: () => Promise<void>
+  loadApiKeys: () => Promise<void>
+  setApiKey: (provider: string, key: string) => Promise<void>
   checkServer: () => Promise<void>
 
   addNode: (typeName: string, pos: { x: number; y: number }) => Promise<void>
@@ -46,6 +49,7 @@ export const useStore = create<Store>((set, get) => ({
   nodeTypes: [],
   selectedId: null,
   serverOk: false,
+  apiKeys: {},
 
   checkServer: async () => {
     try {
@@ -59,6 +63,18 @@ export const useStore = create<Store>((set, get) => ({
   loadNodeTypes: async () => {
     const types = await api.nodeTypes()
     set({ nodeTypes: types })
+  },
+
+  loadApiKeys: async () => {
+    try {
+      const keys = await api.getApiKeys()
+      set({ apiKeys: keys })
+    } catch {}
+  },
+
+  setApiKey: async (provider, key) => {
+    await api.setApiKey(provider, key)
+    set(s => ({ apiKeys: { ...s.apiKeys, [provider]: key } }))
   },
 
   loadGraph: async () => {
