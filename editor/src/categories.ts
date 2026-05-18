@@ -1,5 +1,5 @@
 export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
-  Values: { color: '#0f766e', nodes: ['Text', 'Float', 'Int', 'Bool'] },
+  Values: { color: '#0f766e', nodes: ['Text', 'Float', 'Int', 'Bool', 'Model'] },
   NVIDIA: { color: '#76b900', nodes: ['NIMAgent', 'NIMStream', 'NIMModels'] },
   AI:     { color: '#6366f1', nodes: ['LLMAgent', 'AgentLoop', 'EmbedText', 'ToolCall'] },
   Flow:   { color: '#d97706', nodes: ['Branch', 'Gate', 'Map', 'Filter', 'Reduce', 'ForEach'] },

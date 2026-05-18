@@ -8,11 +8,12 @@ import 'reactflow/dist/style.css'
 import { useStore } from './store'
 import BlackNode from './components/BlackNode'
 import ValueNode from './components/ValueNode'
+import ModelNode from './components/ModelNode'
 import NodePalette from './components/NodePalette'
 import Inspector from './components/Inspector'
 import NodeSearch from './components/NodeSearch'
 
-const NODE_TYPES = { blacknode: BlackNode, valuenode: ValueNode }
+const NODE_TYPES = { blacknode: BlackNode, valuenode: ValueNode, modelnode: ModelNode }
 
 export default function App() {
   const {
