@@ -149,6 +149,37 @@ def _save_api_keys() -> None:
 
 _load_api_keys()
 
+# ── Custom model persistence ──────────────────────────────────────────────────
+
+_CUSTOM_MODELS_PATH = os.path.join(os.path.dirname(__file__), "custom_models.json")
+_custom_models: list[str] = []
+
+
+def _load_custom_models() -> None:
+    global _custom_models
+    if not os.path.exists(_CUSTOM_MODELS_PATH):
+        return
+    try:
+        with open(_CUSTOM_MODELS_PATH) as f:
+            _custom_models = json.load(f)
+    except Exception as e:
+        print(f"[blacknode] Could not load custom_models.json: {e}")
+
+
+def _save_custom_models() -> None:
+    try:
+        with open(_CUSTOM_MODELS_PATH, "w") as f:
+            json.dump(_custom_models, f, indent=2)
+    except Exception as e:
+        print(f"[blacknode] Could not save custom_models.json: {e}")
+
+
+class AddCustomModelReq(BaseModel):
+    value: str
+
+
+_load_custom_models()
+
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -281,6 +312,27 @@ def set_api_key(req: SetApiKeyReq):
             del os.environ[env_var]
     _api_keys[req.provider] = req.key
     _save_api_keys()
+    return {"ok": True}
+
+
+@app.get("/settings/custom-models")
+def get_custom_models():
+    return _custom_models
+
+
+@app.post("/settings/custom-models")
+def add_custom_model(req: AddCustomModelReq):
+    if req.value and req.value not in _custom_models:
+        _custom_models.append(req.value)
+        _save_custom_models()
+    return {"ok": True}
+
+
+@app.delete("/settings/custom-models")
+def remove_custom_model(value: str):
+    if value in _custom_models:
+        _custom_models.remove(value)
+        _save_custom_models()
     return {"ok": True}
 
 

@@ -21,7 +21,7 @@ export default function App() {
   const {
     nodes, edges, serverOk,
     onNodesChange, onEdgesChange, onConnect, disconnectEdge,
-    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, checkServer, reset,
+    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels, checkServer, reset,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -35,6 +35,7 @@ export default function App() {
   useEffect(() => {
     checkServer().then(() => {
       loadApiKeys()
+      loadCustomModels()
       loadNodeTypes()
       loadGraph()
     })

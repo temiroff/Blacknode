@@ -31,8 +31,11 @@ export const api = {
     req<{ value: unknown; port: string }>('POST', '/cook', { node_id, port }),
   reset:      ()                             => req('POST', '/reset'),
   execNode:   (code: string)                 => req<{ ok: boolean; new_types: string[] }>('POST', '/exec-node', { code }),
-  getApiKeys: () => req<Record<string, string>>('GET', '/settings/api-keys'),
-  setApiKey:  (provider: string, key: string) => req('POST', '/settings/api-key', { provider, key }),
+  getApiKeys:       () => req<Record<string, string>>('GET', '/settings/api-keys'),
+  setApiKey:        (provider: string, key: string) => req('POST', '/settings/api-key', { provider, key }),
+  getCustomModels:  () => req<string[]>('GET', '/settings/custom-models'),
+  addCustomModel:   (value: string) => req('POST', '/settings/custom-models', { value }),
+  removeCustomModel:(value: string) => req('DELETE', `/settings/custom-models?value=${encodeURIComponent(value)}`),
 
   listWorkflows: () =>
     req<{ slug: string; name: string; saved_at: string }[]>('GET', '/workflows'),

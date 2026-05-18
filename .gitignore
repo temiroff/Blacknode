@@ -26,4 +26,5 @@ CLAUDE.md
 *.bn.cache
 editor-server/blacknode_graph.json
 editor-server/api_keys.json
+editor-server/custom_models.json
 workflows/

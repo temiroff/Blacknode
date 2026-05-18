@@ -18,7 +18,7 @@ interface NodeData {
 }
 
 function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
-  const { updateParam, selectNode, apiKeys, setApiKey } = useStore()
+  const { updateParam, selectNode, apiKeys, setApiKey, customModels, addCustomModel, removeCustomModel } = useStore()
 
   const current   = String(data.params.value ?? DEFAULT_MODEL)
   const provColor = modelProviderColor(current)
@@ -65,8 +65,11 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
     return () => window.removeEventListener('mousedown', handler, true)
   }, [open])
 
+  const allKnownValues = new Set(MODEL_GROUPS.flatMap(g => g.models.map(m => m.value)))
+
   const select = (value: string) => {
     updateParam(id, 'value', value)
+    if (!allKnownValues.has(value)) addCustomModel(value)
     setOpen(false)
     setSearch('')
   }
@@ -303,8 +306,76 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
               </div>
             ))}
 
+            {/* saved custom models */}
+            {customModels.filter(m => !search || m.toLowerCase().includes(search.toLowerCase())).length > 0 && (
+              <div>
+                <div style={{
+                  padding: '6px 12px 3px',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: '0.08em',
+                  color: '#6b7280',
+                  textTransform: 'uppercase',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}>
+                  <div style={{ width: 5, height: 5, borderRadius: 1, background: '#6b7280' }} />
+                  Custom
+                </div>
+                {customModels
+                  .filter(m => !search || m.toLowerCase().includes(search.toLowerCase()))
+                  .map(m => (
+                    <div
+                      key={m}
+                      onMouseEnter={() => setHovered(m)}
+                      onMouseLeave={() => setHovered(null)}
+                      onMouseDown={e => e.stopPropagation()}
+                      style={{
+                        padding: '5px 8px 5px 14px',
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        color: m === current ? modelProviderColor(m) : 'var(--tx2)',
+                        background: hovered === m ? 'var(--hover)' : 'transparent',
+                        borderLeft: `2px solid ${m === current ? modelProviderColor(m) : 'transparent'}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
+                      <span
+                        onClick={() => select(m)}
+                        style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                      >
+                        {m === current && <span style={{ color: modelProviderColor(m), fontSize: 7, marginRight: 6 }}>●</span>}
+                        {m}
+                      </span>
+                      <button
+                        onClick={e => { e.stopPropagation(); removeCustomModel(m) }}
+                        title="Remove"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--tx3)',
+                          cursor: 'pointer',
+                          fontSize: 11,
+                          padding: '1px 3px',
+                          flexShrink: 0,
+                          lineHeight: 1,
+                          opacity: hovered === m ? 1 : 0,
+                          transition: 'opacity 0.1s',
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            )}
+
             {/* custom entry row */}
-            {search.trim() && (
+            {search.trim() && !customModels.includes(search.trim()) && !allKnownValues.has(search.trim()) && (
               <div
                 onMouseDown={e => e.stopPropagation()}
                 onClick={() => select(search.trim())}

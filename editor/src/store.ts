@@ -24,11 +24,15 @@ interface Store {
   selectedId: string | null
   serverOk: boolean
   apiKeys: Record<string, string>
+  customModels: string[]
 
   loadNodeTypes: () => Promise<void>
   loadGraph: () => Promise<void>
   loadApiKeys: () => Promise<void>
   setApiKey: (provider: string, key: string) => Promise<void>
+  loadCustomModels: () => Promise<void>
+  addCustomModel: (value: string) => Promise<void>
+  removeCustomModel: (value: string) => Promise<void>
   checkServer: () => Promise<void>
 
   addNode: (typeName: string, pos: { x: number; y: number }) => Promise<void>
@@ -50,6 +54,7 @@ export const useStore = create<Store>((set, get) => ({
   selectedId: null,
   serverOk: false,
   apiKeys: {},
+  customModels: [],
 
   checkServer: async () => {
     try {
@@ -75,6 +80,25 @@ export const useStore = create<Store>((set, get) => ({
   setApiKey: async (provider, key) => {
     await api.setApiKey(provider, key)
     set(s => ({ apiKeys: { ...s.apiKeys, [provider]: key } }))
+  },
+
+  loadCustomModels: async () => {
+    try {
+      const models = await api.getCustomModels()
+      set({ customModels: models })
+    } catch {}
+  },
+
+  addCustomModel: async (value) => {
+    await api.addCustomModel(value)
+    set(s => ({
+      customModels: s.customModels.includes(value) ? s.customModels : [...s.customModels, value],
+    }))
+  },
+
+  removeCustomModel: async (value) => {
+    await api.removeCustomModel(value)
+    set(s => ({ customModels: s.customModels.filter(m => m !== value) }))
   },
 
   loadGraph: async () => {

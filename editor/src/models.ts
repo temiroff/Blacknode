@@ -68,13 +68,22 @@ for (const g of MODEL_GROUPS) {
 }
 
 export function modelProviderColor(value: string): string {
-  return _colorMap[value] ?? '#6b7280'
+  if (_colorMap[value]) return _colorMap[value]
+  if (value.startsWith('nim:'))    return '#76b900'
+  if (value.startsWith('ollama:')) return '#a855f7'
+  if (value.startsWith('claude'))  return '#d97706'
+  if (value.startsWith('gpt') || value.startsWith('o1') || value.startsWith('o3') || value.startsWith('o4')) return '#19c37d'
+  return '#6b7280'
 }
 
 export function modelProviderName(value: string): string {
   for (const g of MODEL_GROUPS) {
     if (g.models.some(m => m.value === value)) return g.provider
   }
+  if (value.startsWith('nim:'))    return 'NVIDIA NIM'
+  if (value.startsWith('ollama:')) return 'Ollama (local)'
+  if (value.startsWith('claude'))  return 'Anthropic'
+  if (value.startsWith('gpt') || value.startsWith('o1') || value.startsWith('o3') || value.startsWith('o4')) return 'OpenAI'
   return 'Custom'
 }
 
