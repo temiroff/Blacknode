@@ -244,8 +244,11 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
               ref={searchRef}
               value={search}
               onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => e.key === 'Escape' && (setOpen(false), setSearch(''))}
-              placeholder="filter…"
+              onKeyDown={e => {
+                if (e.key === 'Escape') { setOpen(false); setSearch('') }
+                if (e.key === 'Enter' && search.trim()) select(search.trim())
+              }}
+              placeholder="filter or type custom model…"
               style={{
                 flex: 1,
                 background: 'transparent',
@@ -259,7 +262,8 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
           </div>
 
           {/* grouped options — onWheel stops React Flow canvas zoom */}
-          <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+          <div style={{ maxHeight: 280, overflowY: 'auto' }}
+               onWheel={e => e.stopPropagation()}>
             {filtered.map(g => (
               <div key={g.provider}>
                 <div style={{
@@ -306,6 +310,37 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                 ))}
               </div>
             ))}
+
+            {/* custom entry row */}
+            {search.trim() && (
+              <div
+                onMouseDown={e => e.stopPropagation()}
+                onClick={() => select(search.trim())}
+                style={{
+                  padding: '7px 14px',
+                  borderTop: '1px solid var(--line)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  cursor: 'pointer',
+                  background: hovered === '__custom__' ? 'var(--hover)' : 'transparent',
+                }}
+                onMouseEnter={() => setHovered('__custom__')}
+                onMouseLeave={() => setHovered(null)}
+              >
+                <span style={{ color: 'var(--tx3)', fontSize: 11, flexShrink: 0 }}>↵ use</span>
+                <span style={{
+                  color: 'var(--tx1)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 11,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {search.trim()}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       )}
