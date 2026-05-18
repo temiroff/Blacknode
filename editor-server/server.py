@@ -1,11 +1,10 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import uuid
+import uuid, os, sys, json, threading
 from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import sys, os, json
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import blacknode as bn
@@ -14,14 +13,71 @@ from blacknode.node import _NODE_REGISTRY
 app = FastAPI(title="Blacknode Editor Server")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# ── Persistence ───────────────────────────────────────────────────────────────
+
+_SAVE_PATH  = os.path.join(os.path.dirname(__file__), "blacknode_graph.json")
+_save_timer: threading.Timer | None = None
+
+
+def _save_now() -> None:
+    try:
+        with open(_SAVE_PATH, "w") as f:
+            json.dump({"node_meta": _session.node_meta,
+                       "edges":     _session.graph._edges}, f, indent=2)
+    except Exception as e:
+        print(f"[blacknode] save error: {e}")
+
+
+def _save(debounce: float = 0.0) -> None:
+    """Write graph to disk. Pass debounce > 0 to coalesce rapid calls (e.g. node drag)."""
+    global _save_timer
+    if _save_timer:
+        _save_timer.cancel()
+    if debounce > 0:
+        _save_timer = threading.Timer(debounce, _save_now)
+        _save_timer.daemon = True
+        _save_timer.start()
+    else:
+        _save_now()
+
+
+def _load() -> None:
+    if not os.path.exists(_SAVE_PATH):
+        return
+    try:
+        with open(_SAVE_PATH) as f:
+            data = json.load(f)
+        meta_map: dict = data.get("node_meta", {})
+        edges:    list = data.get("edges",     [])
+        # only restore nodes whose type is still registered
+        for node_id, meta in meta_map.items():
+            if meta["type"] not in _NODE_REGISTRY:
+                continue
+            _session.node_meta[node_id] = meta
+            _session.graph._nodes[node_id] = {
+                "type":   meta["type"],
+                "params": dict(meta.get("params", {})),
+            }
+            _session.graph._dirty.add(node_id)
+        _session.graph._edges = [
+            e for e in edges
+            if e["from"] in _session.graph._nodes and e["to"] in _session.graph._nodes
+        ]
+        print(f"[blacknode] Loaded {len(_session.node_meta)} nodes, "
+              f"{len(_session.graph._edges)} edges from {_SAVE_PATH}")
+    except Exception as e:
+        print(f"[blacknode] Could not load saved graph: {e}")
+
+
 # ── In-memory state ───────────────────────────────────────────────────────────
 
 class Session:
     def __init__(self):
         self.graph = bn.Graph()
-        self.node_meta: dict[str, dict] = {}  # id -> {type, params, pos}
+        self.node_meta: dict[str, dict] = {}
 
 _session = Session()
+_load()   # restore last session on startup
 
 
 # ── Schema models ─────────────────────────────────────────────────────────────
@@ -53,9 +109,9 @@ class SetApiKeyReq(BaseModel):
     key: str
 
 _PROVIDER_ENV: dict[str, str] = {
-    "Anthropic":      "ANTHROPIC_API_KEY",
-    "OpenAI":         "OPENAI_API_KEY",
-    "NVIDIA NIM":     "NVIDIA_API_KEY",
+    "Anthropic":  "ANTHROPIC_API_KEY",
+    "OpenAI":     "OPENAI_API_KEY",
+    "NVIDIA NIM": "NVIDIA_API_KEY",
 }
 
 
@@ -63,13 +119,12 @@ _PROVIDER_ENV: dict[str, str] = {
 
 @app.get("/node-types")
 def list_node_types():
-    """Return all registered node type names."""
     return sorted(_NODE_REGISTRY.keys())
 
 
 @app.get("/graph")
 def get_graph():
-    """Return current graph state (nodes + edges) with types always read fresh from registry."""
+    """Return nodes with types always read fresh from registry."""
     nodes = []
     for meta in _session.node_meta.values():
         fn = _NODE_REGISTRY.get(meta["type"])
@@ -90,16 +145,17 @@ def add_node(req: AddNodeReq):
     proxy = _session.graph.node(req.type_name, **req.params)
     fn = _NODE_REGISTRY[req.type_name]
     meta = {
-        "id": proxy._id,
-        "type": req.type_name,
-        "params": req.params,
-        "pos": list(req.pos),
-        "inputs": getattr(fn, "_bn_inputs", []),
-        "outputs": getattr(fn, "_bn_outputs", ["output"]),
-        "input_types": getattr(fn, "_bn_input_types", {}),
+        "id":           proxy._id,
+        "type":         req.type_name,
+        "params":       req.params,
+        "pos":          list(req.pos),
+        "inputs":       getattr(fn, "_bn_inputs",       []),
+        "outputs":      getattr(fn, "_bn_outputs",      ["output"]),
+        "input_types":  getattr(fn, "_bn_input_types",  {}),
         "output_types": getattr(fn, "_bn_output_types", {}),
     }
     _session.node_meta[proxy._id] = meta
+    _save()
     return meta
 
 
@@ -108,13 +164,13 @@ def remove_node(node_id: str):
     if node_id not in _session.node_meta:
         raise HTTPException(404, "Node not found")
     del _session.node_meta[node_id]
-    # remove connected edges
     _session.graph._edges = [
         e for e in _session.graph._edges
         if e["from"] != node_id and e["to"] != node_id
     ]
     _session.graph._nodes.pop(node_id, None)
     _session.graph._dirty.discard(node_id)
+    _save()
     return {"ok": True}
 
 
@@ -124,7 +180,8 @@ def update_param(node_id: str, req: UpdateParamReq):
         raise HTTPException(404, "Node not found")
     _session.node_meta[node_id]["params"][req.key] = req.value
     _session.graph._nodes[node_id]["params"][req.key] = req.value
-    _session.graph._mark_dirty(node_id)   # cascades dirty to all downstream nodes
+    _session.graph._mark_dirty(node_id)
+    _save()
     return _session.node_meta[node_id]
 
 
@@ -133,6 +190,7 @@ def update_pos(node_id: str, pos: list[float]):
     if node_id not in _session.node_meta:
         raise HTTPException(404, "Node not found")
     _session.node_meta[node_id]["pos"] = pos
+    _save(debounce=0.8)   # coalesce rapid drag updates
     return {"ok": True}
 
 
@@ -142,6 +200,7 @@ def connect(req: ConnectReq):
         _session.graph._add_edge(req.from_id, req.from_port, req.to_id, req.to_port)
     except Exception as e:
         raise HTTPException(400, str(e))
+    _save()
     return {"ok": True}
 
 
@@ -152,6 +211,7 @@ def disconnect(from_id: str, from_port: str, to_id: str, to_port: str):
         if not (e["from"] == from_id and e["from_port"] == from_port
                 and e["to"] == to_id and e["to_port"] == to_port)
     ]
+    _save()
     return {"ok": True}
 
 
@@ -163,8 +223,8 @@ def cook(req: CookReq):
     if req.node_id not in _session.graph._nodes:
         raise HTTPException(500, f"Node {req.node_id} missing from graph (try resetting)")
     try:
-        proxy = bn.NodeProxy(_session.graph, req.node_id,
-                             _session.node_meta[req.node_id]["type"], {})
+        proxy  = bn.NodeProxy(_session.graph, req.node_id,
+                              _session.node_meta[req.node_id]["type"], {})
         result = _session.graph.cook(proxy, req.port)
         return {"value": result, "port": req.port}
     except Exception:
@@ -173,7 +233,6 @@ def cook(req: CookReq):
 
 @app.post("/settings/api-key")
 def set_api_key(req: SetApiKeyReq):
-    """Write a provider API key into os.environ so all node functions pick it up."""
     env_var = _PROVIDER_ENV.get(req.provider)
     if env_var and req.key:
         os.environ[env_var] = req.key
@@ -182,15 +241,11 @@ def set_api_key(req: SetApiKeyReq):
 
 @app.post("/exec-node")
 def exec_node(req: ExecNodeReq):
-    """Execute Python code and register any new @node-decorated functions."""
     import traceback
     before = set(_NODE_REGISTRY.keys())
-    globs: dict = {
-        'node': bn.node,
-        '__builtins__': __builtins__,
-    }
+    globs: dict = {"node": bn.node, "__builtins__": __builtins__}
     try:
-        exec(compile(req.code, '<custom>', 'exec'), globs)
+        exec(compile(req.code, "<custom>", "exec"), globs)
         new_types = sorted(set(_NODE_REGISTRY.keys()) - before)
         return {"ok": True, "new_types": new_types}
     except Exception:
@@ -201,6 +256,7 @@ def exec_node(req: ExecNodeReq):
 def reset():
     _session.graph = bn.Graph()
     _session.node_meta.clear()
+    _save()   # write empty graph so next restart is also clean
     return {"ok": True}
 
 

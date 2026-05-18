@@ -24,3 +24,4 @@ CLAUDE.md
 
 # Blacknode artifacts
 *.bn.cache
+editor-server/blacknode_graph.json
