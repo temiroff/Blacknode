@@ -10,6 +10,11 @@ pip install -r "%~dp0editor-server\requirements.txt" -q --disable-pip-version-ch
 echo  Done.
 echo.
 
+:: Free port 7777 if a previous server is still listening
+for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr " 127.0.0.1:7777 " ^| findstr "LISTENING"') do (
+    taskkill /f /pid %%p > nul 2>&1
+)
+
 :: Python backend
 echo  [1/2] Starting Python server  (http://127.0.0.1:7777)
 start "Blacknode | Python Server" cmd /k "cd /d "%~dp0editor-server" && python server.py"
