@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useStore } from '../store'
 import { CATEGORIES } from '../categories'
 import ScriptEditor from './ScriptEditor'
@@ -18,14 +18,12 @@ const ICON_NODES = (
     <line x1="6.4" y1="9.9" x2="11.6" y2="13.0" stroke="currentColor" strokeWidth="1.2"/>
   </svg>
 )
-
 const ICON_TEMPLATES = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
     <rect x="2" y="2" width="9" height="9" rx="2" stroke="currentColor" strokeWidth="1.3"/>
     <rect x="7" y="7" width="9" height="9" rx="2" stroke="currentColor" strokeWidth="1.3"/>
   </svg>
 )
-
 const ICON_WORKFLOWS = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
     <rect x="1" y="6" width="5" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
@@ -34,7 +32,6 @@ const ICON_WORKFLOWS = (
     <path d="M10 7l2 2-2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 )
-
 const ICON_SCRIPT = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
     <path d="M6 5L2 9l4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -52,6 +49,24 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 export default function NodePalette() {
   const { nodeTypes, addNode } = useStore()
   const [activeTab, setActiveTab] = useState<Tab | null>('nodes')
+  const [panelWidth, setPanelWidth] = useState(220)
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null)
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault()
+    dragRef.current = { startX: e.clientX, startW: panelWidth }
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return
+      setPanelWidth(Math.max(160, Math.min(520, dragRef.current.startW + ev.clientX - dragRef.current.startX)))
+    }
+    const onUp = () => {
+      dragRef.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   const handleDragStart = (e: React.DragEvent, type: string) => {
     e.dataTransfer.setData('application/blacknode-type', type)
@@ -76,7 +91,7 @@ export default function NodePalette() {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        paddingTop: 52,
+        paddingTop: 8,
         gap: 2,
         flexShrink: 0,
       }}>
@@ -101,7 +116,6 @@ export default function NodePalette() {
                 justifyContent: 'center',
                 gap: 3,
                 padding: 0,
-                position: 'relative',
                 transition: 'color 0.13s, background 0.13s',
               }}
               onMouseEnter={e => {
@@ -111,17 +125,6 @@ export default function NodePalette() {
                 if (!active) (e.currentTarget as HTMLButtonElement).style.color = 'var(--tx3)'
               }}
             >
-              {active && (
-                <span style={{
-                  position: 'absolute',
-                  left: 0,
-                  top: 10,
-                  bottom: 10,
-                  width: 2,
-                  borderRadius: 2,
-                  background: 'var(--accent)',
-                }} />
-              )}
               {tab.icon}
               <span style={{
                 fontSize: 9,
@@ -140,33 +143,29 @@ export default function NodePalette() {
       {/* ── Content panel ── */}
       {activeTab && (
         <div style={{
-          width: 220,
+          width: panelWidth,
           background: 'var(--panel)',
           borderRight: '1px solid var(--line)',
           display: 'flex',
           flexDirection: 'column',
           flexShrink: 0,
+          position: 'relative',
         }}>
-          {/* panel header */}
-          <div style={{
-            height: 44,
-            padding: '0 14px',
-            borderBottom: '1px solid var(--line)',
-            display: 'flex',
-            alignItems: 'center',
-            flexShrink: 0,
-          }}>
-            <span style={{
-              fontSize: 11,
-              fontWeight: 700,
-              fontFamily: 'var(--font-ui)',
-              letterSpacing: '0.09em',
-              textTransform: 'uppercase',
-              color: 'var(--tx2)',
-            }}>
-              {TABS.find(t => t.id === activeTab)?.label}
-            </span>
-          </div>
+          {/* resize handle */}
+          <div
+            onMouseDown={startResize}
+            style={{
+              position: 'absolute',
+              right: -2,
+              top: 0,
+              bottom: 0,
+              width: 4,
+              cursor: 'col-resize',
+              zIndex: 5,
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          />
 
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
