@@ -1,6 +1,7 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import uuid, os, sys, json, threading
+import uuid, os, sys, json, threading, re
+from datetime import datetime
 from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +16,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 
-_SAVE_PATH  = os.path.join(os.path.dirname(__file__), "blacknode_graph.json")
+_SAVE_PATH      = os.path.join(os.path.dirname(__file__), "blacknode_graph.json")
+_WORKFLOWS_DIR  = os.path.join(os.path.dirname(__file__), "..", "workflows")
 _save_timer: threading.Timer | None = None
 
 
@@ -256,7 +258,90 @@ def exec_node(req: ExecNodeReq):
 def reset():
     _session.graph = bn.Graph()
     _session.node_meta.clear()
-    _save()   # write empty graph so next restart is also clean
+    _save()
+    return {"ok": True}
+
+
+# ── Workflow persistence ──────────────────────────────────────────────────────
+
+def _slug(name: str) -> str:
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', name.strip())[:60] or "workflow"
+
+def _workflow_path(slug: str) -> str:
+    return os.path.join(_WORKFLOWS_DIR, f"{slug}.json")
+
+def _restore_session(node_meta: dict, edges: list):
+    """Replace current session with the given node_meta + edges."""
+    _session.graph = bn.Graph()
+    _session.node_meta.clear()
+    for node_id, meta in node_meta.items():
+        if meta["type"] not in _NODE_REGISTRY:
+            continue
+        _session.node_meta[node_id] = meta
+        _session.graph._nodes[node_id] = {
+            "type":   meta["type"],
+            "params": dict(meta.get("params", {})),
+        }
+        _session.graph._dirty.add(node_id)
+    _session.graph._edges = [
+        e for e in edges
+        if e["from"] in _session.graph._nodes and e["to"] in _session.graph._nodes
+    ]
+
+
+@app.get("/workflows")
+def list_workflows():
+    os.makedirs(_WORKFLOWS_DIR, exist_ok=True)
+    result = []
+    for fname in sorted(os.listdir(_WORKFLOWS_DIR)):
+        if not fname.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(_WORKFLOWS_DIR, fname)) as f:
+                data = json.load(f)
+            result.append({
+                "slug":     fname[:-5],
+                "name":     data.get("name", fname[:-5]),
+                "saved_at": data.get("saved_at", ""),
+            })
+        except Exception:
+            pass
+    return result
+
+
+@app.post("/workflows/{name}")
+def save_workflow(name: str):
+    os.makedirs(_WORKFLOWS_DIR, exist_ok=True)
+    slug = _slug(name)
+    data = {
+        "name":      name,
+        "saved_at":  datetime.now().isoformat(timespec="seconds"),
+        "node_meta": _session.node_meta,
+        "edges":     _session.graph._edges,
+    }
+    with open(_workflow_path(slug), "w") as f:
+        json.dump(data, f, indent=2)
+    return {"ok": True, "slug": slug}
+
+
+@app.post("/workflows/{slug}/load")
+def load_workflow(slug: str):
+    path = _workflow_path(slug)
+    if not os.path.exists(path):
+        raise HTTPException(404, f"Workflow '{slug}' not found")
+    with open(path) as f:
+        data = json.load(f)
+    _restore_session(data.get("node_meta", {}), data.get("edges", []))
+    _save()
+    return get_graph()
+
+
+@app.delete("/workflows/{slug}")
+def delete_workflow(slug: str):
+    path = _workflow_path(slug)
+    if not os.path.exists(path):
+        raise HTTPException(404, f"Workflow '{slug}' not found")
+    os.remove(path)
     return {"ok": True}
 
 

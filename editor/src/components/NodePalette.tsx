@@ -3,14 +3,16 @@ import { useStore } from '../store'
 import { CATEGORIES } from '../categories'
 import ScriptEditor from './ScriptEditor'
 import TemplateGallery from './TemplateGallery'
+import WorkflowManager from './WorkflowManager'
 
 const ALL_CATEGORISED = Object.values(CATEGORIES).flatMap(c => c.nodes)
 
-type Tab = 'nodes' | 'script' | 'templates'
+type Tab = 'nodes' | 'templates' | 'workflows' | 'script'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'nodes',     label: 'Nodes'     },
   { id: 'templates', label: 'Templates' },
+  { id: 'workflows', label: 'Workflows' },
   { id: 'script',    label: 'Script'    },
 ]
 
@@ -167,6 +169,11 @@ export default function NodePalette() {
           <div style={{ flex: 1, overflowY: 'auto' }}>
             <TemplateGallery />
           </div>
+        )}
+
+        {/* ── WORKFLOWS ── */}
+        {activeTab === 'workflows' && (
+          <WorkflowManager />
         )}
 
         {/* ── SCRIPT ── */}

@@ -32,4 +32,13 @@ export const api = {
   reset:      ()                             => req('POST', '/reset'),
   execNode:   (code: string)                 => req<{ ok: boolean; new_types: string[] }>('POST', '/exec-node', { code }),
   setApiKey:  (provider: string, key: string) => req('POST', '/settings/api-key', { provider, key }),
+
+  listWorkflows: () =>
+    req<{ slug: string; name: string; saved_at: string }[]>('GET', '/workflows'),
+  saveWorkflow: (name: string) =>
+    req<{ ok: boolean; slug: string }>('POST', `/workflows/${encodeURIComponent(name)}`),
+  loadWorkflow: (slug: string) =>
+    req<{ nodes: any[]; edges: any[] }>('POST', `/workflows/${encodeURIComponent(slug)}/load`),
+  deleteWorkflow: (slug: string) =>
+    req('DELETE', `/workflows/${encodeURIComponent(slug)}`),
 }
