@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactFlow, {
   Background, Controls, MiniMap,
-  BackgroundVariant, ReactFlowInstance,
+  BackgroundVariant, ReactFlowInstance, Edge, Connection,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 
@@ -20,7 +20,7 @@ const NODE_TYPES = { blacknode: BlackNode, valuenode: ValueNode, modelnode: Mode
 export default function App() {
   const {
     nodes, edges, serverOk,
-    onNodesChange, onEdgesChange, onConnect, disconnectEdge,
+    onNodesChange, onEdgesChange, onConnect, disconnectEdge, reconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels, checkServer, reset,
   } = useStore()
 
@@ -68,6 +68,19 @@ export default function App() {
     addNode(type, search.flowPos)
     setSearch(null)
   }, [search, addNode])
+
+  const edgeReconnected = useRef(false)
+
+  const onEdgeUpdateStart = useCallback(() => { edgeReconnected.current = false }, [])
+
+  const onEdgeUpdate = useCallback((oldEdge: Edge, newConn: Connection) => {
+    edgeReconnected.current = true
+    reconnectEdge(oldEdge, newConn)
+  }, [reconnectEdge])
+
+  const onEdgeUpdateEnd = useCallback((_: MouseEvent, edge: Edge) => {
+    if (!edgeReconnected.current) disconnectEdge(edge.id)
+  }, [disconnectEdge])
 
   const onEdgeDoubleClick = useCallback((_: React.MouseEvent, edge: any) => {
     disconnectEdge(edge.id)
@@ -155,6 +168,9 @@ export default function App() {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onEdgeDoubleClick={onEdgeDoubleClick}
+          onEdgeUpdateStart={onEdgeUpdateStart}
+          onEdgeUpdate={onEdgeUpdate}
+          onEdgeUpdateEnd={onEdgeUpdateEnd}
           onInit={i => { rfInstance.current = i }}
           onNodeClick={(_, node) => selectNode(node.id)}
           onPaneClick={() => { selectNode(null); setSearch(null) }}
@@ -162,10 +178,7 @@ export default function App() {
           fitView
           deleteKeyCode={['Delete', 'Backspace']}
           style={{ paddingTop: 44 }}
-          defaultEdgeOptions={{
-            style: { stroke: isDark ? '#383838' : '#bbbcce', strokeWidth: 1.5 },
-            animated: false,
-          }}
+          defaultEdgeOptions={{ animated: false }}
         >
           <Background
             variant={BackgroundVariant.Dots}

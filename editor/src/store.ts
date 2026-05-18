@@ -6,7 +6,7 @@ import {
 import { api } from './api'
 import { BnNodeMeta } from './types'
 import { VALUE_NODE_TYPES } from './categories'
-import { portsCompatible } from './portColors'
+import { portsCompatible, portColor } from './portColors'
 
 const MODEL_NODE_TYPES  = new Set(['Model'])
 const OUTPUT_NODE_TYPES = new Set(['Output'])
@@ -41,6 +41,7 @@ interface Store {
   onEdgesChange: (changes: EdgeChange[]) => void
   onConnect: (conn: Connection) => Promise<void>
   disconnectEdge: (edgeId: string) => Promise<void>
+  reconnectEdge: (oldEdge: Edge, newConn: Connection) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
   cookNode: (id: string, port?: string) => Promise<void>
   selectNode: (id: string | null) => void
@@ -111,13 +112,17 @@ export const useStore = create<Store>((set, get) => ({
       ...(n.type === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
       ...(n.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
     }))
-    const edges: Edge[] = bnEdges.map((e: any, i: number) => ({
-      id: `e${i}`,
-      source: e.from,
-      sourceHandle: e.from_port,
-      target: e.to,
-      targetHandle: e.to_port,
-    }))
+    const edges: Edge[] = bnEdges.map((e: any, i: number) => {
+      const fromType = bnNodes.find((n: BnNodeMeta) => n.id === e.from)?.output_types?.[e.from_port] ?? 'Any'
+      return {
+        id: `e${i}`,
+        source: e.from,
+        sourceHandle: e.from_port,
+        target: e.to,
+        targetHandle: e.to_port,
+        style: { stroke: portColor(fromType), strokeWidth: 1.5 },
+      }
+    })
     set({ nodes, edges })
   },
 
@@ -181,7 +186,11 @@ export const useStore = create<Store>((set, get) => ({
     const toType   = tgtNode?.data?.input_types?.[conn.targetHandle!]  ?? 'Any'
     if (!portsCompatible(fromType, toType)) return
     await api.connect(conn.source, conn.sourceHandle, conn.target, conn.targetHandle)
-    set(s => ({ edges: addEdge({ ...conn, id: `e${Date.now()}` }, s.edges) }))
+    set(s => ({ edges: addEdge({
+      ...conn,
+      id: `e${Date.now()}`,
+      style: { stroke: portColor(fromType), strokeWidth: 1.5 },
+    }, s.edges) }))
   },
 
   disconnectEdge: async (edgeId) => {
@@ -189,6 +198,29 @@ export const useStore = create<Store>((set, get) => ({
     if (!edge?.source || !edge.target || !edge.sourceHandle || !edge.targetHandle) return
     await api.disconnect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle)
     set(s => ({ edges: s.edges.filter(e => e.id !== edgeId) }))
+  },
+
+  reconnectEdge: async (oldEdge, newConn) => {
+    if (oldEdge.sourceHandle && oldEdge.targetHandle)
+      await api.disconnect(oldEdge.source, oldEdge.sourceHandle, oldEdge.target, oldEdge.targetHandle)
+    if (!newConn.source || !newConn.target || !newConn.sourceHandle || !newConn.targetHandle) return
+    const { nodes } = get()
+    const srcNode = nodes.find(n => n.id === newConn.source)
+    const tgtNode = nodes.find(n => n.id === newConn.target)
+    const fromType = srcNode?.data?.output_types?.[newConn.sourceHandle] ?? 'Any'
+    const toType   = tgtNode?.data?.input_types?.[newConn.targetHandle]  ?? 'Any'
+    if (!portsCompatible(fromType, toType)) return
+    await api.connect(newConn.source, newConn.sourceHandle, newConn.target, newConn.targetHandle)
+    set(s => ({
+      edges: s.edges.map(e => e.id !== oldEdge.id ? e : {
+        ...e,
+        source: newConn.source!,
+        sourceHandle: newConn.sourceHandle,
+        target: newConn.target!,
+        targetHandle: newConn.targetHandle,
+        style: { stroke: portColor(fromType), strokeWidth: 1.5 },
+      }),
+    }))
   },
 
   updateParam: async (id, key, value) => {
