@@ -30,7 +30,8 @@ function StatusDot({ data }: { data: NodeData }) {
 
   const isError   = !!data.cookError
   const isCooking = !!data.cooking
-  const dotColor  = isCooking ? '#facc15' : isError ? '#ef4444' : '#22c55e'
+  const dotColor  = isCooking ? 'var(--warn)' : isError ? 'var(--err)' : 'var(--ok)'
+  const dotHex    = isCooking ? '#facc15'     : isError ? '#ef4444'    : '#22c55e'
   const label     = isCooking ? 'cooking…' : isError ? data.cookError! : previewValue(data.cookResult)
 
   return (
@@ -43,27 +44,27 @@ function StatusDot({ data }: { data: NodeData }) {
         width: 10, height: 10,
         borderRadius: '50%',
         background: dotColor,
-        border: '1.5px solid #111827',
-        boxShadow: `0 0 6px ${dotColor}`,
+        border: '1.5px solid var(--node)',
+        boxShadow: `0 0 6px ${dotHex}88`,
         cursor: 'default',
       }} />
       {visible && (
         <div style={{
           position: 'absolute',
-          bottom: 16,
-          right: 0,
+          bottom: 16, right: 0,
           width: 260,
-          background: '#0f172a',
-          border: `1px solid ${isError ? '#ef4444' : '#22c55e'}`,
-          borderRadius: 6,
+          background: 'var(--panel)',
+          border: `1px solid ${isError ? 'var(--err)' : 'var(--ok)'}`,
+          borderRadius: 8,
           padding: '8px 10px',
           pointerEvents: 'none',
           zIndex: 100,
+          boxShadow: '0 8px 24px rgba(0,0,0,.3)',
         }}>
           <div style={{
-            color: isError ? '#f87171' : '#86efac',
-            fontFamily: 'monospace',
-            fontSize: 10,
+            color: isError ? 'var(--err)' : 'var(--ok)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-all',
             maxHeight: 200,
@@ -77,15 +78,9 @@ function StatusDot({ data }: { data: NodeData }) {
   )
 }
 
-function PortRow({
-  name, type, dir,
-}: {
-  name: string
-  type: string
-  dir: 'input' | 'output'
-}) {
+function PortRow({ name, type, dir }: { name: string; type: string; dir: 'input' | 'output' }) {
   const [hovering, setHovering] = useState(false)
-  const color = portColor(type)
+  const color   = portColor(type)
   const isInput = dir === 'input'
 
   return (
@@ -108,27 +103,28 @@ function PortRow({
         style={{
           [isInput ? 'left' : 'right']: 4,
           background: color,
-          width: 9,
-          height: 9,
+          width: 9, height: 9,
           border: `1.5px solid ${color}`,
           borderRadius: 3,
           boxShadow: hovering ? `0 0 6px ${color}` : undefined,
           transition: 'box-shadow 0.15s',
         }}
       />
-
-      {/* port name */}
-      <span style={{ color: '#9ca3af', fontSize: 10 }}>{name}</span>
-
-      {/* type badge — visible on hover */}
+      <span style={{
+        color: 'var(--tx2)',
+        fontSize: 11,
+        fontFamily: 'var(--font-mono)',
+      }}>
+        {name}
+      </span>
       {hovering && (
         <span style={{
-          fontSize: 9,
-          padding: '1px 4px',
-          borderRadius: 3,
-          background: color + '33',
+          fontSize: 10,
+          padding: '1px 5px',
+          borderRadius: 4,
+          background: color + '28',
           color: color,
-          fontFamily: 'monospace',
+          fontFamily: 'var(--font-mono)',
           whiteSpace: 'nowrap',
         }}>
           {type}
@@ -149,13 +145,14 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       style={{
         position: 'relative',
         minWidth: 160,
-        background: '#111827',
-        border: `1px solid ${selected ? '#f9fafb' : '#374151'}`,
-        borderRadius: 8,
-        fontFamily: 'monospace',
+        background: 'var(--node)',
+        border: `1px solid ${selected ? color : 'var(--line2)'}`,
+        borderRadius: 9,
         fontSize: 12,
-        color: '#f9fafb',
-        boxShadow: selected ? `0 0 0 2px ${color}` : '0 2px 8px rgba(0,0,0,.5)',
+        color: 'var(--tx1)',
+        boxShadow: selected
+          ? `0 0 0 2px ${color}55, 0 4px 16px rgba(0,0,0,.4)`
+          : '0 2px 10px rgba(0,0,0,.25)',
         cursor: 'default',
       }}
     >
@@ -164,23 +161,26 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       {/* header */}
       <div style={{
         background: color,
-        borderRadius: '7px 7px 0 0',
-        padding: '5px 10px',
+        borderRadius: '8px 8px 0 0',
+        padding: '6px 10px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
       }}>
-        <span style={{ fontWeight: 600 }}>{data.type}</span>
+        <span style={{ fontWeight: 600, fontSize: 12, fontFamily: 'var(--font-ui)' }}>
+          {data.type}
+        </span>
         <button
           onClick={e => { e.stopPropagation(); cookNode(id, data.outputs[0] ?? 'output') }}
           style={{
-            background: 'rgba(255,255,255,.15)',
+            background: 'rgba(0,0,0,.2)',
             border: 'none',
             borderRadius: 4,
             color: '#fff',
             cursor: 'pointer',
             fontSize: 10,
-            padding: '2px 6px',
+            padding: '2px 7px',
+            fontFamily: 'var(--font-ui)',
           }}
         >
           {data.cooking ? '…' : '▶'}
@@ -190,20 +190,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       {/* ports */}
       <div style={{ padding: '6px 0' }}>
         {data.inputs.map(inp => (
-          <PortRow
-            key={inp}
-            name={inp}
-            type={data.input_types?.[inp] ?? 'Any'}
-            dir="input"
-          />
+          <PortRow key={inp} name={inp} type={data.input_types?.[inp] ?? 'Any'} dir="input" />
         ))}
         {data.outputs.map(out => (
-          <PortRow
-            key={out}
-            name={out}
-            type={data.output_types?.[out] ?? 'Any'}
-            dir="output"
-          />
+          <PortRow key={out} name={out} type={data.output_types?.[out] ?? 'Any'} dir="output" />
         ))}
       </div>
     </div>

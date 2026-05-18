@@ -22,10 +22,9 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   const pColor = portColor(data.type)
 
   const rawValue = data.params.value
-  const [draft, setDraft]   = useState(rawValue ?? '')
+  const [draft, setDraft] = useState(rawValue ?? '')
   const commitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // keep draft in sync if value changes externally
   useEffect(() => { setDraft(rawValue ?? '') }, [rawValue])
 
   const commit = (val: unknown) => {
@@ -43,31 +42,34 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
       onClick={() => selectNode(id)}
       style={{
         position: 'relative',
-        width: 160,
-        background: '#111827',
-        border: `1px solid ${selected ? '#f9fafb' : color + '55'}`,
-        borderRadius: 8,
-        fontFamily: 'monospace',
+        width: 170,
+        background: 'var(--node)',
+        border: `1px solid ${selected ? color : 'var(--line2)'}`,
+        borderRadius: 9,
         fontSize: 12,
-        color: '#f9fafb',
-        boxShadow: selected ? `0 0 0 2px ${color}` : '0 2px 8px rgba(0,0,0,.5)',
+        color: 'var(--tx1)',
+        boxShadow: selected
+          ? `0 0 0 2px ${color}55, 0 4px 16px rgba(0,0,0,.4)`
+          : '0 2px 10px rgba(0,0,0,.25)',
         cursor: 'default',
       }}
     >
-      {/* compact header */}
+      {/* header */}
       <div style={{
         background: color,
-        borderRadius: '7px 7px 0 0',
-        padding: '3px 8px',
+        borderRadius: '8px 8px 0 0',
+        padding: '4px 8px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
       }}>
-        <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.9 }}>{data.type}</span>
+        <span style={{ fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-ui)' }}>
+          {data.type}
+        </span>
         <button
           onClick={e => { e.stopPropagation(); cookNode(id, 'value') }}
           style={{
-            background: 'rgba(255,255,255,.15)', border: 'none', borderRadius: 3,
+            background: 'rgba(0,0,0,.2)', border: 'none', borderRadius: 3,
             color: '#fff', cursor: 'pointer', fontSize: 9, padding: '1px 5px',
           }}
         >
@@ -76,28 +78,34 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
       </div>
 
       {/* value input */}
-      <div style={{ padding: '6px 8px 6px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ padding: '7px 8px', display: 'flex', alignItems: 'center' }}>
         {data.type === 'Bool' ? (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', width: '100%' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', width: '100%' }}>
             <div
               onClick={e => { e.stopPropagation(); commit(!draft) }}
               style={{
-                width: 32, height: 17, borderRadius: 9,
-                background: draft ? pColor : '#374151',
+                width: 34, height: 18, borderRadius: 9,
+                background: draft ? pColor : 'var(--line2)',
                 position: 'relative', transition: 'background .2s', flexShrink: 0,
                 cursor: 'pointer',
               }}
             >
               <div style={{
                 position: 'absolute', top: 2,
-                left: draft ? 17 : 2,
-                width: 13, height: 13,
+                left: draft ? 18 : 2,
+                width: 14, height: 14,
                 borderRadius: '50%',
                 background: '#fff',
                 transition: 'left .2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,.3)',
               }} />
             </div>
-            <span style={{ color: draft ? pColor : '#6b7280', fontSize: 11 }}>
+            <span style={{
+              color: draft ? pColor : 'var(--tx3)',
+              fontSize: 12,
+              fontFamily: 'var(--font-mono)',
+              fontWeight: 600,
+            }}>
               {draft ? 'true' : 'false'}
             </span>
           </label>
@@ -114,7 +122,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               setDraft(v)
               scheduleCommit(v)
             }}
-            onBlur={e => {
+            onBlur={() => {
               if (commitRef.current) clearTimeout(commitRef.current)
               commit(draft)
             }}
@@ -122,9 +130,9 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               width: '100%',
               background: 'transparent',
               border: 'none',
-              borderBottom: `1px solid ${color}55`,
+              borderBottom: `1.5px solid ${pColor}55`,
               color: pColor,
-              fontFamily: 'monospace',
+              fontFamily: 'var(--font-mono)',
               fontSize: 13,
               fontWeight: 600,
               outline: 'none',
@@ -134,7 +142,6 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
         )}
       </div>
 
-      {/* single output handle */}
       <Handle
         type="source"
         position={Position.Right}

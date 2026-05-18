@@ -12,8 +12,7 @@ export default function NodePalette() {
   }
 
   const groups = Object.entries(CATEGORIES).map(([group, { color, nodes }]) => ({
-    group,
-    color,
+    group, color,
     types: nodes.filter(t => nodeTypes.includes(t)),
   })).filter(g => g.types.length > 0)
 
@@ -21,81 +20,113 @@ export default function NodePalette() {
 
   return (
     <aside style={{
-      width: 180,
-      background: '#0f172a',
-      borderRight: '1px solid #1e293b',
+      width: 200,
+      background: 'var(--panel)',
+      borderRight: '1px solid var(--line)',
       overflowY: 'auto',
       display: 'flex',
       flexDirection: 'column',
+      flexShrink: 0,
     }}>
-      <div style={{ padding: '12px 12px 8px', color: '#64748b', fontSize: 13, fontFamily: 'monospace', letterSpacing: 1 }}>
-        NODES
+      <div style={{
+        padding: '14px 14px 10px',
+        color: 'var(--tx3)',
+        fontSize: 11,
+        fontWeight: 600,
+        letterSpacing: '0.1em',
+        textTransform: 'uppercase',
+        borderBottom: '1px solid var(--line)',
+      }}>
+        Nodes
       </div>
 
-      {groups.map(({ group, color, types }) => (
-        <div key={group}>
-          <div style={{ padding: '4px 12px', color, fontSize: 12, fontFamily: 'monospace', fontWeight: 600 }}>
-            {group}
-          </div>
-          {types.map(type => (
-            <div
-              key={type}
-              draggable
-              onDragStart={e => handleDragStart(e, type)}
-              style={{
-                padding: '6px 16px',
-                color: '#cbd5e1',
-                fontSize: 14,
-                fontFamily: 'monospace',
-                cursor: 'grab',
-                borderRadius: 4,
-                margin: '1px 6px',
-                userSelect: 'none',
-                borderLeft: `2px solid transparent`,
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = '#1e293b'
-                e.currentTarget.style.borderLeftColor = color
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = 'transparent'
-                e.currentTarget.style.borderLeftColor = 'transparent'
-              }}
-            >
-              {type}
+      <div style={{ padding: '8px 0', flex: 1 }}>
+        {groups.map(({ group, color, types }) => (
+          <div key={group} style={{ marginBottom: 4 }}>
+            <div style={{
+              padding: '6px 14px 4px',
+              color,
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}>
+              <div style={{ width: 6, height: 6, borderRadius: 2, background: color, flexShrink: 0 }} />
+              {group}
             </div>
-          ))}
-        </div>
-      ))}
 
-      {ungrouped.length > 0 && (
-        <div>
-          <div style={{ padding: '4px 12px', color: '#475569', fontSize: 12, fontFamily: 'monospace', fontWeight: 600 }}>
-            OTHER
+            {types.map(type => (
+              <div
+                key={type}
+                draggable
+                onDragStart={e => handleDragStart(e, type)}
+                onClick={() => addNode(type, { x: 200 + Math.random() * 200, y: 100 + Math.random() * 200 })}
+                style={{
+                  padding: '6px 14px 6px 26px',
+                  color: 'var(--tx2)',
+                  fontSize: 13,
+                  cursor: 'grab',
+                  borderRadius: 6,
+                  margin: '1px 6px',
+                  userSelect: 'none',
+                  borderLeft: '2px solid transparent',
+                  transition: 'background 0.1s, color 0.1s',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = 'var(--hover)'
+                  e.currentTarget.style.color = 'var(--tx1)'
+                  e.currentTarget.style.borderLeftColor = color
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.color = 'var(--tx2)'
+                  e.currentTarget.style.borderLeftColor = 'transparent'
+                }}
+              >
+                {type}
+              </div>
+            ))}
           </div>
-          {ungrouped.map(type => (
-            <div
-              key={type}
-              draggable
-              onDragStart={e => handleDragStart(e, type)}
-              style={{
-                padding: '6px 16px',
-                color: '#cbd5e1',
-                fontSize: 14,
-                fontFamily: 'monospace',
-                cursor: 'grab',
-                borderRadius: 4,
-                margin: '1px 6px',
-                userSelect: 'none',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#1e293b')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-            >
-              {type}
+        ))}
+
+        {ungrouped.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <div style={{
+              padding: '6px 14px 4px',
+              color: 'var(--tx3)',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}>
+              Other
             </div>
-          ))}
-        </div>
-      )}
+            {ungrouped.map(type => (
+              <div
+                key={type}
+                draggable
+                onDragStart={e => handleDragStart(e, type)}
+                style={{
+                  padding: '6px 14px 6px 26px',
+                  color: 'var(--tx2)',
+                  fontSize: 13,
+                  cursor: 'grab',
+                  borderRadius: 6,
+                  margin: '1px 6px',
+                  userSelect: 'none',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--tx1)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--tx2)' }}
+              >
+                {type}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </aside>
   )
 }

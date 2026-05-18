@@ -24,6 +24,11 @@ export default function App() {
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
   const [search, setSearch] = useState<{ screenPos: { x: number; y: number }; flowPos: { x: number; y: number } } | null>(null)
+  const [isDark, setIsDark] = useState(true)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
+  }, [isDark])
 
   useEffect(() => {
     checkServer().then(() => {
@@ -61,29 +66,77 @@ export default function App() {
   }, [search, addNode])
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: '#030712' }}>
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
       <NodePalette />
 
       <div style={{ flex: 1, position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver}>
         {/* top bar */}
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
-          background: '#0f172a', borderBottom: '1px solid #1e293b',
-          display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px',
-          fontFamily: 'monospace', fontSize: 14,
+          background: 'var(--panel)',
+          borderBottom: '1px solid var(--line)',
+          display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px',
+          height: 44,
         }}>
-          <span style={{ color: '#6366f1', fontWeight: 700, letterSpacing: 2 }}>BLACKNODE</span>
-          <div style={{ flex: 1 }} />
-          <span style={{ color: '#334155', fontSize: 12 }}>right-click to add</span>
           <span style={{
-            padding: '3px 10px', borderRadius: 12,
-            background: serverOk ? '#14532d' : '#450a0a',
-            color: serverOk ? '#4ade80' : '#f87171',
-            fontSize: 12,
+            color: 'var(--accent)',
+            fontWeight: 700,
+            fontSize: 15,
+            letterSpacing: '0.12em',
+            fontFamily: 'var(--font-ui)',
           }}>
-            {serverOk ? '● server' : '✕ offline'}
+            BLACKNODE
           </span>
-          <button onClick={reset} style={topBtn('#7f1d1d')}>Reset</button>
+
+          <div style={{ flex: 1 }} />
+
+          <span style={{ color: 'var(--tx3)', fontSize: 12 }}>right-click canvas to add</span>
+
+          <span style={{
+            padding: '3px 10px',
+            borderRadius: 20,
+            background: serverOk ? (isDark ? '#0d2a1a' : '#dcfce7') : (isDark ? '#2a0d0d' : '#fee2e2'),
+            color: serverOk ? 'var(--ok)' : 'var(--err)',
+            fontSize: 12,
+            fontWeight: 500,
+          }}>
+            {serverOk ? '● server' : '○ offline'}
+          </span>
+
+          <button
+            onClick={() => setIsDark(d => !d)}
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            style={{
+              background: 'var(--hover)',
+              border: '1px solid var(--line2)',
+              borderRadius: 6,
+              color: 'var(--tx2)',
+              cursor: 'pointer',
+              fontSize: 15,
+              width: 32, height: 32,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'color 0.15s',
+            }}
+          >
+            {isDark ? '☀' : '☾'}
+          </button>
+
+          <button
+            onClick={reset}
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--line2)',
+              borderRadius: 6,
+              color: 'var(--err)',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-ui)',
+              fontSize: 12,
+              fontWeight: 500,
+              padding: '5px 12px',
+            }}
+          >
+            Reset
+          </button>
         </div>
 
         <ReactFlow
@@ -99,15 +152,20 @@ export default function App() {
           onPaneContextMenu={onPaneContextMenu}
           fitView
           deleteKeyCode={['Delete', 'Backspace']}
-          style={{ paddingTop: 40 }}
-          defaultEdgeOptions={{ style: { stroke: '#4b5563', strokeWidth: 1.5 }, animated: false }}
+          style={{ paddingTop: 44 }}
+          defaultEdgeOptions={{
+            style: { stroke: isDark ? '#2c2e40' : '#bbbcce', strokeWidth: 1.5 },
+            animated: false,
+          }}
         >
-          <Background variant={BackgroundVariant.Dots} color="#1e293b" gap={20} size={1} />
-          <Controls style={{ background: '#0f172a', border: '1px solid #1e293b' }} />
-          <MiniMap
-            style={{ background: '#0f172a', border: '1px solid #1e293b' }}
-            nodeColor={() => '#1e293b'}
+          <Background
+            variant={BackgroundVariant.Dots}
+            color={isDark ? '#1a1b2a' : '#d0d1e0'}
+            gap={24}
+            size={1.2}
           />
+          <Controls />
+          <MiniMap nodeColor={() => isDark ? '#1e2030' : '#e0e0ec'} />
         </ReactFlow>
       </div>
 
@@ -122,12 +180,4 @@ export default function App() {
       )}
     </div>
   )
-}
-
-function topBtn(bg: string): React.CSSProperties {
-  return {
-    background: bg, border: 'none', borderRadius: 4,
-    color: '#fff', cursor: 'pointer',
-    fontFamily: 'monospace', fontSize: 13, padding: '5px 12px',
-  }
 }
