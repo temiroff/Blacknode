@@ -212,6 +212,13 @@ blacknode/
 
 ---
 
+## License
+
+Blacknode is licensed under the GNU Affero General Public License, version 3 only.
+See [COPYING](COPYING) for the full license text.
+
+---
+
 ## Roadmap
 
 - [x] Pure-Python graph engine with lazy evaluation and smart caching

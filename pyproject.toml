@@ -6,6 +6,7 @@ build-backend = "maturin"
 name = "blacknode"
 version = "0.1.0"
 description = "Houdini-style node graph for AI agents and scene assembly"
+license = { text = "AGPL-3.0-only" }
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.25",
