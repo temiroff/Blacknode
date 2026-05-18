@@ -6,13 +6,13 @@
 
 /* ── Dark theme ────────────────────────────────── */
 html[data-theme="dark"] {
-  --bg:      #090a12;
-  --panel:   #0e0f1a;
-  --node:    #13141f;
-  --lift:    #191a28;
-  --hover:   #1e2030;
-  --line:    #20212e;
-  --line2:   #2c2e40;
+  --bg:      #1a1a1a;
+  --panel:   #202020;
+  --node:    #252525;
+  --lift:    #2a2a2a;
+  --hover:   #2e2e2e;
+  --line:    #2a2a2a;
+  --line2:   #383838;
   --tx1:     #ffffff;
   --tx2:     #c0c0c8;
   --tx3:     #707078;
@@ -20,10 +20,10 @@ html[data-theme="dark"] {
   --ok:      #22c55e;
   --warn:    #facc15;
   --err:     #ef4444;
-  --rf-bg:   #090a12;
-  --rf-dot:  #1a1b2a;
-  --rf-edge: #2c2e40;
-  --rf-ctrl: #0e0f1a;
+  --rf-bg:   #1a1a1a;
+  --rf-dot:  #3a3a3a;
+  --rf-edge: #383838;
+  --rf-ctrl: #202020;
 }
 
 /* ── Light theme ───────────────────────────────── */

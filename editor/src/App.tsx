@@ -163,18 +163,18 @@ export default function App() {
           deleteKeyCode={['Delete', 'Backspace']}
           style={{ paddingTop: 44 }}
           defaultEdgeOptions={{
-            style: { stroke: isDark ? '#2c2e40' : '#bbbcce', strokeWidth: 1.5 },
+            style: { stroke: isDark ? '#383838' : '#bbbcce', strokeWidth: 1.5 },
             animated: false,
           }}
         >
           <Background
             variant={BackgroundVariant.Dots}
-            color={isDark ? '#1a1b2a' : '#d0d1e0'}
+            color={isDark ? '#3a3a3a' : '#d0d1e0'}
             gap={24}
-            size={1.2}
+            size={1.5}
           />
           <Controls />
-          <MiniMap nodeColor={() => isDark ? '#1e2030' : '#e0e0ec'} />
+          <MiniMap nodeColor={() => isDark ? '#2e2e2e' : '#e0e0ec'} />
         </ReactFlow>
       </div>
 
