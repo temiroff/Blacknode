@@ -1,36 +1,25 @@
 @echo off
-chcp 65001 > nul 2>&1
+title Blacknode
 
-:: ── Banner (PowerShell handles Unicode + colour reliably) ─────────────────────
-powershell -NoProfile -Command ^
-  "$c='Cyan';" ^
-  "Write-Host '';" ^
-  "Write-Host '  ██████╗ ██╗      █████╗  ██████╗██╗  ██╗███╗   ██╗ ██████╗ ██████╗ ███████╗' -ForegroundColor $c;" ^
-  "Write-Host '  ██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝████╗  ██║██╔═══██╗██╔══██╗██╔════╝' -ForegroundColor $c;" ^
-  "Write-Host '  ██████╔╝██║     ███████║██║     █████╔╝ ██╔██╗ ██║██║   ██║██║  ██║█████╗  ' -ForegroundColor $c;" ^
-  "Write-Host '  ██╔══██╗██║     ██╔══██║██║     ██╔═██╗ ██║╚██╗██║██║   ██║██║  ██║██╔══╝  ' -ForegroundColor $c;" ^
-  "Write-Host '  ██████╔╝███████╗██║  ██║╚██████╗██║  ██╗██║ ╚████║╚██████╔╝██████╔╝███████╗' -ForegroundColor $c;" ^
-  "Write-Host '  ╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═════╝ ╚══════╝' -ForegroundColor $c;" ^
-  "Write-Host ''"
+:: Banner (PowerShell script handles Unicode natively)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0banner.ps1"
 
-:: ── Python deps ──────────────────────────────────────────────────────────────
+:: Python deps
 echo  Checking Python dependencies...
 pip install -r "%~dp0editor-server\requirements.txt" -q --disable-pip-version-check
 echo  Done.
 echo.
 
-:: ── Python backend ────────────────────────────────────────────────────────────
+:: Python backend
 echo  [1/2] Starting Python server  (http://127.0.0.1:7777)
-start "Blacknode  |  Python Server" cmd /k "cd /d "%~dp0editor-server" && python server.py"
+start "Blacknode | Python Server" cmd /k "cd /d "%~dp0editor-server" && python server.py"
 
-:: Give the server a moment to bind before the browser hits it
 timeout /t 3 /nobreak > nul
 
-:: ── Vite frontend ─────────────────────────────────────────────────────────────
-echo  [2/2] Starting visual editor   (http://localhost:3000)
-start "Blacknode  |  Editor (Vite)" cmd /k "cd /d "%~dp0editor" && npm run dev"
+:: Vite frontend
+echo  [2/2] Starting visual editor  (http://localhost:3000)
+start "Blacknode | Editor (Vite)" cmd /k "cd /d "%~dp0editor" && npm run dev"
 
-:: Open browser after Vite has had time to compile
 timeout /t 5 /nobreak > nul
 echo.
 echo  Opening browser...
