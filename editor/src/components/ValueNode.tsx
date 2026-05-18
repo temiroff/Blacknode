@@ -201,8 +201,8 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
         position={Position.Right}
         id="value"
         style={{
-          right: 4,
-          top: isText ? 20 : '50%',
+          right: -5,
+          top: '50%',
           background: pColor,
           width: 9, height: 9,
           border: `1.5px solid ${pColor}`,

@@ -98,7 +98,7 @@ def tool_call(ctx: dict) -> dict:
     return {"result": result}
 
 
-@node(inputs=["text:Text", "model:Text"],
+@node(inputs=["text:Text", "model:Model"],
       outputs=["embedding:Embedding"], name="EmbedText")
 def embed_text(ctx: dict) -> dict:
     from openai import OpenAI

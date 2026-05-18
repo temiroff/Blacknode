@@ -95,7 +95,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
 
       {/* input port */}
       <div style={{
-        padding: '6px 10px 6px 20px',
+        padding: '6px 10px 6px 12px',
         display: 'flex',
         alignItems: 'center',
         gap: 6,
@@ -108,14 +108,14 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
           position={Position.Left}
           id="value"
           style={{
-            left: 4,
+            left: -5,
             background: portColor('Any'),
             width: 9, height: 9,
             border: `1.5px solid ${portColor('Any')}`,
             borderRadius: 3,
           }}
         />
-        <span style={{ color: 'var(--tx2)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>value</span>
+        <span style={{ color: 'var(--tx2)', fontSize: 12, fontFamily: 'var(--font-ui)' }}>value</span>
       </div>
 
       {/* result area */}

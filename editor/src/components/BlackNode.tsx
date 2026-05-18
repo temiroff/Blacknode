@@ -89,7 +89,7 @@ function PortRow({ name, type, dir }: { name: string; type: string; dir: 'input'
         display: 'flex',
         alignItems: 'center',
         justifyContent: isInput ? 'flex-start' : 'flex-end',
-        padding: isInput ? '3px 10px 3px 18px' : '3px 18px 3px 10px',
+        padding: isInput ? '4px 10px 4px 12px' : '4px 12px 4px 10px',
         position: 'relative',
         gap: 5,
       }}
@@ -101,7 +101,7 @@ function PortRow({ name, type, dir }: { name: string; type: string; dir: 'input'
         position={isInput ? Position.Left : Position.Right}
         id={name}
         style={{
-          [isInput ? 'left' : 'right']: 4,
+          [isInput ? 'left' : 'right']: -5,
           background: color,
           width: 9, height: 9,
           border: `1.5px solid ${color}`,
@@ -112,8 +112,8 @@ function PortRow({ name, type, dir }: { name: string; type: string; dir: 'input'
       />
       <span style={{
         color: 'var(--tx2)',
-        fontSize: 13,
-        fontFamily: 'var(--font-mono)',
+        fontSize: 12,
+        fontFamily: 'var(--font-ui)',
       }}>
         {name}
       </span>

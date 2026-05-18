@@ -316,7 +316,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         position={Position.Right}
         id="value"
         style={{
-          right: 4,
+          right: -5,
           background: portColor('Model'),
           width: 9, height: 9,
           border: `1.5px solid ${portColor('Model')}`,
