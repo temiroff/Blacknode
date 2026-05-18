@@ -16,7 +16,7 @@ html[data-theme="dark"] {
   --tx1:     #ffffff;
   --tx2:     #c0c0c8;
   --tx3:     #707078;
-  --accent:  #6366f1;
+  --accent:  #9899a8;
   --ok:      #22c55e;
   --warn:    #facc15;
   --err:     #ef4444;
@@ -38,7 +38,7 @@ html[data-theme="light"] {
   --tx1:     #11121e;
   --tx2:     #3a3c60;
   --tx3:     #8082a8;
-  --accent:  #5254d4;
+  --accent:  #6b7280;
   --ok:      #16a34a;
   --warn:    #ca8a04;
   --err:     #dc2626;
