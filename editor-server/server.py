@@ -69,11 +69,18 @@ def list_node_types():
 
 @app.get("/graph")
 def get_graph():
-    """Return current graph state (nodes + edges)."""
-    return {
-        "nodes": list(_session.node_meta.values()),
-        "edges": _session.graph._edges,
-    }
+    """Return current graph state (nodes + edges) with types always read fresh from registry."""
+    nodes = []
+    for meta in _session.node_meta.values():
+        fn = _NODE_REGISTRY.get(meta["type"])
+        nodes.append({
+            **meta,
+            "inputs":       getattr(fn, "_bn_inputs",       meta.get("inputs",       [])),
+            "outputs":      getattr(fn, "_bn_outputs",      meta.get("outputs",      [])),
+            "input_types":  getattr(fn, "_bn_input_types",  meta.get("input_types",  {})),
+            "output_types": getattr(fn, "_bn_output_types", meta.get("output_types", {})),
+        })
+    return {"nodes": nodes, "edges": _session.graph._edges}
 
 
 @app.post("/nodes")

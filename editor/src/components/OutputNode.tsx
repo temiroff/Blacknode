@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import { useStore } from '../store'
+import { portColor } from '../portColors'
 
 interface NodeData {
   id: string
@@ -108,9 +109,9 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
           id="value"
           style={{
             left: 4,
-            background: COLOR,
+            background: portColor('Any'),
             width: 9, height: 9,
-            border: `1.5px solid ${COLOR}`,
+            border: `1.5px solid ${portColor('Any')}`,
             borderRadius: 3,
           }}
         />

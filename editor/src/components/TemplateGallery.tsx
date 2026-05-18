@@ -44,16 +44,18 @@ const TEMPLATES: Template[] = [
   {
     id: 'nim-demo',
     name: 'NVIDIA NIM',
-    description: 'Run a prompt through NVIDIA NIM API',
+    description: 'Run a prompt through NVIDIA NIM via LLMAgent',
     color: '#76b900',
     nodes: [
-      { ref: 'model',  type: 'Model',    params: { value: 'nim:meta/llama-3.1-8b-instruct' }, pos: [60,  80] },
-      { ref: 'prompt', type: 'Text',     params: { value: 'Explain quantum computing briefly.' },          pos: [60, 230] },
-      { ref: 'agent',  type: 'NIMAgent', params: {},                                                       pos: [340, 150] },
-      { ref: 'out',    type: 'Output',   params: {},                                                       pos: [620, 130] },
+      { ref: 'model',  type: 'Model',    params: { value: 'nim:meta/llama-3.1-8b-instruct' },    pos: [60,  80] },
+      { ref: 'system', type: 'Text',     params: { value: 'You are a helpful assistant.' },       pos: [60, 230] },
+      { ref: 'prompt', type: 'Text',     params: { value: 'Explain quantum computing briefly.' }, pos: [60, 390] },
+      { ref: 'agent',  type: 'LLMAgent', params: {},                                              pos: [340, 220] },
+      { ref: 'out',    type: 'Output',   params: {},                                              pos: [630, 200] },
     ],
     edges: [
       { from: 'model',  fromPort: 'value', to: 'agent', toPort: 'model' },
+      { from: 'system', fromPort: 'value', to: 'agent', toPort: 'system' },
       { from: 'prompt', fromPort: 'value', to: 'agent', toPort: 'prompt' },
       { from: 'agent',  fromPort: 'text',  to: 'out',   toPort: 'value' },
     ],
