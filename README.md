@@ -6,13 +6,13 @@ A node-based framework for building AI agent pipelines — scriptable in Python,
 
 ## Screenshots
 
-### Template canvas
+### Light theme
 
-![Blacknode template canvas](docs/images/blacknode-template-canvas.png)
+![Blacknode light theme](docs/images/blacknode-light-theme.png)
 
-### Cooked result view
+### Dark theme
 
-![Blacknode cooked result view](docs/images/blacknode-result-view.png)
+![Blacknode dark theme](docs/images/blacknode-dark-theme.png)
 
 ---
 
