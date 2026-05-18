@@ -97,7 +97,7 @@ export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
               outline: 'none',
               color: '#f8fafc',
               fontFamily: 'monospace',
-              fontSize: 13,
+              fontSize: 14,
             }}
           />
         </div>
@@ -105,7 +105,7 @@ export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
         {/* results */}
         <div ref={listRef} style={{ maxHeight: 320, overflowY: 'auto' }}>
           {grouped.length === 0 && (
-            <div style={{ padding: '10px 14px', color: '#475569', fontFamily: 'monospace', fontSize: 12 }}>
+            <div style={{ padding: '10px 14px', color: '#475569', fontFamily: 'monospace', fontSize: 13 }}>
               no results
             </div>
           )}
@@ -114,7 +114,7 @@ export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
             <div key={cat}>
               <div style={{
                 padding: '5px 12px 3px',
-                color, fontSize: 9,
+                color, fontSize: 11,
                 fontFamily: 'monospace',
                 fontWeight: 700,
                 letterSpacing: 1,
@@ -136,7 +136,7 @@ export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
                       display: 'flex',
                       alignItems: 'center',
                       gap: 8,
-                      padding: '5px 14px',
+                      padding: '6px 14px',
                       background: active ? '#1e293b' : 'transparent',
                       cursor: 'pointer',
                       borderLeft: `2px solid ${active ? item.color : 'transparent'}`,
@@ -150,7 +150,7 @@ export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
                     }} />
                     <span style={{
                       fontFamily: 'monospace',
-                      fontSize: 12,
+                      fontSize: 13,
                       color: active ? '#f8fafc' : '#94a3b8',
                     }}>
                       {item.type}
@@ -167,7 +167,7 @@ export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
           padding: '5px 12px',
           borderTop: '1px solid #1e293b',
           display: 'flex', gap: 12,
-          color: '#334155', fontSize: 10, fontFamily: 'monospace',
+          color: '#334155', fontSize: 12, fontFamily: 'monospace',
         }}>
           <span>↑↓ navigate</span>
           <span>↵ add</span>

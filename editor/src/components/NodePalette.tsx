@@ -28,13 +28,13 @@ export default function NodePalette() {
       display: 'flex',
       flexDirection: 'column',
     }}>
-      <div style={{ padding: '12px 12px 8px', color: '#64748b', fontSize: 11, fontFamily: 'monospace', letterSpacing: 1 }}>
+      <div style={{ padding: '12px 12px 8px', color: '#64748b', fontSize: 13, fontFamily: 'monospace', letterSpacing: 1 }}>
         NODES
       </div>
 
       {groups.map(({ group, color, types }) => (
         <div key={group}>
-          <div style={{ padding: '4px 12px', color, fontSize: 10, fontFamily: 'monospace', fontWeight: 600 }}>
+          <div style={{ padding: '4px 12px', color, fontSize: 12, fontFamily: 'monospace', fontWeight: 600 }}>
             {group}
           </div>
           {types.map(type => (
@@ -43,9 +43,9 @@ export default function NodePalette() {
               draggable
               onDragStart={e => handleDragStart(e, type)}
               style={{
-                padding: '5px 16px',
+                padding: '6px 16px',
                 color: '#cbd5e1',
-                fontSize: 12,
+                fontSize: 14,
                 fontFamily: 'monospace',
                 cursor: 'grab',
                 borderRadius: 4,
@@ -70,7 +70,7 @@ export default function NodePalette() {
 
       {ungrouped.length > 0 && (
         <div>
-          <div style={{ padding: '4px 12px', color: '#475569', fontSize: 10, fontFamily: 'monospace', fontWeight: 600 }}>
+          <div style={{ padding: '4px 12px', color: '#475569', fontSize: 12, fontFamily: 'monospace', fontWeight: 600 }}>
             OTHER
           </div>
           {ungrouped.map(type => (
@@ -79,9 +79,9 @@ export default function NodePalette() {
               draggable
               onDragStart={e => handleDragStart(e, type)}
               style={{
-                padding: '5px 16px',
+                padding: '6px 16px',
                 color: '#cbd5e1',
-                fontSize: 12,
+                fontSize: 14,
                 fontFamily: 'monospace',
                 cursor: 'grab',
                 borderRadius: 4,

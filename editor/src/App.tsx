@@ -69,17 +69,17 @@ export default function App() {
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
           background: '#0f172a', borderBottom: '1px solid #1e293b',
-          display: 'flex', alignItems: 'center', gap: 12, padding: '6px 14px',
-          fontFamily: 'monospace', fontSize: 12,
+          display: 'flex', alignItems: 'center', gap: 12, padding: '7px 14px',
+          fontFamily: 'monospace', fontSize: 14,
         }}>
           <span style={{ color: '#6366f1', fontWeight: 700, letterSpacing: 2 }}>BLACKNODE</span>
           <div style={{ flex: 1 }} />
-          <span style={{ color: '#334155', fontSize: 10 }}>right-click to add</span>
+          <span style={{ color: '#334155', fontSize: 12 }}>right-click to add</span>
           <span style={{
-            padding: '2px 8px', borderRadius: 12,
+            padding: '3px 10px', borderRadius: 12,
             background: serverOk ? '#14532d' : '#450a0a',
             color: serverOk ? '#4ade80' : '#f87171',
-            fontSize: 10,
+            fontSize: 12,
           }}>
             {serverOk ? '● server' : '✕ offline'}
           </span>
@@ -128,6 +128,6 @@ function topBtn(bg: string): React.CSSProperties {
   return {
     background: bg, border: 'none', borderRadius: 4,
     color: '#fff', cursor: 'pointer',
-    fontFamily: 'monospace', fontSize: 11, padding: '4px 10px',
+    fontFamily: 'monospace', fontSize: 13, padding: '5px 12px',
   }
 }

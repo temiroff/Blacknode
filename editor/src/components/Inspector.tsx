@@ -15,7 +15,7 @@ export default function Inspector() {
         alignItems: 'center',
         justifyContent: 'center',
         color: '#334155',
-        fontSize: 12,
+        fontSize: 14,
         fontFamily: 'monospace',
       }}>
         select a node
@@ -32,18 +32,18 @@ export default function Inspector() {
       borderLeft: '1px solid #1e293b',
       overflowY: 'auto',
       fontFamily: 'monospace',
-      fontSize: 12,
+      fontSize: 14,
       color: '#cbd5e1',
     }}>
       {/* header */}
       <div style={{ padding: '12px 14px', borderBottom: '1px solid #1e293b' }}>
         <div style={{ color: '#f8fafc', fontWeight: 600, marginBottom: 4 }}>{data.type}</div>
-        <div style={{ color: '#475569', fontSize: 10 }}>{data.id.slice(0, 12)}…</div>
+        <div style={{ color: '#475569', fontSize: 12 }}>{data.id.slice(0, 12)}…</div>
       </div>
 
       {/* params */}
       <div style={{ padding: '10px 14px' }}>
-        <div style={{ color: '#64748b', fontSize: 10, marginBottom: 8, letterSpacing: 1 }}>PARAMS</div>
+        <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8, letterSpacing: 1 }}>PARAMS</div>
         {data.inputs.map(inp => (
           <ParamRow
             key={inp}
@@ -60,14 +60,14 @@ export default function Inspector() {
       {/* cook result */}
       {(data.cookResult !== undefined || data.cookError) && (
         <div style={{ padding: '10px 14px', borderTop: '1px solid #1e293b' }}>
-          <div style={{ color: '#64748b', fontSize: 10, marginBottom: 6, letterSpacing: 1 }}>RESULT</div>
+          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 6, letterSpacing: 1 }}>RESULT</div>
           <pre style={{
             background: '#0a0f1a',
             border: '1px solid #1e293b',
             borderRadius: 4,
             padding: 8,
             color: data.cookError ? '#f87171' : '#4ade80',
-            fontSize: 10,
+            fontSize: 12,
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-all',
             maxHeight: 200,
@@ -116,7 +116,7 @@ function ParamRow({ label, value, onChange }: { label: string; value: unknown; o
 
   return (
     <div style={{ marginBottom: 8 }}>
-      <div style={{ color: '#64748b', fontSize: 10, marginBottom: 2 }}>{label}</div>
+      <div style={{ color: '#64748b', fontSize: 12, marginBottom: 2 }}>{label}</div>
       {editing ? (
         <textarea
           autoFocus
@@ -132,7 +132,7 @@ function ParamRow({ label, value, onChange }: { label: string; value: unknown; o
             borderRadius: 4,
             color: '#f8fafc',
             fontFamily: 'monospace',
-            fontSize: 11,
+            fontSize: 13,
             padding: 4,
             resize: 'vertical',
             boxSizing: 'border-box',
@@ -167,8 +167,8 @@ function btnStyle(bg: string) {
     color: '#fff',
     cursor: 'pointer',
     fontFamily: 'monospace',
-    fontSize: 11,
-    padding: '5px 10px',
+    fontSize: 13,
+    padding: '6px 12px',
     flex: 1,
   } as React.CSSProperties
 }
