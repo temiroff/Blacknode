@@ -3,6 +3,7 @@ import { Handle, Position, NodeProps } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
+import NodeStatus from './NodeStatus'
 
 interface NodeData {
   id: string
@@ -14,6 +15,7 @@ interface NodeData {
   cookResult?: unknown
   cookError?: string
   cooking?: boolean
+  cookPort?: string
 }
 
 const COLOR = '#8b5cf6'
@@ -71,6 +73,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
         lineStyle={{ borderColor: COLOR }}
         handleStyle={{ background: COLOR, borderColor: COLOR, width: 8, height: 8, borderRadius: 2 }}
       />
+      <NodeStatus data={data} />
 
       {/* header */}
       <div style={{

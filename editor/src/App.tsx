@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactFlow, {
   Background, Controls, MiniMap,
-  BackgroundVariant, ReactFlowInstance, Edge, Connection,
+  BackgroundVariant, ReactFlowInstance, Edge, Connection, SelectionMode,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 
@@ -24,7 +24,8 @@ export default function App() {
     tabs, activeTabId,
     onNodesChange, onEdgesChange, onConnect, disconnectEdge, reconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels,
-    checkServer, reset, newTab, switchTab, closeTab, renameTab, saveActiveWorkflow,
+    checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
+    renameTab, saveActiveWorkflow,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -34,8 +35,11 @@ export default function App() {
   const [tabDraft, setTabDraft] = useState('')
   const [savingWorkflow, setSavingWorkflow] = useState(false)
   const [saveOk, setSaveOk] = useState(false)
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tabId: string } | null>(null)
   const saveOkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeTab = tabs.find(tab => tab.id === activeTabId)
+  const needsSave = Boolean(activeTab && (activeTab.dirty || !activeTab.slug))
+  const menuTab = tabMenu ? tabs.find(tab => tab.id === tabMenu.tabId) : null
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
@@ -46,6 +50,20 @@ export default function App() {
       if (saveOkTimer.current) clearTimeout(saveOkTimer.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (!tabMenu) return
+    const close = () => setTabMenu(null)
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [tabMenu])
 
   useEffect(() => {
     checkServer().then(() => {
@@ -98,6 +116,7 @@ export default function App() {
   }, [disconnectEdge])
 
   const startTabRename = useCallback((tab: { id: string; name: string }) => {
+    setTabMenu(null)
     setEditingTabId(tab.id)
     setTabDraft(tab.name)
   }, [])
@@ -127,6 +146,17 @@ export default function App() {
       setSavingWorkflow(false)
     }
   }, [activeTab, activeTabId, editingTabId, renameTab, saveActiveWorkflow, tabDraft])
+
+  const runTabMenuAction = useCallback((action: () => void | Promise<void>) => {
+    setTabMenu(null)
+    void action()
+  }, [])
+
+  const openTabMenu = useCallback((e: React.MouseEvent, tabId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setTabMenu({ x: e.clientX, y: e.clientY, tabId })
+  }, [])
 
   const topbarH = 44
   const canvasPad = topbarH + TAB_H
@@ -223,7 +253,9 @@ export default function App() {
             return (
               <div
                 key={tab.id}
-                onClick={() => { if (!editing) void switchTab(tab.id) }}
+                onClick={() => { setTabMenu(null); if (!editing) void switchTab(tab.id) }}
+                onMouseDown={e => { if (e.button === 2) openTabMenu(e, tab.id) }}
+                onContextMenu={e => openTabMenu(e, tab.id)}
                 onDoubleClick={e => { e.stopPropagation(); startTabRename(tab) }}
                 title="Double-click to rename"
                 style={{
@@ -281,7 +313,7 @@ export default function App() {
                 ) : (
                   <span>{tab.name}</span>
                 )}
-                {!tab.slug && !editing && (
+                {(tab.dirty || !tab.slug) && !editing && (
                   <span style={{ color: 'var(--tx3)', fontSize: 14, lineHeight: 1 }}>•</span>
                 )}
                 {tabs.length > 1 && (
@@ -334,7 +366,7 @@ export default function App() {
               marginLeft: 'auto',
               position: 'sticky',
               right: 6,
-              background: saveOk ? 'var(--ok)' : 'var(--accent)',
+              background: saveOk ? 'var(--ok)' : needsSave ? 'var(--save-pending)' : 'var(--accent)',
               border: 'none',
               borderRadius: 6,
               color: '#fff',
@@ -351,6 +383,38 @@ export default function App() {
           </button>
         </div>
 
+        {tabMenu && menuTab && (
+          <div
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
+            onContextMenu={e => e.preventDefault()}
+            style={{
+              position: 'fixed',
+              top: tabMenu.y,
+              left: tabMenu.x,
+              zIndex: 40,
+              minWidth: 148,
+              background: 'var(--panel)',
+              border: '1px solid var(--line2)',
+              borderRadius: 7,
+              padding: 4,
+              boxShadow: '0 8px 24px rgba(0,0,0,.28)',
+            }}
+          >
+            <button className="bn-menu-item" style={menuItemStyle()} onClick={() => startTabRename(menuTab)}>Rename</button>
+            <button className="bn-menu-item" style={menuItemStyle()} onClick={() => runTabMenuAction(() => insertTab(menuTab.id))}>Insert</button>
+            <button className="bn-menu-item" style={menuItemStyle()} onClick={() => runTabMenuAction(() => duplicateTab(menuTab.id))}>Duplicate</button>
+            <button
+              className="bn-menu-item"
+              style={menuItemStyle(tabs.length <= 1, 'var(--err)')}
+              disabled={tabs.length <= 1}
+              onClick={() => runTabMenuAction(() => closeTab(menuTab.id))}
+            >
+              Delete
+            </button>
+          </div>
+        )}
+
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -364,10 +428,13 @@ export default function App() {
           onEdgeUpdateEnd={onEdgeUpdateEnd}
           onInit={i => { rfInstance.current = i }}
           onNodeClick={(_, node) => selectNode(node.id)}
-          onPaneClick={() => { selectNode(null); setSearch(null) }}
+          onPaneClick={() => { selectNode(null); setSearch(null); setTabMenu(null) }}
           onPaneContextMenu={onPaneContextMenu}
           fitView
           deleteKeyCode={['Delete', 'Backspace']}
+          selectionKeyCode="Control"
+          multiSelectionKeyCode="Control"
+          selectionMode={SelectionMode.Partial}
           style={{ paddingTop: canvasPad }}
           defaultEdgeOptions={{ animated: false }}
         >
@@ -393,4 +460,20 @@ export default function App() {
       )}
     </div>
   )
+}
+
+function menuItemStyle(disabled = false, color = 'var(--tx2)'): React.CSSProperties {
+  return {
+    width: '100%',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 5,
+    color: disabled ? 'var(--tx3)' : color,
+    cursor: disabled ? 'default' : 'pointer',
+    display: 'block',
+    fontFamily: 'var(--font-ui)',
+    fontSize: 12,
+    padding: '6px 9px',
+    textAlign: 'left',
+  }
 }

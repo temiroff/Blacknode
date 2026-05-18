@@ -3,7 +3,7 @@ import {
   Node, Edge, addEdge, applyNodeChanges, applyEdgeChanges,
   NodeChange, EdgeChange, Connection,
 } from 'reactflow'
-import { api } from './api'
+import { api, type CookEvent } from './api'
 import { BnNodeMeta } from './types'
 import { VALUE_NODE_TYPES } from './categories'
 import { portsCompatible, portColor } from './portColors'
@@ -15,12 +15,20 @@ export interface WorkflowTab {
   id: string
   name: string
   slug: string | null  // null = unsaved
+  dirty: boolean
+  graph: GraphSnapshot | null
+}
+
+interface GraphSnapshot {
+  nodes: any[]
+  edges: any[]
 }
 
 interface NodeData extends BnNodeMeta {
   cookResult?: unknown
   cookError?: string
   cooking?: boolean
+  cookPort?: string
 }
 
 interface Store {
@@ -45,12 +53,18 @@ interface Store {
   checkServer: () => Promise<void>
 
   newTab: () => Promise<void>
+  insertTab: (tabId: string) => Promise<void>
   switchTab: (tabId: string) => Promise<void>
   closeTab: (tabId: string) => Promise<void>
+  duplicateTab: (tabId: string) => Promise<void>
   openWorkflowAsTab: (slug: string, name: string) => Promise<void>
   renameTab: (tabId: string, name: string) => void
   saveActiveWorkflow: (name?: string) => Promise<{ name: string; slug: string }>
+  insertSavedWorkflow: (slug: string) => Promise<void>
+  renameSavedWorkflow: (slug: string, name: string) => Promise<{ name: string; slug: string }>
+  duplicateSavedWorkflow: (slug: string) => Promise<{ name: string; slug: string }>
   deleteWorkflow: (slug: string) => Promise<void>
+  saveActiveTabSnapshot: () => Promise<GraphSnapshot | null>
 
   addNode: (typeName: string, pos: { x: number; y: number }) => Promise<void>
   removeNode: (id: string) => Promise<void>
@@ -96,6 +110,20 @@ function cleanWorkflowName(name: string | undefined | null): string {
   return name?.trim() || 'Untitled'
 }
 
+function cloneGraph(graph: GraphSnapshot): GraphSnapshot {
+  return JSON.parse(JSON.stringify(graph)) as GraphSnapshot
+}
+
+function blankGraph(): GraphSnapshot {
+  return { nodes: [], edges: [] }
+}
+
+function markActiveTabDirty(s: Store): Pick<Store, 'tabs'> {
+  return {
+    tabs: s.tabs.map(t => t.id === s.activeTabId ? { ...t, dirty: true } : t),
+  }
+}
+
 export const useStore = create<Store>((set, get) => ({
   nodes: [],
   edges: [],
@@ -104,7 +132,7 @@ export const useStore = create<Store>((set, get) => ({
   serverOk: false,
   apiKeys: {},
   customModels: [],
-  tabs: [{ id: 'default', name: 'Untitled', slug: null }],
+  tabs: [{ id: 'default', name: 'Untitled', slug: null, dirty: false, graph: null }],
   activeTabId: 'default',
   workflowRevision: 0,
 
@@ -160,21 +188,56 @@ export const useStore = create<Store>((set, get) => ({
 
   // ── Tab management ────────────────────────────────────────────────────────
 
+  saveActiveTabSnapshot: async () => {
+    try {
+      const { activeTabId } = get()
+      const graph = await api.getGraph()
+      set(s => ({
+        tabs: s.tabs.map(t => t.id === activeTabId ? { ...t, graph: cloneGraph(graph) } : t),
+      }))
+      return graph
+    } catch {
+      return null
+    }
+  },
+
   newTab: async () => {
+    await get().saveActiveTabSnapshot()
     const id = makeTabId()
-    set(s => ({ tabs: [...s.tabs, { id, name: 'Untitled', slug: null }], activeTabId: id }))
+    set(s => ({ tabs: [...s.tabs, { id, name: 'Untitled', slug: null, dirty: false, graph: blankGraph() }], activeTabId: id }))
     await api.reset()
     set({ nodes: [], edges: [], selectedId: null })
+  },
+
+  insertTab: async (tabId) => {
+    await get().saveActiveTabSnapshot()
+    const id = makeTabId()
+    const { tabs } = get()
+    const idx = tabs.findIndex(t => t.id === tabId)
+    const insertAt = idx < 0 ? tabs.length : idx + 1
+    const nextTabs = [...tabs]
+    nextTabs.splice(insertAt, 0, { id, name: 'Untitled', slug: null, dirty: false, graph: blankGraph() })
+    set({ tabs: nextTabs, activeTabId: id, selectedId: null })
+    await api.reset()
+    set({ nodes: [], edges: [] })
   },
 
   switchTab: async (tabId) => {
     const { tabs, activeTabId } = get()
     if (tabId === activeTabId) return
+    await get().saveActiveTabSnapshot()
+    const nextTabs = get().tabs
     const tab = tabs.find(t => t.id === tabId)
+      ?? nextTabs.find(t => t.id === tabId)
     if (!tab) return
     set({ activeTabId: tabId, selectedId: null })
-    if (tab.slug) {
-      await api.loadWorkflow(tab.slug)
+    if (tab.graph) {
+      const graph = cloneGraph(tab.graph)
+      await api.setGraph(graph.nodes, graph.edges)
+      await get().loadGraph()
+    } else if (tab.slug) {
+      const graph = await api.loadWorkflow(tab.slug)
+      set(s => ({ tabs: s.tabs.map(t => t.id === tabId ? { ...t, graph: cloneGraph(graph), dirty: false } : t) }))
       await get().loadGraph()
     } else {
       await api.reset()
@@ -190,8 +253,13 @@ export const useStore = create<Store>((set, get) => ({
     if (tabId === activeTabId) {
       const next = newTabs[Math.max(0, idx - 1)]
       set({ tabs: newTabs, activeTabId: next.id, selectedId: null })
-      if (next.slug) {
-        await api.loadWorkflow(next.slug)
+      if (next.graph) {
+        const graph = cloneGraph(next.graph)
+        await api.setGraph(graph.nodes, graph.edges)
+        await get().loadGraph()
+      } else if (next.slug) {
+        const graph = await api.loadWorkflow(next.slug)
+        set(s => ({ tabs: s.tabs.map(t => t.id === next.id ? { ...t, graph: cloneGraph(graph), dirty: false } : t) }))
         await get().loadGraph()
       } else {
         await api.reset()
@@ -202,7 +270,35 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
+  duplicateTab: async (tabId) => {
+    await get().saveActiveTabSnapshot()
+    const { tabs } = get()
+    const tab = tabs.find(t => t.id === tabId)
+    if (!tab) return
+
+    let graph = tab.graph ? cloneGraph(tab.graph) : null
+    if (!graph && tab.slug) {
+      graph = await api.loadWorkflow(tab.slug)
+    }
+    if (!graph) graph = blankGraph()
+
+    const id = makeTabId()
+    const idx = tabs.findIndex(t => t.id === tabId)
+    const nextTabs = [...tabs]
+    nextTabs.splice(idx + 1, 0, {
+      id,
+      name: `${tab.name} copy`,
+      slug: null,
+      dirty: true,
+      graph: cloneGraph(graph),
+    })
+    set({ tabs: nextTabs, activeTabId: id, selectedId: null })
+    await api.setGraph(graph.nodes, graph.edges)
+    await get().loadGraph()
+  },
+
   openWorkflowAsTab: async (slug, name) => {
+    await get().saveActiveTabSnapshot()
     const { tabs } = get()
     const existing = tabs.find(t => t.slug === slug)
     if (existing) {
@@ -210,15 +306,15 @@ export const useStore = create<Store>((set, get) => ({
       return
     }
     const id = makeTabId()
-    set(s => ({ tabs: [...s.tabs, { id, name, slug }], activeTabId: id, selectedId: null }))
-    await api.loadWorkflow(slug)
+    const graph = await api.loadWorkflow(slug)
+    set(s => ({ tabs: [...s.tabs, { id, name, slug, dirty: false, graph: cloneGraph(graph) }], activeTabId: id, selectedId: null }))
     await get().loadGraph()
   },
 
   renameTab: (tabId, name) => {
     const nextName = cleanWorkflowName(name)
     set(s => ({
-      tabs: s.tabs.map(t => t.id === tabId ? { ...t, name: nextName } : t),
+      tabs: s.tabs.map(t => t.id === tabId ? { ...t, name: nextName, dirty: t.dirty || t.name !== nextName } : t),
     }))
   },
 
@@ -227,19 +323,48 @@ export const useStore = create<Store>((set, get) => ({
     const active = tabs.find(t => t.id === activeTabId)
     const nextName = cleanWorkflowName(name ?? active?.name)
     const res = await api.saveWorkflow(nextName, active?.slug)
+    const graph = await api.getGraph()
     set(s => ({
       tabs: s.tabs.map(t =>
-        t.id === activeTabId ? { ...t, name: nextName, slug: res.slug } : t
+        t.id === activeTabId ? { ...t, name: nextName, slug: res.slug, dirty: false, graph: cloneGraph(graph) } : t
       ),
       workflowRevision: s.workflowRevision + 1,
     }))
     return { name: nextName, slug: res.slug }
   },
 
+  insertSavedWorkflow: async (slug) => {
+    const graph = await api.insertWorkflow(slug)
+    set(s => ({
+      ...parseGraph(graph.nodes, graph.edges),
+      selectedId: null,
+      tabs: s.tabs.map(t =>
+        t.id === s.activeTabId ? { ...t, dirty: true, graph: cloneGraph(graph) } : t
+      ),
+    }))
+  },
+
+  renameSavedWorkflow: async (slug, name) => {
+    const res = await api.renameWorkflow(slug, cleanWorkflowName(name))
+    set(s => ({
+      tabs: s.tabs.map(t =>
+        t.slug === slug ? { ...t, name: res.name, slug: res.slug } : t
+      ),
+      workflowRevision: s.workflowRevision + 1,
+    }))
+    return { name: res.name, slug: res.slug }
+  },
+
+  duplicateSavedWorkflow: async (slug) => {
+    const res = await api.duplicateWorkflow(slug)
+    set(s => ({ workflowRevision: s.workflowRevision + 1 }))
+    return { name: res.name, slug: res.slug }
+  },
+
   deleteWorkflow: async (slug) => {
     await api.deleteWorkflow(slug)
     set(s => ({
-      tabs: s.tabs.map(t => t.slug === slug ? { ...t, slug: null } : t),
+      tabs: s.tabs.map(t => t.slug === slug ? { ...t, slug: null, dirty: true } : t),
       workflowRevision: s.workflowRevision + 1,
     }))
   },
@@ -256,7 +381,7 @@ export const useStore = create<Store>((set, get) => ({
       ...(typeName === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
       ...(typeName === 'Output' ? { style: { width: 320, height: 200 } } : {}),
     }
-    set(s => ({ nodes: [...s.nodes, node] }))
+    set(s => ({ nodes: [...s.nodes, node], ...markActiveTabDirty(s) }))
   },
 
   removeNode: async (id) => {
@@ -265,11 +390,16 @@ export const useStore = create<Store>((set, get) => ({
       nodes: s.nodes.filter(n => n.id !== id),
       edges: s.edges.filter(e => e.source !== id && e.target !== id),
       selectedId: s.selectedId === id ? null : s.selectedId,
+      ...markActiveTabDirty(s),
     }))
   },
 
   onNodesChange: (changes) => {
-    set(s => ({ nodes: applyNodeChanges(changes, s.nodes) }))
+    const shouldMarkDirty = changes.some(c => c.type === 'position' || c.type === 'remove')
+    set(s => ({
+      nodes: applyNodeChanges(changes, s.nodes),
+      ...(shouldMarkDirty ? markActiveTabDirty(s) : {}),
+    }))
     changes.forEach(c => {
       if (c.type === 'position' && c.position) {
         api.updatePos(c.id, [c.position.x, c.position.y]).catch(() => {})
@@ -279,6 +409,7 @@ export const useStore = create<Store>((set, get) => ({
         set(s => ({
           edges: s.edges.filter(e => e.source !== c.id && e.target !== c.id),
           selectedId: s.selectedId === c.id ? null : s.selectedId,
+          ...markActiveTabDirty(s),
         }))
       }
     })
@@ -286,6 +417,7 @@ export const useStore = create<Store>((set, get) => ({
 
   onEdgesChange: (changes) => {
     const { edges } = get()
+    const shouldMarkDirty = changes.some(c => c.type === 'remove')
     changes.forEach(c => {
       if (c.type === 'remove') {
         const edge = edges.find(e => e.id === c.id)
@@ -294,7 +426,10 @@ export const useStore = create<Store>((set, get) => ({
         }
       }
     })
-    set(s => ({ edges: applyEdgeChanges(changes, s.edges) }))
+    set(s => ({
+      edges: applyEdgeChanges(changes, s.edges),
+      ...(shouldMarkDirty ? markActiveTabDirty(s) : {}),
+    }))
   },
 
   onConnect: async (conn) => {
@@ -310,14 +445,14 @@ export const useStore = create<Store>((set, get) => ({
       ...conn,
       id: `e${Date.now()}`,
       style: { stroke: portColor(fromType), strokeWidth: 1.5 },
-    }, s.edges) }))
+    }, s.edges), ...markActiveTabDirty(s) }))
   },
 
   disconnectEdge: async (edgeId) => {
     const edge = get().edges.find(e => e.id === edgeId)
     if (!edge?.source || !edge.target || !edge.sourceHandle || !edge.targetHandle) return
     await api.disconnect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle)
-    set(s => ({ edges: s.edges.filter(e => e.id !== edgeId) }))
+    set(s => ({ edges: s.edges.filter(e => e.id !== edgeId), ...markActiveTabDirty(s) }))
   },
 
   reconnectEdge: async (oldEdge, newConn) => {
@@ -340,6 +475,7 @@ export const useStore = create<Store>((set, get) => ({
         targetHandle: newConn.targetHandle,
         style: { stroke: portColor(fromType), strokeWidth: 1.5 },
       }),
+      ...markActiveTabDirty(s),
     }))
   },
 
@@ -349,24 +485,70 @@ export const useStore = create<Store>((set, get) => ({
       nodes: s.nodes.map(n =>
         n.id === id ? { ...n, data: { ...n.data, params: { ...n.data.params, [key]: value } } } : n
       ),
+      ...markActiveTabDirty(s),
     }))
   },
 
   cookNode: async (id, port = 'output') => {
-    set(s => ({
-      nodes: s.nodes.map(n => n.id === id ? { ...n, data: { ...n.data, cooking: true, cookError: undefined } } : n),
-    }))
-    try {
-      const res = await api.cook(id, port)
+    const applyCookEvent = (event: CookEvent) => {
+      if (event.type === 'done') return
       set(s => ({
-        nodes: s.nodes.map(n =>
-          n.id === id ? { ...n, data: { ...n.data, cooking: false, cookResult: res.value } } : n
-        ),
+        nodes: s.nodes.map(n => {
+          if (n.id !== event.node_id) return n
+          if (event.type === 'start') {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                cooking: true,
+                cookError: undefined,
+                cookPort: event.port,
+              },
+            }
+          }
+          if (event.type === 'success') {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                cooking: false,
+                cookResult: event.value,
+                cookError: undefined,
+                cookPort: event.port,
+              },
+            }
+          }
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              cooking: false,
+              cookError: event.error,
+              cookPort: event.port,
+            },
+          }
+        }),
       }))
+    }
+
+    set(s => ({
+      nodes: s.nodes.map(n => ({
+        ...n,
+        data: {
+          ...n.data,
+          cooking: n.id === id,
+          cookError: n.id === id ? undefined : n.data.cookError,
+          cookPort: n.id === id ? port : n.data.cookPort,
+        },
+      })),
+    }))
+
+    try {
+      await api.cookStream(id, port, applyCookEvent)
     } catch (e: any) {
       set(s => ({
         nodes: s.nodes.map(n =>
-          n.id === id ? { ...n, data: { ...n.data, cooking: false, cookError: e.message } } : n
+          n.id === id ? { ...n, data: { ...n.data, cooking: false, cookError: e.message, cookPort: port } } : n
         ),
       }))
     }
@@ -376,6 +558,6 @@ export const useStore = create<Store>((set, get) => ({
 
   reset: async () => {
     await api.reset()
-    set({ nodes: [], edges: [], selectedId: null })
+    set(s => ({ nodes: [], edges: [], selectedId: null, ...markActiveTabDirty(s) }))
   },
 }))

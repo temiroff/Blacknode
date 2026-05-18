@@ -17,6 +17,7 @@ html[data-theme="dark"] {
   --tx2:     #fdfdfd;
   --tx3:     #b3b3b3;
   --accent:  #9899a8;
+  --save-pending: #75623c;
   --ok:      #22c55e;
   --warn:    #facc15;
   --err:     #ef4444;
@@ -39,6 +40,7 @@ html[data-theme="light"] {
   --tx2:     #3a3c60;
   --tx3:     #8082a8;
   --accent:  #6b7280;
+  --save-pending: #8a7248;
   --ok:      #16a34a;
   --warn:    #ca8a04;
   --err:     #dc2626;
@@ -95,6 +97,21 @@ body {
 /* NodeResizer */
 .react-flow__resize-control.line { border-color: var(--accent) !important; opacity: 0.5; }
 .react-flow__resize-control.handle { background: var(--accent) !important; border-color: var(--accent) !important; }
+
+/* menus */
+.bn-menu-item:hover:not(:disabled) {
+  background: var(--hover) !important;
+  color: var(--tx1) !important;
+}
+
+.bn-menu-item:disabled {
+  opacity: 0.55;
+}
+
+.bn-workflow-row:hover {
+  background: var(--hover) !important;
+  border-color: var(--accent) !important;
+}
 
 /* scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }

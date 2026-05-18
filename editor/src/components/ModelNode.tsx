@@ -5,6 +5,7 @@ import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { MODEL_GROUPS, modelProviderColor, modelProviderName, DEFAULT_MODEL } from '../models'
+import NodeStatus from './NodeStatus'
 
 interface NodeData {
   id: string
@@ -15,6 +16,7 @@ interface NodeData {
   cooking?: boolean
   cookResult?: unknown
   cookError?: string
+  cookPort?: string
 }
 
 function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
@@ -109,6 +111,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         lineStyle={{ borderColor: provColor }}
         handleStyle={{ background: provColor, borderColor: provColor, width: 8, height: 8, borderRadius: 2 }}
       />
+      <NodeStatus data={data} />
 
       {/* header */}
       <div style={{

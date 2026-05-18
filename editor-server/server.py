@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
@@ -103,6 +104,10 @@ class CookReq(BaseModel):
     node_id: str
     port: str = "output"
 
+class SetGraphReq(BaseModel):
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+
 class ExecNodeReq(BaseModel):
     code: str
 
@@ -113,6 +118,9 @@ class SetApiKeyReq(BaseModel):
 class SaveWorkflowReq(BaseModel):
     name: str
     previous_slug: str | None = None
+
+class RenameWorkflowReq(BaseModel):
+    name: str
 
 _PROVIDER_ENV: dict[str, str] = {
     "Anthropic":     "ANTHROPIC_API_KEY",
@@ -208,6 +216,13 @@ def get_graph():
     return {"nodes": nodes, "edges": _session.graph._edges}
 
 
+@app.post("/graph")
+def set_graph(req: SetGraphReq):
+    _restore_session_from_nodes(req.nodes, req.edges)
+    _save()
+    return get_graph()
+
+
 @app.post("/nodes")
 def add_node(req: AddNodeReq):
     if req.type_name not in _NODE_REGISTRY:
@@ -301,6 +316,91 @@ def cook(req: CookReq):
         raise HTTPException(500, traceback.format_exc())
 
 
+def _json_line(payload: dict) -> str:
+    return json.dumps(payload, default=str) + "\n"
+
+
+def _cook_trace(node_id: str, port: str):
+    import traceback
+
+    def cook_one(current_id: str, current_port: str):
+        if current_id not in _session.node_meta:
+            raise KeyError(f"Node {current_id} not found")
+        if current_id not in _session.graph._nodes:
+            raise KeyError(f"Node {current_id} missing from graph")
+
+        cache_key = (current_id, current_port)
+        if current_id not in _session.graph._dirty and cache_key in _session.graph._cache:
+            value = _session.graph._cache[cache_key]
+            yield _json_line({
+                "type": "success",
+                "node_id": current_id,
+                "port": current_port,
+                "value": value,
+                "cached": True,
+            })
+            return value
+
+        node_def = _session.graph._nodes[current_id]
+        ctx = dict(node_def["params"])
+
+        try:
+            for edge in _session.graph._edges:
+                if edge["to"] == current_id:
+                    val = yield from cook_one(edge["from"], edge["from_port"])
+                    ctx[edge["to_port"]] = val
+
+            yield _json_line({
+                "type": "start",
+                "node_id": current_id,
+                "port": current_port,
+            })
+
+            fn = _NODE_REGISTRY[node_def["type"]]
+            result = fn(ctx)
+            if not isinstance(result, dict):
+                result = {"output": result}
+
+            for key, value in result.items():
+                _session.graph._cache[(current_id, key)] = value
+            _session.graph._dirty.discard(current_id)
+
+            if cache_key not in _session.graph._cache:
+                raise KeyError(
+                    f"Node '{node_def['type']}' did not produce port '{current_port}'. "
+                    f"Available: {[key for (nid, key) in _session.graph._cache if nid == current_id]}"
+                )
+
+            value = _session.graph._cache[cache_key]
+            yield _json_line({
+                "type": "success",
+                "node_id": current_id,
+                "port": current_port,
+                "value": value,
+                "outputs": result,
+            })
+            return value
+        except Exception:
+            yield _json_line({
+                "type": "error",
+                "node_id": current_id,
+                "port": current_port,
+                "error": traceback.format_exc(),
+            })
+            raise
+
+    try:
+        final_value = yield from cook_one(node_id, port)
+        yield _json_line({"type": "done", "port": port, "value": final_value})
+    except Exception:
+        yield _json_line({"type": "done", "port": port, "error": traceback.format_exc()})
+
+
+@app.post("/cook-stream")
+def cook_stream(req: CookReq):
+    return StreamingResponse(_cook_trace(req.node_id, req.port), media_type="application/x-ndjson")
+
+
 @app.get("/settings/api-keys")
 def get_api_keys():
     return _api_keys
@@ -371,6 +471,15 @@ def _workflow_path(slug: str) -> str:
         raise HTTPException(400, "Invalid workflow slug")
     return os.path.join(_WORKFLOWS_DIR, f"{slug}.json")
 
+def _unique_workflow_slug(base_slug: str) -> str:
+    slug = base_slug
+    i = 2
+    while os.path.exists(_workflow_path(slug)):
+        suffix = f"_{i}"
+        slug = f"{base_slug[:60 - len(suffix)]}{suffix}"
+        i += 1
+    return slug
+
 def _save_workflow(name: str, previous_slug: str | None = None):
     os.makedirs(_WORKFLOWS_DIR, exist_ok=True)
     clean_name = name.strip() or "Untitled"
@@ -408,6 +517,67 @@ def _restore_session(node_meta: dict, edges: list):
     ]
 
 
+def _restore_session_from_nodes(nodes: list[dict], edges: list):
+    _restore_session({node["id"]: node for node in nodes if "id" in node}, edges)
+
+
+def _node_pos(meta: dict) -> tuple[float, float]:
+    pos = meta.get("pos", [0, 0])
+    try:
+        return float(pos[0]), float(pos[1])
+    except Exception:
+        return 0.0, 0.0
+
+
+def _insert_workflow(node_meta: dict, edges: list):
+    valid_nodes = [
+        meta for meta in node_meta.values()
+        if meta.get("type") in _NODE_REGISTRY
+    ]
+    if not valid_nodes:
+        return
+
+    current_positions = [_node_pos(meta) for meta in _session.node_meta.values()]
+    import_positions = [_node_pos(meta) for meta in valid_nodes]
+    if current_positions:
+        offset_x = max(x for x, _ in current_positions) - min(x for x, _ in import_positions) + 360
+        offset_y = 0
+    else:
+        offset_x = 0
+        offset_y = 0
+
+    id_map: dict[str, str] = {}
+    for meta in valid_nodes:
+        old_id = meta["id"]
+        new_id = str(uuid.uuid4())
+        id_map[old_id] = new_id
+        x, y = _node_pos(meta)
+        next_meta = {
+            **meta,
+            "id": new_id,
+            "params": dict(meta.get("params", {})),
+            "pos": [x + offset_x, y + offset_y],
+        }
+        _session.node_meta[new_id] = next_meta
+        _session.graph._nodes[new_id] = {
+            "type": next_meta["type"],
+            "params": dict(next_meta.get("params", {})),
+        }
+        _session.graph._dirty.add(new_id)
+
+    for edge in edges:
+        from_id = id_map.get(edge.get("from"))
+        to_id = id_map.get(edge.get("to"))
+        if not from_id or not to_id:
+            continue
+        _session.graph._edges.append({
+            "from": from_id,
+            "from_port": edge.get("from_port", "output"),
+            "to": to_id,
+            "to_port": edge.get("to_port", "input"),
+        })
+
+
 @app.get("/workflows")
 def list_workflows():
     os.makedirs(_WORKFLOWS_DIR, exist_ok=True)
@@ -436,6 +606,55 @@ def save_workflow(req: SaveWorkflowReq):
 @app.post("/workflows/{name}")
 def save_workflow_legacy(name: str):
     return _save_workflow(name)
+
+
+@app.patch("/workflows/{slug}")
+def rename_workflow(slug: str, req: RenameWorkflowReq):
+    path = _workflow_path(slug)
+    if not os.path.exists(path):
+        raise HTTPException(404, f"Workflow '{slug}' not found")
+    clean_name = req.name.strip() or "Untitled"
+    next_slug = _slug(clean_name)
+    next_path = _workflow_path(next_slug)
+    if next_slug != slug and os.path.exists(next_path):
+        raise HTTPException(409, f"Workflow '{clean_name}' already exists")
+    with open(path) as f:
+        data = json.load(f)
+    data["name"] = clean_name
+    data["saved_at"] = datetime.now().isoformat(timespec="seconds")
+    with open(next_path, "w") as f:
+        json.dump(data, f, indent=2)
+    if next_slug != slug:
+        os.remove(path)
+    return {"slug": next_slug, "name": clean_name, "saved_at": data["saved_at"]}
+
+
+@app.post("/workflows/{slug}/duplicate")
+def duplicate_workflow(slug: str):
+    path = _workflow_path(slug)
+    if not os.path.exists(path):
+        raise HTTPException(404, f"Workflow '{slug}' not found")
+    with open(path) as f:
+        data = json.load(f)
+    name = f"{data.get('name', slug)} copy"
+    next_slug = _unique_workflow_slug(_slug(name))
+    data["name"] = name
+    data["saved_at"] = datetime.now().isoformat(timespec="seconds")
+    with open(_workflow_path(next_slug), "w") as f:
+        json.dump(data, f, indent=2)
+    return {"slug": next_slug, "name": name, "saved_at": data["saved_at"]}
+
+
+@app.post("/workflows/{slug}/insert")
+def insert_workflow(slug: str):
+    path = _workflow_path(slug)
+    if not os.path.exists(path):
+        raise HTTPException(404, f"Workflow '{slug}' not found")
+    with open(path) as f:
+        data = json.load(f)
+    _insert_workflow(data.get("node_meta", {}), data.get("edges", []))
+    _save()
+    return get_graph()
 
 
 @app.post("/workflows/{slug}/load")
