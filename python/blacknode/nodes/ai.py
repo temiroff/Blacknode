@@ -1,94 +1,123 @@
-"""AI agent nodes: LLMAgent, EmbedText, AgentLoop, ToolCall."""
+"""AI agent nodes — provider-agnostic.
+
+Supported via the `model` name or explicit `provider` param:
+  claude-*               → Anthropic
+  gpt-* / o1-* / o4-*   → OpenAI
+  ollama:<name>          → Ollama  (localhost:11434)
+  local:<name>           → any OpenAI-compat endpoint (set base_url)
+"""
+from __future__ import annotations
 from blacknode.node import node
+from blacknode.providers import resolve, ToolDef
 
 
-@node(inputs=["prompt", "system", "model", "max_tokens"], outputs=["text"], name="LLMAgent")
+# ── LLMAgent ──────────────────────────────────────────────────────────────────
+
+@node(
+    inputs=["prompt", "system", "model", "provider", "base_url", "api_key", "max_tokens", "temperature"],
+    outputs=["text"],
+    name="LLMAgent",
+)
 def llm_agent(ctx: dict) -> dict:
-    import anthropic
+    model       = ctx.get("model", "claude-sonnet-4-6")
+    system      = ctx.get("system", "You are a helpful assistant.")
+    prompt      = ctx.get("prompt", "")
+    max_tokens  = int(ctx.get("max_tokens", 4096))
+    temperature = float(ctx.get("temperature", 1.0))
 
-    prompt     = ctx.get("prompt", "")
-    system     = ctx.get("system", "You are a helpful assistant.")
-    model      = ctx.get("model", "claude-sonnet-4-6")
-    max_tokens = int(ctx.get("max_tokens", 4096))
-
-    client = anthropic.Anthropic()
-    msg = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": prompt}],
+    provider, clean_model = resolve(
+        model,
+        provider=ctx.get("provider"),
+        base_url=ctx.get("base_url"),
+        api_key=ctx.get("api_key"),
     )
-    return {"text": msg.content[0].text}
+
+    resp = provider.complete(
+        messages=[{"role": "user", "content": prompt}],
+        model=clean_model,
+        system=system,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    return {"text": resp.text}
 
 
-@node(inputs=["text", "model"], outputs=["embedding"], name="EmbedText")
-def embed_text(ctx: dict) -> dict:
-    import anthropic
+# ── AgentLoop (ReAct) ─────────────────────────────────────────────────────────
 
-    text  = ctx.get("text", "")
-    # Anthropic doesn't have a direct embed API yet — placeholder using hash for structure
-    # Replace with your preferred embedding provider
-    embedding = [hash(text) % 1000 / 1000.0] * 1536
-    return {"embedding": embedding}
-
-
-@node(inputs=["prompt", "tools", "system", "model", "max_iter"], outputs=["result", "steps"], name="AgentLoop")
+@node(
+    inputs=["prompt", "tools", "system", "model", "provider", "base_url", "api_key", "max_tokens", "max_iter"],
+    outputs=["result", "steps"],
+    name="AgentLoop",
+)
 def agent_loop(ctx: dict) -> dict:
-    """ReAct-style agent loop. 'tools' is a list of callables with __name__ and __doc__."""
-    import anthropic
-    import json
+    """Provider-agnostic ReAct loop. `tools` is a list of callables."""
+    model      = ctx.get("model", "claude-sonnet-4-6")
+    system     = ctx.get("system", "You are a helpful agent. Use the available tools.")
+    prompt     = ctx.get("prompt", "")
+    tools      = ctx.get("tools") or []
+    max_tokens = int(ctx.get("max_tokens", 4096))
+    max_iter   = int(ctx.get("max_iter", 5))
 
-    prompt   = ctx.get("prompt", "")
-    tools    = ctx.get("tools", [])
-    system   = ctx.get("system", "You are a helpful agent. Use the available tools.")
-    model    = ctx.get("model", "claude-sonnet-4-6")
-    max_iter = int(ctx.get("max_iter", 5))
-
-    client = anthropic.Anthropic()
+    provider, clean_model = resolve(
+        model,
+        provider=ctx.get("provider"),
+        base_url=ctx.get("base_url"),
+        api_key=ctx.get("api_key"),
+    )
 
     tool_defs = [
-        {
-            "name": t.__name__,
-            "description": t.__doc__ or "",
-            "input_schema": {"type": "object", "properties": {}, "required": []},
-        }
+        ToolDef(
+            name=t.__name__,
+            description=(t.__doc__ or "").strip(),
+            parameters=getattr(t, "_bn_schema", {"type": "object", "properties": {}}),
+        )
         for t in tools
     ]
     tool_map = {t.__name__: t for t in tools}
 
-    messages = [{"role": "user", "content": prompt}]
-    steps = []
+    messages: list[dict] = [{"role": "user", "content": prompt}]
+    steps: list[dict] = []
 
     for _ in range(max_iter):
-        resp = client.messages.create(
-            model=model,
-            max_tokens=4096,
+        resp = provider.complete(
+            messages,
+            model=clean_model,
             system=system,
-            tools=tool_defs,
-            messages=messages,
+            max_tokens=max_tokens,
+            tools=tool_defs or None,
         )
-        steps.append({"role": "assistant", "content": resp.content})
+        steps.append({"role": "assistant", "text": resp.text, "tool_calls": [
+            {"name": tc.name, "arguments": tc.arguments} for tc in resp.tool_calls
+        ]})
 
-        if resp.stop_reason == "end_turn":
-            result = next((b.text for b in resp.content if hasattr(b, "text")), "")
-            return {"result": result, "steps": steps}
+        if resp.stop_reason == "end_turn" or not resp.tool_calls:
+            return {"result": resp.text, "steps": steps}
 
+        # execute tool calls and build the next user turn
         tool_results = []
-        for block in resp.content:
-            if block.type == "tool_use":
-                fn = tool_map.get(block.name)
-                output = fn(**block.input) if fn else f"Unknown tool: {block.name}"
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": str(output),
-                })
+        for tc in resp.tool_calls:
+            fn = tool_map.get(tc.name)
+            if fn is None:
+                output = f"[error] unknown tool '{tc.name}'"
+            else:
+                try:
+                    output = fn(**tc.arguments)
+                except Exception as exc:
+                    output = f"[error] {exc}"
+            tool_results.append({"tool_call_id": tc.id, "name": tc.name, "output": str(output)})
+            steps.append({"role": "tool", "name": tc.name, "output": str(output)})
 
-        messages.append({"role": "assistant", "content": resp.content})
-        messages.append({"role": "user", "content": tool_results})
+        # append the assistant turn + tool results as a user turn
+        messages.append({"role": "assistant", "content": resp.text or "[tool use]"})
+        messages.append({
+            "role": "user",
+            "content": "\n".join(f"[{r['name']} result]: {r['output']}" for r in tool_results),
+        })
 
     return {"result": "max iterations reached", "steps": steps}
 
+
+# ── ToolCall ──────────────────────────────────────────────────────────────────
 
 @node(inputs=["fn", "args"], outputs=["result"], name="ToolCall")
 def tool_call(ctx: dict) -> dict:
@@ -98,3 +127,22 @@ def tool_call(ctx: dict) -> dict:
         raise ValueError("'fn' input must be a callable")
     result = fn(**args) if isinstance(args, dict) else fn(args)
     return {"result": result}
+
+
+# ── EmbedText ─────────────────────────────────────────────────────────────────
+
+@node(inputs=["text", "model", "provider", "base_url", "api_key"], outputs=["embedding"], name="EmbedText")
+def embed_text(ctx: dict) -> dict:
+    text     = ctx.get("text", "")
+    model    = ctx.get("model", "text-embedding-3-small")
+    api_key  = ctx.get("api_key")
+    base_url = ctx.get("base_url")
+
+    from openai import OpenAI
+    import os
+    client = OpenAI(
+        api_key=api_key or os.environ.get("OPENAI_API_KEY", "sk-local"),
+        base_url=base_url,
+    )
+    resp = client.embeddings.create(input=text, model=model)
+    return {"embedding": resp.data[0].embedding}

@@ -9,6 +9,7 @@ description = "Houdini-style node graph for AI agents and scene assembly"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.25",
+    "openai>=1.0",
 ]
 
 [project.optional-dependencies]
