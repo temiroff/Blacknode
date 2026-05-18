@@ -8,14 +8,14 @@
 html[data-theme="dark"] {
   --bg:      #1a1a1a;
   --panel:   #202020;
-  --node:    #252525;
+  --node:    #353535;
   --lift:    #2a2a2a;
   --hover:   #2e2e2e;
   --line:    #2a2a2a;
   --line2:   #383838;
   --tx1:     #ffffff;
-  --tx2:     #c0c0c8;
-  --tx3:     #707078;
+  --tx2:     #fdfdfd;
+  --tx3:     #b3b3b3;
   --accent:  #9899a8;
   --ok:      #22c55e;
   --warn:    #facc15;
