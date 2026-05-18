@@ -13,9 +13,9 @@ html[data-theme="dark"] {
   --hover:   #1e2030;
   --line:    #20212e;
   --line2:   #2c2e40;
-  --tx1:     #e2e3ef;
-  --tx2:     #72759a;
-  --tx3:     #383a52;
+  --tx1:     #ffffff;
+  --tx2:     #c0c0c8;
+  --tx3:     #707078;
   --accent:  #6366f1;
   --ok:      #22c55e;
   --warn:    #facc15;
@@ -35,9 +35,9 @@ html[data-theme="light"] {
   --hover:   #ededf6;
   --line:    #dcdde9;
   --line2:   #bbbcce;
-  --tx1:     #17182a;
-  --tx2:     #54567a;
-  --tx3:     #9496b4;
+  --tx1:     #11121e;
+  --tx2:     #3a3c60;
+  --tx3:     #8082a8;
   --accent:  #5254d4;
   --ok:      #16a34a;
   --warn:    #ca8a04;
@@ -72,12 +72,14 @@ body {
   background: transparent !important;
   border: none !important;
   border-bottom: 1px solid var(--line) !important;
-  color: var(--tx2) !important;
+  color: var(--tx1) !important;
+  fill: var(--tx1) !important;
   width: 28px !important;
   height: 28px !important;
 }
+.react-flow__controls button svg { fill: var(--tx1) !important; color: var(--tx1) !important; }
 .react-flow__controls button:last-child { border-bottom: none !important; }
-.react-flow__controls button:hover { background: var(--hover) !important; color: var(--tx1) !important; }
+.react-flow__controls button:hover { background: var(--hover) !important; }
 
 .react-flow__minimap {
   background: var(--rf-ctrl) !important;
@@ -90,6 +92,10 @@ body {
 .react-flow__edge:hover .react-flow__edge-path { stroke: var(--accent); opacity: 0.7; }
 
 .react-flow__handle { border-radius: 3px !important; }
+
+/* NodeResizer */
+.react-flow__resize-control.line { border-color: var(--accent) !important; opacity: 0.5; }
+.react-flow__resize-control.handle { background: var(--accent) !important; border-color: var(--accent) !important; }
 
 /* scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }

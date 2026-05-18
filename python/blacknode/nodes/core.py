@@ -28,3 +28,9 @@ def foreach_node(ctx: dict) -> dict:
     items = ctx.get("items", [])
     fn    = ctx.get("template")
     return {"results": [fn(item) if callable(fn) else item for item in items]}
+
+
+@node(inputs=["value:Any"], outputs=[], name="Output")
+def output_node(ctx: dict) -> dict:
+    """Terminal display node — cook it to see the result on the canvas."""
+    return {"value": ctx.get("value")}

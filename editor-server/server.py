@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import sys, os
+import sys, os, json
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import blacknode as bn
@@ -44,6 +44,19 @@ class UpdateParamReq(BaseModel):
 class CookReq(BaseModel):
     node_id: str
     port: str = "output"
+
+class ExecNodeReq(BaseModel):
+    code: str
+
+class SetApiKeyReq(BaseModel):
+    provider: str
+    key: str
+
+_PROVIDER_ENV: dict[str, str] = {
+    "Anthropic":      "ANTHROPIC_API_KEY",
+    "OpenAI":         "OPENAI_API_KEY",
+    "NVIDIA NIM":     "NVIDIA_API_KEY",
+}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -146,6 +159,32 @@ def cook(req: CookReq):
         return {"value": result, "port": req.port}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@app.post("/settings/api-key")
+def set_api_key(req: SetApiKeyReq):
+    """Write a provider API key into os.environ so all node functions pick it up."""
+    env_var = _PROVIDER_ENV.get(req.provider)
+    if env_var and req.key:
+        os.environ[env_var] = req.key
+    return {"ok": True}
+
+
+@app.post("/exec-node")
+def exec_node(req: ExecNodeReq):
+    """Execute Python code and register any new @node-decorated functions."""
+    import traceback
+    before = set(_NODE_REGISTRY.keys())
+    globs: dict = {
+        'node': bn.node,
+        '__builtins__': __builtins__,
+    }
+    try:
+        exec(compile(req.code, '<custom>', 'exec'), globs)
+        new_types = sorted(set(_NODE_REGISTRY.keys()) - before)
+        return {"ok": True, "new_types": new_types}
+    except Exception:
+        raise HTTPException(400, traceback.format_exc())
 
 
 @app.post("/reset")

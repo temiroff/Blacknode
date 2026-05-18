@@ -6,8 +6,10 @@ import {
 import { api } from './api'
 import { BnNodeMeta } from './types'
 import { VALUE_NODE_TYPES } from './categories'
+import { portsCompatible } from './portColors'
 
-const MODEL_NODE_TYPES = new Set(['Model'])
+const MODEL_NODE_TYPES  = new Set(['Model'])
+const OUTPUT_NODE_TYPES = new Set(['Output'])
 
 interface NodeData extends BnNodeMeta {
   cookResult?: unknown
@@ -31,6 +33,7 @@ interface Store {
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
   onConnect: (conn: Connection) => Promise<void>
+  disconnectEdge: (edgeId: string) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
   cookNode: (id: string, port?: string) => Promise<void>
   selectNode: (id: string | null) => void
@@ -62,9 +65,11 @@ export const useStore = create<Store>((set, get) => ({
     const { nodes: bnNodes, edges: bnEdges } = await api.getGraph()
     const nodes: Node<NodeData>[] = bnNodes.map((n: BnNodeMeta) => ({
       id: n.id,
-      type: MODEL_NODE_TYPES.has(n.type) ? 'modelnode' : VALUE_NODE_TYPES.has(n.type) ? 'valuenode' : 'blacknode',
+      type: OUTPUT_NODE_TYPES.has(n.type) ? 'outputnode' : MODEL_NODE_TYPES.has(n.type) ? 'modelnode' : VALUE_NODE_TYPES.has(n.type) ? 'valuenode' : 'blacknode',
       position: { x: n.pos[0], y: n.pos[1] },
       data: { ...n },
+      ...(n.type === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
+      ...(n.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
     }))
     const edges: Edge[] = bnEdges.map((e: any, i: number) => ({
       id: `e${i}`,
@@ -80,9 +85,11 @@ export const useStore = create<Store>((set, get) => ({
     const meta: BnNodeMeta = await api.addNode(typeName, [pos.x, pos.y]) as BnNodeMeta
     const node: Node<NodeData> = {
       id: meta.id,
-      type: MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode',
+      type: OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode',
       position: pos,
       data: { ...meta },
+      ...(typeName === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
+      ...(typeName === 'Output' ? { style: { width: 320, height: 200 } } : {}),
     }
     set(s => ({ nodes: [...s.nodes, node] }))
   },
@@ -118,8 +125,21 @@ export const useStore = create<Store>((set, get) => ({
 
   onConnect: async (conn) => {
     if (!conn.source || !conn.target || !conn.sourceHandle || !conn.targetHandle) return
+    const { nodes } = get()
+    const srcNode = nodes.find(n => n.id === conn.source)
+    const tgtNode = nodes.find(n => n.id === conn.target)
+    const fromType = srcNode?.data?.output_types?.[conn.sourceHandle!] ?? 'Any'
+    const toType   = tgtNode?.data?.input_types?.[conn.targetHandle!]  ?? 'Any'
+    if (!portsCompatible(fromType, toType)) return
     await api.connect(conn.source, conn.sourceHandle, conn.target, conn.targetHandle)
     set(s => ({ edges: addEdge({ ...conn, id: `e${Date.now()}` }, s.edges) }))
+  },
+
+  disconnectEdge: async (edgeId) => {
+    const edge = get().edges.find(e => e.id === edgeId)
+    if (!edge?.source || !edge.target || !edge.sourceHandle || !edge.targetHandle) return
+    await api.disconnect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle)
+    set(s => ({ edges: s.edges.filter(e => e.id !== edgeId) }))
   },
 
   updateParam: async (id, key, value) => {

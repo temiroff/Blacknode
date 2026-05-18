@@ -23,6 +23,6 @@ def bool_value(ctx: dict) -> dict:
     return {"value": bool(v) if not isinstance(v, str) else v.lower() not in ("false", "0", "")}
 
 
-@node(inputs=[], outputs=["value:Text"], name="Model")
+@node(inputs=[], outputs=["value:Model"], name="Model")
 def model_value(ctx: dict) -> dict:
     return {"value": str(ctx.get("value", "claude-sonnet-4-6"))}

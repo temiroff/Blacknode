@@ -26,8 +26,7 @@ NIM_MODELS = [
 
 
 @node(
-    inputs=["prompt:Text", "model:Text", "system:Text", "api_key:Text",
-            "max_tokens:Int", "temperature:Float"],
+    inputs=["prompt:Text", "system:Text", "model:Text", "max_tokens:Int", "temperature:Float"],
     outputs=["text:Text"],
     name="NIMAgent",
 )
@@ -70,7 +69,7 @@ def nim_models(ctx: dict) -> dict:
 
 
 @node(
-    inputs=["prompt:Text", "model:Text", "api_key:Text", "max_tokens:Int"],
+    inputs=["prompt:Text", "model:Text", "max_tokens:Int"],
     outputs=["text:Text"],
     name="NIMStream",
 )

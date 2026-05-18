@@ -10,9 +10,10 @@
   },
   "dependencies": {
     "@reactflow/core": "^11.11.4",
-    "reactflow": "^11.11.4",
+    "@reactflow/node-resizer": "^2.2.14",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "reactflow": "^11.11.4",
     "zustand": "^4.5.2"
   },
   "devDependencies": {

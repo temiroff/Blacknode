@@ -41,8 +41,8 @@ export default function Inspector() {
           {data.type}
         </div>
         <div style={{
-          color: 'var(--tx3)',
-          fontSize: 11,
+          color: 'var(--tx2)',
+          fontSize: 12,
           fontFamily: 'var(--font-mono)',
           letterSpacing: '0.03em',
         }}>
@@ -55,10 +55,10 @@ export default function Inspector() {
         {data.inputs.length > 0 ? (
           <>
             <div style={{
-              color: 'var(--tx3)',
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '0.1em',
+              color: 'var(--tx2)',
+              fontSize: 12,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
               textTransform: 'uppercase',
               marginBottom: 10,
             }}>
@@ -74,7 +74,7 @@ export default function Inspector() {
             ))}
           </>
         ) : (
-          <div style={{ color: 'var(--tx3)', fontSize: 13 }}>No inputs</div>
+          <div style={{ color: 'var(--tx2)', fontSize: 13 }}>No inputs</div>
         )}
       </div>
 
@@ -148,7 +148,7 @@ function ParamRow({ label, value, onChange }: { label: string; value: unknown; o
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{
-        color: 'var(--tx2)',
+        color: 'var(--tx1)',
         fontSize: 12,
         fontWeight: 500,
         marginBottom: 4,
@@ -171,8 +171,8 @@ function ParamRow({ label, value, onChange }: { label: string; value: unknown; o
             borderRadius: 6,
             color: 'var(--tx1)',
             fontFamily: 'var(--font-mono)',
-            fontSize: 13,
-            padding: '6px 8px',
+            fontSize: 12,
+            padding: '5px 8px',
             resize: 'vertical',
             boxSizing: 'border-box',
             outline: 'none',
@@ -185,11 +185,11 @@ function ParamRow({ label, value, onChange }: { label: string; value: unknown; o
             background: 'var(--lift)',
             border: '1px solid var(--line)',
             borderRadius: 6,
-            padding: '6px 8px',
+            padding: '5px 8px',
             color: value !== '' && value !== undefined ? 'var(--tx1)' : 'var(--tx3)',
             cursor: 'text',
-            minHeight: 32,
-            fontSize: 13,
+            minHeight: 28,
+            fontSize: 12,
             fontFamily: 'var(--font-mono)',
             wordBreak: 'break-all',
             transition: 'border-color 0.15s',

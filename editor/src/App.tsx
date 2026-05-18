@@ -6,19 +6,21 @@ import ReactFlow, {
 import 'reactflow/dist/style.css'
 
 import { useStore } from './store'
+import { api } from './api'
 import BlackNode from './components/BlackNode'
 import ValueNode from './components/ValueNode'
 import ModelNode from './components/ModelNode'
+import OutputNode from './components/OutputNode'
 import NodePalette from './components/NodePalette'
 import Inspector from './components/Inspector'
 import NodeSearch from './components/NodeSearch'
 
-const NODE_TYPES = { blacknode: BlackNode, valuenode: ValueNode, modelnode: ModelNode }
+const NODE_TYPES = { blacknode: BlackNode, valuenode: ValueNode, modelnode: ModelNode, outputnode: OutputNode }
 
 export default function App() {
   const {
     nodes, edges, serverOk,
-    onNodesChange, onEdgesChange, onConnect,
+    onNodesChange, onEdgesChange, onConnect, disconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, checkServer, reset,
   } = useStore()
 
@@ -31,7 +33,16 @@ export default function App() {
   }, [isDark])
 
   useEffect(() => {
-    checkServer().then(() => {
+    checkServer().then(async () => {
+      // sync any previously saved API keys into the server environment
+      try {
+        const saved: Record<string, string> = JSON.parse(localStorage.getItem('blacknode_api_keys') || '{}')
+        await Promise.all(
+          Object.entries(saved)
+            .filter(([, v]) => !!v)
+            .map(([provider, key]) => api.setApiKey(provider, key))
+        )
+      } catch {}
       loadNodeTypes()
       loadGraph()
     })
@@ -65,6 +76,10 @@ export default function App() {
     setSearch(null)
   }, [search, addNode])
 
+  const onEdgeDoubleClick = useCallback((_: React.MouseEvent, edge: any) => {
+    disconnectEdge(edge.id)
+  }, [disconnectEdge])
+
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
       <NodePalette />
@@ -90,7 +105,7 @@ export default function App() {
 
           <div style={{ flex: 1 }} />
 
-          <span style={{ color: 'var(--tx3)', fontSize: 12 }}>right-click canvas to add</span>
+          <span style={{ color: 'var(--tx2)', fontSize: 12 }}>right-click canvas to add</span>
 
           <span style={{
             padding: '3px 10px',
@@ -146,6 +161,7 @@ export default function App() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onEdgeDoubleClick={onEdgeDoubleClick}
           onInit={i => { rfInstance.current = i }}
           onNodeClick={(_, node) => selectNode(node.id)}
           onPaneClick={() => { selectNode(null); setSearch(null) }}

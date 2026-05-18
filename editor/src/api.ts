@@ -30,4 +30,6 @@ export const api = {
   cook:       (node_id: string, port = 'output') =>
     req<{ value: unknown; port: string }>('POST', '/cook', { node_id, port }),
   reset:      ()                             => req('POST', '/reset'),
+  execNode:   (code: string)                 => req<{ ok: boolean; new_types: string[] }>('POST', '/exec-node', { code }),
+  setApiKey:  (provider: string, key: string) => req('POST', '/settings/api-key', { provider, key }),
 }

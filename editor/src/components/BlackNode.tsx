@@ -64,7 +64,7 @@ function StatusDot({ data }: { data: NodeData }) {
           <div style={{
             color: isError ? 'var(--err)' : 'var(--ok)',
             fontFamily: 'var(--font-mono)',
-            fontSize: 11,
+            fontSize: 12,
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-all',
             maxHeight: 200,
@@ -112,15 +112,15 @@ function PortRow({ name, type, dir }: { name: string; type: string; dir: 'input'
       />
       <span style={{
         color: 'var(--tx2)',
-        fontSize: 11,
+        fontSize: 13,
         fontFamily: 'var(--font-mono)',
       }}>
         {name}
       </span>
       {hovering && (
         <span style={{
-          fontSize: 10,
-          padding: '1px 5px',
+          fontSize: 11,
+          padding: '1px 6px',
           borderRadius: 4,
           background: color + '28',
           color: color,
@@ -167,7 +167,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         justifyContent: 'space-between',
         alignItems: 'center',
       }}>
-        <span style={{ fontWeight: 600, fontSize: 12, fontFamily: 'var(--font-ui)' }}>
+        <span style={{ fontWeight: 600, fontSize: 13, fontFamily: 'var(--font-ui)' }}>
           {data.type}
         </span>
         <button

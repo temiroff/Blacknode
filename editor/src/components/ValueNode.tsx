@@ -1,5 +1,7 @@
 import { memo, useState, useEffect, useRef } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
+import { NodeResizer } from '@reactflow/node-resizer'
+import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { headerColor } from '../categories'
@@ -20,6 +22,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   const { updateParam, selectNode, cookNode } = useStore()
   const color  = headerColor(data.type)
   const pColor = portColor(data.type)
+  const isText = data.type === 'Text'
 
   const rawValue = data.params.value
   const [draft, setDraft] = useState(rawValue ?? '')
@@ -42,7 +45,10 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
       onClick={() => selectNode(id)}
       style={{
         position: 'relative',
-        width: 170,
+        width:  isText ? '100%' : 170,
+        height: isText ? '100%' : undefined,
+        minWidth: isText ? 180 : undefined,
+        minHeight: isText ? 80 : undefined,
         background: 'var(--node)',
         border: `1px solid ${selected ? color : 'var(--line2)'}`,
         borderRadius: 9,
@@ -52,8 +58,22 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
           ? `0 0 0 2px ${color}55, 0 4px 16px rgba(0,0,0,.4)`
           : '0 2px 10px rgba(0,0,0,.25)',
         cursor: 'default',
+        display: isText ? 'flex' : undefined,
+        flexDirection: isText ? 'column' : undefined,
+        boxSizing: 'border-box',
       }}
     >
+      {/* resize handle — Text only */}
+      {isText && (
+        <NodeResizer
+          minWidth={180}
+          minHeight={80}
+          isVisible={selected}
+          lineStyle={{ borderColor: color }}
+          handleStyle={{ background: color, borderColor: color, width: 8, height: 8, borderRadius: 2 }}
+        />
+      )}
+
       {/* header */}
       <div style={{
         background: color,
@@ -62,6 +82,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        flexShrink: 0,
       }}>
         <span style={{ fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-ui)' }}>
           {data.type}
@@ -78,7 +99,12 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
       </div>
 
       {/* value input */}
-      <div style={{ padding: '7px 8px', display: 'flex', alignItems: 'center' }}>
+      <div style={{
+        padding: isText ? '6px 8px' : '6px 8px',
+        display: 'flex',
+        alignItems: isText ? 'stretch' : 'center',
+        flex: isText ? 1 : undefined,
+      }}>
         {data.type === 'Bool' ? (
           <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', width: '100%' }}>
             <div
@@ -101,7 +127,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               }} />
             </div>
             <span style={{
-              color: draft ? pColor : 'var(--tx3)',
+              color: draft ? pColor : 'var(--tx2)',
               fontSize: 12,
               fontFamily: 'var(--font-mono)',
               fontWeight: 600,
@@ -109,16 +135,44 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               {draft ? 'true' : 'false'}
             </span>
           </label>
+
+        ) : isText ? (
+          <textarea
+            value={String(draft)}
+            placeholder="enter text…"
+            onClick={e => e.stopPropagation()}
+            onChange={e => {
+              setDraft(e.target.value)
+              scheduleCommit(e.target.value)
+            }}
+            onBlur={() => {
+              if (commitRef.current) clearTimeout(commitRef.current)
+              commit(draft)
+            }}
+            style={{
+              width: '100%',
+              flex: 1,
+              background: 'transparent',
+              border: 'none',
+              borderTop: `1px solid ${pColor}40`,
+              color: 'var(--tx1)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 13,
+              lineHeight: 1.6,
+              outline: 'none',
+              resize: 'none',
+              padding: '6px 4px',
+            }}
+          />
+
         ) : (
           <input
-            type={data.type === 'Text' ? 'text' : 'number'}
+            type="number"
             step={data.type === 'Float' ? 'any' : 1}
             value={String(draft)}
             onClick={e => e.stopPropagation()}
             onChange={e => {
-              const v = data.type === 'Text' ? e.target.value
-                      : data.type === 'Float' ? parseFloat(e.target.value) || 0
-                      : parseInt(e.target.value) || 0
+              const v = data.type === 'Float' ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 0
               setDraft(v)
               scheduleCommit(v)
             }}
@@ -130,10 +184,10 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               width: '100%',
               background: 'transparent',
               border: 'none',
-              borderBottom: `1.5px solid ${pColor}55`,
-              color: pColor,
+              borderBottom: `1.5px solid ${pColor}60`,
+              color: 'var(--tx1)',
               fontFamily: 'var(--font-mono)',
-              fontSize: 13,
+              fontSize: 14,
               fontWeight: 600,
               outline: 'none',
               padding: '2px 0',
@@ -147,7 +201,8 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
         position={Position.Right}
         id="value"
         style={{
-          right: 4, top: '50%',
+          right: 4,
+          top: isText ? 20 : '50%',
           background: pColor,
           width: 9, height: 9,
           border: `1.5px solid ${pColor}`,

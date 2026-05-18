@@ -15,10 +15,17 @@ interface NodeData {
   cookError?: string
 }
 
+const LS_KEY = 'blacknode_api_keys'
+
+function loadSavedKeys(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') } catch { return {} }
+}
+
 function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
   const { updateParam, selectNode } = useStore()
 
   const current   = String(data.params.value ?? DEFAULT_MODEL)
+  const apiKey    = String(data.params.api_key ?? '')
   const provColor = modelProviderColor(current)
   const provName  = modelProviderName(current)
 
@@ -29,13 +36,35 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
   const [open, setOpen]       = useState(false)
   const [search, setSearch]   = useState('')
   const [hovered, setHovered] = useState<string | null>(null)
+  const [showKey, setShowKey] = useState(false)
   const searchRef             = useRef<HTMLInputElement>(null)
   const dropRef               = useRef<HTMLDivElement>(null)
+
+  // load persisted key for this provider on mount / provider change
+  useEffect(() => {
+    const saved = loadSavedKeys()[provName]
+    if (saved && !apiKey) {
+      updateParam(id, 'api_key', saved)
+      import('../api').then(({ api }) => api.setApiKey(provName, saved))
+    }
+  }, [provName])
+
+  const handleApiKeyChange = (val: string) => {
+    updateParam(id, 'api_key', val)
+    // persist to localStorage by provider
+    const saved = loadSavedKeys()
+    if (val) saved[provName] = val
+    else delete saved[provName]
+    localStorage.setItem(LS_KEY, JSON.stringify(saved))
+    // push to server env so agents pick it up immediately
+    import('../api').then(({ api }) => api.setApiKey(provName, val))
+  }
 
   useEffect(() => {
     if (open) setTimeout(() => searchRef.current?.focus(), 30)
   }, [open])
 
+  // close on outside click
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
@@ -49,7 +78,8 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
 
   const select = (value: string) => {
     updateParam(id, 'value', value)
-    setOpen(false); setSearch('')
+    setOpen(false)
+    setSearch('')
   }
 
   const filtered = MODEL_GROUPS.map(g => ({
@@ -66,7 +96,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
       onClick={() => selectNode(id)}
       style={{
         position: 'relative',
-        width: 220,
+        width: 230,
         background: 'var(--node)',
         border: `1px solid ${selected ? provColor : 'var(--line2)'}`,
         borderRadius: 9,
@@ -103,7 +133,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
       </div>
 
       {/* selector button */}
-      <div style={{ padding: '6px 8px' }}>
+      <div style={{ padding: '6px 8px 4px' }}>
         <button
           onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
           style={{
@@ -131,16 +161,58 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         </button>
       </div>
 
+      {/* api key */}
+      <div style={{ padding: '2px 8px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
+        <input
+          value={apiKey}
+          placeholder="API key (saved per provider)"
+          onClick={e => e.stopPropagation()}
+          onChange={e => handleApiKeyChange(e.target.value)}
+          type={showKey ? 'text' : 'password'}
+          style={{
+            flex: 1,
+            background: 'transparent',
+            border: 'none',
+            borderBottom: `1px solid ${apiKey ? provColor + '60' : 'var(--line2)'}`,
+            color: apiKey ? 'var(--tx1)' : 'var(--tx3)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            outline: 'none',
+            padding: '3px 2px',
+            minWidth: 0,
+          }}
+        />
+        <button
+          onClick={e => { e.stopPropagation(); setShowKey(s => !s) }}
+          title={showKey ? 'Hide key' : 'Show key'}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: showKey ? provColor : 'var(--tx3)',
+            cursor: 'pointer',
+            fontSize: 13,
+            padding: '2px 3px',
+            flexShrink: 0,
+            lineHeight: 1,
+          }}
+        >
+          {showKey ? '🙈' : '👁'}
+        </button>
+      </div>
+
       {/* dropdown */}
       {open && (
         <div
           ref={dropRef}
+          // stop mousedown so React Flow doesn't start dragging the node
           onMouseDown={e => e.stopPropagation()}
+          // stop click so it doesn't bubble up to toggle button
+          onClick={e => e.stopPropagation()}
           style={{
             position: 'absolute',
             top: '100%',
             left: 0,
-            width: 220,
+            width: 230,
             background: 'var(--panel)',
             border: '1px solid var(--line2)',
             borderRadius: 8,
@@ -163,7 +235,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
               ref={searchRef}
               value={search}
               onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => e.key === 'Escape' && setOpen(false)}
+              onKeyDown={e => e.key === 'Escape' && (setOpen(false), setSearch(''))}
               placeholder="filter…"
               style={{
                 flex: 1,
@@ -177,8 +249,11 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
             />
           </div>
 
-          {/* grouped options */}
-          <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+          {/* grouped options — onWheel stops React Flow canvas zoom */}
+          <div
+            style={{ maxHeight: 280, overflowY: 'auto' }}
+            onWheel={e => e.stopPropagation()}
+          >
             {filtered.map(g => (
               <div key={g.provider}>
                 <div style={{
@@ -195,14 +270,17 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                   <div style={{ width: 5, height: 5, borderRadius: 1, background: g.color }} />
                   {g.provider}
                 </div>
+
                 {g.models.map(m => (
                   <div
                     key={m.value}
                     onMouseEnter={() => setHovered(m.value)}
                     onMouseLeave={() => setHovered(null)}
-                    onMouseDown={() => select(m.value)}
+                    // onClick closes correctly; onMouseDown just stops node drag
+                    onMouseDown={e => e.stopPropagation()}
+                    onClick={() => select(m.value)}
                     style={{
-                      padding: '5px 14px',
+                      padding: '6px 14px',
                       fontSize: 12,
                       cursor: 'pointer',
                       color: m.value === current ? g.color : 'var(--tx2)',
@@ -215,7 +293,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                     }}
                   >
                     {m.value === current && (
-                      <span style={{ color: g.color, fontSize: 7 }}>●</span>
+                      <span style={{ color: g.color, fontSize: 7, flexShrink: 0 }}>●</span>
                     )}
                     {m.label}
                   </div>
@@ -233,9 +311,9 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         id="value"
         style={{
           right: 4,
-          background: portColor('Text'),
+          background: portColor('Model'),
           width: 9, height: 9,
-          border: `1.5px solid ${portColor('Text')}`,
+          border: `1.5px solid ${portColor('Model')}`,
           borderRadius: 3,
         }}
       />

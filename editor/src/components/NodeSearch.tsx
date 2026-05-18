@@ -122,9 +122,9 @@ export default function NodeSearch({ screenPos, onSelect, onClose }: Props) {
               <div style={{
                 padding: '8px 14px 4px',
                 color,
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: '0.08em',
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: '0.06em',
                 textTransform: 'uppercase',
                 display: 'flex',
                 alignItems: 'center',
