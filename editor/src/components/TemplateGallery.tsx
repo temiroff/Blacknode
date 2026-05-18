@@ -36,7 +36,7 @@ const TEMPLATES: Template[] = [
     ],
     edges: [
       { from: 'model',  fromPort: 'value', to: 'agent', toPort: 'model' },
-      { from: 'system', fromPort: 'value', to: 'agent', toPort: 'system_prompt' },
+      { from: 'system', fromPort: 'value', to: 'agent', toPort: 'system' },
       { from: 'prompt', fromPort: 'value', to: 'agent', toPort: 'prompt' },
       { from: 'agent',  fromPort: 'text',  to: 'out',   toPort: 'value' },
     ],
@@ -47,7 +47,7 @@ const TEMPLATES: Template[] = [
     description: 'Run a prompt through NVIDIA NIM API',
     color: '#76b900',
     nodes: [
-      { ref: 'model',  type: 'Model',    params: { value: 'nim:nvidia/llama-3.1-nemotron-70b-instruct' }, pos: [60,  80] },
+      { ref: 'model',  type: 'Model',    params: { value: 'nim:meta/llama-3.1-8b-instruct' }, pos: [60,  80] },
       { ref: 'prompt', type: 'Text',     params: { value: 'Explain quantum computing briefly.' },          pos: [60, 230] },
       { ref: 'agent',  type: 'NIMAgent', params: {},                                                       pos: [340, 150] },
       { ref: 'out',    type: 'Output',   params: {},                                                       pos: [620, 130] },
@@ -72,7 +72,7 @@ const TEMPLATES: Template[] = [
     edges: [
       { from: 'a',      fromPort: 'value',  to: 'concat', toPort: 'a' },
       { from: 'b',      fromPort: 'value',  to: 'concat', toPort: 'b' },
-      { from: 'concat', fromPort: 'output', to: 'out',    toPort: 'value' },
+      { from: 'concat', fromPort: 'value',  to: 'out',    toPort: 'value' },
     ],
   },
   {
@@ -90,7 +90,7 @@ const TEMPLATES: Template[] = [
     edges: [
       { from: 'model',  fromPort: 'value',  to: 'loop', toPort: 'model' },
       { from: 'system', fromPort: 'value',  to: 'loop', toPort: 'system' },
-      { from: 'task',   fromPort: 'value',  to: 'loop', toPort: 'task' },
+      { from: 'task',   fromPort: 'value',  to: 'loop', toPort: 'prompt' },
       { from: 'loop',   fromPort: 'result', to: 'out',  toPort: 'value' },
     ],
   },

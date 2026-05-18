@@ -9,16 +9,13 @@ NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 # curated list of popular NIM models
 NIM_MODELS = [
-    "nvidia/llama-3.1-nemotron-70b-instruct",  # NVIDIA's own flagship
-    "meta/llama-3.1-8b-instruct",
+    "meta/llama-3.1-8b-instruct",            # free tier, reliable
     "meta/llama-3.1-70b-instruct",
-    "meta/llama-3.1-405b-instruct",
-    "meta/llama-3.2-3b-instruct",
-    "mistralai/mixtral-8x7b-instruct-v0.1",
+    "meta/llama-3.3-70b-instruct",
+    "nvidia/llama-3.3-nemotron-super-49b-v1", # NVIDIA flagship (2025)
     "mistralai/mistral-7b-instruct-v0.3",
+    "mistralai/mixtral-8x7b-instruct-v0.1",
     "microsoft/phi-3-mini-128k-instruct",
-    "microsoft/phi-3-medium-128k-instruct",
-    "google/gemma-2-27b-it",
     "google/gemma-2-9b-it",
     "deepseek-ai/deepseek-r1",
     "qwen/qwen2.5-72b-instruct",
@@ -26,7 +23,7 @@ NIM_MODELS = [
 
 
 @node(
-    inputs=["prompt:Text", "system:Text", "model:Text", "max_tokens:Int", "temperature:Float"],
+    inputs=["prompt:Text", "system:Text", "model:Model", "max_tokens:Int", "temperature:Float"],
     outputs=["text:Text"],
     name="NIMAgent",
 )
@@ -35,7 +32,8 @@ def nim_agent(ctx: dict) -> dict:
     import os
     from openai import OpenAI
 
-    model       = ctx.get("model", "nvidia/llama-3.1-nemotron-70b-instruct")
+    model       = ctx.get("model", "meta/llama-3.1-8b-instruct")
+    if ':' in model: model = model.split(':', 1)[1]  # strip "nim:" prefix from Model picker
     system      = ctx.get("system", "You are a helpful assistant.")
     prompt      = ctx.get("prompt", "")
     api_key     = ctx.get("api_key") or os.environ.get("NVIDIA_API_KEY", "")
@@ -69,7 +67,7 @@ def nim_models(ctx: dict) -> dict:
 
 
 @node(
-    inputs=["prompt:Text", "model:Text", "max_tokens:Int"],
+    inputs=["prompt:Text", "model:Model", "max_tokens:Int"],
     outputs=["text:Text"],
     name="NIMStream",
 )
@@ -78,7 +76,8 @@ def nim_stream(ctx: dict) -> dict:
     import os
     from openai import OpenAI
 
-    model      = ctx.get("model", "nvidia/llama-3.1-nemotron-70b-instruct")
+    model      = ctx.get("model", "meta/llama-3.1-8b-instruct")
+    if ':' in model: model = model.split(':', 1)[1]
     prompt     = ctx.get("prompt", "")
     api_key    = ctx.get("api_key") or os.environ.get("NVIDIA_API_KEY", "")
     max_tokens = int(ctx.get("max_tokens", 1024))

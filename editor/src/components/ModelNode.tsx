@@ -40,6 +40,15 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
   const searchRef             = useRef<HTMLInputElement>(null)
   const dropRef               = useRef<HTMLDivElement>(null)
 
+  // native wheel listener so scroll inside dropdown doesn't zoom the RF canvas
+  useEffect(() => {
+    const el = dropRef.current
+    if (!el || !open) return
+    const stop = (e: WheelEvent) => e.stopPropagation()
+    el.addEventListener('wheel', stop)
+    return () => el.removeEventListener('wheel', stop)
+  }, [open])
+
   // load persisted key for this provider on mount / provider change
   useEffect(() => {
     const saved = loadSavedKeys()[provName]
@@ -250,10 +259,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
           </div>
 
           {/* grouped options — onWheel stops React Flow canvas zoom */}
-          <div
-            style={{ maxHeight: 280, overflowY: 'auto' }}
-            onWheel={e => e.stopPropagation()}
-          >
+          <div style={{ maxHeight: 280, overflowY: 'auto' }}>
             {filtered.map(g => (
               <div key={g.provider}>
                 <div style={{

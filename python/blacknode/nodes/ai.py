@@ -3,7 +3,7 @@ from blacknode.providers import resolve, ToolDef
 
 
 @node(
-    inputs=["prompt:Text", "system:Text", "model:Text", "max_tokens:Int", "temperature:Float"],
+    inputs=["prompt:Text", "system:Text", "model:Model", "max_tokens:Int", "temperature:Float"],
     outputs=["text:Text"],
     name="LLMAgent",
 )
@@ -31,7 +31,7 @@ def llm_agent(ctx: dict) -> dict:
 
 
 @node(
-    inputs=["prompt:Text", "system:Text", "model:Text", "tools:List", "max_tokens:Int", "max_iter:Int"],
+    inputs=["prompt:Text", "system:Text", "model:Model", "tools:List", "max_tokens:Int", "max_iter:Int"],
     outputs=["result:Text", "steps:List"],
     name="AgentLoop",
 )
