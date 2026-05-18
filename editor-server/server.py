@@ -117,7 +117,7 @@ def update_param(node_id: str, req: UpdateParamReq):
         raise HTTPException(404, "Node not found")
     _session.node_meta[node_id]["params"][req.key] = req.value
     _session.graph._nodes[node_id]["params"][req.key] = req.value
-    _session.graph._dirty.add(node_id)
+    _session.graph._mark_dirty(node_id)   # cascades dirty to all downstream nodes
     return _session.node_meta[node_id]
 
 
@@ -150,15 +150,18 @@ def disconnect(from_id: str, from_port: str, to_id: str, to_port: str):
 
 @app.post("/cook")
 def cook(req: CookReq):
+    import traceback
     if req.node_id not in _session.node_meta:
         raise HTTPException(404, "Node not found")
+    if req.node_id not in _session.graph._nodes:
+        raise HTTPException(500, f"Node {req.node_id} missing from graph (try resetting)")
     try:
         proxy = bn.NodeProxy(_session.graph, req.node_id,
                              _session.node_meta[req.node_id]["type"], {})
         result = _session.graph.cook(proxy, req.port)
         return {"value": result, "port": req.port}
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    except Exception:
+        raise HTTPException(500, traceback.format_exc())
 
 
 @app.post("/settings/api-key")
