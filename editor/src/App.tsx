@@ -44,7 +44,7 @@ export default function App() {
     tabs, activeTabId,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels,
-    addNodeFromConnection,
+    addNodeFromConnection, duplicateDraggedNodes, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     renameTab, saveActiveWorkflow,
     diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes,
@@ -61,6 +61,10 @@ export default function App() {
   const saveOkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const connectionMade = useRef(false)
   const connectionDraft = useRef<ConnectionDraft | null>(null)
+  const altDragCopy = useRef<{
+    nodeIds: string[]
+    originalPositions: Record<string, { x: number; y: number }>
+  } | null>(null)
   const suppressPaneClick = useRef(false)
   const activeTab = tabs.find(tab => tab.id === activeTabId)
   const needsSave = Boolean(activeTab && (activeTab.dirty || !activeTab.slug))
@@ -108,6 +112,17 @@ export default function App() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [exitSubnet])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== 'z') return
+      if (isEditableTarget(e.target)) return
+      e.preventDefault()
+      void undoGraph()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [undoGraph])
 
   const fitCurrentCanvas = useCallback((duration = 280) => {
     window.requestAnimationFrame(() => {
@@ -203,6 +218,31 @@ export default function App() {
     window.setTimeout(() => { suppressPaneClick.current = false }, 200)
     setSearch({ screenPos: point, flowPos, connect: draft })
   }, [nodeDefs])
+
+  const onNodeDragStart = useCallback((event: React.MouseEvent, node: any) => {
+    if (!event.altKey) {
+      altDragCopy.current = null
+      return
+    }
+    const selectedNodes = nodes.filter(n => n.selected)
+    const copyNodes = node.selected && selectedNodes.length > 1
+      ? selectedNodes
+      : nodes.filter(n => n.id === node.id)
+    altDragCopy.current = {
+      nodeIds: copyNodes.map(n => n.id),
+      originalPositions: Object.fromEntries(copyNodes.map(n => [
+        n.id,
+        { x: n.position.x, y: n.position.y },
+      ])),
+    }
+  }, [nodes])
+
+  const onNodeDragStop = useCallback(() => {
+    const copy = altDragCopy.current
+    altDragCopy.current = null
+    if (!copy) return
+    void duplicateDraggedNodes(copy.nodeIds, copy.originalPositions)
+  }, [duplicateDraggedNodes])
 
   const startTabRename = useCallback((tab: { id: string; name: string }) => {
     setTabMenu(null)
@@ -551,6 +591,8 @@ export default function App() {
           onConnect={handleConnect}
           onConnectStart={onConnectStart}
           onConnectEnd={onConnectEnd}
+          onNodeDragStart={onNodeDragStart}
+          onNodeDragStop={onNodeDragStop}
           onEdgeDoubleClick={onEdgeDoubleClick}
           onEdgeUpdateStart={onEdgeUpdateStart}
           onEdgeUpdate={onEdgeUpdate}
@@ -614,6 +656,13 @@ function clientPointFromEvent(event: MouseEvent | TouchEvent): { x: number; y: n
     return touch ? { x: touch.clientX, y: touch.clientY } : null
   }
   return { x: event.clientX, y: event.clientY }
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  const tag = target.tagName.toLowerCase()
+  return tag === 'input' || tag === 'textarea' || tag === 'select'
 }
 
 function getCompatibleNodeTypes(draft: ConnectionDraft, nodeDefs: Record<string, BnNodeDef>): string[] {

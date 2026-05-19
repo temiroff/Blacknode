@@ -1,6 +1,6 @@
 # Blacknode
 
-A node-based framework for building AI agent pipelines — scriptable in Python, visual in the browser.
+A node-based framework for building AI agent pipelines, typed data flows, and reusable Python tools - scriptable in Python, visual in the browser.
 
 ---
 
@@ -87,6 +87,7 @@ Keys are saved per provider in your browser's `localStorage` and automatically s
 - **Right-click** the canvas → type to search → click or press Enter
 - **Drag** a node from the left palette onto the canvas
 - **Click** a node in the palette to place it at a random position
+- Node categories in the palette start collapsed so larger node sets stay manageable
 
 ### Connecting nodes
 
@@ -115,6 +116,16 @@ Click the **▶ Cook** button on any node (or on the **Output** node) to evaluat
 
 Results appear in the node's result area. Errors show in red with a full Python traceback.
 
+### Panels and layout
+
+- The left node palette can collapse or resize.
+- The right **Properties** panel can collapse or resize the same way, while keeping its icon rail visible.
+- Use **Organize** in the top bar to lay out the current graph or subnet.
+- Use **Theme** to switch light/dark mode and **Clear** to reset the canvas.
+- The server status stays at the right side of the top bar.
+- Press **Ctrl+Z** on the canvas to undo graph edits step by step.
+- Hold **Alt** while dragging a node to leave the original in place and drop a copy.
+
 ### Templates
 
 Open the **Templates** tab in the left sidebar for one-click starter graphs:
@@ -127,6 +138,51 @@ Open the **Templates** tab in the left sidebar for one-click starter graphs:
 | Python Tool Agent | PythonFn → ToolBox → AgentLoop tool call |
 | Subnet Tool Call | Build a calculator inside SubnetAsTool and test it directly with ToolCall |
 | Subnet Tool Agent | Build a calculator inside SubnetAsTool and pass it to AgentLoop |
+
+Templates are auto-organized when loaded and framed with padding so the graph starts inside the visible canvas.
+
+### Tool workflows
+
+Tools live in the **Tools** category.
+
+#### PythonFn
+
+Use **PythonFn** when you want a quick inline Python tool.
+
+1. Add a **PythonFn** node.
+2. In `code`, define a callable named `run`.
+3. Set `name` to the tool name the LLM should see.
+4. Set `description` to explain when the tool should be used.
+5. Wire `fn` into **ToolBox** for **AgentLoop**, or into **ToolCall** to test it directly.
+
+Example:
+
+```python
+def run(query: str) -> str:
+    import urllib.request
+    return "result"
+```
+
+Type annotations on `run` are converted into the tool schema passed to the model.
+
+#### SubnetAsTool
+
+Use **SubnetAsTool** when you want to build the tool visually inside the node.
+
+1. Add a **SubnetAsTool** node.
+2. Set `name` and `description`.
+3. Dive into the node.
+4. Add **SubnetInput** and **SubnetOutput** nodes.
+5. Build the internal graph between them.
+6. Exit the subnet and wire `fn` into **ToolBox** or **ToolCall**.
+
+The outputs on **SubnetInput** become the tool arguments. The first input on **SubnetOutput** becomes the returned value.
+
+#### ToolBox and ToolCall
+
+**ToolBox** collects any number of connected `Fn` tools into a `List` for `AgentLoop.tools`. It starts with no empty slots; connecting a tool creates a slot, and disconnecting removes the empty slot.
+
+**ToolCall** runs one `Fn` directly with a `Dict` of arguments. Use it to test a PythonFn or SubnetAsTool before giving it to an AgentLoop.
 
 ### Custom nodes (Script tab)
 
@@ -228,8 +284,8 @@ blacknode/
 
 ## License
 
-Blacknode is licensed under the GNU Affero General Public License, version 3 only.
-See [COPYING](COPYING) for the full license text.
+Blacknode is licensed under the Apache License 2.0.
+See [LICENSE](LICENSE) for the full license text.
 
 ---
 
@@ -241,6 +297,8 @@ See [COPYING](COPYING) for the full license text.
 - [x] React Flow visual editor — palette, templates, live cook, inspector
 - [x] Model picker node with per-provider API key storage
 - [x] Live custom node scripting (Script tab)
+- [x] PythonFn, SubnetAsTool, ToolBox, and ToolCall tool workflows
+- [x] Collapsible/resizable side panels and auto-organized templates
 - [ ] Rust core via maturin (milestone 2)
 - [ ] Tauri desktop wrapper (milestone 3)
 - [ ] `.bn` binary graph file format

@@ -32,6 +32,18 @@ interface NodeData extends BnNodeMeta {
   cookPort?: string
 }
 
+interface UndoSnapshot {
+  activeTabId: string
+  graph: GraphSnapshot
+  nodes: Node<NodeData>[]
+  edges: Edge[]
+  subnetStack: SubnetFrame[]
+  selectedId: string | null
+}
+
+const UNDO_LIMIT = 80
+let dragUndoActive = false
+
 interface Store {
   nodes: Node<NodeData>[]
   edges: Edge[]
@@ -44,6 +56,7 @@ interface Store {
   tabs: WorkflowTab[]
   activeTabId: string
   workflowRevision: number
+  undoHistory: UndoSnapshot[]
 
   loadNodeTypes: () => Promise<void>
   loadGraph: () => Promise<void>
@@ -82,6 +95,7 @@ interface Store {
     outputTypes?: Record<string, string>,
     inputDefaults?: Record<string, unknown>,
     multiInputPorts?: string[],
+    recordHistory?: boolean,
   ) => Promise<void>
   updateSubgraphBoundaryPorts: (
     innerNodeId: string,
@@ -89,6 +103,7 @@ interface Store {
     inputs?: string[],
     outputTypes?: Record<string, string>,
     inputTypes?: Record<string, string>,
+    recordHistory?: boolean,
   ) => Promise<void>
 
   addNode: (typeName: string, pos: { x: number; y: number }) => Promise<void>
@@ -99,9 +114,11 @@ interface Store {
   onConnect: (conn: Connection) => Promise<void>
   disconnectEdge: (edgeId: string) => Promise<void>
   reconnectEdge: (oldEdge: Edge, newConn: Connection) => Promise<void>
+  duplicateDraggedNodes: (nodeIds: string[], originalPositions: Record<string, { x: number; y: number }>) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
   cookNode: (id: string, port?: string) => Promise<void>
   selectNode: (id: string | null) => void
+  undoGraph: () => Promise<void>
   reset: () => Promise<void>
 }
 
@@ -174,6 +191,118 @@ function nextToolInputName(inputs: string[]): string {
   return `tool_${i}`
 }
 
+function toolInputIndex(name: string): number {
+  const n = Number(name.split('_').pop())
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER
+}
+
+function sortToolInputs(inputs: string[]): string[] {
+  return [...inputs].sort((a, b) => toolInputIndex(a) - toolInputIndex(b) || a.localeCompare(b))
+}
+
+function cloneDeep<T>(value: T): T {
+  if (value === undefined || value === null) return value
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
+function stripRuntimeNodeData(data: NodeData): BnNodeMeta {
+  const { cookResult: _cookResult, cookError: _cookError, cooking: _cooking, cookPort: _cookPort, ...meta } = data
+  return meta
+}
+
+function flowEdgesToBackend(edges: Edge[]): any[] {
+  return edges
+    .filter(e => e.source && e.target && e.sourceHandle && e.targetHandle)
+    .map(e => ({
+      from: e.source,
+      from_port: e.sourceHandle,
+      to: e.target,
+      to_port: e.targetHandle,
+    }))
+}
+
+function nodeToMeta(node: Node<NodeData>): BnNodeMeta {
+  return {
+    ...cloneDeep(stripRuntimeNodeData(node.data)),
+    pos: [node.position.x, node.position.y],
+  }
+}
+
+function nodesToMeta(nodes: Node<NodeData>[]): Record<string, BnNodeMeta> {
+  const meta: Record<string, BnNodeMeta> = {}
+  nodes.forEach(node => { meta[node.id] = nodeToMeta(node) })
+  return meta
+}
+
+function subgraphFromFlow(nodes: Node<NodeData>[], edges: Edge[]): { node_meta: Record<string, BnNodeMeta>; edges: any[] } {
+  return {
+    node_meta: nodesToMeta(nodes),
+    edges: flowEdgesToBackend(edges),
+  }
+}
+
+function graphSnapshotFromState(s: Store): GraphSnapshot {
+  let current = subgraphFromFlow(s.nodes, s.edges)
+
+  for (let i = s.subnetStack.length - 1; i >= 0; i--) {
+    const frame = s.subnetStack[i]
+    const parentNodes = cloneDeep(frame.parentNodes) as Node<NodeData>[]
+    const parentEdges = cloneDeep(frame.parentEdges) as Edge[]
+    const nextParentNodes = parentNodes.map(node => (
+      node.id === frame.subnetId
+        ? { ...node, data: { ...node.data, subgraph: current } }
+        : node
+    ))
+    current = subgraphFromFlow(nextParentNodes, parentEdges)
+  }
+
+  return {
+    nodes: Object.values(current.node_meta),
+    edges: current.edges,
+  }
+}
+
+function makeUndoSnapshot(s: Store): UndoSnapshot {
+  return {
+    activeTabId: s.activeTabId,
+    graph: cloneGraph(graphSnapshotFromState(s)),
+    nodes: cloneDeep(s.nodes),
+    edges: cloneDeep(s.edges),
+    subnetStack: cloneDeep(s.subnetStack),
+    selectedId: s.selectedId,
+  }
+}
+
+function pushUndoSnapshot(s: Store): Pick<Store, 'undoHistory'> {
+  const snapshot = makeUndoSnapshot(s)
+  const undoHistory = [...s.undoHistory, snapshot]
+  return { undoHistory: undoHistory.slice(Math.max(0, undoHistory.length - UNDO_LIMIT)) }
+}
+
+function shouldRecordNodeChange(changes: NodeChange[]): boolean {
+  if (changes.some(c => c.type === 'remove')) {
+    dragUndoActive = false
+    return true
+  }
+
+  const positionChanges = changes.filter(c => c.type === 'position' && c.position)
+  if (positionChanges.length === 0) return false
+
+  const dragging = positionChanges.some(c => Boolean((c as any).dragging))
+  if (dragging) {
+    if (dragUndoActive) return false
+    dragUndoActive = true
+    return true
+  }
+
+  if (dragUndoActive) {
+    dragUndoActive = false
+    return false
+  }
+
+  return true
+}
+
 function pruneEmptyToolBoxSlots(nodes: Node<NodeData>[], edges: Edge[]): { nodes: Node<NodeData>[]; changedIds: Set<string> } {
   const connectedPorts = new Map<string, Set<string>>()
   edges.forEach(edge => {
@@ -211,6 +340,38 @@ function pruneEmptyToolBoxSlots(nodes: Node<NodeData>[], edges: Edge[]): { nodes
   return { nodes: nextNodes, changedIds }
 }
 
+function ensureConnectedToolBoxSlots(nodes: Node<NodeData>[], edges: Edge[]): Node<NodeData>[] {
+  const connectedPorts = new Map<string, Set<string>>()
+  edges.forEach(edge => {
+    if (!edge.targetHandle?.startsWith('tool_')) return
+    if (!connectedPorts.has(edge.target)) connectedPorts.set(edge.target, new Set())
+    connectedPorts.get(edge.target)!.add(edge.targetHandle)
+  })
+
+  return nodes.map(node => {
+    if (node.data.type !== 'ToolBox') return node
+    const connected = sortToolInputs(Array.from(connectedPorts.get(node.id) ?? []))
+    if (
+      connected.length === (node.data.inputs ?? []).length
+      && connected.every((port, i) => port === node.data.inputs[i])
+    ) {
+      return node
+    }
+
+    const inputTypes: Record<string, string> = {}
+    connected.forEach(port => { inputTypes[port] = 'Fn' })
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        inputs: connected,
+        input_types: inputTypes,
+        input_defaults: {},
+      },
+    }
+  })
+}
+
 function makeTabId(): string {
   return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
@@ -245,6 +406,7 @@ export const useStore = create<Store>((set, get) => ({
   tabs: [{ id: 'default', name: 'Untitled', slug: null, dirty: false, graph: null }],
   activeTabId: 'default',
   workflowRevision: 0,
+  undoHistory: [],
   subnetStack: [],
 
   checkServer: async () => {
@@ -320,7 +482,7 @@ export const useStore = create<Store>((set, get) => ({
   newTab: async () => {
     await get().saveActiveTabSnapshot()
     const id = makeTabId()
-    set(s => ({ tabs: [...s.tabs, { id, name: 'Untitled', slug: null, dirty: false, graph: blankGraph() }], activeTabId: id }))
+    set(s => ({ tabs: [...s.tabs, { id, name: 'Untitled', slug: null, dirty: false, graph: blankGraph() }], activeTabId: id, undoHistory: [] }))
     await api.reset()
     set({ nodes: [], edges: [], selectedId: null })
   },
@@ -333,7 +495,7 @@ export const useStore = create<Store>((set, get) => ({
     const insertAt = idx < 0 ? tabs.length : idx + 1
     const nextTabs = [...tabs]
     nextTabs.splice(insertAt, 0, { id, name: 'Untitled', slug: null, dirty: false, graph: blankGraph() })
-    set({ tabs: nextTabs, activeTabId: id, selectedId: null })
+    set({ tabs: nextTabs, activeTabId: id, selectedId: null, undoHistory: [] })
     await api.reset()
     set({ nodes: [], edges: [] })
   },
@@ -346,7 +508,7 @@ export const useStore = create<Store>((set, get) => ({
     const tab = tabs.find(t => t.id === tabId)
       ?? nextTabs.find(t => t.id === tabId)
     if (!tab) return
-    set({ activeTabId: tabId, selectedId: null })
+    set({ activeTabId: tabId, selectedId: null, undoHistory: [] })
     if (tab.graph) {
       const graph = cloneGraph(tab.graph)
       await api.setGraph(graph.nodes, graph.edges)
@@ -368,7 +530,7 @@ export const useStore = create<Store>((set, get) => ({
     const newTabs = tabs.filter(t => t.id !== tabId)
     if (tabId === activeTabId) {
       const next = newTabs[Math.max(0, idx - 1)]
-      set({ tabs: newTabs, activeTabId: next.id, selectedId: null })
+      set({ tabs: newTabs, activeTabId: next.id, selectedId: null, undoHistory: [] })
       if (next.graph) {
         const graph = cloneGraph(next.graph)
         await api.setGraph(graph.nodes, graph.edges)
@@ -408,7 +570,7 @@ export const useStore = create<Store>((set, get) => ({
       dirty: true,
       graph: cloneGraph(graph),
     })
-    set({ tabs: nextTabs, activeTabId: id, selectedId: null })
+    set({ tabs: nextTabs, activeTabId: id, selectedId: null, undoHistory: [] })
     await api.setGraph(graph.nodes, graph.edges)
     await get().loadGraph()
   },
@@ -423,7 +585,7 @@ export const useStore = create<Store>((set, get) => ({
     }
     const id = makeTabId()
     const graph = await api.loadWorkflow(slug)
-    set(s => ({ tabs: [...s.tabs, { id, name, slug, dirty: false, graph: cloneGraph(graph) }], activeTabId: id, selectedId: null }))
+    set(s => ({ tabs: [...s.tabs, { id, name, slug, dirty: false, graph: cloneGraph(graph) }], activeTabId: id, selectedId: null, undoHistory: [] }))
     await get().loadGraph()
   },
 
@@ -450,6 +612,7 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   insertSavedWorkflow: async (slug) => {
+    set(s => pushUndoSnapshot(s))
     const graph = await api.insertWorkflow(slug)
     set(s => ({
       ...parseGraph(graph.nodes, graph.edges),
@@ -537,6 +700,7 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   collapseToSubnet: async (nodeIds, label) => {
+    set(s => pushUndoSnapshot(s))
     await api.collapseToSubnet(nodeIds, label)
     const graphData = await api.getGraph()
     const { nodes: newNodes, edges: newEdges } = parseGraph(graphData.nodes, graphData.edges)
@@ -546,6 +710,7 @@ export const useStore = create<Store>((set, get) => ({
   organizeNodes: async () => {
     const { subnetStack, nodes, edges } = get()
     const nextNodes = organizeFlowNodes(nodes, edges)
+    set(s => pushUndoSnapshot(s))
 
     if (subnetStack.length > 0) {
       const frame = subnetStack[subnetStack.length - 1]
@@ -564,10 +729,11 @@ export const useStore = create<Store>((set, get) => ({
     set(s => ({ nodes: nextNodes, ...markActiveTabDirty(s) }))
   },
 
-  updateNodePorts: async (nodeId, inputs, outputs, inputTypes, outputTypes, inputDefaults, multiInputPorts) => {
+  updateNodePorts: async (nodeId, inputs, outputs, inputTypes, outputTypes, inputDefaults, multiInputPorts, recordHistory = true) => {
     const { subnetStack, nodes, edges } = get()
     const node = nodes.find(n => n.id === nodeId)
     if (!node) return
+    if (recordHistory) set(s => pushUndoSnapshot(s))
 
     const nextData = {
       ...node.data,
@@ -621,10 +787,11 @@ export const useStore = create<Store>((set, get) => ({
     }))
   },
 
-  updateSubgraphBoundaryPorts: async (innerNodeId, outputs, inputs, outputTypes, inputTypes) => {
+  updateSubgraphBoundaryPorts: async (innerNodeId, outputs, inputs, outputTypes, inputTypes, recordHistory = true) => {
     const { subnetStack, nodes, edges } = get()
     if (subnetStack.length === 0) return
     const frame = subnetStack[subnetStack.length - 1]
+    if (recordHistory) set(s => pushUndoSnapshot(s))
 
     const updatedNodes = nodes.map(n => {
       if (n.id !== innerNodeId) return n
@@ -672,6 +839,7 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   addNode: async (typeName, pos) => {
+    set(s => pushUndoSnapshot(s))
     const { subnetStack } = get()
     if (subnetStack.length > 0) {
       // Add node inside current subnet
@@ -703,6 +871,7 @@ export const useStore = create<Store>((set, get) => ({
     const { nodes } = get()
     const existing = nodes.find(n => n.id === draft.nodeId)
     if (!existing) return
+    set(s => pushUndoSnapshot(s))
 
     const meta = await api.addNode(typeName, [pos.x, pos.y])
     const node = makeReactNode(meta)
@@ -757,6 +926,8 @@ export const useStore = create<Store>((set, get) => ({
 
   removeNode: async (id) => {
     const { subnetStack, nodes, edges } = get()
+    if (!nodes.some(n => n.id === id)) return
+    set(s => pushUndoSnapshot(s))
     if (subnetStack.length > 0) {
       const frame = subnetStack[subnetStack.length - 1]
       const newNodes = nodes.filter(n => n.id !== id)
@@ -786,6 +957,8 @@ export const useStore = create<Store>((set, get) => ({
 
   onNodesChange: (changes) => {
     const shouldMarkDirty = changes.some(c => c.type === 'position' || c.type === 'dimensions' || c.type === 'remove')
+    const shouldRecordHistory = shouldRecordNodeChange(changes)
+    if (shouldRecordHistory) set(s => pushUndoSnapshot(s))
     const { subnetStack, nodes, edges } = get()
 
     const removeChanges = changes.filter((c): c is { type: 'remove'; id: string } => c.type === 'remove')
@@ -814,6 +987,19 @@ export const useStore = create<Store>((set, get) => ({
       nodes: applyNodeChanges(changes, s.nodes),
       ...(shouldMarkDirty ? markActiveTabDirty(s) : {}),
     }))
+    const shouldSyncSubgraphPositions = subnetStack.length > 0
+      && changes.some(c => c.type === 'position' && c.position && !Boolean((c as any).dragging))
+    if (shouldSyncSubgraphPositions) {
+      const frame = subnetStack[subnetStack.length - 1]
+      const newNodes = applyNodeChanges(changes, nodes)
+      const innerMeta: Record<string, any> = {}
+      newNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      const innerEdges = edges.map(e => ({
+        from: e.source, from_port: e.sourceHandle ?? '',
+        to: e.target,   to_port:   e.targetHandle ?? '',
+      }))
+      api.updateSubgraph(frame.subnetId, innerMeta, innerEdges).catch(() => {})
+    }
     changes.forEach(c => {
       if (c.type === 'position' && c.position) {
         if (subnetStack.length === 0) {
@@ -834,6 +1020,7 @@ export const useStore = create<Store>((set, get) => ({
   onEdgesChange: (changes) => {
     const { edges, nodes, subnetStack } = get()
     const shouldMarkDirty = changes.some(c => c.type === 'remove')
+    if (shouldMarkDirty) set(s => pushUndoSnapshot(s))
     const removedEdges = changes
       .filter(c => c.type === 'remove')
       .map(c => edges.find(e => e.id === (c as any).id))
@@ -881,6 +1068,8 @@ export const useStore = create<Store>((set, get) => ({
     let { nodes, edges, subnetStack } = get()
     let srcNode = nodes.find(n => n.id === conn.source)
     let tgtNode = nodes.find(n => n.id === conn.target)
+    if (!srcNode || !tgtNode) return
+    set(s => pushUndoSnapshot(s))
 
     // __new__ source handle on SubnetInput: auto-create output port named after the target handle
     if (conn.sourceHandle === '__new__' && srcNode?.data?.type === 'SubnetInput') {
@@ -894,7 +1083,7 @@ export const useStore = create<Store>((set, get) => ({
       const portType = tgtNode?.data?.input_types?.[conn.targetHandle!] ?? 'Any'
       await get().updateSubgraphBoundaryPorts(
         conn.source!, [...existing, portName], undefined,
-        { ...(srcNode.data.output_types ?? {}), [portName]: portType }, undefined,
+        { ...(srcNode.data.output_types ?? {}), [portName]: portType }, undefined, false,
       )
       ;({ nodes, edges, subnetStack } = get())
       srcNode = nodes.find(n => n.id === conn.source)
@@ -913,7 +1102,7 @@ export const useStore = create<Store>((set, get) => ({
       const portType = srcNode?.data?.output_types?.[conn.sourceHandle!] ?? 'Any'
       await get().updateSubgraphBoundaryPorts(
         conn.target!, undefined, [...existing, portName],
-        undefined, { ...(tgtNode.data.input_types ?? {}), [portName]: portType },
+        undefined, { ...(tgtNode.data.input_types ?? {}), [portName]: portType }, false,
       )
       ;({ nodes, edges, subnetStack } = get())
       tgtNode = nodes.find(n => n.id === conn.target)
@@ -936,7 +1125,7 @@ export const useStore = create<Store>((set, get) => ({
         portName = nextToolInputName(existing)
         await get().updateNodePorts(
           conn.target!, [...existing, portName], undefined,
-          { ...(tgtNode.data.input_types ?? {}), [portName]: 'Fn' }, undefined,
+          { ...(tgtNode.data.input_types ?? {}), [portName]: 'Fn' }, undefined, undefined, undefined, false,
         )
         ;({ nodes, edges, subnetStack } = get())
         tgtNode = nodes.find(n => n.id === conn.target)
@@ -982,6 +1171,7 @@ export const useStore = create<Store>((set, get) => ({
     const { nodes, edges, subnetStack } = get()
     const edge = edges.find(e => e.id === edgeId)
     if (!edge?.source || !edge.target || !edge.sourceHandle || !edge.targetHandle) return
+    set(s => pushUndoSnapshot(s))
     const nextEdges = edges.filter(e => e.id !== edgeId)
     const { nodes: nextNodes, changedIds: prunedToolBoxes } = pruneEmptyToolBoxSlots(nodes, nextEdges)
 
@@ -1012,6 +1202,7 @@ export const useStore = create<Store>((set, get) => ({
 
   reconnectEdge: async (oldEdge, newConn) => {
     if (!newConn.source || !newConn.target || !newConn.sourceHandle || !newConn.targetHandle) return
+    set(s => pushUndoSnapshot(s))
     let { nodes, edges, subnetStack } = get()
     let conn = {
       source: newConn.source,
@@ -1105,7 +1296,121 @@ export const useStore = create<Store>((set, get) => ({
     }))
   },
 
+  duplicateDraggedNodes: async (nodeIds, originalPositions) => {
+    const { nodes, edges, subnetStack } = get()
+    const copyIds = new Set(nodeIds)
+    const sourceNodes = nodes.filter(n => copyIds.has(n.id))
+    if (sourceNodes.length === 0) return
+
+    const moved = sourceNodes.some(n => {
+      const start = originalPositions[n.id]
+      return start && (Math.abs(n.position.x - start.x) > 2 || Math.abs(n.position.y - start.y) > 2)
+    })
+    if (!moved) return
+
+    const idMap: Record<string, string> = {}
+    const cloneNodes: Node<NodeData>[] = []
+
+    for (const source of sourceNodes) {
+      const meta = await api.addNode(
+        source.data.type,
+        [source.position.x, source.position.y],
+        cloneDeep(source.data.params ?? {}),
+      )
+      const cloneMeta = source.data.type === 'Subnet' || source.data.type === 'SubnetAsTool'
+        ? await api.updateSubgraph(
+            meta.id,
+            cloneDeep(source.data.subgraph?.node_meta ?? {}),
+            cloneDeep(source.data.subgraph?.edges ?? []),
+          )
+        : meta
+      idMap[source.id] = cloneMeta.id
+      cloneNodes.push({
+        ...makeReactNode({ ...cloneMeta, pos: [source.position.x, source.position.y] }),
+        style: cloneDeep(source.style),
+        selected: true,
+      })
+    }
+
+    const cloneEdges: Edge[] = edges
+      .filter(e => copyIds.has(e.source) && copyIds.has(e.target) && e.sourceHandle && e.targetHandle)
+      .map(e => ({
+        ...cloneDeep(e),
+        id: nextEdgeId(),
+        source: idMap[e.source],
+        target: idMap[e.target],
+      }))
+      .filter(e => e.source && e.target)
+
+    if (subnetStack.length > 0) {
+      const frame = subnetStack[subnetStack.length - 1]
+      const resetNodes = nodes.map(n => {
+        const start = originalPositions[n.id]
+        return start
+          ? {
+              ...n,
+              position: { x: start.x, y: start.y },
+              data: { ...n.data, pos: [start.x, start.y] as [number, number] },
+              selected: false,
+            }
+          : n
+      })
+      const nextEdges = [...edges, ...cloneEdges]
+      const nextNodes = ensureConnectedToolBoxSlots([...resetNodes, ...cloneNodes], nextEdges)
+      const innerMeta: Record<string, any> = {}
+      nextNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      const innerEdges = flowEdgesToBackend(nextEdges)
+
+      await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
+      for (const clone of cloneNodes) {
+        await api.removeNode(clone.id)
+      }
+
+      set(s => ({
+        nodes: nextNodes,
+        edges: nextEdges,
+        selectedId: cloneNodes[0]?.id ?? null,
+        ...markActiveTabDirty(s),
+      }))
+      return
+    }
+
+    await Promise.all(sourceNodes.map(n => {
+      const start = originalPositions[n.id]
+      return start ? api.updatePos(n.id, [start.x, start.y]) : Promise.resolve()
+    }))
+
+    for (const edge of cloneEdges) {
+      if (edge.source && edge.sourceHandle && edge.target && edge.targetHandle) {
+        await api.connect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle)
+      }
+    }
+
+    const resetNodes = nodes.map(n => {
+      const start = originalPositions[n.id]
+      return start
+        ? {
+            ...n,
+            position: { x: start.x, y: start.y },
+            data: { ...n.data, pos: [start.x, start.y] as [number, number] },
+            selected: false,
+          }
+        : n
+    })
+    const nextEdges = [...edges, ...cloneEdges]
+    const nextNodes = ensureConnectedToolBoxSlots([...resetNodes, ...cloneNodes], nextEdges)
+    set(s => ({
+      nodes: nextNodes,
+      edges: nextEdges,
+      selectedId: cloneNodes[0]?.id ?? null,
+      ...markActiveTabDirty(s),
+    }))
+  },
+
   updateParam: async (id, key, value) => {
+    const node = get().nodes.find(n => n.id === id)
+    if (!node || node.data.params?.[key] === value) return
+    set(s => pushUndoSnapshot(s))
     await api.updateParam(id, key, value)
     set(s => ({
       nodes: s.nodes.map(n =>
@@ -1182,7 +1487,27 @@ export const useStore = create<Store>((set, get) => ({
 
   selectNode: (id) => set({ selectedId: id }),
 
+  undoGraph: async () => {
+    const { undoHistory, activeTabId } = get()
+    let idx = undoHistory.length - 1
+    while (idx >= 0 && undoHistory[idx].activeTabId !== activeTabId) idx--
+    if (idx < 0) return
+
+    const snapshot = undoHistory[idx]
+    await api.setGraph(snapshot.graph.nodes, snapshot.graph.edges)
+    dragUndoActive = false
+    set(s => ({
+      nodes: cloneDeep(snapshot.nodes),
+      edges: cloneDeep(snapshot.edges),
+      subnetStack: cloneDeep(snapshot.subnetStack),
+      selectedId: snapshot.selectedId,
+      undoHistory: undoHistory.slice(0, idx),
+      ...markActiveTabDirty(s),
+    }))
+  },
+
   reset: async () => {
+    set(s => pushUndoSnapshot(s))
     await api.reset()
     set(s => ({ nodes: [], edges: [], selectedId: null, ...markActiveTabDirty(s) }))
   },
