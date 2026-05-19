@@ -1,8 +1,17 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useStore } from '../store'
+import { portColor } from '../portColors'
+
+const WIRE_ONLY = new Set(['List', 'Dict', 'Fn', 'Embedding'])
+
+const formatFloat = (v: unknown): string => {
+  const n = parseFloat(String(v))
+  if (isNaN(n)) return '0.0'
+  return Number.isInteger(n) ? `${n}.0` : String(n)
+}
 
 export default function Inspector() {
-  const { nodes, selectedId, updateParam, cookNode, removeNode } = useStore()
+  const { nodes, edges, selectedId, updateParam, cookNode, removeNode } = useStore()
   const node = nodes.find(n => n.id === selectedId)
 
   if (!node) {
@@ -24,6 +33,9 @@ export default function Inspector() {
   }
 
   const { data } = node
+  const connectedPorts = new Set(
+    edges.filter(e => e.target === node.id).map(e => e.targetHandle).filter(Boolean)
+  )
 
   return (
     <aside style={{
@@ -64,14 +76,19 @@ export default function Inspector() {
             }}>
               Parameters
             </div>
-            {data.inputs.map(inp => (
-              <ParamRow
-                key={inp}
-                label={inp}
-                value={data.params[inp] ?? ''}
-                onChange={v => updateParam(node.id, inp, v)}
-              />
-            ))}
+            {data.inputs.map(inp => {
+              const type = (data.input_types as Record<string, string>)?.[inp] ?? 'Any'
+              return (
+                <ParamRow
+                  key={`${node.id}-${inp}`}
+                  label={inp}
+                  type={type}
+                  value={data.params[inp]}
+                  connected={connectedPorts.has(inp)}
+                  onChange={v => updateParam(node.id, inp, v)}
+                />
+              )
+            })}
           </>
         ) : (
           <div style={{ color: 'var(--tx2)', fontSize: 13 }}>No inputs</div>
@@ -132,75 +149,279 @@ export default function Inspector() {
   )
 }
 
-function ParamRow({ label, value, onChange }: { label: string; value: unknown; onChange: (v: unknown) => void }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(String(value ?? ''))
-
-  const commit = () => {
-    setEditing(false)
-    let parsed: unknown = draft
-    if (draft === 'true') parsed = true
-    else if (draft === 'false') parsed = false
-    else if (!isNaN(Number(draft)) && draft !== '') parsed = Number(draft)
-    onChange(parsed)
-  }
+function ParamRow({ label, type, value, connected, onChange }: {
+  label: string
+  type: string
+  value: unknown
+  connected: boolean
+  onChange: (v: unknown) => void
+}) {
+  const color = portColor(type)
+  const wireOnly = WIRE_ONLY.has(type)
 
   return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{
-        color: 'var(--tx1)',
-        fontSize: 12,
-        fontWeight: 500,
-        marginBottom: 4,
-        textTransform: 'capitalize',
-      }}>
-        {label}
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+        <span style={{ color: 'var(--tx1)', fontSize: 12, fontWeight: 500, textTransform: 'capitalize' }}>
+          {label}
+        </span>
+        <span style={{
+          fontSize: 10,
+          fontWeight: 600,
+          fontFamily: 'var(--font-mono)',
+          color,
+          background: `${color}22`,
+          borderRadius: 4,
+          padding: '1px 5px',
+          letterSpacing: '0.02em',
+        }}>
+          {type}
+        </span>
       </div>
-      {editing ? (
-        <textarea
-          autoFocus
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onBlur={commit}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit() } }}
-          rows={3}
-          style={{
-            width: '100%',
-            background: 'var(--lift)',
-            border: '1px solid var(--accent)',
-            borderRadius: 6,
-            color: 'var(--tx1)',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 12,
-            padding: '5px 8px',
-            resize: 'vertical',
-            boxSizing: 'border-box',
-            outline: 'none',
-          }}
-        />
-      ) : (
-        <div
-          onClick={() => { setDraft(String(value ?? '')); setEditing(true) }}
-          style={{
-            background: 'var(--lift)',
-            border: '1px solid var(--line)',
-            borderRadius: 6,
-            padding: '5px 8px',
-            color: value !== '' && value !== undefined ? 'var(--tx1)' : 'var(--tx3)',
-            cursor: 'text',
-            minHeight: 28,
-            fontSize: 12,
-            fontFamily: 'var(--font-mono)',
-            wordBreak: 'break-all',
-            transition: 'border-color 0.15s',
-          }}
-          onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--line2)')}
-          onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--line)')}
-        >
-          {value !== '' && value !== undefined ? String(value) : '—'}
+
+      {connected ? (
+        <div style={{
+          background: 'var(--lift)',
+          border: `1px solid ${color}44`,
+          borderRadius: 6,
+          padding: '5px 8px',
+          fontSize: 12,
+          fontFamily: 'var(--font-mono)',
+          color: 'var(--tx3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          minHeight: 28,
+          opacity: 0.7,
+        }}>
+          <span style={{ color, fontSize: 8 }}>●</span>
+          connected
         </div>
+      ) : wireOnly ? (
+        <div style={{
+          background: 'var(--lift)',
+          border: '1px dashed var(--line2)',
+          borderRadius: 6,
+          padding: '5px 8px',
+          fontSize: 12,
+          fontFamily: 'var(--font-mono)',
+          color: 'var(--tx3)',
+          minHeight: 28,
+          display: 'flex',
+          alignItems: 'center',
+        }}>
+          ← connect a wire
+        </div>
+      ) : type === 'Bool' ? (
+        <BoolControl value={value} onChange={onChange} />
+      ) : type === 'Int' ? (
+        <IntControl value={value} onChange={onChange} />
+      ) : type === 'Float' ? (
+        <FloatControl value={value} onChange={onChange} />
+      ) : (
+        <TextControl value={value} onChange={onChange} multiline={type !== 'Model'} />
       )}
     </div>
+  )
+}
+
+function BoolControl({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
+  const on = Boolean(value)
+  const color = portColor('Bool')
+  return (
+    <div
+      onClick={() => onChange(!on)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        background: 'var(--lift)',
+        border: '1px solid var(--line)',
+        borderRadius: 6,
+        padding: '5px 8px',
+        cursor: 'pointer',
+        minHeight: 28,
+      }}
+    >
+      <div style={{
+        width: 30, height: 16, borderRadius: 8, position: 'relative', flexShrink: 0,
+        background: on ? color : 'var(--line2)', transition: 'background .15s',
+      }}>
+        <div style={{
+          position: 'absolute', top: 2, left: on ? 16 : 2,
+          width: 12, height: 12, borderRadius: '50%', background: '#fff',
+          transition: 'left .15s', boxShadow: '0 1px 3px rgba(0,0,0,.3)',
+        }} />
+      </div>
+      <span style={{
+        fontSize: 12,
+        fontFamily: 'var(--font-mono)',
+        fontWeight: 600,
+        color: on ? color : 'var(--tx2)',
+      }}>
+        {on ? 'true' : 'false'}
+      </span>
+    </div>
+  )
+}
+
+function IntControl({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
+  const init = value !== undefined && value !== null ? Number(value) : 0
+  const [draft, setDraft] = useState<string | number>(init)
+
+  useEffect(() => {
+    setDraft(value !== undefined && value !== null ? Number(value) : 0)
+  }, [value])
+
+  const commit = (v: number) => onChange(v)
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 2,
+      background: 'var(--lift)', border: '1px solid var(--line)', borderRadius: 6,
+      padding: '4px 8px', minHeight: 28,
+    }}>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={String(draft)}
+        onChange={e => {
+          const raw = e.target.value.replace(/[^-\d]/g, '')
+          setDraft(raw)
+          const v = parseInt(raw)
+          if (!isNaN(v)) commit(v)
+        }}
+        onBlur={() => {
+          const v = parseInt(String(draft)) || 0
+          setDraft(v)
+          commit(v)
+        }}
+        style={{
+          flex: 1, background: 'transparent', border: 'none',
+          color: 'var(--tx1)', fontFamily: 'var(--font-mono)',
+          fontSize: 12, fontWeight: 600, outline: 'none', minWidth: 0,
+        }}
+      />
+      <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        {([['▲', 1], ['▼', -1]] as const).map(([label, delta]) => (
+          <button
+            key={label}
+            onClick={() => {
+              const v = (parseInt(String(draft)) || 0) + delta
+              setDraft(v)
+              commit(v)
+            }}
+            style={{
+              background: 'transparent', border: 'none', color: 'var(--tx2)',
+              cursor: 'pointer', fontSize: 7, lineHeight: 1.3, padding: '0 2px',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function FloatControl({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
+  const [draft, setDraft] = useState<string>(formatFloat(value !== undefined && value !== null ? value : 0))
+
+  useEffect(() => {
+    setDraft(formatFloat(value !== undefined && value !== null ? value : 0))
+  }, [value])
+
+  const commit = (v: number) => onChange(v)
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 2,
+      background: 'var(--lift)', border: '1px solid var(--line)', borderRadius: 6,
+      padding: '4px 8px', minHeight: 28,
+    }}>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        onChange={e => {
+          setDraft(e.target.value)
+          const v = parseFloat(e.target.value)
+          if (!isNaN(v)) commit(v)
+        }}
+        onBlur={() => {
+          const v = parseFloat(draft) || 0
+          setDraft(formatFloat(v))
+          commit(v)
+        }}
+        style={{
+          flex: 1, background: 'transparent', border: 'none',
+          color: 'var(--tx1)', fontFamily: 'var(--font-mono)',
+          fontSize: 12, fontWeight: 600, outline: 'none', minWidth: 0,
+        }}
+      />
+      <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        {([['▲', 1], ['▼', -1]] as const).map(([label, delta]) => (
+          <button
+            key={label}
+            onClick={() => {
+              const v = (parseFloat(draft) || 0) + delta
+              setDraft(formatFloat(v))
+              commit(v)
+            }}
+            style={{
+              background: 'transparent', border: 'none', color: 'var(--tx2)',
+              cursor: 'pointer', fontSize: 7, lineHeight: 1.3, padding: '0 2px',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TextControl({ value, onChange, multiline }: {
+  value: unknown
+  onChange: (v: unknown) => void
+  multiline: boolean
+}) {
+  const [draft, setDraft] = useState(String(value ?? ''))
+
+  useEffect(() => { setDraft(String(value ?? '')) }, [value])
+
+  const commit = () => onChange(draft)
+  const sharedStyle: React.CSSProperties = {
+    width: '100%',
+    background: 'var(--lift)',
+    border: '1px solid var(--line)',
+    borderRadius: 6,
+    color: 'var(--tx1)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 12,
+    padding: '5px 8px',
+    outline: 'none',
+    boxSizing: 'border-box',
+  }
+
+  return multiline ? (
+    <textarea
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit() } }}
+      rows={3}
+      style={{ ...sharedStyle, resize: 'vertical' }}
+    />
+  ) : (
+    <input
+      type="text"
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit() } }}
+      style={sharedStyle}
+    />
   )
 }
 
