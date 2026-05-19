@@ -7,6 +7,7 @@ export interface BnNodeMeta {
   outputs: string[]
   input_types: Record<string, string>
   output_types: Record<string, string>
+  input_defaults: Record<string, unknown>
 }
 
 export interface BnNodeDef {
@@ -15,6 +16,7 @@ export interface BnNodeDef {
   outputs: string[]
   input_types: Record<string, string>
   output_types: Record<string, string>
+  input_defaults: Record<string, unknown>
 }
 
 export interface BnEdge {

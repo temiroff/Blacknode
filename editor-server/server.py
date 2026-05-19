@@ -209,6 +209,7 @@ def list_node_defs():
             "outputs": getattr(fn, "_bn_outputs", ["output"]),
             "input_types": getattr(fn, "_bn_input_types", {}),
             "output_types": getattr(fn, "_bn_output_types", {}),
+            "input_defaults": getattr(fn, "_bn_input_defaults", {}),
         }
         for name, fn in sorted(_NODE_REGISTRY.items())
     }
@@ -222,10 +223,11 @@ def get_graph():
         fn = _NODE_REGISTRY.get(meta["type"])
         nodes.append({
             **meta,
-            "inputs":       getattr(fn, "_bn_inputs",       meta.get("inputs",       [])),
-            "outputs":      getattr(fn, "_bn_outputs",      meta.get("outputs",      [])),
-            "input_types":  getattr(fn, "_bn_input_types",  meta.get("input_types",  {})),
-            "output_types": getattr(fn, "_bn_output_types", meta.get("output_types", {})),
+            "inputs":         getattr(fn, "_bn_inputs",         meta.get("inputs",         [])),
+            "outputs":        getattr(fn, "_bn_outputs",        meta.get("outputs",        [])),
+            "input_types":    getattr(fn, "_bn_input_types",    meta.get("input_types",    {})),
+            "output_types":   getattr(fn, "_bn_output_types",   meta.get("output_types",   {})),
+            "input_defaults": getattr(fn, "_bn_input_defaults", meta.get("input_defaults", {})),
         })
     return {"nodes": nodes, "edges": _session.graph._edges}
 
@@ -248,10 +250,11 @@ def add_node(req: AddNodeReq):
         "type":         req.type_name,
         "params":       req.params,
         "pos":          list(req.pos),
-        "inputs":       getattr(fn, "_bn_inputs",       []),
-        "outputs":      getattr(fn, "_bn_outputs",      ["output"]),
-        "input_types":  getattr(fn, "_bn_input_types",  {}),
-        "output_types": getattr(fn, "_bn_output_types", {}),
+        "inputs":         getattr(fn, "_bn_inputs",         []),
+        "outputs":        getattr(fn, "_bn_outputs",        ["output"]),
+        "input_types":    getattr(fn, "_bn_input_types",    {}),
+        "output_types":   getattr(fn, "_bn_output_types",   {}),
+        "input_defaults": getattr(fn, "_bn_input_defaults", {}),
     }
     _session.node_meta[proxy._id] = meta
     _save()

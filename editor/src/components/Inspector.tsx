@@ -78,12 +78,14 @@ export default function Inspector() {
             </div>
             {data.inputs.map(inp => {
               const type = (data.input_types as Record<string, string>)?.[inp] ?? 'Any'
+              const def  = (data.input_defaults as Record<string, unknown>)?.[inp]
               return (
                 <ParamRow
                   key={`${node.id}-${inp}`}
                   label={inp}
                   type={type}
                   value={data.params[inp]}
+                  defaultValue={def}
                   connected={connectedPorts.has(inp)}
                   onChange={v => updateParam(node.id, inp, v)}
                 />
@@ -149,10 +151,11 @@ export default function Inspector() {
   )
 }
 
-function ParamRow({ label, type, value, connected, onChange }: {
+function ParamRow({ label, type, value, defaultValue, connected, onChange }: {
   label: string
   type: string
   value: unknown
+  defaultValue: unknown
   connected: boolean
   onChange: (v: unknown) => void
 }) {
@@ -215,11 +218,11 @@ function ParamRow({ label, type, value, connected, onChange }: {
       ) : type === 'Bool' ? (
         <BoolControl value={value} onChange={onChange} />
       ) : type === 'Int' ? (
-        <IntControl value={value} onChange={onChange} />
+        <IntControl value={value} defaultValue={defaultValue} onChange={onChange} />
       ) : type === 'Float' ? (
-        <FloatControl value={value} onChange={onChange} />
+        <FloatControl value={value} defaultValue={defaultValue} onChange={onChange} />
       ) : (
-        <TextControl value={value} onChange={onChange} multiline={type !== 'Model'} />
+        <TextControl value={value} defaultValue={defaultValue} onChange={onChange} multiline={type !== 'Model'} />
       )}
     </div>
   )
@@ -265,7 +268,7 @@ function BoolControl({ value, onChange }: { value: unknown; onChange: (v: unknow
   )
 }
 
-function IntControl({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
+function IntControl({ value, defaultValue, onChange }: { value: unknown; defaultValue: unknown; onChange: (v: unknown) => void }) {
   const hasValue = value !== undefined && value !== null
   const [draft, setDraft] = useState<string>(hasValue ? String(Number(value)) : '')
 
@@ -290,7 +293,7 @@ function IntControl({ value, onChange }: { value: unknown; onChange: (v: unknown
         type="text"
         inputMode="numeric"
         value={draft}
-        placeholder="default"
+        placeholder={defaultValue !== undefined ? String(defaultValue) : 'default'}
         onChange={e => {
           const raw = e.target.value.replace(/[^-\d]/g, '')
           setDraft(raw)
@@ -328,7 +331,7 @@ function IntControl({ value, onChange }: { value: unknown; onChange: (v: unknown
   )
 }
 
-function FloatControl({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
+function FloatControl({ value, defaultValue, onChange }: { value: unknown; defaultValue: unknown; onChange: (v: unknown) => void }) {
   const hasValue = value !== undefined && value !== null
   const [draft, setDraft] = useState<string>(hasValue ? formatFloat(value) : '')
 
@@ -347,7 +350,7 @@ function FloatControl({ value, onChange }: { value: unknown; onChange: (v: unkno
         type="text"
         inputMode="decimal"
         value={draft}
-        placeholder="default"
+        placeholder={defaultValue !== undefined ? String(defaultValue) : 'default'}
         onChange={e => {
           setDraft(e.target.value)
           const v = parseFloat(e.target.value)
@@ -387,8 +390,9 @@ function FloatControl({ value, onChange }: { value: unknown; onChange: (v: unkno
   )
 }
 
-function TextControl({ value, onChange, multiline }: {
+function TextControl({ value, defaultValue, onChange, multiline }: {
   value: unknown
+  defaultValue: unknown
   onChange: (v: unknown) => void
   multiline: boolean
 }) {
@@ -410,9 +414,12 @@ function TextControl({ value, onChange, multiline }: {
     boxSizing: 'border-box',
   }
 
+  const placeholder = defaultValue !== undefined ? String(defaultValue) : undefined
+
   return multiline ? (
     <textarea
       value={draft}
+      placeholder={placeholder}
       onChange={e => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit() } }}
@@ -423,6 +430,7 @@ function TextControl({ value, onChange, multiline }: {
     <input
       type="text"
       value={draft}
+      placeholder={placeholder}
       onChange={e => setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit() } }}
