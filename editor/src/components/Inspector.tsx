@@ -11,7 +11,7 @@ const formatFloat = (v: unknown): string => {
 }
 
 export default function Inspector() {
-  const { nodes, edges, selectedId, updateParam, cookNode, removeNode } = useStore()
+  const { nodes, edges, nodeDefs, selectedId, updateParam, cookNode, removeNode } = useStore()
   const node = nodes.find(n => n.id === selectedId)
 
   if (!node) {
@@ -79,6 +79,7 @@ export default function Inspector() {
             {data.inputs.map(inp => {
               const type = (data.input_types as Record<string, string>)?.[inp] ?? 'Any'
               const def  = (data.input_defaults as Record<string, unknown>)?.[inp]
+                        ?? nodeDefs[data.type]?.input_defaults?.[inp]
               return (
                 <ParamRow
                   key={`${node.id}-${inp}`}
