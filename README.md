@@ -125,6 +125,7 @@ Results appear in the node's result area. Errors show in red with a full Python 
 - The server status stays at the right side of the top bar.
 - Press **Ctrl+Z** on the canvas to undo graph edits step by step.
 - Hold **Alt** while dragging a node to leave the original in place and drop a copy.
+- Press **Ctrl+C** / **Ctrl+V** on the canvas to copy selected nodes and paste them at the cursor.
 
 ### Templates
 

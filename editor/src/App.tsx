@@ -5,7 +5,7 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 
-import { useStore } from './store'
+import { useStore, type GraphClipboard } from './store'
 import BlackNode from './components/BlackNode'
 import ValueNode from './components/ValueNode'
 import ModelNode from './components/ModelNode'
@@ -44,7 +44,8 @@ export default function App() {
     tabs, activeTabId,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels,
-    addNodeFromConnection, duplicateDraggedNodes, undoGraph,
+    addNodeFromConnection, copySelection, pasteClipboard,
+    beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     renameTab, saveActiveWorkflow,
     diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes,
@@ -59,11 +60,14 @@ export default function App() {
   const [saveOk, setSaveOk] = useState(false)
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tabId: string } | null>(null)
   const saveOkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const graphClipboard = useRef<GraphClipboard | null>(null)
+  const lastMouseFlowPos = useRef<{ x: number; y: number } | null>(null)
   const connectionMade = useRef(false)
   const connectionDraft = useRef<ConnectionDraft | null>(null)
   const altDragCopy = useRef<{
     nodeIds: string[]
     originalPositions: Record<string, { x: number; y: number }>
+    copyPromise: Promise<Record<string, string> | null>
   } | null>(null)
   const suppressPaneClick = useRef(false)
   const activeTab = tabs.find(tab => tab.id === activeTabId)
@@ -115,14 +119,29 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== 'z') return
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey) return
       if (isEditableTarget(e.target)) return
-      e.preventDefault()
-      void undoGraph()
+      const key = e.key.toLowerCase()
+      if (key === 'z') {
+        e.preventDefault()
+        void undoGraph()
+      } else if (key === 'c') {
+        const clipboard = copySelection()
+        if (!clipboard) return
+        e.preventDefault()
+        graphClipboard.current = clipboard
+      } else if (key === 'v') {
+        const clipboard = graphClipboard.current
+        if (!clipboard || !rfInstance.current) return
+        e.preventDefault()
+        const target = lastMouseFlowPos.current
+          ?? rfInstance.current.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
+        void pasteClipboard(clipboard, target)
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [undoGraph])
+  }, [copySelection, pasteClipboard, undoGraph])
 
   const fitCurrentCanvas = useCallback((duration = 280) => {
     window.requestAnimationFrame(() => {
@@ -154,6 +173,11 @@ export default function App() {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
   }
+
+  const trackMouseFlowPos = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!rfInstance.current) return
+    lastMouseFlowPos.current = rfInstance.current.screenToFlowPosition({ x: e.clientX, y: e.clientY })
+  }, [])
 
   const onPaneContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -228,21 +252,26 @@ export default function App() {
     const copyNodes = node.selected && selectedNodes.length > 1
       ? selectedNodes
       : nodes.filter(n => n.id === node.id)
+    const nodeIds = copyNodes.map(n => n.id)
+    const originalPositions = Object.fromEntries(copyNodes.map(n => [
+      n.id,
+      { x: n.position.x, y: n.position.y },
+    ]))
     altDragCopy.current = {
-      nodeIds: copyNodes.map(n => n.id),
-      originalPositions: Object.fromEntries(copyNodes.map(n => [
-        n.id,
-        { x: n.position.x, y: n.position.y },
-      ])),
+      nodeIds,
+      originalPositions,
+      copyPromise: beginAltDragCopy(nodeIds, originalPositions),
     }
-  }, [nodes])
+  }, [beginAltDragCopy, nodes])
 
   const onNodeDragStop = useCallback(() => {
     const copy = altDragCopy.current
     altDragCopy.current = null
     if (!copy) return
-    void duplicateDraggedNodes(copy.nodeIds, copy.originalPositions)
-  }, [duplicateDraggedNodes])
+    void copy.copyPromise.then(copyIdMap =>
+      finishAltDragCopy(copy.nodeIds, copy.originalPositions, copyIdMap)
+    ).catch(console.error)
+  }, [finishAltDragCopy])
 
   const startTabRename = useCallback((tab: { id: string; name: string }) => {
     setTabMenu(null)
@@ -299,7 +328,7 @@ export default function App() {
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
       <NodePalette />
 
-      <div style={{ flex: 1, position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver}>
+      <div style={{ flex: 1, position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver} onMouseMove={trackMouseFlowPos}>
 
         {/* ── top bar ── */}
         <div style={{

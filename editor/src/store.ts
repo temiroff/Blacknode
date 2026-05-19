@@ -25,11 +25,16 @@ interface GraphSnapshot {
   edges: any[]
 }
 
-interface NodeData extends BnNodeMeta {
+export interface NodeData extends BnNodeMeta {
   cookResult?: unknown
   cookError?: string
   cooking?: boolean
   cookPort?: string
+}
+
+export interface GraphClipboard {
+  nodes: Node<NodeData>[]
+  edges: Edge[]
 }
 
 interface UndoSnapshot {
@@ -114,7 +119,17 @@ interface Store {
   onConnect: (conn: Connection) => Promise<void>
   disconnectEdge: (edgeId: string) => Promise<void>
   reconnectEdge: (oldEdge: Edge, newConn: Connection) => Promise<void>
-  duplicateDraggedNodes: (nodeIds: string[], originalPositions: Record<string, { x: number; y: number }>) => Promise<void>
+  copySelection: () => GraphClipboard | null
+  pasteClipboard: (clipboard: GraphClipboard, targetPos: { x: number; y: number }) => Promise<void>
+  beginAltDragCopy: (
+    nodeIds: string[],
+    originalPositions: Record<string, { x: number; y: number }>,
+  ) => Promise<Record<string, string> | null>
+  finishAltDragCopy: (
+    nodeIds: string[],
+    originalPositions: Record<string, { x: number; y: number }>,
+    copyIdMap: Record<string, string> | null,
+  ) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
   cookNode: (id: string, port?: string) => Promise<void>
   selectNode: (id: string | null) => void
@@ -1296,25 +1311,143 @@ export const useStore = create<Store>((set, get) => ({
     }))
   },
 
-  duplicateDraggedNodes: async (nodeIds, originalPositions) => {
+  copySelection: () => {
+    const { nodes, edges, selectedId } = get()
+    let selectedNodes = nodes.filter(n => n.selected)
+    if (selectedNodes.length === 0 && selectedId) {
+      selectedNodes = nodes.filter(n => n.id === selectedId)
+    }
+    if (selectedNodes.length === 0) return null
+
+    const selectedIds = new Set(selectedNodes.map(n => n.id))
+    return {
+      nodes: cloneDeep(selectedNodes),
+      edges: cloneDeep(edges.filter(e => selectedIds.has(e.source) && selectedIds.has(e.target))),
+    }
+  },
+
+  pasteClipboard: async (clipboard, targetPos) => {
+    if (clipboard.nodes.length === 0) return
+    const { subnetStack } = get()
+    set(s => pushUndoSnapshot(s))
+    dragUndoActive = false
+
+    const minX = Math.min(...clipboard.nodes.map(n => n.position.x))
+    const minY = Math.min(...clipboard.nodes.map(n => n.position.y))
+    const pastedSourceIds = new Set(clipboard.nodes.map(n => n.id))
+    const idMap: Record<string, string> = {}
+    const pastedNodes: Node<NodeData>[] = []
+
+    for (const source of clipboard.nodes) {
+      const x = targetPos.x + source.position.x - minX
+      const y = targetPos.y + source.position.y - minY
+      const meta = await api.addNode(
+        source.data.type,
+        [x, y],
+        cloneDeep(source.data.params ?? {}),
+      )
+      const cloneMeta = source.data.type === 'Subnet' || source.data.type === 'SubnetAsTool'
+        ? await api.updateSubgraph(
+            meta.id,
+            cloneDeep(source.data.subgraph?.node_meta ?? {}),
+            cloneDeep(source.data.subgraph?.edges ?? []),
+          )
+        : meta
+      idMap[source.id] = cloneMeta.id
+
+      const pasted = makeReactNode({ ...cloneMeta, pos: [x, y] })
+      pastedNodes.push({
+        ...pasted,
+        style: cloneDeep(source.style),
+        selected: true,
+        data: subnetStack.length > 0
+          ? {
+              ...pasted.data,
+              inputs: cloneDeep(source.data.inputs ?? pasted.data.inputs),
+              outputs: cloneDeep(source.data.outputs ?? pasted.data.outputs),
+              input_types: cloneDeep(source.data.input_types ?? pasted.data.input_types),
+              output_types: cloneDeep(source.data.output_types ?? pasted.data.output_types),
+              input_defaults: cloneDeep(source.data.input_defaults ?? pasted.data.input_defaults),
+              ...(source.data.multi_input_ports ? { multi_input_ports: cloneDeep(source.data.multi_input_ports) } : {}),
+              ...(source.data.subgraph ? { subgraph: cloneDeep(source.data.subgraph) } : {}),
+              pos: [x, y],
+            }
+          : pasted.data,
+      })
+    }
+
+    const pastedEdges: Edge[] = clipboard.edges
+      .filter(e => pastedSourceIds.has(e.source) && pastedSourceIds.has(e.target) && e.sourceHandle && e.targetHandle)
+      .map(e => ({
+        ...cloneDeep(e),
+        id: nextEdgeId(),
+        source: idMap[e.source],
+        target: idMap[e.target],
+      }))
+      .filter(e => e.source && e.target)
+
+    if (subnetStack.length > 0) {
+      const frame = subnetStack[subnetStack.length - 1]
+      const live = get()
+      const nextEdges = [...live.edges, ...pastedEdges]
+      const nextNodes = ensureConnectedToolBoxSlots([
+        ...live.nodes.map(n => ({ ...n, selected: false })),
+        ...pastedNodes,
+      ], nextEdges)
+      const innerMeta: Record<string, any> = {}
+      nextNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+
+      await api.updateSubgraph(frame.subnetId, innerMeta, flowEdgesToBackend(nextEdges))
+      for (const pasted of pastedNodes) {
+        await api.removeNode(pasted.id)
+      }
+
+      set(s => ({
+        nodes: nextNodes,
+        edges: nextEdges,
+        selectedId: pastedNodes[0]?.id ?? null,
+        ...markActiveTabDirty(s),
+      }))
+      return
+    }
+
+    for (const edge of pastedEdges) {
+      if (edge.source && edge.sourceHandle && edge.target && edge.targetHandle) {
+        await api.connect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle)
+      }
+    }
+
+    const live = get()
+    const nextEdges = [...live.edges, ...pastedEdges]
+    const nextNodes = ensureConnectedToolBoxSlots([
+      ...live.nodes.map(n => ({ ...n, selected: false })),
+      ...pastedNodes,
+    ], nextEdges)
+    set(s => ({
+      nodes: nextNodes,
+      edges: nextEdges,
+      selectedId: pastedNodes[0]?.id ?? null,
+      ...markActiveTabDirty(s),
+    }))
+  },
+
+  beginAltDragCopy: async (nodeIds, originalPositions) => {
     const { nodes, edges, subnetStack } = get()
     const copyIds = new Set(nodeIds)
     const sourceNodes = nodes.filter(n => copyIds.has(n.id))
-    if (sourceNodes.length === 0) return
+    if (sourceNodes.length === 0) return null
 
-    const moved = sourceNodes.some(n => {
-      const start = originalPositions[n.id]
-      return start && (Math.abs(n.position.x - start.x) > 2 || Math.abs(n.position.y - start.y) > 2)
-    })
-    if (!moved) return
+    set(s => pushUndoSnapshot(s))
+    dragUndoActive = true
 
     const idMap: Record<string, string> = {}
     const cloneNodes: Node<NodeData>[] = []
 
     for (const source of sourceNodes) {
+      const start = originalPositions[source.id] ?? source.position
       const meta = await api.addNode(
         source.data.type,
-        [source.position.x, source.position.y],
+        [start.x, start.y],
         cloneDeep(source.data.params ?? {}),
       )
       const cloneMeta = source.data.type === 'Subnet' || source.data.type === 'SubnetAsTool'
@@ -1326,9 +1459,9 @@ export const useStore = create<Store>((set, get) => ({
         : meta
       idMap[source.id] = cloneMeta.id
       cloneNodes.push({
-        ...makeReactNode({ ...cloneMeta, pos: [source.position.x, source.position.y] }),
+        ...makeReactNode({ ...cloneMeta, pos: [start.x, start.y] }),
         style: cloneDeep(source.style),
-        selected: true,
+        selected: false,
       })
     }
 
@@ -1344,19 +1477,9 @@ export const useStore = create<Store>((set, get) => ({
 
     if (subnetStack.length > 0) {
       const frame = subnetStack[subnetStack.length - 1]
-      const resetNodes = nodes.map(n => {
-        const start = originalPositions[n.id]
-        return start
-          ? {
-              ...n,
-              position: { x: start.x, y: start.y },
-              data: { ...n.data, pos: [start.x, start.y] as [number, number] },
-              selected: false,
-            }
-          : n
-      })
-      const nextEdges = [...edges, ...cloneEdges]
-      const nextNodes = ensureConnectedToolBoxSlots([...resetNodes, ...cloneNodes], nextEdges)
+      const live = get()
+      const nextEdges = [...live.edges, ...cloneEdges]
+      const nextNodes = ensureConnectedToolBoxSlots([...live.nodes, ...cloneNodes], nextEdges)
       const innerMeta: Record<string, any> = {}
       nextNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
       const innerEdges = flowEdgesToBackend(nextEdges)
@@ -1369,16 +1492,10 @@ export const useStore = create<Store>((set, get) => ({
       set(s => ({
         nodes: nextNodes,
         edges: nextEdges,
-        selectedId: cloneNodes[0]?.id ?? null,
         ...markActiveTabDirty(s),
       }))
-      return
+      return idMap
     }
-
-    await Promise.all(sourceNodes.map(n => {
-      const start = originalPositions[n.id]
-      return start ? api.updatePos(n.id, [start.x, start.y]) : Promise.resolve()
-    }))
 
     for (const edge of cloneEdges) {
       if (edge.source && edge.sourceHandle && edge.target && edge.targetHandle) {
@@ -1386,23 +1503,94 @@ export const useStore = create<Store>((set, get) => ({
       }
     }
 
-    const resetNodes = nodes.map(n => {
-      const start = originalPositions[n.id]
-      return start
-        ? {
-            ...n,
-            position: { x: start.x, y: start.y },
-            data: { ...n.data, pos: [start.x, start.y] as [number, number] },
-            selected: false,
-          }
-        : n
-    })
-    const nextEdges = [...edges, ...cloneEdges]
-    const nextNodes = ensureConnectedToolBoxSlots([...resetNodes, ...cloneNodes], nextEdges)
+    const live = get()
+    const nextEdges = [...live.edges, ...cloneEdges]
+    const nextNodes = ensureConnectedToolBoxSlots([...live.nodes, ...cloneNodes], nextEdges)
     set(s => ({
       nodes: nextNodes,
       edges: nextEdges,
-      selectedId: cloneNodes[0]?.id ?? null,
+      ...markActiveTabDirty(s),
+    }))
+    return idMap
+  },
+
+  finishAltDragCopy: async (nodeIds, originalPositions, copyIdMap) => {
+    if (!copyIdMap) return
+    const { nodes, edges, subnetStack } = get()
+    const sourceIds = new Set(nodeIds)
+    const cloneIds = new Set(Object.values(copyIdMap))
+    const sourceNodes = nodes.filter(n => sourceIds.has(n.id))
+    const cloneNodes = nodes.filter(n => cloneIds.has(n.id))
+    if (sourceNodes.length === 0 || cloneNodes.length === 0) return
+
+    const moved = sourceNodes.some(n => {
+      const start = originalPositions[n.id]
+      return start && (Math.abs(n.position.x - start.x) > 2 || Math.abs(n.position.y - start.y) > 2)
+    })
+
+    if (!moved) {
+      const nextEdges = edges.filter(e => !cloneIds.has(e.source) && !cloneIds.has(e.target))
+      const nextNodes = nodes.filter(n => !cloneIds.has(n.id))
+      if (subnetStack.length > 0) {
+        const frame = subnetStack[subnetStack.length - 1]
+        const innerMeta: Record<string, any> = {}
+        nextNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+        await api.updateSubgraph(frame.subnetId, innerMeta, flowEdgesToBackend(nextEdges))
+      } else {
+        for (const cloneId of cloneIds) {
+          await api.removeNode(cloneId)
+        }
+      }
+      set(s => ({ nodes: nextNodes, edges: nextEdges, ...markActiveTabDirty(s) }))
+      return
+    }
+
+    const destinationByClone = new Map<string, { x: number; y: number }>()
+    sourceNodes.forEach(source => {
+      const cloneId = copyIdMap[source.id]
+      if (cloneId) destinationByClone.set(cloneId, { x: source.position.x, y: source.position.y })
+    })
+
+    const nextNodes = ensureConnectedToolBoxSlots(nodes.map(n => {
+      const start = originalPositions[n.id]
+      if (start) {
+        return {
+          ...n,
+          position: { x: start.x, y: start.y },
+          data: { ...n.data, pos: [start.x, start.y] as [number, number] },
+          selected: false,
+        }
+      }
+      const destination = destinationByClone.get(n.id)
+      if (destination) {
+        return {
+          ...n,
+          position: { x: destination.x, y: destination.y },
+          data: { ...n.data, pos: [destination.x, destination.y] as [number, number] },
+          selected: true,
+        }
+      }
+      return n
+    }), edges)
+
+    if (subnetStack.length > 0) {
+      const frame = subnetStack[subnetStack.length - 1]
+      const innerMeta: Record<string, any> = {}
+      nextNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      await api.updateSubgraph(frame.subnetId, innerMeta, flowEdgesToBackend(edges))
+    } else {
+      await Promise.all(nextNodes.map(n => {
+        if (sourceIds.has(n.id) || cloneIds.has(n.id)) {
+          return api.updatePos(n.id, [n.position.x, n.position.y])
+        }
+        return Promise.resolve()
+      }))
+    }
+
+    set(s => ({
+      nodes: nextNodes,
+      edges,
+      selectedId: Object.values(copyIdMap)[0] ?? null,
       ...markActiveTabDirty(s),
     }))
   },
