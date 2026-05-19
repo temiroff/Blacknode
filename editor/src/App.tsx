@@ -12,6 +12,8 @@ import ModelNode from './components/ModelNode'
 import OutputNode from './components/OutputNode'
 import SubnetNode from './components/SubnetNode'
 import SubnetBreadcrumb from './components/SubnetBreadcrumb'
+import SubgraphInputNode from './components/SubgraphInputNode'
+import SubgraphOutputNode from './components/SubgraphOutputNode'
 import NodePalette from './components/NodePalette'
 import Inspector from './components/Inspector'
 import NodeSearch from './components/NodeSearch'
@@ -24,6 +26,8 @@ const NODE_TYPES = {
   modelnode: ModelNode,
   outputnode: OutputNode,
   subnetnode: SubnetNode,
+  subgraphinput: SubgraphInputNode,
+  subgraphoutput: SubgraphOutputNode,
 }
 
 const TAB_H = 36  // workflow tab bar height
@@ -43,7 +47,7 @@ export default function App() {
     addNodeFromConnection,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     renameTab, saveActiveWorkflow,
-    diveIntoSubnet, exitSubnet,
+    diveIntoSubnet, exitSubnet, collapseToSubnet,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -483,6 +487,47 @@ export default function App() {
         )}
 
         <SubnetBreadcrumb />
+
+        {/* ── Collapse-to-subnet floating button ── */}
+        {(() => {
+          const selected = nodes.filter(n => n.selected)
+          if (selected.length < 2) return null
+          return (
+            <div style={{
+              position: 'absolute',
+              bottom: 48,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 20,
+              pointerEvents: 'none',
+              display: 'flex',
+              justifyContent: 'center',
+            }}>
+              <button
+                onClick={() => void collapseToSubnet(selected.map(n => n.id), 'Subnet')}
+                style={{
+                  pointerEvents: 'all',
+                  background: '#6366f1',
+                  border: 'none',
+                  borderRadius: 8,
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-ui)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  padding: '8px 18px',
+                  boxShadow: '0 4px 16px rgba(99,102,241,0.4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 7,
+                }}
+              >
+                <span style={{ fontSize: 15 }}>⬡</span>
+                Group {selected.length} nodes into Subnet
+              </button>
+            </div>
+          )
+        })()}
 
         <ReactFlow
           nodes={nodes}

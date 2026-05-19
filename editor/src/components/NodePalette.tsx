@@ -235,6 +235,52 @@ export default function NodePalette() {
             {/* ── NODES ── */}
             {activeTab === 'nodes' && (
               <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+
+                {/* Structure — hardcoded, not from Python registry */}
+                <div style={{ marginBottom: 4, borderBottom: '1px solid var(--line)', paddingBottom: 6 }}>
+                  <div style={{
+                    padding: '8px 14px 4px',
+                    color: '#6366f1',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}>
+                    <div style={{ width: 6, height: 6, borderRadius: 2, background: '#6366f1', flexShrink: 0 }} />
+                    Structure
+                  </div>
+                  <div
+                    draggable
+                    onDragStart={e => handleDragStart(e, 'Subnet')}
+                    onClick={() => addNode('Subnet', { x: 200 + Math.random() * 200, y: 80 + Math.random() * 200 })}
+                    style={{
+                      padding: '5px 14px 5px 26px',
+                      color: 'var(--tx2)',
+                      fontSize: 13,
+                      cursor: 'grab',
+                      borderRadius: 6,
+                      margin: '1px 6px',
+                      userSelect: 'none',
+                      borderLeft: '2px solid transparent',
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = 'var(--hover)'
+                      e.currentTarget.style.color = '#6366f1'
+                      e.currentTarget.style.borderLeftColor = '#6366f1'
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = 'transparent'
+                      e.currentTarget.style.color = 'var(--tx2)'
+                      e.currentTarget.style.borderLeftColor = 'transparent'
+                    }}
+                  >
+                    ⬡ Subnet
+                  </div>
+                </div>
+
                 {groups.map(({ group, color, types }) => (
                   <div key={group} style={{ marginBottom: 4 }}>
                     <div style={{

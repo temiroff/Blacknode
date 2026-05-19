@@ -72,6 +72,13 @@ interface Store {
   exitSubnet: () => void
   exitToRoot: () => void
   collapseToSubnet: (nodeIds: string[], label: string) => Promise<void>
+  updateSubgraphBoundaryPorts: (
+    innerNodeId: string,
+    outputs?: string[],
+    inputs?: string[],
+    outputTypes?: Record<string, string>,
+    inputTypes?: Record<string, string>,
+  ) => Promise<void>
 
   addNode: (typeName: string, pos: { x: number; y: number }) => Promise<void>
   addNodeFromConnection: (typeName: string, pos: { x: number; y: number }, draft: ConnectionDraft) => Promise<void>
@@ -89,6 +96,8 @@ interface Store {
 
 function reactNodeType(typeName: string): string {
   if (typeName === 'Subnet') return 'subnetnode'
+  if (typeName === 'SubgraphInput') return 'subgraphinput'
+  if (typeName === 'SubgraphOutput') return 'subgraphoutput'
   return OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode'
 }
 
@@ -467,11 +476,40 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   collapseToSubnet: async (nodeIds, label) => {
-    const result = await api.collapseToSubnet(nodeIds, label)
-    // Reload graph from server to get fresh state
+    await api.collapseToSubnet(nodeIds, label)
     const graphData = await api.getGraph()
     const { nodes: newNodes, edges: newEdges } = parseGraph(graphData.nodes, graphData.edges)
     set(s => ({ nodes: newNodes, edges: newEdges, ...markActiveTabDirty(s) }))
+  },
+
+  updateSubgraphBoundaryPorts: async (innerNodeId, outputs, inputs, outputTypes, inputTypes) => {
+    const { subnetStack, nodes, edges } = get()
+    if (subnetStack.length === 0) return
+    const frame = subnetStack[subnetStack.length - 1]
+
+    const updatedNodes = nodes.map(n => {
+      if (n.id !== innerNodeId) return n
+      return {
+        ...n,
+        data: {
+          ...n.data,
+          ...(outputs    !== undefined ? { outputs }    : {}),
+          ...(inputs     !== undefined ? { inputs }     : {}),
+          ...(outputTypes !== undefined ? { output_types: outputTypes } : {}),
+          ...(inputTypes  !== undefined ? { input_types:  inputTypes  } : {}),
+        },
+      }
+    })
+
+    const innerMeta: Record<string, any> = {}
+    updatedNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+    const innerEdges = edges.map(e => ({
+      from: e.source, from_port: e.sourceHandle ?? '',
+      to: e.target,   to_port:   e.targetHandle ?? '',
+    }))
+
+    await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
+    set(s => ({ nodes: updatedNodes, ...markActiveTabDirty(s) }))
   },
 
   addNode: async (typeName, pos) => {
@@ -559,6 +597,25 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   removeNode: async (id) => {
+    const { subnetStack, nodes, edges } = get()
+    if (subnetStack.length > 0) {
+      const frame = subnetStack[subnetStack.length - 1]
+      const newNodes = nodes.filter(n => n.id !== id)
+      const newEdges = edges.filter(e => e.source !== id && e.target !== id)
+      const innerMeta: Record<string, any> = {}
+      newNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      const innerEdges = newEdges.map(e => ({
+        from: e.source, from_port: e.sourceHandle ?? '',
+        to: e.target,   to_port:   e.targetHandle ?? '',
+      }))
+      await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
+      set(s => ({
+        nodes: newNodes, edges: newEdges,
+        selectedId: s.selectedId === id ? null : s.selectedId,
+        ...markActiveTabDirty(s),
+      }))
+      return
+    }
     await api.removeNode(id)
     set(s => ({
       nodes: s.nodes.filter(n => n.id !== id),
@@ -570,15 +627,41 @@ export const useStore = create<Store>((set, get) => ({
 
   onNodesChange: (changes) => {
     const shouldMarkDirty = changes.some(c => c.type === 'position' || c.type === 'remove')
+    const { subnetStack, nodes, edges } = get()
+
+    const removeChanges = changes.filter((c): c is { type: 'remove'; id: string } => c.type === 'remove')
+
+    if (subnetStack.length > 0 && removeChanges.length > 0) {
+      const removedIds = new Set(removeChanges.map(c => c.id))
+      const frame = subnetStack[subnetStack.length - 1]
+      const newNodes = applyNodeChanges(changes, nodes).filter(n => !removedIds.has(n.id))
+      const newEdges = edges.filter(e => !removedIds.has(e.source) && !removedIds.has(e.target))
+      const innerMeta: Record<string, any> = {}
+      newNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      const innerEdges = newEdges.map(e => ({
+        from: e.source, from_port: e.sourceHandle ?? '',
+        to: e.target,   to_port:   e.targetHandle ?? '',
+      }))
+      api.updateSubgraph(frame.subnetId, innerMeta, innerEdges).catch(() => {})
+      set(s => ({
+        nodes: newNodes, edges: newEdges,
+        selectedId: removedIds.has(s.selectedId ?? '') ? null : s.selectedId,
+        ...markActiveTabDirty(s),
+      }))
+      return
+    }
+
     set(s => ({
       nodes: applyNodeChanges(changes, s.nodes),
       ...(shouldMarkDirty ? markActiveTabDirty(s) : {}),
     }))
     changes.forEach(c => {
       if (c.type === 'position' && c.position) {
-        api.updatePos(c.id, [c.position.x, c.position.y]).catch(() => {})
+        if (subnetStack.length === 0) {
+          api.updatePos(c.id, [c.position.x, c.position.y]).catch(() => {})
+        }
       }
-      if (c.type === 'remove') {
+      if (c.type === 'remove' && subnetStack.length === 0) {
         api.removeNode(c.id).catch(() => {})
         set(s => ({
           edges: s.edges.filter(e => e.source !== c.id && e.target !== c.id),
@@ -590,25 +673,41 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   onEdgesChange: (changes) => {
-    const { edges } = get()
+    const { edges, nodes, subnetStack } = get()
     const shouldMarkDirty = changes.some(c => c.type === 'remove')
-    changes.forEach(c => {
-      if (c.type === 'remove') {
-        const edge = edges.find(e => e.id === c.id)
-        if (edge?.source && edge.target && edge.sourceHandle && edge.targetHandle) {
+    const removedEdges = changes
+      .filter(c => c.type === 'remove')
+      .map(c => edges.find(e => e.id === (c as any).id))
+      .filter(Boolean) as Edge[]
+
+    const newEdges = applyEdgeChanges(changes, edges)
+
+    if (subnetStack.length > 0 && removedEdges.length > 0) {
+      const frame = subnetStack[subnetStack.length - 1]
+      const innerMeta: Record<string, any> = {}
+      nodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      const innerEdges = newEdges.map(e => ({
+        from: e.source, from_port: e.sourceHandle ?? '',
+        to: e.target,   to_port:   e.targetHandle ?? '',
+      }))
+      api.updateSubgraph(frame.subnetId, innerMeta, innerEdges).catch(() => {})
+    } else {
+      removedEdges.forEach(edge => {
+        if (edge.sourceHandle && edge.targetHandle) {
           api.disconnect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle).catch(() => {})
         }
-      }
-    })
+      })
+    }
+
     set(s => ({
-      edges: applyEdgeChanges(changes, s.edges),
+      edges: newEdges,
       ...(shouldMarkDirty ? markActiveTabDirty(s) : {}),
     }))
   },
 
   onConnect: async (conn) => {
     if (!conn.source || !conn.target || !conn.sourceHandle || !conn.targetHandle) return
-    const { nodes, edges } = get()
+    const { nodes, edges, subnetStack } = get()
     const srcNode = nodes.find(n => n.id === conn.source)
     const tgtNode = nodes.find(n => n.id === conn.target)
     const fromType = srcNode?.data?.output_types?.[conn.sourceHandle!] ?? 'Any'
@@ -617,18 +716,31 @@ export const useStore = create<Store>((set, get) => ({
     const multiInputPorts: string[] = tgtNode?.data?.multi_input_ports ?? []
     const existingEdge = multiInputPorts.includes(conn.targetHandle!) ? null
       : edges.find(e => e.target === conn.target && e.targetHandle === conn.targetHandle)
-    if (existingEdge?.source && existingEdge.sourceHandle && existingEdge.target && existingEdge.targetHandle) {
-      await api.disconnect(existingEdge.source, existingEdge.sourceHandle, existingEdge.target, existingEdge.targetHandle)
+
+    const newEdge = {
+      ...conn,
+      id: nextEdgeId(),
+      style: { stroke: portColor(fromType), strokeWidth: 1.5 },
     }
-    await api.connect(conn.source, conn.sourceHandle, conn.target, conn.targetHandle)
-    set(s => ({
-      edges: addEdge({
-        ...conn,
-        id: `e${Date.now()}`,
-        style: { stroke: portColor(fromType), strokeWidth: 1.5 },
-      }, existingEdge ? s.edges.filter(e => e.id !== existingEdge.id) : s.edges),
-      ...markActiveTabDirty(s),
-    }))
+    const updatedEdges = addEdge(newEdge, existingEdge ? edges.filter(e => e.id !== existingEdge.id) : edges)
+
+    if (subnetStack.length > 0) {
+      const frame = subnetStack[subnetStack.length - 1]
+      const innerMeta: Record<string, any> = {}
+      nodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      const innerEdges = updatedEdges.map(e => ({
+        from: e.source, from_port: e.sourceHandle ?? '',
+        to: e.target,   to_port:   e.targetHandle ?? '',
+      }))
+      await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
+    } else {
+      if (existingEdge?.source && existingEdge.sourceHandle && existingEdge.target && existingEdge.targetHandle) {
+        await api.disconnect(existingEdge.source, existingEdge.sourceHandle, existingEdge.target, existingEdge.targetHandle)
+      }
+      await api.connect(conn.source, conn.sourceHandle, conn.target, conn.targetHandle)
+    }
+
+    set(s => ({ edges: updatedEdges, ...markActiveTabDirty(s) }))
   },
 
   disconnectEdge: async (edgeId) => {

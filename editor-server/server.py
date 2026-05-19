@@ -205,7 +205,11 @@ _load_custom_models()
 
 
 def _sync_subnet_ports(subnet_meta: dict) -> None:
-    """Rebuild a Subnet node's inputs/outputs from its boundary nodes."""
+    """Rebuild a Subnet node's inputs/outputs from its single boundary nodes.
+
+    SubgraphInput outputs  → outer Subnet inputs
+    SubgraphOutput inputs  → outer Subnet outputs
+    """
     subgraph = subnet_meta.get("subgraph", {})
     inner_meta = subgraph.get("node_meta", {})
     inputs, outputs = [], []
@@ -213,21 +217,19 @@ def _sync_subnet_ports(subnet_meta: dict) -> None:
     out_types: dict[str, str] = {}
     for m in inner_meta.values():
         if m["type"] == "SubgraphInput":
-            name = m.get("params", {}).get("port_name", "input")
-            typ  = m.get("params", {}).get("port_type", "Any")
-            if name not in inputs:
-                inputs.append(name)
-                in_types[name] = typ
+            for port in m.get("outputs", []):
+                if port not in inputs:
+                    inputs.append(port)
+                    in_types[port] = m.get("output_types", {}).get(port, "Any")
         elif m["type"] == "SubgraphOutput":
-            name = m.get("params", {}).get("port_name", "output")
-            typ  = m.get("params", {}).get("port_type", "Any")
-            if name not in outputs:
-                outputs.append(name)
-                out_types[name] = typ
-    subnet_meta["inputs"]       = inputs
-    subnet_meta["outputs"]      = outputs
-    subnet_meta["input_types"]  = in_types
-    subnet_meta["output_types"] = out_types
+            for port in m.get("inputs", []):
+                if port not in outputs:
+                    outputs.append(port)
+                    out_types[port] = m.get("input_types", {}).get(port, "Any")
+    subnet_meta["inputs"]         = inputs
+    subnet_meta["outputs"]        = outputs
+    subnet_meta["input_types"]    = in_types
+    subnet_meta["output_types"]   = out_types
     subnet_meta["input_defaults"] = {}
 
 
@@ -428,57 +430,68 @@ def collapse_to_subnet(req: CollapseSubnetReq):
     for nid in node_ids:
         inner_meta[nid] = dict(_session.node_meta[nid])
 
-    # Create SubgraphInput nodes for each unique (to_node, to_port) entry point
-    seen_entries: dict[tuple, str] = {}
     new_inner_nodes: dict[str, dict] = {}
     new_inner_edges: list[dict] = []
-    subnet_inputs: list[dict] = []  # {port_name, from_id, from_port}
+
+    min_x = min(inner_meta[nid]["pos"][0] for nid in node_ids)
+    max_x = max(inner_meta[nid]["pos"][0] for nid in node_ids)
+    avg_y = sum(inner_meta[nid]["pos"][1] for nid in node_ids) / len(node_ids)
+
+    # ONE SubgraphInput node with one output per unique entering target port
+    entry_ports: list[str] = []
+    seen_entry_ports: set[str] = set()
+    subnet_inputs: list[dict] = []
 
     for e in entering_edges:
-        key = (e["to"], e["to_port"])
-        if key not in seen_entries:
-            port_name = e["to_port"]
-            inp_id = str(_uuid.uuid4())
-            seen_entries[key] = inp_id
-            new_inner_nodes[inp_id] = {
-                "id": inp_id,
-                "type": "SubgraphInput",
-                "params": {"port_name": port_name, "port_type": "Any"},
-                "pos": [e["to"] and inner_meta[e["to"]]["pos"][0] - 200, inner_meta[e["to"]]["pos"][1]],
-                "inputs": [],
-                "outputs": ["value"],
-                "input_types": {},
-                "output_types": {"value": "Any"},
-                "input_defaults": {},
-            }
-            subnet_inputs.append({"port_name": port_name, "from_id": e["from"], "from_port": e["from_port"]})
-        inp_id = seen_entries[key]
-        new_inner_edges.append({"from": inp_id, "from_port": "value", "to": e["to"], "to_port": e["to_port"]})
+        p = e["to_port"]
+        if p in seen_entry_ports:
+            p = f"{e['to'][:6]}_{e['to_port']}"
+        seen_entry_ports.add(p)
+        entry_ports.append(p)
+        subnet_inputs.append({"port_name": p, "from_id": e["from"], "from_port": e["from_port"]})
 
-    # Create SubgraphOutput nodes for each unique (from_node, from_port) exit point
-    seen_exits: dict[tuple, str] = {}
-    subnet_outputs: list[dict] = []  # {port_name, to_id, to_port}
+    if entry_ports:
+        inp_id = str(_uuid.uuid4())
+        new_inner_nodes[inp_id] = {
+            "id": inp_id, "type": "SubgraphInput", "params": {},
+            "pos": [min_x - 220, avg_y],
+            "inputs": [], "outputs": entry_ports,
+            "input_types": {}, "output_types": {p: "Any" for p in entry_ports},
+            "input_defaults": {},
+        }
+        for i, e in enumerate(entering_edges):
+            new_inner_edges.append({
+                "from": inp_id, "from_port": entry_ports[i],
+                "to": e["to"], "to_port": e["to_port"],
+            })
+
+    # ONE SubgraphOutput node with one input per unique exiting source port
+    exit_ports: list[str] = []
+    seen_exit_ports: set[str] = set()
+    subnet_outputs: list[dict] = []
 
     for e in exiting_edges:
-        key = (e["from"], e["from_port"])
-        if key not in seen_exits:
-            port_name = e["from_port"]
-            out_id = str(_uuid.uuid4())
-            seen_exits[key] = out_id
-            new_inner_nodes[out_id] = {
-                "id": out_id,
-                "type": "SubgraphOutput",
-                "params": {"port_name": port_name, "port_type": "Any"},
-                "pos": [inner_meta[e["from"]]["pos"][0] + 200, inner_meta[e["from"]]["pos"][1]],
-                "inputs": ["value"],
-                "outputs": ["value"],
-                "input_types": {"value": "Any"},
-                "output_types": {"value": "Any"},
-                "input_defaults": {},
-            }
-            subnet_outputs.append({"port_name": port_name, "to_id": e["to"], "to_port": e["to_port"]})
-        out_id = seen_exits[key]
-        new_inner_edges.append({"from": e["from"], "from_port": e["from_port"], "to": out_id, "to_port": "value"})
+        p = e["from_port"]
+        if p in seen_exit_ports:
+            p = f"{e['from'][:6]}_{e['from_port']}"
+        seen_exit_ports.add(p)
+        exit_ports.append(p)
+        subnet_outputs.append({"port_name": p, "to_id": e["to"], "to_port": e["to_port"]})
+
+    if exit_ports:
+        out_id = str(_uuid.uuid4())
+        new_inner_nodes[out_id] = {
+            "id": out_id, "type": "SubgraphOutput", "params": {},
+            "pos": [max_x + 220, avg_y],
+            "inputs": exit_ports, "outputs": [],
+            "input_types": {p: "Any" for p in exit_ports}, "output_types": {},
+            "input_defaults": {},
+        }
+        for i, e in enumerate(exiting_edges):
+            new_inner_edges.append({
+                "from": e["from"], "from_port": e["from_port"],
+                "to": out_id, "to_port": exit_ports[i],
+            })
 
     # Build complete inner meta
     all_inner_meta = {**inner_meta, **new_inner_nodes}

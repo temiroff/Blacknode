@@ -1,19 +1,15 @@
 from blacknode.node import node
 
 
-@node(
-    inputs=["value:Any"],
-    outputs=["value:Any"],
-    name="SubgraphInput",
-)
+@node(inputs=[], outputs=[], name="SubgraphInput")
 def subgraph_input(ctx: dict) -> dict:
-    return {"value": ctx.get("value")}
+    # Values are injected directly into the cache by _cook_subnet; this is
+    # only called if somehow reached through the normal cook path.
+    return dict(ctx)
 
 
-@node(
-    inputs=["value:Any"],
-    outputs=["value:Any"],
-    name="SubgraphOutput",
-)
+@node(inputs=[], outputs=[], name="SubgraphOutput")
 def subgraph_output(ctx: dict) -> dict:
-    return {"value": ctx.get("value")}
+    # ctx is populated by edge resolution; return every input as an output
+    # so the caller can read any port by name.
+    return dict(ctx)
