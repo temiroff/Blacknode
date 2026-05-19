@@ -33,14 +33,15 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   const isText = data.type === 'Text'
   const isFloat = data.type === 'Float'
 
+  const isInt = data.type === 'Int'
+
   const rawValue = data.params.value
-  const [draft, setDraft] = useState<string | number>(
-    isFloat ? formatFloat(rawValue) : (rawValue ?? '')
-  )
+  const initDraft = isFloat ? formatFloat(rawValue) : isInt ? (rawValue ?? 0) : (rawValue ?? '')
+  const [draft, setDraft] = useState<string | number>(initDraft)
   const commitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    setDraft(isFloat ? formatFloat(rawValue) : (rawValue ?? ''))
+    setDraft(isFloat ? formatFloat(rawValue) : isInt ? (rawValue ?? 0) : (rawValue ?? ''))
   }, [rawValue])
 
   const commit = (val: unknown) => {
