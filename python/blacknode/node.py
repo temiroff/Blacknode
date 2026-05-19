@@ -59,8 +59,10 @@ def node(
         fn._bn_node = True
         fn._bn_type_name = type_name
 
-        in_names,  in_types,  in_defaults  = _parse_ports(inputs  or [])
-        out_names, out_types, _            = _parse_ports(outputs or ["output:Any"])
+        # Use `is not None` so that an explicit empty list [] is honoured
+        # (the `or` idiom treats [] as falsy, giving a wrong default).
+        in_names,  in_types,  in_defaults  = _parse_ports(inputs  if inputs  is not None else [])
+        out_names, out_types, _            = _parse_ports(outputs if outputs is not None else ["output:Any"])
 
         fn._bn_inputs          = in_names
         fn._bn_input_types     = in_types

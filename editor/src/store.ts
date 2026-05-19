@@ -96,8 +96,8 @@ interface Store {
 
 function reactNodeType(typeName: string): string {
   if (typeName === 'Subnet') return 'subnetnode'
-  if (typeName === 'SubgraphInput') return 'subgraphinput'
-  if (typeName === 'SubgraphOutput') return 'subgraphoutput'
+  if (typeName === 'SubnetInput') return 'subnetinput'
+  if (typeName === 'SubnetOutput') return 'subnetoutput'
   return OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode'
 }
 

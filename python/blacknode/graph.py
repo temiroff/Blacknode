@@ -160,19 +160,19 @@ class Graph:
             for nid, m in inner_meta.items()
         }
 
-        # Inject outer input values into the single SubgraphInput node's output
+        # Inject outer input values into the single SubnetInput node's output
         # ports.  We pre-populate the cache so downstream nodes can pull from
         # it without ever calling the Python function.
         for nid, m in inner_meta.items():
-            if m["type"] == "SubgraphInput":
+            if m["type"] == "SubnetInput":
                 for out_port in m.get("outputs", []):
                     if out_port in outer_ctx:
                         inner._cache[(nid, out_port)] = outer_ctx[out_port]
                 inner._dirty.discard(nid)
 
-        # Find the single SubgraphOutput node and cook the requested port.
+        # Find the single SubnetOutput node and cook the requested port.
         for nid, m in inner_meta.items():
-            if m["type"] == "SubgraphOutput":
+            if m["type"] == "SubnetOutput":
                 try:
                     val = inner._cook(nid, port)
                 except KeyError:

@@ -81,7 +81,7 @@ function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
         alignItems: 'center',
         gap: 5,
       }}>
-        <span>⬡</span> Outputs
+        <span>⬡</span> Subnet Output
       </div>
 
       {/* input ports */}

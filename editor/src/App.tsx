@@ -26,8 +26,8 @@ const NODE_TYPES = {
   modelnode: ModelNode,
   outputnode: OutputNode,
   subnetnode: SubnetNode,
-  subgraphinput: SubgraphInputNode,
-  subgraphoutput: SubgraphOutputNode,
+  subnetinput: SubgraphInputNode,
+  subnetoutput: SubgraphOutputNode,
 }
 
 const TAB_H = 36  // workflow tab bar height

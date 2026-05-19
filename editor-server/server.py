@@ -207,8 +207,8 @@ _load_custom_models()
 def _sync_subnet_ports(subnet_meta: dict) -> None:
     """Rebuild a Subnet node's inputs/outputs from its single boundary nodes.
 
-    SubgraphInput outputs  → outer Subnet inputs
-    SubgraphOutput inputs  → outer Subnet outputs
+    SubnetInput outputs  → outer Subnet inputs
+    SubnetOutput inputs  → outer Subnet outputs
     """
     subgraph = subnet_meta.get("subgraph", {})
     inner_meta = subgraph.get("node_meta", {})
@@ -216,12 +216,12 @@ def _sync_subnet_ports(subnet_meta: dict) -> None:
     in_types: dict[str, str] = {}
     out_types: dict[str, str] = {}
     for m in inner_meta.values():
-        if m["type"] == "SubgraphInput":
+        if m["type"] == "SubnetInput":
             for port in m.get("outputs", []):
                 if port not in inputs:
                     inputs.append(port)
                     in_types[port] = m.get("output_types", {}).get(port, "Any")
-        elif m["type"] == "SubgraphOutput":
+        elif m["type"] == "SubnetOutput":
             for port in m.get("inputs", []):
                 if port not in outputs:
                     outputs.append(port)
@@ -255,13 +255,16 @@ def list_node_defs():
     }
 
 
+_DYNAMIC_PORT_TYPES = {"Subnet", "SubnetInput", "SubnetOutput"}
+
+
 @app.get("/graph")
 def get_graph():
     """Return nodes with types always read fresh from registry."""
     nodes = []
     for meta in _session.node_meta.values():
         fn = _NODE_REGISTRY.get(meta["type"])
-        if meta["type"] == "Subnet" or fn is None:
+        if meta["type"] in _DYNAMIC_PORT_TYPES or fn is None:
             nodes.append({**meta})
         else:
             nodes.append({
@@ -437,7 +440,7 @@ def collapse_to_subnet(req: CollapseSubnetReq):
     max_x = max(inner_meta[nid]["pos"][0] for nid in node_ids)
     avg_y = sum(inner_meta[nid]["pos"][1] for nid in node_ids) / len(node_ids)
 
-    # ONE SubgraphInput node with one output per unique entering target port
+    # ONE SubnetInput node with one output per unique entering target port
     entry_ports: list[str] = []
     seen_entry_ports: set[str] = set()
     subnet_inputs: list[dict] = []
@@ -453,7 +456,7 @@ def collapse_to_subnet(req: CollapseSubnetReq):
     if entry_ports:
         inp_id = str(_uuid.uuid4())
         new_inner_nodes[inp_id] = {
-            "id": inp_id, "type": "SubgraphInput", "params": {},
+            "id": inp_id, "type": "SubnetInput", "params": {},
             "pos": [min_x - 220, avg_y],
             "inputs": [], "outputs": entry_ports,
             "input_types": {}, "output_types": {p: "Any" for p in entry_ports},
@@ -465,7 +468,7 @@ def collapse_to_subnet(req: CollapseSubnetReq):
                 "to": e["to"], "to_port": e["to_port"],
             })
 
-    # ONE SubgraphOutput node with one input per unique exiting source port
+    # ONE SubnetOutput node with one input per unique exiting source port
     exit_ports: list[str] = []
     seen_exit_ports: set[str] = set()
     subnet_outputs: list[dict] = []
@@ -481,7 +484,7 @@ def collapse_to_subnet(req: CollapseSubnetReq):
     if exit_ports:
         out_id = str(_uuid.uuid4())
         new_inner_nodes[out_id] = {
-            "id": out_id, "type": "SubgraphOutput", "params": {},
+            "id": out_id, "type": "SubnetOutput", "params": {},
             "pos": [max_x + 220, avg_y],
             "inputs": exit_ports, "outputs": [],
             "input_types": {p: "Any" for p in exit_ports}, "output_types": {},
