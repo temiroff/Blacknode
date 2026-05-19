@@ -21,7 +21,32 @@ const HEADER = '#6366f1'
 
 function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
   const { selectNode, diveIntoSubnet, cookNode, updateParam } = useStore()
+  const edges = useStore(s => s.edges)
+  const nodes = useStore(s => s.nodes)
   const [hovered, setHovered] = useState(false)
+
+  const effectiveColor = (portName: string, side: 'input' | 'output'): string => {
+    const declared = side === 'input'
+      ? (data.input_types?.[portName] ?? 'Any')
+      : (data.output_types?.[portName] ?? 'Any')
+    if (declared !== 'Any') return portColor(declared)
+    if (side === 'input') {
+      const edge = edges.find(e => e.target === id && e.targetHandle === portName)
+      if (edge) {
+        const src = nodes.find(n => n.id === edge.source)
+        const t = src?.data?.output_types?.[edge.sourceHandle!] ?? 'Any'
+        if (t !== 'Any') return portColor(t)
+      }
+    } else {
+      const edge = edges.find(e => e.source === id && e.sourceHandle === portName)
+      if (edge) {
+        const tgt = nodes.find(n => n.id === edge.target)
+        const t = tgt?.data?.input_types?.[edge.targetHandle!] ?? 'Any'
+        if (t !== 'Any') return portColor(t)
+      }
+    }
+    return portColor('Any')
+  }
   const [editingLabel, setEditingLabel] = useState(false)
   const [labelDraft, setLabelDraft] = useState('')
   const label = String(data.params?.label ?? 'Subnet')
@@ -127,9 +152,9 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
               id={inp}
               style={{
                 left: -5, top: '50%',
-                background: portColor(data.input_types?.[inp] ?? 'Any'),
+                background: effectiveColor(inp, 'input'),
                 width: 9, height: 9,
-                border: `1.5px solid ${portColor(data.input_types?.[inp] ?? 'Any')}`,
+                border: `1.5px solid ${effectiveColor(inp, 'input')}`,
                 borderRadius: 3,
               }}
             />
@@ -144,9 +169,9 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
               id={out}
               style={{
                 right: -5, top: '50%',
-                background: portColor(data.output_types?.[out] ?? 'Any'),
+                background: effectiveColor(out, 'output'),
                 width: 9, height: 9,
-                border: `1.5px solid ${portColor(data.output_types?.[out] ?? 'Any')}`,
+                border: `1.5px solid ${effectiveColor(out, 'output')}`,
                 borderRadius: 3,
               }}
             />

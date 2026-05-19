@@ -23,6 +23,18 @@ const COLOR = '#8b5cf6'
 function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode   = useStore(s => s.cookNode)
   const selectNode = useStore(s => s.selectNode)
+  const edges      = useStore(s => s.edges)
+  const nodes      = useStore(s => s.nodes)
+
+  const valueHandleColor = (() => {
+    const edge = edges.find(e => e.target === id && e.targetHandle === 'value')
+    if (edge) {
+      const src = nodes.find(n => n.id === edge.source)
+      const t = src?.data?.output_types?.[edge.sourceHandle!] ?? 'Any'
+      if (t !== 'Any') return portColor(t)
+    }
+    return portColor('Any')
+  })()
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -122,9 +134,9 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
           id="value"
           style={{
             left: -5,
-            background: portColor('Any'),
+            background: valueHandleColor,
             width: 9, height: 9,
-            border: `1.5px solid ${portColor('Any')}`,
+            border: `1.5px solid ${valueHandleColor}`,
             borderRadius: 3,
           }}
         />
