@@ -8,6 +8,7 @@ import { BnNodeDef, BnNodeMeta, ConnectionDraft, SubnetFrame } from './types'
 import { VALUE_NODE_TYPES } from './categories'
 import { portsCompatible, portColor } from './portColors'
 import { organizeFlowNodes } from './graphLayout'
+import { createVisualAgentLoopSubgraph } from './defaultSubgraphs'
 
 const MODEL_NODE_TYPES  = new Set(['Model'])
 const OUTPUT_NODE_TYPES = new Set(['Output'])
@@ -807,18 +808,29 @@ export const useStore = create<Store>((set, get) => ({
         : subnetNode.data.params?.label ?? 'Subnet'
     )
     // Always fetch fresh inner graph from server
-    const subgraph = await api.getSubgraph(subnetId)
+    let subgraph = await api.getSubgraph(subnetId)
+    let parentNodes = nodes
+    let initializedDefault = false
+    if (subnetNode.data.type === 'VisualAgentLoop' && Object.keys(subgraph.node_meta ?? {}).length === 0) {
+      subgraph = createVisualAgentLoopSubgraph()
+      initializedDefault = true
+      parentNodes = nodes.map(n =>
+        n.id === subnetId ? { ...n, data: { ...n.data, subgraph } } : n
+      )
+      api.updateSubgraph(subnetId, subgraph.node_meta, subgraph.edges).catch(() => {})
+    }
     const { nodes: innerNodes, edges: innerEdges } = parseSubgraph(subgraph as any)
     set(s => ({
       subnetStack: [...s.subnetStack, {
         subnetId,
         subnetLabel: label,
-        parentNodes: nodes,
+        parentNodes,
         parentEdges: edges,
       }],
       nodes: innerNodes,
       edges: innerEdges,
       selectedId: null,
+      ...(initializedDefault ? markActiveTabDirty(s) : {}),
     }))
   },
 
