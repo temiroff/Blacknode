@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { portColor } from '../portColors'
 
 const HEADER = '#6366f1'
+const NEW_HANDLE_COLOR = '#6366f188'
 
 interface NodeData {
   id: string
@@ -17,6 +18,8 @@ interface NodeData {
 
 function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
   const { updateSubgraphBoundaryPorts } = useStore()
+  const edges = useStore(s => s.edges)
+  const nodes = useStore(s => s.nodes)
   const [editingPort, setEditingPort] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
   const [addingPort, setAddingPort] = useState(false)
@@ -24,6 +27,19 @@ function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
 
   const inputs: string[] = data.inputs ?? []
   const inputTypes: Record<string, string> = data.input_types ?? {}
+
+  // Resolve effective color for "Any" inputs: adopt type of connected source's output
+  const effectiveInputColor = (port: string): string => {
+    const declared = inputTypes[port] ?? 'Any'
+    if (declared !== 'Any') return portColor(declared)
+    const edge = edges.find(e => e.target === id && e.targetHandle === port)
+    if (edge) {
+      const src = nodes.find(n => n.id === edge.source)
+      const t = src?.data?.output_types?.[edge.sourceHandle!] ?? 'Any'
+      if (t !== 'Any') return portColor(t)
+    }
+    return portColor('Any')
+  }
 
   const addPort = async () => {
     const name = newName.trim()
@@ -84,10 +100,32 @@ function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
         <span>⬡</span> Subnet Output
       </div>
 
+      {/* __new__ auto-create handle — drag to here to auto-add a port */}
+      <div style={{
+        position: 'relative', display: 'flex', justifyContent: 'flex-start',
+        alignItems: 'center', padding: '6px 10px 2px 16px',
+      }}>
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="__new__"
+          style={{
+            left: -5,
+            background: 'var(--node)',
+            width: 11, height: 11,
+            border: `2px dashed ${NEW_HANDLE_COLOR}`,
+            borderRadius: '50%',
+          }}
+        />
+        <span style={{ fontSize: 9, color: NEW_HANDLE_COLOR, fontFamily: 'var(--font-ui)', userSelect: 'none' }}>
+          ← drag to create
+        </span>
+      </div>
+
       {/* input ports */}
       <div style={{ padding: '4px 0' }}>
         {inputs.map(port => {
-          const color = portColor(inputTypes[port] ?? 'Any')
+          const color = effectiveInputColor(port)
           return (
             <div
               key={port}

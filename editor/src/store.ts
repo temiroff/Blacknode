@@ -727,13 +727,54 @@ export const useStore = create<Store>((set, get) => ({
     }))
   },
 
-  onConnect: async (conn) => {
-    if (!conn.source || !conn.target || !conn.sourceHandle || !conn.targetHandle) return
-    const { nodes, edges, subnetStack } = get()
-    const srcNode = nodes.find(n => n.id === conn.source)
-    const tgtNode = nodes.find(n => n.id === conn.target)
-    const fromType = srcNode?.data?.output_types?.[conn.sourceHandle!] ?? 'Any'
-    const toType   = tgtNode?.data?.input_types?.[conn.targetHandle!]  ?? 'Any'
+  onConnect: async (rawConn) => {
+    if (!rawConn.source || !rawConn.target || !rawConn.sourceHandle || !rawConn.targetHandle) return
+    let conn = rawConn
+    let { nodes, edges, subnetStack } = get()
+    let srcNode = nodes.find(n => n.id === conn.source)
+    let tgtNode = nodes.find(n => n.id === conn.target)
+
+    // __new__ source handle on SubnetInput: auto-create output port named after the target handle
+    if (conn.sourceHandle === '__new__' && srcNode?.data?.type === 'SubnetInput') {
+      let portName = conn.targetHandle!
+      const existing: string[] = srcNode.data.outputs ?? []
+      if (existing.includes(portName)) {
+        let i = 1
+        while (existing.includes(`${portName}_${i}`)) i++
+        portName = `${portName}_${i}`
+      }
+      const portType = tgtNode?.data?.input_types?.[conn.targetHandle!] ?? 'Any'
+      await get().updateSubgraphBoundaryPorts(
+        conn.source!, [...existing, portName], undefined,
+        { ...(srcNode.data.output_types ?? {}), [portName]: portType }, undefined,
+      )
+      ;({ nodes, edges, subnetStack } = get())
+      srcNode = nodes.find(n => n.id === conn.source)
+      conn = { ...conn, sourceHandle: portName }
+    }
+
+    // __new__ target handle on SubnetOutput: auto-create input port named after the source handle
+    if (conn.targetHandle === '__new__' && tgtNode?.data?.type === 'SubnetOutput') {
+      let portName = conn.sourceHandle!
+      const existing: string[] = tgtNode.data.inputs ?? []
+      if (existing.includes(portName)) {
+        let i = 1
+        while (existing.includes(`${portName}_${i}`)) i++
+        portName = `${portName}_${i}`
+      }
+      const portType = srcNode?.data?.output_types?.[conn.sourceHandle!] ?? 'Any'
+      await get().updateSubgraphBoundaryPorts(
+        conn.target!, undefined, [...existing, portName],
+        undefined, { ...(tgtNode.data.input_types ?? {}), [portName]: portType },
+      )
+      ;({ nodes, edges, subnetStack } = get())
+      tgtNode = nodes.find(n => n.id === conn.target)
+      conn = { ...conn, targetHandle: portName }
+    }
+
+    if (!conn.sourceHandle || !conn.targetHandle) return
+    const fromType = srcNode?.data?.output_types?.[conn.sourceHandle] ?? 'Any'
+    const toType   = tgtNode?.data?.input_types?.[conn.targetHandle]  ?? 'Any'
     if (!portsCompatible(fromType, toType)) return
     const multiInputPorts: string[] = tgtNode?.data?.multi_input_ports ?? []
     const existingEdge = multiInputPorts.includes(conn.targetHandle!) ? null
@@ -759,7 +800,7 @@ export const useStore = create<Store>((set, get) => ({
       if (existingEdge?.source && existingEdge.sourceHandle && existingEdge.target && existingEdge.targetHandle) {
         await api.disconnect(existingEdge.source, existingEdge.sourceHandle, existingEdge.target, existingEdge.targetHandle)
       }
-      await api.connect(conn.source, conn.sourceHandle, conn.target, conn.targetHandle)
+      await api.connect(conn.source!, conn.sourceHandle!, conn.target!, conn.targetHandle!)
     }
 
     set(s => ({ edges: updatedEdges, ...markActiveTabDirty(s) }))

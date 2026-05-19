@@ -81,7 +81,32 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode    = useStore(s => s.cookNode)
   const selectNode  = useStore(s => s.selectNode)
   const updateParam = useStore(s => s.updateParam)
+  const edges       = useStore(s => s.edges)
+  const nodes       = useStore(s => s.nodes)
   const color       = headerColor(data.type)
+
+  const effectivePortType = (portName: string, side: 'input' | 'output'): string => {
+    const declared = side === 'input'
+      ? (data.input_types?.[portName] ?? 'Any')
+      : (data.output_types?.[portName] ?? 'Any')
+    if (declared !== 'Any') return declared
+    if (side === 'input') {
+      const edge = edges.find(e => e.target === id && e.targetHandle === portName)
+      if (edge) {
+        const src = nodes.find(n => n.id === edge.source)
+        const t = src?.data?.output_types?.[edge.sourceHandle!] ?? 'Any'
+        if (t !== 'Any') return t
+      }
+    } else {
+      const edge = edges.find(e => e.source === id && e.sourceHandle === portName)
+      if (edge) {
+        const tgt = nodes.find(n => n.id === edge.target)
+        const t = tgt?.data?.input_types?.[edge.targetHandle!] ?? 'Any'
+        if (t !== 'Any') return t
+      }
+    }
+    return 'Any'
+  }
   const portsRef    = useRef<HTMLDivElement>(null)
   const [editingLabel, setEditingLabel] = useState(false)
   const [labelDraft, setLabelDraft] = useState('')
@@ -205,10 +230,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       {/* ports */}
       <div ref={portsRef} style={{ flex: 1, padding: '6px 0' }}>
         {data.inputs.map(inp => (
-          <PortRow key={inp} name={inp} type={data.input_types?.[inp] ?? 'Any'} dir="input" />
+          <PortRow key={inp} name={inp} type={effectivePortType(inp, 'input')} dir="input" />
         ))}
         {data.outputs.map(out => (
-          <PortRow key={out} name={out} type={data.output_types?.[out] ?? 'Any'} dir="output" />
+          <PortRow key={out} name={out} type={effectivePortType(out, 'output')} dir="output" />
         ))}
       </div>
     </div>
