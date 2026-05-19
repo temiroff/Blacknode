@@ -266,14 +266,19 @@ function BoolControl({ value, onChange }: { value: unknown; onChange: (v: unknow
 }
 
 function IntControl({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
-  const init = value !== undefined && value !== null ? Number(value) : 0
-  const [draft, setDraft] = useState<string | number>(init)
+  const hasValue = value !== undefined && value !== null
+  const [draft, setDraft] = useState<string>(hasValue ? String(Number(value)) : '')
 
   useEffect(() => {
-    setDraft(value !== undefined && value !== null ? Number(value) : 0)
+    const has = value !== undefined && value !== null
+    setDraft(has ? String(Number(value)) : '')
   }, [value])
 
-  const commit = (v: number) => onChange(v)
+  const commit = (raw: string) => {
+    if (raw === '') { onChange(undefined); return }
+    const v = parseInt(raw)
+    if (!isNaN(v)) onChange(v)
+  }
 
   return (
     <div style={{
@@ -284,18 +289,17 @@ function IntControl({ value, onChange }: { value: unknown; onChange: (v: unknown
       <input
         type="text"
         inputMode="numeric"
-        value={String(draft)}
+        value={draft}
+        placeholder="default"
         onChange={e => {
           const raw = e.target.value.replace(/[^-\d]/g, '')
           setDraft(raw)
-          const v = parseInt(raw)
-          if (!isNaN(v)) commit(v)
+          if (raw !== '') {
+            const v = parseInt(raw)
+            if (!isNaN(v)) onChange(v)
+          }
         }}
-        onBlur={() => {
-          const v = parseInt(String(draft)) || 0
-          setDraft(v)
-          commit(v)
-        }}
+        onBlur={() => commit(draft)}
         style={{
           flex: 1, background: 'transparent', border: 'none',
           color: 'var(--tx1)', fontFamily: 'var(--font-mono)',
@@ -307,9 +311,9 @@ function IntControl({ value, onChange }: { value: unknown; onChange: (v: unknown
           <button
             key={label}
             onClick={() => {
-              const v = (parseInt(String(draft)) || 0) + delta
-              setDraft(v)
-              commit(v)
+              const v = (parseInt(draft) || 0) + delta
+              setDraft(String(v))
+              onChange(v)
             }}
             style={{
               background: 'transparent', border: 'none', color: 'var(--tx2)',
@@ -325,13 +329,13 @@ function IntControl({ value, onChange }: { value: unknown; onChange: (v: unknown
 }
 
 function FloatControl({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
-  const [draft, setDraft] = useState<string>(formatFloat(value !== undefined && value !== null ? value : 0))
+  const hasValue = value !== undefined && value !== null
+  const [draft, setDraft] = useState<string>(hasValue ? formatFloat(value) : '')
 
   useEffect(() => {
-    setDraft(formatFloat(value !== undefined && value !== null ? value : 0))
+    const has = value !== undefined && value !== null
+    setDraft(has ? formatFloat(value) : '')
   }, [value])
-
-  const commit = (v: number) => onChange(v)
 
   return (
     <div style={{
@@ -343,15 +347,17 @@ function FloatControl({ value, onChange }: { value: unknown; onChange: (v: unkno
         type="text"
         inputMode="decimal"
         value={draft}
+        placeholder="default"
         onChange={e => {
           setDraft(e.target.value)
           const v = parseFloat(e.target.value)
-          if (!isNaN(v)) commit(v)
+          if (!isNaN(v)) onChange(v)
         }}
         onBlur={() => {
-          const v = parseFloat(draft) || 0
-          setDraft(formatFloat(v))
-          commit(v)
+          if (draft === '') { onChange(undefined); return }
+          const v = parseFloat(draft)
+          if (!isNaN(v)) { setDraft(formatFloat(v)); onChange(v) }
+          else setDraft('')
         }}
         style={{
           flex: 1, background: 'transparent', border: 'none',
@@ -366,7 +372,7 @@ function FloatControl({ value, onChange }: { value: unknown; onChange: (v: unkno
             onClick={() => {
               const v = (parseFloat(draft) || 0) + delta
               setDraft(formatFloat(v))
-              commit(v)
+              onChange(v)
             }}
             style={{
               background: 'transparent', border: 'none', color: 'var(--tx2)',
