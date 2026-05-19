@@ -52,7 +52,7 @@ export function createVisualAgentLoopSubgraph(): SubgraphData {
           stop_reason: 'Text',
           step: 'Dict',
         },
-        input_defaults: { model: 'claude-sonnet-4-6', max_tokens: 4096 },
+        input_defaults: { model: 'claude-sonnet-4-6', max_tokens: 1024 },
       },
       iter_one: {
         id: 'iter_one',
@@ -123,7 +123,7 @@ export function createVisualAgentLoopSubgraph(): SubgraphData {
           max_tokens: 'Int',
         },
         output_types: { result: 'Text', step: 'Dict' },
-        input_defaults: { model: 'claude-sonnet-4-6', max_tokens: 4096 },
+        input_defaults: { model: 'claude-sonnet-4-6', max_tokens: 1024 },
       },
       loop_out: {
         id: 'loop_out',

@@ -1784,6 +1784,8 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   cookNode: async (id, port = 'output') => {
+    const stack = get().subnetStack
+    const activeSubnetId = stack.length > 0 ? stack[stack.length - 1].subnetId : null
     const applyCookEvent = (event: CookEvent) => {
       if (event.type === 'done') {
         set(s => ({
@@ -1848,7 +1850,11 @@ export const useStore = create<Store>((set, get) => ({
     }))
 
     try {
-      await api.cookStream(id, port, applyCookEvent)
+      if (activeSubnetId) {
+        await api.cookSubgraphStream(activeSubnetId, id, port, applyCookEvent)
+      } else {
+        await api.cookStream(id, port, applyCookEvent)
+      }
     } catch (e: any) {
       set(s => ({
         nodes: s.nodes.map(n =>

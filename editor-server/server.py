@@ -292,7 +292,7 @@ def _default_visual_agent_loop_subgraph() -> dict:
                 "stop_reason": "Text",
                 "step": "Dict",
             },
-            "input_defaults": {"model": "claude-sonnet-4-6", "max_tokens": 4096},
+            "input_defaults": {"model": "claude-sonnet-4-6", "max_tokens": 1024},
         },
         "iter_one": {
             "id": "iter_one", "type": "Int", "params": {"value": 1},
@@ -353,7 +353,7 @@ def _default_visual_agent_loop_subgraph() -> dict:
                 "max_tokens": "Int",
             },
             "output_types": {"result": "Text", "step": "Dict"},
-            "input_defaults": {"model": "claude-sonnet-4-6", "max_tokens": 4096},
+            "input_defaults": {"model": "claude-sonnet-4-6", "max_tokens": 1024},
         },
         "loop_out": {
             "id": "loop_out", "type": "SubnetOutput", "params": {},
@@ -842,6 +842,32 @@ def _json_line(payload: dict) -> str:
 
 def _cook_trace(node_id: str, port: str):
     import traceback
+    emitted_cached: set[tuple[str, str]] = set()
+
+    def emit_cached_success(current_id: str, current_port: str):
+        cache_key = (current_id, current_port)
+        if cache_key in emitted_cached or cache_key not in _session.graph._cache:
+            return
+        emitted_cached.add(cache_key)
+        yield _json_line({
+            "type": "success",
+            "node_id": current_id,
+            "port": current_port,
+            "value": _session.graph._cache[cache_key],
+            "cached": True,
+        })
+
+    def emit_cached_upstream(current_id: str, visiting: set[str] | None = None):
+        if visiting is None:
+            visiting = set()
+        if current_id in visiting:
+            return
+        visiting.add(current_id)
+        for edge in _session.graph._edges:
+            if edge["to"] == current_id:
+                yield from emit_cached_upstream(edge["from"], visiting)
+                yield from emit_cached_success(edge["from"], edge["from_port"])
+        visiting.remove(current_id)
 
     def cook_one(current_id: str, current_port: str):
         if current_id not in _session.node_meta:
@@ -852,13 +878,8 @@ def _cook_trace(node_id: str, port: str):
         cache_key = (current_id, current_port)
         if current_id not in _session.graph._dirty and cache_key in _session.graph._cache:
             value = _session.graph._cache[cache_key]
-            yield _json_line({
-                "type": "success",
-                "node_id": current_id,
-                "port": current_port,
-                "value": value,
-                "cached": True,
-            })
+            yield from emit_cached_upstream(current_id)
+            yield from emit_cached_success(current_id, current_port)
             return value
 
         node_def = _session.graph._nodes[current_id]
@@ -941,6 +962,229 @@ def _cook_trace(node_id: str, port: str):
 @app.post("/cook-stream")
 def cook_stream(req: CookReq):
     return StreamingResponse(_cook_trace(req.node_id, req.port), media_type="application/x-ndjson")
+
+
+def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
+    import traceback
+
+    try:
+        if subnet_id not in _session.node_meta:
+            raise KeyError(f"Subnet node {subnet_id} not found")
+        subgraph = _session.node_meta[subnet_id].get("subgraph", {})
+        inner_meta = subgraph.get("node_meta", {})
+        inner_edges = subgraph.get("edges", [])
+        if node_id not in inner_meta:
+            raise KeyError(f"Node {node_id} not found inside subnet")
+
+        inner = bn.Graph.__new__(bn.Graph)
+        inner._edges = inner_edges
+        inner._cache = {}
+        inner._dirty = set(inner_meta.keys())
+        inner._nodes = {}
+        for nid, meta in inner_meta.items():
+            entry = {"type": meta["type"], "params": dict(meta.get("params", {}))}
+            if "subgraph" in meta:
+                entry["subgraph"] = meta["subgraph"]
+            inner._nodes[nid] = entry
+
+        emitted_outer_cached: set[tuple[str, str]] = set()
+
+        def emit_outer_cached_success(current_id: str, current_port: str):
+            cache_key = (current_id, current_port)
+            if cache_key in emitted_outer_cached or cache_key not in _session.graph._cache:
+                return
+            emitted_outer_cached.add(cache_key)
+            yield _json_line({
+                "type": "success",
+                "node_id": current_id,
+                "port": current_port,
+                "value": _session.graph._cache[cache_key],
+                "cached": True,
+            })
+
+        def emit_outer_cached_upstream(current_id: str, visiting: set[str] | None = None):
+            if visiting is None:
+                visiting = set()
+            if current_id in visiting:
+                return
+            visiting.add(current_id)
+            for edge in _session.graph._edges:
+                if edge["to"] == current_id:
+                    yield from emit_outer_cached_upstream(edge["from"], visiting)
+                    yield from emit_outer_cached_success(edge["from"], edge["from_port"])
+            visiting.remove(current_id)
+
+        def cook_outer_one(current_id: str, current_port: str):
+            if current_id not in _session.node_meta:
+                raise KeyError(f"Node {current_id} not found")
+            if current_id not in _session.graph._nodes:
+                raise KeyError(f"Node {current_id} missing from graph")
+
+            cache_key = (current_id, current_port)
+            if current_id not in _session.graph._dirty and cache_key in _session.graph._cache:
+                value = _session.graph._cache[cache_key]
+                yield from emit_outer_cached_upstream(current_id)
+                yield from emit_outer_cached_success(current_id, current_port)
+                return value
+
+            node_def = _session.graph._nodes[current_id]
+            ctx = dict(node_def["params"])
+
+            for edge in _session.graph._edges:
+                if edge["to"] == current_id:
+                    val = yield from cook_outer_one(edge["from"], edge["from_port"])
+                    ctx[edge["to_port"]] = val
+
+            try:
+                yield _json_line({"type": "start", "node_id": current_id, "port": current_port})
+                if node_def["type"] in _SUBGRAPH_NODE_TYPES:
+                    result = _session.graph._cook_subnet(current_id, current_port, ctx)
+                else:
+                    fn = _NODE_REGISTRY[node_def["type"]]
+                    ctx["__graph__"] = _session.graph
+                    ctx["__node_id__"] = current_id
+                    result = fn(ctx)
+                    if not isinstance(result, dict):
+                        result = {"output": result}
+
+                for key, value in result.items():
+                    _session.graph._cache[(current_id, key)] = value
+                _session.graph._dirty.discard(current_id)
+
+                if cache_key not in _session.graph._cache:
+                    raise KeyError(
+                        f"Node '{node_def['type']}' did not produce port '{current_port}'. "
+                        f"Available: {[key for (nid, key) in _session.graph._cache if nid == current_id]}"
+                    )
+
+                value = _session.graph._cache[cache_key]
+                yield _json_line({
+                    "type": "success",
+                    "node_id": current_id,
+                    "port": current_port,
+                    "value": value,
+                    "outputs": result,
+                })
+                return value
+            except Exception as exc:
+                error = str(exc) if exc.__class__.__name__ == "ProviderConfigError" else traceback.format_exc()
+                yield _json_line({
+                    "type": "error",
+                    "node_id": current_id,
+                    "port": current_port,
+                    "error": error,
+                })
+                raise
+
+        outer_ctx = dict(_session.graph._nodes.get(subnet_id, {}).get("params", {}))
+        for edge in _session.graph._edges:
+            if edge["to"] == subnet_id:
+                outer_ctx[edge["to_port"]] = yield from cook_outer_one(edge["from"], edge["from_port"])
+
+        for nid, meta in inner_meta.items():
+            if meta["type"] == "SubnetInput":
+                for out_port in meta.get("outputs", []):
+                    inner._cache[(nid, out_port)] = outer_ctx.get(out_port)
+                inner._dirty.discard(nid)
+
+        emitted_inner_cached: set[tuple[str, str]] = set()
+
+        def emit_inner_cached_success(current_id: str, current_port: str):
+            cache_key = (current_id, current_port)
+            if cache_key in emitted_inner_cached or cache_key not in inner._cache:
+                return
+            emitted_inner_cached.add(cache_key)
+            yield _json_line({
+                "type": "success",
+                "node_id": current_id,
+                "port": current_port,
+                "value": inner._cache[cache_key],
+                "cached": True,
+            })
+
+        def emit_inner_cached_upstream(current_id: str, visiting: set[str] | None = None):
+            if visiting is None:
+                visiting = set()
+            if current_id in visiting:
+                return
+            visiting.add(current_id)
+            for edge in inner._edges:
+                if edge["to"] == current_id:
+                    yield from emit_inner_cached_upstream(edge["from"], visiting)
+                    yield from emit_inner_cached_success(edge["from"], edge["from_port"])
+            visiting.remove(current_id)
+
+        def cook_one(current_id: str, current_port: str):
+            if current_id not in inner_meta:
+                raise KeyError(f"Node {current_id} not found inside subnet")
+            if current_id not in inner._nodes:
+                raise KeyError(f"Node {current_id} missing from inner graph")
+
+            cache_key = (current_id, current_port)
+            if current_id not in inner._dirty and cache_key in inner._cache:
+                value = inner._cache[cache_key]
+                yield from emit_inner_cached_upstream(current_id)
+                yield from emit_inner_cached_success(current_id, current_port)
+                return value
+
+            node_def = inner._nodes[current_id]
+            ctx = dict(node_def["params"])
+
+            for edge in inner._edges:
+                if edge["to"] == current_id:
+                    val = yield from cook_one(edge["from"], edge["from_port"])
+                    ctx[edge["to_port"]] = val
+
+            try:
+                yield _json_line({"type": "start", "node_id": current_id, "port": current_port})
+                if node_def["type"] in _SUBGRAPH_NODE_TYPES:
+                    result = inner._cook_subnet(current_id, current_port, ctx)
+                else:
+                    fn = _NODE_REGISTRY[node_def["type"]]
+                    ctx["__graph__"] = inner
+                    ctx["__node_id__"] = current_id
+                    result = fn(ctx)
+                    if not isinstance(result, dict):
+                        result = {"output": result}
+
+                for key, value in result.items():
+                    inner._cache[(current_id, key)] = value
+                inner._dirty.discard(current_id)
+
+                if cache_key not in inner._cache:
+                    raise KeyError(
+                        f"Node '{node_def['type']}' did not produce port '{current_port}'. "
+                        f"Available: {[key for (nid, key) in inner._cache if nid == current_id]}"
+                    )
+
+                value = inner._cache[cache_key]
+                yield _json_line({
+                    "type": "success",
+                    "node_id": current_id,
+                    "port": current_port,
+                    "value": value,
+                    "outputs": result,
+                })
+                return value
+            except Exception as exc:
+                error = str(exc) if exc.__class__.__name__ == "ProviderConfigError" else traceback.format_exc()
+                yield _json_line({
+                    "type": "error",
+                    "node_id": current_id,
+                    "port": current_port,
+                    "error": error,
+                })
+                raise
+
+        final_value = yield from cook_one(node_id, port)
+        yield _json_line({"type": "done", "port": port, "value": final_value})
+    except Exception:
+        yield _json_line({"type": "done", "port": port, "error": traceback.format_exc()})
+
+
+@app.post("/nodes/{subnet_id}/cook-stream")
+def cook_subgraph_stream(subnet_id: str, req: CookReq):
+    return StreamingResponse(_subgraph_cook_trace(subnet_id, req.node_id, req.port), media_type="application/x-ndjson")
 
 
 @app.get("/settings/api-keys")

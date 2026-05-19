@@ -1,10 +1,24 @@
-import { memo, useRef, useState, useEffect } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
-import { MODEL_GROUPS, modelProviderColor, modelProviderName, DEFAULT_MODEL } from '../models'
+import {
+  DEFAULT_MODEL,
+  MODEL_PROVIDERS,
+  isKnownStarterModel,
+  modelDisplayName,
+  modelNameForProvider,
+  modelProviderApiKeyNameById,
+  modelProviderById,
+  modelValueForProvider,
+  providerIdForModelValue,
+  providerPlaceholderById,
+  savedModelsForProvider,
+  shouldShowApiKeyForProvider,
+  starterModelsForProvider,
+} from '../models'
 import NodeFrame from './NodeFrame'
 import type { NodeCookState } from '../types'
 
@@ -16,390 +30,504 @@ interface NodeData extends NodeCookState {
   output_types: Record<string, string>
 }
 
+const LAST_MODELS_PARAM = 'last_models_by_provider'
+
+function lastModelsFromParam(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0)
+  return Object.fromEntries(entries)
+}
+
 function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
   const { updateParam, apiKeys, setApiKey, customModels, addCustomModel, removeCustomModel } = useStore()
 
-  const current   = String(data.params.value ?? DEFAULT_MODEL)
-  const provColor = modelProviderColor(current)
-  const provName  = modelProviderName(current)
-  const apiKey    = apiKeys[provName] ?? ''
-
-  const currentLabel = MODEL_GROUPS
-    .flatMap(g => g.models)
-    .find(m => m.value === current)?.label ?? current
-
-  const [open, setOpen]       = useState(false)
-  const [search, setSearch]   = useState('')
-  const [hovered, setHovered] = useState<string | null>(null)
+  const current = String(data.params.value ?? DEFAULT_MODEL)
+  const [providerId, setProviderId] = useState(providerIdForModelValue(current))
+  const [modelDraft, setModelDraft] = useState(modelNameForProvider(current, providerIdForModelValue(current)))
   const [showKey, setShowKey] = useState(false)
-  const searchRef             = useRef<HTMLInputElement>(null)
-  const dropRef               = useRef<HTMLDivElement>(null)
+  const [providerOpen, setProviderOpen] = useState(false)
+  const [modelOpen, setModelOpen] = useState(false)
+  const draftRef = useRef<HTMLInputElement>(null)
+  const menusRef = useRef<HTMLDivElement>(null)
 
-  // native wheel listener so scroll inside dropdown doesn't zoom the RF canvas
-  useEffect(() => {
-    const el = dropRef.current
-    if (!el || !open) return
-    const stop = (e: WheelEvent) => e.stopPropagation()
-    el.addEventListener('wheel', stop)
-    return () => el.removeEventListener('wheel', stop)
-  }, [open])
-
-  const handleApiKeyChange = (val: string) => {
-    setApiKey(provName, val)
+  const provider = modelProviderById(providerId)
+  const color = provider.color
+  const storedDraft = modelValueForProvider(providerId, modelDraft)
+  const savedLastModels = lastModelsFromParam(data.params[LAST_MODELS_PARAM])
+  const rememberedModels = {
+    ...savedLastModels,
+    [providerIdForModelValue(current)]: current,
   }
+  const savedForProvider = savedModelsForProvider(customModels, providerId)
+  const starterModels = starterModelsForProvider(providerId)
+  const savedModelSet = new Set(savedForProvider)
+  const modelChoices = [
+    ...savedForProvider.map(value => ({ value, label: modelNameForProvider(value, providerId), group: 'Saved' })),
+    ...starterModels
+      .filter(model => !savedModelSet.has(model.value))
+      .map(model => ({ value: model.value, label: model.label, group: 'Starter' })),
+  ]
+  const showApiKey = shouldShowApiKeyForProvider(providerId)
+  const keyName = modelProviderApiKeyNameById(providerId)
+  const apiKey = apiKeys[keyName] ?? ''
 
   useEffect(() => {
-    if (open) setTimeout(() => searchRef.current?.focus(), 30)
-  }, [open])
+    const nextProvider = providerIdForModelValue(current)
+    setProviderId(nextProvider)
+    setModelDraft(modelNameForProvider(current, nextProvider))
+  }, [current])
 
-  // close on outside click — capture phase so React Flow pane clicks are caught too
   useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (!dropRef.current?.contains(e.target as Node)) {
-        setOpen(false); setSearch('')
+    const close = (event: MouseEvent) => {
+      if (!menusRef.current?.contains(event.target as Node)) {
+        setProviderOpen(false)
+        setModelOpen(false)
       }
     }
-    window.addEventListener('mousedown', handler, true)
-    return () => window.removeEventListener('mousedown', handler, true)
-  }, [open])
+    window.addEventListener('mousedown', close, true)
+    return () => window.removeEventListener('mousedown', close, true)
+  }, [])
 
-  const allKnownValues = new Set(MODEL_GROUPS.flatMap(g => g.models.map(m => m.value)))
+  const selectProvider = (nextProviderId: string) => {
+    const currentProvider = providerIdForModelValue(current)
+    const nextRemembered = { ...rememberedModels, [currentProvider]: current }
+    const nextSaved = savedModelsForProvider(customModels, nextProviderId)
+    const nextStarter = starterModelsForProvider(nextProviderId)
+    const nextValue = currentProvider === nextProviderId
+      ? current
+      : nextRemembered[nextProviderId] ?? nextSaved[0] ?? nextStarter[0]?.value ?? ''
 
-  const select = (value: string) => {
-    updateParam(id, 'value', value)
-    if (!allKnownValues.has(value)) addCustomModel(value)
-    setOpen(false)
-    setSearch('')
+    if (nextValue) nextRemembered[nextProviderId] = nextValue
+
+    setProviderId(nextProviderId)
+    setModelDraft(modelNameForProvider(nextValue, nextProviderId))
+    updateParam(id, LAST_MODELS_PARAM, nextRemembered)
+    if (nextValue && nextValue !== current) updateParam(id, 'value', nextValue)
+    setProviderOpen(false)
+    setModelOpen(false)
+    setTimeout(() => draftRef.current?.focus(), 0)
   }
 
-  const filtered = MODEL_GROUPS.map(g => ({
-    ...g,
-    models: g.models.filter(m =>
-      !search ||
-      m.label.toLowerCase().includes(search.toLowerCase()) ||
-      g.provider.toLowerCase().includes(search.toLowerCase())
-    ),
-  })).filter(g => g.models.length > 0)
+  const useModel = (value: string, save = true) => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    const nextProvider = providerIdForModelValue(trimmed)
+    updateParam(id, LAST_MODELS_PARAM, { ...rememberedModels, [nextProvider]: trimmed })
+    updateParam(id, 'value', trimmed)
+    if (save && !isKnownStarterModel(trimmed)) addCustomModel(trimmed)
+    setProviderId(nextProvider)
+    setModelDraft(modelNameForProvider(trimmed, nextProvider))
+    setModelOpen(false)
+  }
+
+  const saveDraft = () => {
+    if (!storedDraft) return
+    useModel(storedDraft, true)
+  }
+
+  const updateKey = (value: string) => {
+    setApiKey(keyName, value)
+  }
+
+  const removeModelChoice = (value: string) => {
+    removeCustomModel(value)
+    const removedProvider = providerIdForModelValue(value)
+    if (rememberedModels[removedProvider] === value && current !== value) {
+      const nextRemembered = { ...rememberedModels }
+      delete nextRemembered[removedProvider]
+      updateParam(id, LAST_MODELS_PARAM, nextRemembered)
+    }
+  }
+
+  const stopPointer = (e: React.SyntheticEvent) => {
+    e.stopPropagation()
+  }
 
   return (
     <NodeFrame
       id={id}
       data={data}
       selected={selected}
-      color={provColor}
+      color={color}
       style={{
         width: '100%',
-        minWidth: 200,
+        minWidth: 260,
       }}
     >
       <NodeResizer
-        minWidth={200}
-        minHeight={100}
+        minWidth={260}
+        minHeight={170}
         isVisible={selected}
-        lineStyle={{ borderColor: provColor }}
-        handleStyle={{ background: provColor, borderColor: provColor, width: 8, height: 8, borderRadius: 2 }}
+        lineStyle={{ borderColor: color }}
+        handleStyle={{ background: color, borderColor: color, width: 8, height: 8, borderRadius: 2 }}
       />
 
-      {/* header */}
       <div style={{
-        background: provColor,
+        background: color,
         borderRadius: '8px 8px 0 0',
         padding: '5px 10px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: 6,
+        gap: 8,
       }}>
         <span style={{ fontWeight: 700, fontSize: 11, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em' }}>
           MODEL
         </span>
         <span style={{
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
           fontSize: 10,
           background: 'rgba(0,0,0,.22)',
           padding: '1px 6px',
           borderRadius: 4,
           fontFamily: 'var(--font-ui)',
-          fontWeight: 500,
+          fontWeight: 600,
         }}>
-          {provName}
+          {modelDisplayName(current)}
         </span>
       </div>
 
-      {/* selector button */}
-      <div style={{ padding: '6px 8px 4px' }}>
-        <button
-          onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
-          style={{
-            width: '100%',
-            background: 'var(--lift)',
-            border: `1px solid ${open ? provColor : 'var(--line2)'}`,
-            borderRadius: 6,
-            color: provColor,
-            fontFamily: 'var(--font-mono)',
-            fontSize: 11,
-            fontWeight: 600,
-            padding: '5px 8px',
-            cursor: 'pointer',
-            textAlign: 'left',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            transition: 'border-color 0.15s',
-          }}
-        >
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {currentLabel}
-          </span>
-          <span style={{ opacity: 0.5, flexShrink: 0, marginLeft: 4 }}>{open ? '▲' : '▼'}</span>
-        </button>
-      </div>
-
-      {/* api key */}
-      <div style={{ padding: '2px 8px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
-        <input
-          value={apiKey}
-          placeholder="API key (saved per provider)"
-          onClick={e => e.stopPropagation()}
-          onChange={e => handleApiKeyChange(e.target.value)}
-          type={showKey ? 'text' : 'password'}
-          style={{
-            flex: 1,
-            background: 'transparent',
-            border: 'none',
-            borderBottom: `1px solid ${apiKey ? provColor + '60' : 'var(--line2)'}`,
-            color: apiKey ? 'var(--tx1)' : 'var(--tx3)',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 11,
-            outline: 'none',
-            padding: '3px 2px',
-            minWidth: 0,
-          }}
-        />
-        <button
-          onClick={e => { e.stopPropagation(); setShowKey(s => !s) }}
-          title={showKey ? 'Hide key' : 'Show key'}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: showKey ? provColor : 'var(--tx3)',
-            cursor: 'pointer',
-            fontSize: 13,
-            padding: '2px 3px',
-            flexShrink: 0,
-            lineHeight: 1,
-          }}
-        >
-          {showKey ? '🙈' : '👁'}
-        </button>
-      </div>
-
-      {/* dropdown */}
-      {open && (
-        <div
-          ref={dropRef}
-          // stop mousedown so React Flow doesn't start dragging the node
-          onMouseDown={e => e.stopPropagation()}
-          // stop click so it doesn't bubble up to toggle button
-          onClick={e => e.stopPropagation()}
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            width: '100%',
-            minWidth: 200,
-            background: 'var(--panel)',
-            border: '1px solid var(--line2)',
-            borderRadius: 8,
-            boxShadow: '0 12px 40px rgba(0,0,0,.4)',
-            zIndex: 9999,
-            overflow: 'hidden',
-            marginTop: 2,
-          }}
-        >
-          {/* search */}
-          <div style={{
-            padding: '7px 10px',
-            borderBottom: '1px solid var(--line)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
+      <div
+        ref={menusRef}
+        className="nodrag nopan nowheel"
+        style={{ padding: '8px 8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}
+        onPointerDownCapture={stopPointer}
+        onMouseDownCapture={stopPointer}
+        onPointerDown={stopPointer}
+        onMouseDown={stopPointer}
+        onClick={stopPointer}
+        onDoubleClick={stopPointer}
+        onDragStart={e => e.preventDefault()}
+      >
+        <div>
+          <label style={{
+            display: 'block',
+            color: 'var(--tx3)',
+            fontSize: 10,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            marginBottom: 4,
           }}>
-            <span style={{ color: 'var(--tx3)', fontSize: 12 }}>⌕</span>
-            <input
-              ref={searchRef}
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Escape') { setOpen(false); setSearch('') }
-                if (e.key === 'Enter' && search.trim()) select(search.trim())
-              }}
-              placeholder="filter or type custom model…"
+            Provider
+          </label>
+          <div style={{ position: 'relative' }}>
+            <button
+              className="nodrag nopan"
+              onClick={() => { setProviderOpen(o => !o); setModelOpen(false) }}
+              onPointerDownCapture={stopPointer}
               style={{
-                flex: 1,
-                background: 'transparent',
-                border: 'none',
-                outline: 'none',
-                color: 'var(--tx1)',
+                width: '100%',
+                background: 'var(--lift)',
+                border: `1px solid ${color}`,
+                borderRadius: 5,
+                color,
+                cursor: 'pointer',
+                fontSize: 11,
                 fontFamily: 'var(--font-ui)',
-                fontSize: 12,
+                fontWeight: 700,
+                outline: 'none',
+                padding: '5px 7px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
               }}
-            />
-          </div>
-
-          {/* grouped options — onWheel stops React Flow canvas zoom */}
-          <div style={{ maxHeight: 280, overflowY: 'auto' }}
-               onWheel={e => e.stopPropagation()}>
-            {filtered.map(g => (
-              <div key={g.provider}>
-                <div style={{
-                  padding: '6px 12px 3px',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: '0.08em',
-                  color: g.color,
-                  textTransform: 'uppercase',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                }}>
-                  <div style={{ width: 5, height: 5, borderRadius: 1, background: g.color }} />
-                  {g.provider}
-                </div>
-
-                {g.models.map(m => (
-                  <div
-                    key={m.value}
-                    onMouseEnter={() => setHovered(m.value)}
-                    onMouseLeave={() => setHovered(null)}
-                    // onClick closes correctly; onMouseDown just stops node drag
-                    onMouseDown={e => e.stopPropagation()}
-                    onClick={() => select(m.value)}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 7, height: 7, borderRadius: 2, background: color }} />
+                {provider.label}
+              </span>
+              <span style={{ color: 'var(--tx3)' }}>{providerOpen ? '▲' : '▼'}</span>
+            </button>
+            {providerOpen && (
+              <div style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                top: 'calc(100% + 3px)',
+                background: 'var(--panel)',
+                border: '1px solid var(--line2)',
+                borderRadius: 6,
+                boxShadow: '0 10px 30px rgba(0,0,0,.35)',
+                overflow: 'hidden',
+                zIndex: 10000,
+              }}>
+                {MODEL_PROVIDERS.map(p => (
+                  <button
+                    className="nodrag nopan"
+                    key={p.id}
+                    onClick={() => selectProvider(p.id)}
+                    onPointerDownCapture={stopPointer}
                     style={{
-                      padding: '6px 14px',
-                      fontSize: 12,
+                      width: '100%',
+                      background: p.id === providerId ? `${p.color}1f` : 'transparent',
+                      border: 'none',
+                      borderLeft: `3px solid ${p.color}`,
+                      color: p.color,
                       cursor: 'pointer',
-                      color: m.value === current ? g.color : 'var(--tx2)',
-                      background: hovered === m.value ? 'var(--hover)' : 'transparent',
-                      borderLeft: `2px solid ${m.value === current ? g.color : 'transparent'}`,
+                      fontFamily: 'var(--font-ui)',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      padding: '6px 8px',
+                      textAlign: 'left',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: 6,
-                      fontFamily: 'var(--font-mono)',
+                      gap: 7,
                     }}
                   >
-                    {m.value === current && (
-                      <span style={{ color: g.color, fontSize: 7, flexShrink: 0 }}>●</span>
-                    )}
-                    {m.label}
-                  </div>
+                    <span style={{ width: 7, height: 7, borderRadius: 2, background: p.color }} />
+                    {p.label}
+                  </button>
                 ))}
-              </div>
-            ))}
-
-            {/* saved custom models */}
-            {customModels.filter(m => !search || m.toLowerCase().includes(search.toLowerCase())).length > 0 && (
-              <div>
-                <div style={{
-                  padding: '6px 12px 3px',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: '0.08em',
-                  color: '#6b7280',
-                  textTransform: 'uppercase',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                }}>
-                  <div style={{ width: 5, height: 5, borderRadius: 1, background: '#6b7280' }} />
-                  Custom
-                </div>
-                {customModels
-                  .filter(m => !search || m.toLowerCase().includes(search.toLowerCase()))
-                  .map(m => (
-                    <div
-                      key={m}
-                      onMouseEnter={() => setHovered(m)}
-                      onMouseLeave={() => setHovered(null)}
-                      onMouseDown={e => e.stopPropagation()}
-                      style={{
-                        padding: '5px 8px 5px 14px',
-                        fontSize: 12,
-                        cursor: 'pointer',
-                        color: m === current ? modelProviderColor(m) : 'var(--tx2)',
-                        background: hovered === m ? 'var(--hover)' : 'transparent',
-                        borderLeft: `2px solid ${m === current ? modelProviderColor(m) : 'transparent'}`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        fontFamily: 'var(--font-mono)',
-                      }}
-                    >
-                      <span
-                        onClick={() => select(m)}
-                        style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                      >
-                        {m === current && <span style={{ color: modelProviderColor(m), fontSize: 7, marginRight: 6 }}>●</span>}
-                        {m}
-                      </span>
-                      <button
-                        onClick={e => { e.stopPropagation(); removeCustomModel(m) }}
-                        title="Remove"
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'var(--tx3)',
-                          cursor: 'pointer',
-                          fontSize: 11,
-                          padding: '1px 3px',
-                          flexShrink: 0,
-                          lineHeight: 1,
-                          opacity: hovered === m ? 1 : 0,
-                          transition: 'opacity 0.1s',
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-              </div>
-            )}
-
-            {/* custom entry row */}
-            {search.trim() && !customModels.includes(search.trim()) && !allKnownValues.has(search.trim()) && (
-              <div
-                onMouseDown={e => e.stopPropagation()}
-                onClick={() => select(search.trim())}
-                style={{
-                  padding: '7px 14px',
-                  borderTop: '1px solid var(--line)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  cursor: 'pointer',
-                  background: hovered === '__custom__' ? 'var(--hover)' : 'transparent',
-                }}
-                onMouseEnter={() => setHovered('__custom__')}
-                onMouseLeave={() => setHovered(null)}
-              >
-                <span style={{ color: 'var(--tx3)', fontSize: 11, flexShrink: 0 }}>↵ use</span>
-                <span style={{
-                  color: 'var(--tx1)',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 11,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
-                  {search.trim()}
-                </span>
               </div>
             )}
           </div>
         </div>
-      )}
 
-      {/* output handle */}
+        <div>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            marginBottom: 4,
+          }}>
+            <input
+              className="nodrag nopan nowheel"
+              ref={draftRef}
+              value={modelDraft}
+              placeholder={providerPlaceholderById(providerId)}
+              onPointerDownCapture={stopPointer}
+              onMouseDownCapture={stopPointer}
+              onPointerDown={stopPointer}
+              onMouseDown={stopPointer}
+              onClick={stopPointer}
+              onDoubleClick={stopPointer}
+              onDragStart={e => e.preventDefault()}
+              onChange={e => setModelDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  saveDraft()
+                }
+              }}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                background: 'var(--lift)',
+                border: `1px solid ${storedDraft === current ? color : 'var(--line2)'}`,
+                borderRadius: 5,
+                color: 'var(--tx1)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                outline: 'none',
+                padding: '5px 7px',
+              }}
+            />
+            <button
+              className="nodrag nopan"
+              onClick={e => { e.stopPropagation(); saveDraft() }}
+              onPointerDownCapture={stopPointer}
+              onPointerDown={stopPointer}
+              onMouseDown={stopPointer}
+              disabled={!storedDraft}
+              style={{
+                background: storedDraft ? color : 'var(--line2)',
+                border: 'none',
+                borderRadius: 5,
+                color: '#fff',
+                cursor: storedDraft ? 'pointer' : 'default',
+                fontFamily: 'var(--font-ui)',
+                fontSize: 10,
+                fontWeight: 700,
+                padding: '6px 8px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Save to list
+            </button>
+          </div>
+        </div>
+
+        <div style={{ position: 'relative' }}>
+          <button
+            className="nodrag nopan"
+            onClick={() => { setModelOpen(o => !o); setProviderOpen(false) }}
+            onPointerDownCapture={stopPointer}
+            disabled={modelChoices.length === 0}
+            style={{
+              width: '100%',
+              background: 'var(--lift)',
+              border: `1px solid ${modelOpen ? color : 'var(--line2)'}`,
+              borderRadius: 5,
+              color: modelChoices.length ? 'var(--tx2)' : 'var(--tx3)',
+              cursor: modelChoices.length ? 'pointer' : 'default',
+              fontSize: 11,
+              fontFamily: 'var(--font-ui)',
+              fontWeight: 600,
+              padding: '5px 7px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+            }}
+          >
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Saved and starter models
+            </span>
+            <span style={{ color: 'var(--tx3)' }}>{modelOpen ? '▲' : '▼'}</span>
+          </button>
+          {modelOpen && (
+            <div style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: 'calc(100% + 3px)',
+              maxHeight: 210,
+              overflowY: 'auto',
+              background: 'var(--panel)',
+              border: '1px solid var(--line2)',
+              borderRadius: 6,
+              boxShadow: '0 10px 30px rgba(0,0,0,.35)',
+              zIndex: 9999,
+            }}>
+              {['Saved', 'Starter'].map(group => {
+                const rows = modelChoices.filter(choice => choice.group === group)
+                if (rows.length === 0) return null
+                return (
+                  <div key={group}>
+                    <div style={{
+                      padding: '6px 8px 3px',
+                      color: group === 'Saved' ? color : 'var(--tx3)',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                    }}>
+                      {group === 'Saved' ? 'Saved local models' : 'Starter examples'}
+                    </div>
+                    {rows.map(choice => (
+                      <div
+                        key={choice.value}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          background: choice.value === current ? `${color}18` : 'transparent',
+                          borderLeft: `3px solid ${choice.value === current ? color : 'transparent'}`,
+                        }}
+                      >
+                        <button
+                          className="nodrag nopan"
+                          onClick={() => useModel(choice.value, false)}
+                          onPointerDownCapture={stopPointer}
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            background: 'transparent',
+                            border: 'none',
+                            color: choice.value === current ? color : 'var(--tx2)',
+                            cursor: 'pointer',
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 10,
+                            textAlign: 'left',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            padding: '5px 7px',
+                          }}
+                        >
+                          {choice.label}
+                        </button>
+                        {group === 'Saved' && (
+                          <button
+                            className="nodrag nopan"
+                            title="Remove saved model"
+                            onClick={e => { e.stopPropagation(); removeModelChoice(choice.value) }}
+                            onPointerDownCapture={stopPointer}
+                            style={{
+                              background: 'var(--lift)',
+                              border: '1px solid var(--line2)',
+                              borderRadius: 4,
+                              color: 'var(--err)',
+                              cursor: 'pointer',
+                              fontFamily: 'var(--font-ui)',
+                              fontSize: 10,
+                              fontWeight: 700,
+                              lineHeight: 1,
+                              padding: '3px 6px',
+                              marginRight: 5,
+                              flexShrink: 0,
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {showApiKey ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <input
+              className="nodrag nopan nowheel"
+              value={apiKey}
+              placeholder={`${keyName} API key`}
+              onPointerDownCapture={stopPointer}
+              onMouseDownCapture={stopPointer}
+              onPointerDown={stopPointer}
+              onMouseDown={stopPointer}
+              onClick={stopPointer}
+              onDoubleClick={stopPointer}
+              onDragStart={e => e.preventDefault()}
+              onChange={e => updateKey(e.target.value)}
+              type={showKey ? 'text' : 'password'}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                background: 'transparent',
+                border: 'none',
+                borderBottom: `1px solid ${apiKey ? color + '80' : 'var(--line2)'}`,
+                color: apiKey ? 'var(--tx1)' : 'var(--tx3)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                outline: 'none',
+                padding: '3px 2px',
+              }}
+            />
+            <button
+              className="nodrag nopan"
+              onClick={e => { e.stopPropagation(); setShowKey(s => !s) }}
+              onPointerDownCapture={stopPointer}
+              onMouseDown={e => e.stopPropagation()}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: showKey ? color : 'var(--tx3)',
+                cursor: 'pointer',
+                fontSize: 10,
+                padding: '2px 3px',
+                flexShrink: 0,
+              }}
+            >
+              {showKey ? 'hide' : 'show'}
+            </button>
+          </div>
+        ) : (
+          <div style={{ color: 'var(--tx3)', fontSize: 10 }}>
+            Ollama uses the local server at localhost:11434.
+          </div>
+        )}
+
+      </div>
+
       <Handle
         type="source"
         position={Position.Right}

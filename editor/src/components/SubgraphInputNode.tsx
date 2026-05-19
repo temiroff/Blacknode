@@ -2,11 +2,13 @@ import { memo, useState } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
+import NodeFrame from './NodeFrame'
+import type { NodeCookState } from '../types'
 
 const HEADER = '#6366f1'
 const NEW_HANDLE_COLOR = '#6366f188'
 
-interface NodeData {
+interface NodeData extends NodeCookState {
   id: string
   type: string
   inputs: string[]
@@ -71,17 +73,13 @@ function SubgraphInputNode({ id, data, selected }: NodeProps<NodeData>) {
   }
 
   return (
-    <div
+    <NodeFrame
+      id={id}
+      data={data}
+      selected={selected}
+      color={HEADER}
       style={{
         minWidth: 140,
-        background: 'var(--node)',
-        border: `1px solid ${selected ? HEADER : 'var(--line2)'}`,
-        borderRadius: 9,
-        fontSize: 12,
-        color: 'var(--tx1)',
-        boxShadow: selected
-          ? `0 0 0 2px ${HEADER}55, 0 4px 16px rgba(0,0,0,.4)`
-          : '0 2px 10px rgba(0,0,0,.25)',
       }}
     >
       {/* header */}
@@ -230,7 +228,7 @@ function SubgraphInputNode({ id, data, selected }: NodeProps<NodeData>) {
           }}
         />
       </div>
-    </div>
+    </NodeFrame>
   )
 }
 

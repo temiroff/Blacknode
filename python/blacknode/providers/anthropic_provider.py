@@ -15,7 +15,7 @@ class AnthropicProvider(BaseProvider):
         *,
         model: str,
         system: str = "",
-        max_tokens: int = 4096,
+        max_tokens: int = 1024,
         tools: list[ToolDef] | None = None,
         temperature: float = 1.0,
         **kwargs: Any,

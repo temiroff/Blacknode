@@ -1,6 +1,25 @@
 from blacknode.node import node
 from blacknode.providers import resolve, ToolCall, ToolDef, ToolResult
 
+DEFAULT_MAX_TOKENS = 1024
+NIM_CONTEXT_SAFE_MAX_TOKENS = 1024
+
+
+def _int_value(value, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _max_tokens_for_model(model: str, value) -> int:
+    requested = max(1, _int_value(value, DEFAULT_MAX_TOKENS))
+    # Some NIM models, including nemotron-mini-4b-instruct, expose a 4096-token
+    # total context window. Treat the old 4096 completion default as unsafe.
+    if str(model).startswith("nim:") and requested >= 4096:
+        return NIM_CONTEXT_SAFE_MAX_TOKENS
+    return requested
+
 
 def _tool_defs(tools: list) -> list[ToolDef]:
     return [
@@ -115,8 +134,8 @@ def _agent_loop_run(ctx: dict) -> dict:
     system     = ctx.get("system", "You are a helpful agent. Use the available tools.")
     prompt     = ctx.get("prompt", "")
     tools      = ctx.get("tools") or []
-    max_tokens = int(ctx.get("max_tokens", 4096))
-    max_iter   = int(ctx.get("max_iter", 5))
+    max_tokens = _max_tokens_for_model(model, ctx.get("max_tokens"))
+    max_iter   = _int_value(ctx.get("max_iter"), 5)
 
     messages: list[dict] = [{"role": "user", "content": prompt}]
     steps: list[dict] = []
@@ -177,7 +196,7 @@ def _agent_loop_run(ctx: dict) -> dict:
 
 
 @node(
-    inputs=["prompt:Text", "system:Text", "model:Model=claude-sonnet-4-6", "max_tokens:Int=4096", "temperature:Float=1.0"],
+    inputs=["prompt:Text", "system:Text", "model:Model=claude-sonnet-4-6", "max_tokens:Int=1024", "temperature:Float=1.0"],
     outputs=["text:Text"],
     name="LLMAgent",
 )
@@ -185,7 +204,7 @@ def llm_agent(ctx: dict) -> dict:
     model       = ctx.get("model", "claude-sonnet-4-6")
     system      = ctx.get("system", "You are a helpful assistant.")
     prompt      = ctx.get("prompt", "")
-    max_tokens  = int(ctx.get("max_tokens", 4096))
+    max_tokens  = _max_tokens_for_model(model, ctx.get("max_tokens"))
     temperature = float(ctx.get("temperature", 1.0))
 
     provider, clean_model = resolve(
@@ -205,7 +224,7 @@ def llm_agent(ctx: dict) -> dict:
 
 
 @node(
-    inputs=["prompt:Text", "system:Text", "model:Model=claude-sonnet-4-6", "tools:List", "max_tokens:Int=4096", "max_iter:Int=5"],
+    inputs=["prompt:Text", "system:Text", "model:Model=claude-sonnet-4-6", "tools:List", "max_tokens:Int=1024", "max_iter:Int=5"],
     outputs=["result:Text", "steps:List"],
     name="AgentLoop",
 )
@@ -214,7 +233,7 @@ def agent_loop(ctx: dict) -> dict:
 
 
 @node(
-    inputs=["prompt:Text", "system:Text", "model:Model=claude-sonnet-4-6", "tools:List", "max_tokens:Int=4096", "max_iter:Int=5"],
+    inputs=["prompt:Text", "system:Text", "model:Model=claude-sonnet-4-6", "tools:List", "max_tokens:Int=1024", "max_iter:Int=5"],
     outputs=["result:Text", "steps:List"],
     name="VisualAgentLoop",
 )
@@ -229,17 +248,18 @@ def agent_messages(ctx: dict) -> dict:
 
 
 @node(
-    inputs=["messages:List", "system:Text", "model:Model=claude-sonnet-4-6", "tools:List", "max_tokens:Int=4096"],
+    inputs=["messages:List", "system:Text", "model:Model=claude-sonnet-4-6", "tools:List", "max_tokens:Int=1024"],
     outputs=["assistant_text:Text", "tool_calls:List", "stop_reason:Text", "step:Dict"],
     name="AgentChatStep",
 )
 def agent_chat_step(ctx: dict) -> dict:
+    model = ctx.get("model", "claude-sonnet-4-6")
     _, resp, step = _chat_step(
         ctx.get("messages") or [],
-        model=ctx.get("model", "claude-sonnet-4-6"),
+        model=model,
         system=ctx.get("system", "You are a helpful agent. Use the available tools."),
         tools=ctx.get("tools") or [],
-        max_tokens=int(ctx.get("max_tokens", 4096)),
+        max_tokens=_max_tokens_for_model(model, ctx.get("max_tokens")),
         provider_name=ctx.get("provider"),
         base_url=ctx.get("base_url"),
         api_key=ctx.get("api_key"),
@@ -286,14 +306,14 @@ def agent_append_messages(ctx: dict) -> dict:
 def agent_stop_check(ctx: dict) -> dict:
     tool_calls = ctx.get("tool_calls") or []
     iteration = int(ctx.get("iteration", 1))
-    max_iter = int(ctx.get("max_iter", 5))
+    max_iter = _int_value(ctx.get("max_iter"), 5)
     done = ctx.get("stop_reason") == "end_turn" or not tool_calls or iteration >= max_iter
     reason = "final" if ctx.get("stop_reason") == "end_turn" or not tool_calls else "max_iter" if done else "continue"
     return {"continue": not done, "done": done, "reason": reason}
 
 
 @node(
-    inputs=["messages:List", "system:Text", "model:Model=claude-sonnet-4-6", "max_tokens:Int=4096"],
+    inputs=["messages:List", "system:Text", "model:Model=claude-sonnet-4-6", "max_tokens:Int=1024"],
     outputs=["result:Text", "step:Dict"],
     name="AgentFinalAnswer",
 )
@@ -315,7 +335,7 @@ def agent_final_answer(ctx: dict) -> dict:
         ],
         model=clean_model,
         system=ctx.get("system", "You are a helpful agent. Use the available tools."),
-        max_tokens=int(ctx.get("max_tokens", 4096)),
+        max_tokens=_max_tokens_for_model(model, ctx.get("max_tokens")),
         tools=None,
     )
     step = {"role": "assistant", "text": final.text, "tool_calls": []}

@@ -1,6 +1,24 @@
 import { useState } from 'react'
 import type { NodeCookState } from '../types'
 
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  textarea.style.top = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+}
+
 function previewValue(v: unknown): string {
   if (v === undefined || v === null) return ''
   const s = typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)
@@ -9,6 +27,7 @@ function previewValue(v: unknown): string {
 
 export default function NodeStatus({ data }: { data: NodeCookState }) {
   const [visible, setVisible] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   if (!data.cookError && data.cookResult === undefined && !data.cooking) return null
 
@@ -24,10 +43,24 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
         ? `Result: ${data.cookPort}`
         : 'Result'
   const label = isCooking ? title : isError ? data.cookError! : previewValue(data.cookResult)
+  const copyLabel = copied ? 'Copied' : title
+  const copyValue = isCooking ? title : label
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!copyValue.trim()) return
+    try {
+      await copyText(copyValue)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1100)
+    } catch (err) {
+      console.error('Failed to copy node status', err)
+    }
+  }
 
   return (
     <div
-      title={title}
+      title={`${title} - click to copy`}
       style={{
         position: 'absolute',
         top: -9,
@@ -42,6 +75,7 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => setVisible(false)}
       onMouseDown={e => e.stopPropagation()}
+      onClick={handleCopy}
     >
       <div style={{
         width: 10,
@@ -50,7 +84,7 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
         background: dotColor,
         border: '1.5px solid var(--node)',
         boxShadow: `0 0 6px ${dotHex}88`,
-        cursor: 'default',
+        cursor: 'copy',
       }} />
       {visible && (
         <div style={{
@@ -62,9 +96,11 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
           border: `1px solid ${isCooking ? 'var(--warn)' : isError ? 'var(--err)' : 'var(--ok)'}`,
           borderRadius: 8,
           padding: '8px 10px',
-          pointerEvents: 'none',
+          pointerEvents: 'auto',
+          cursor: 'copy',
           zIndex: 100,
           boxShadow: '0 8px 24px rgba(0,0,0,.3)',
+          userSelect: 'text',
         }}>
           <div style={{
             color: isCooking ? 'var(--warn)' : isError ? 'var(--err)' : 'var(--ok)',
@@ -75,7 +111,7 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
             textTransform: 'uppercase',
             marginBottom: isCooking ? 0 : 6,
           }}>
-            {title}
+            {copyLabel}
           </div>
           {!isCooking && (
             <div style={{

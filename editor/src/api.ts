@@ -73,6 +73,37 @@ export const api = {
     buffer += decoder.decode()
     if (buffer.trim()) onEvent(JSON.parse(buffer) as CookEvent)
   },
+  cookSubgraphStream: async (subnet_id: string, node_id: string, port = 'output', onEvent: (event: CookEvent) => void) => {
+    const res = await fetch(`${BASE}/nodes/${subnet_id}/cook-stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ node_id, port }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(err.detail ?? res.statusText)
+    }
+    if (!res.body) return
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        onEvent(JSON.parse(line) as CookEvent)
+      }
+    }
+
+    buffer += decoder.decode()
+    if (buffer.trim()) onEvent(JSON.parse(buffer) as CookEvent)
+  },
   reset:      ()                             => req('POST', '/reset'),
   execNode:   (code: string)                 => req<{ ok: boolean; new_types: string[] }>('POST', '/exec-node', { code }),
   getApiKeys:       () => req<Record<string, string>>('GET', '/settings/api-keys'),

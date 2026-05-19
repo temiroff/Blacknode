@@ -1,8 +1,34 @@
 from __future__ import annotations
 import json
 import os
+import re
 from typing import Any
 from .base import BaseProvider, CompletionResponse, ToolCall, ToolDef, ToolResult
+
+
+_CONTEXT_LENGTH_RE = re.compile(
+    r"maximum context length is\s+(\d+)\s+tokens.*?"
+    r"requested\s+(\d+)\s+tokens\s+\((\d+)\s+in the messages,\s+(\d+)\s+in the completion\)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _context_safe_max_tokens(exc: Exception, requested_max_tokens: int) -> int | None:
+    match = _CONTEXT_LENGTH_RE.search(str(exc))
+    if not match:
+        return None
+
+    context_limit = int(match.group(1))
+    message_tokens = int(match.group(3))
+    room = context_limit - message_tokens - 16
+    if room <= 0:
+        raise ValueError(
+            f"Prompt uses {message_tokens} tokens, but this model only has a "
+            f"{context_limit} token context window."
+        ) from exc
+
+    safe_max_tokens = min(requested_max_tokens, room)
+    return safe_max_tokens if safe_max_tokens < requested_max_tokens else None
 
 
 class OpenAIProvider(BaseProvider):
@@ -21,7 +47,7 @@ class OpenAIProvider(BaseProvider):
         *,
         model: str,
         system: str = "",
-        max_tokens: int = 4096,
+        max_tokens: int = 1024,
         tools: list[ToolDef] | None = None,
         temperature: float = 1.0,
         **kwargs: Any,
@@ -51,7 +77,14 @@ class OpenAIProvider(BaseProvider):
             ]
             call_kwargs["tool_choice"] = "auto"
 
-        resp = self._client.chat.completions.create(**call_kwargs)
+        try:
+            resp = self._client.chat.completions.create(**call_kwargs)
+        except Exception as exc:
+            safe_max_tokens = _context_safe_max_tokens(exc, max_tokens)
+            if safe_max_tokens is None:
+                raise
+            call_kwargs["max_tokens"] = safe_max_tokens
+            resp = self._client.chat.completions.create(**call_kwargs)
         choice = resp.choices[0]
         msg = choice.message
 
