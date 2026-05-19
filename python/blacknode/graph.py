@@ -128,6 +128,7 @@ class Graph:
             return self._cache[cache_key]
 
         fn = _NODE_REGISTRY[node_def["type"]]
+        ctx["__graph__"] = self
         result = fn(ctx)
 
         if not isinstance(result, dict):

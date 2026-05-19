@@ -633,6 +633,7 @@ def _cook_trace(node_id: str, port: str):
             })
 
             fn = _NODE_REGISTRY[node_def["type"]]
+            ctx["__graph__"] = _session.graph
             result = fn(ctx)
             if not isinstance(result, dict):
                 result = {"output": result}

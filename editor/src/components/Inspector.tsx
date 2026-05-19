@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 
@@ -222,6 +222,8 @@ function ParamRow({ label, type, value, defaultValue, connected, onChange }: {
         <IntControl value={value} defaultValue={defaultValue} onChange={onChange} />
       ) : type === 'Float' ? (
         <FloatControl value={value} defaultValue={defaultValue} onChange={onChange} />
+      ) : label === 'code' ? (
+        <CodeControl value={value} defaultValue={defaultValue} onChange={onChange} />
       ) : (
         <TextControl value={value} defaultValue={defaultValue} onChange={onChange} multiline={type !== 'Model'} />
       )}
@@ -440,6 +442,65 @@ function TextControl({ value, defaultValue, onChange, multiline }: {
       onBlur={commit}
       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit() } }}
       style={sharedStyle}
+    />
+  )
+}
+
+function CodeControl({ value, defaultValue, onChange }: {
+  value: unknown
+  defaultValue: unknown
+  onChange: (v: unknown) => void
+}) {
+  const resolve = (v: unknown) =>
+    v !== undefined && v !== null && v !== '' ? String(v)
+    : defaultValue !== undefined && defaultValue !== null ? String(defaultValue)
+    : ''
+
+  const [draft, setDraft] = useState(() => resolve(value))
+  const taRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => { setDraft(resolve(value)) }, [value, defaultValue])
+
+  return (
+    <textarea
+      ref={taRef}
+      value={draft}
+      placeholder={'def run(x: str) -> str:\n    return x'}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={() => onChange(draft)}
+      onKeyDown={e => {
+        if (e.key === 'Tab') {
+          e.preventDefault()
+          const ta = taRef.current
+          if (!ta) return
+          const start = ta.selectionStart
+          const end   = ta.selectionEnd
+          const next = draft.slice(0, start) + '    ' + draft.slice(end)
+          setDraft(next)
+          requestAnimationFrame(() => {
+            if (taRef.current) {
+              taRef.current.selectionStart = start + 4
+              taRef.current.selectionEnd   = start + 4
+            }
+          })
+        }
+      }}
+      rows={8}
+      spellCheck={false}
+      style={{
+        width: '100%',
+        background: 'var(--lift)',
+        border: '1px solid var(--line)',
+        borderRadius: 6,
+        color: 'var(--tx1)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11,
+        lineHeight: 1.65,
+        padding: '6px 8px',
+        outline: 'none',
+        boxSizing: 'border-box',
+        resize: 'vertical',
+        tabSize: 4,
+      }}
     />
   )
 }
