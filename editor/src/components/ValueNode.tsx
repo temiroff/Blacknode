@@ -9,7 +9,7 @@ import NodeStatus from './NodeStatus'
 
 interface NodeData {
   id: string
-  type: 'Text' | 'Float' | 'Int' | 'Bool'
+  type: 'Text' | 'Float' | 'Int' | 'Bool' | 'Dict'
   inputs: string[]
   outputs: string[]
   output_types: Record<string, string>
@@ -30,18 +30,27 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   const { updateParam, selectNode, cookNode } = useStore()
   const color  = headerColor(data.type)
   const pColor = portColor(data.type)
-  const isText = data.type === 'Text'
+  const isText  = data.type === 'Text'
   const isFloat = data.type === 'Float'
+  const isInt   = data.type === 'Int'
+  const isDict  = data.type === 'Dict'
 
-  const isInt = data.type === 'Int'
-
-  const rawValue = data.params.value
-  const initDraft = isFloat ? formatFloat(rawValue) : isInt ? (rawValue ?? 0) : (rawValue ?? '')
+  const rawValue  = data.params.value
+  const initDraft = isFloat ? formatFloat(rawValue)
+    : isInt  ? (rawValue ?? 0)
+    : isDict ? (typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue ?? {}, null, 2))
+    : (rawValue ?? '')
   const [draft, setDraft] = useState<string | number>(initDraft)
+  const [jsonError, setJsonError] = useState(false)
   const commitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    setDraft(isFloat ? formatFloat(rawValue) : isInt ? (rawValue ?? 0) : (rawValue ?? ''))
+    setDraft(
+      isFloat ? formatFloat(rawValue)
+      : isInt  ? (rawValue ?? 0)
+      : isDict ? (typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue ?? {}, null, 2))
+      : (rawValue ?? '')
+    )
   }, [rawValue])
 
   const commit = (val: unknown) => {
@@ -59,10 +68,10 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
       onClick={() => selectNode(id)}
       style={{
         position: 'relative',
-        width:  isText ? '100%' : 170,
-        height: isText ? '100%' : undefined,
-        minWidth: isText ? 180 : undefined,
-        minHeight: isText ? 80 : undefined,
+        width:  (isText || isDict) ? '100%' : 170,
+        height: (isText || isDict) ? '100%' : undefined,
+        minWidth: (isText || isDict) ? 180 : undefined,
+        minHeight: (isText || isDict) ? 80 : undefined,
         background: 'var(--node)',
         border: `1px solid ${selected ? color : 'var(--line2)'}`,
         borderRadius: 9,
@@ -77,8 +86,8 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
         boxSizing: 'border-box',
       }}
     >
-      {/* resize handle — Text only */}
-      {isText && (
+      {/* resize handle — Text and Dict */}
+      {(isText || isDict) && (
         <NodeResizer
           minWidth={180}
           minHeight={80}
@@ -117,8 +126,8 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
       <div style={{
         padding: isText ? '6px 8px' : '6px 8px',
         display: 'flex',
-        alignItems: isText ? 'stretch' : 'center',
-        flex: isText ? 1 : undefined,
+        alignItems: (isText || isDict) ? 'stretch' : 'center',
+        flex: (isText || isDict) ? 1 : undefined,
       }}>
         {data.type === 'Bool' ? (
           <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', width: '100%' }}>
@@ -150,6 +159,42 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               {draft ? 'true' : 'false'}
             </span>
           </label>
+
+        ) : isDict ? (
+          <textarea
+            value={String(draft)}
+            placeholder={'{\n  "key": "value"\n}'}
+            onClick={e => e.stopPropagation()}
+            onChange={e => {
+              setDraft(e.target.value)
+              try { JSON.parse(e.target.value); setJsonError(false) } catch { setJsonError(true) }
+              scheduleCommit(e.target.value)
+            }}
+            onBlur={() => {
+              if (commitRef.current) clearTimeout(commitRef.current)
+              try {
+                JSON.parse(String(draft))
+                setJsonError(false)
+                commit(draft)
+              } catch {
+                setJsonError(true)
+              }
+            }}
+            style={{
+              width: '100%',
+              flex: 1,
+              background: 'transparent',
+              border: 'none',
+              borderTop: `1px solid ${jsonError ? 'var(--err)' : pColor + '40'}`,
+              color: jsonError ? 'var(--err)' : 'var(--tx1)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              lineHeight: 1.6,
+              outline: 'none',
+              resize: 'none',
+              padding: '6px 4px',
+            }}
+          />
 
         ) : isText ? (
           <textarea

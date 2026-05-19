@@ -1,6 +1,6 @@
 // value nodes each use their port color as header — see headerColor() below
 export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
-  Values:   { color: '#6b7280', nodes: ['Text', 'Float', 'Int', 'Bool'] },
+  Values:   { color: '#6b7280', nodes: ['Text', 'Float', 'Int', 'Bool', 'Dict'] },
   AI:       { color: '#6366f1', nodes: ['Model', 'LLMAgent', 'AgentLoop', 'EmbedText', 'ToolCall', 'PythonFn', 'ToolBox', 'SubnetAsTool'] },
   Flow:     { color: '#d97706', nodes: ['Branch', 'Gate', 'Map', 'Filter', 'Reduce', 'ForEach'] },
   IO:       { color: '#0891b2', nodes: ['FileRead', 'FileWrite', 'HTTPGet', 'JSONParse', 'JSONDump'] },
@@ -23,6 +23,7 @@ const VALUE_HEADER_COLORS: Record<string, string> = {
   Int:   '#22c55e',
   Float: '#06b6d4',
   Bool:  '#e879f9',
+  Dict:  '#a855f7',
 }
 
 export function headerColor(type: string): string {

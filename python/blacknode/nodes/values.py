@@ -26,3 +26,15 @@ def bool_value(ctx: dict) -> dict:
 @node(inputs=[], outputs=["value:Model"], name="Model")
 def model_value(ctx: dict) -> dict:
     return {"value": str(ctx.get("value", "claude-sonnet-4-6"))}
+
+
+@node(inputs=[], outputs=["value:Dict"], name="Dict")
+def dict_value(ctx: dict) -> dict:
+    import json
+    v = ctx.get("value", {})
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except Exception:
+            v = {}
+    return {"value": v if isinstance(v, dict) else {}}
