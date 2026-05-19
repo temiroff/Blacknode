@@ -39,27 +39,62 @@ interface Template {
 }
 
 const WEB_SEARCH_TOOL_CODE = `def run(query: str) -> str:
+    import html
     import json
+    import re
     import urllib.parse
     import urllib.request
 
     encoded = urllib.parse.quote_plus(query)
-    url = f"https://api.duckduckgo.com/?q={encoded}&format=json&no_html=1&skip_disambig=1"
-    req = urllib.request.Request(url, headers={"User-Agent": "Blacknode/1.0"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
 
-    abstract = data.get("AbstractText") or data.get("Definition")
-    if abstract:
-        return abstract
+    def fetch(url: str) -> str:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 Blacknode/1.0"})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            return resp.read().decode("utf-8", errors="replace")
 
-    topics = data.get("RelatedTopics", [])
-    for item in topics:
-        text = item.get("Text")
-        if text:
-            return text
+    def clean(value: str) -> str:
+        value = re.sub(r"<[^>]+>", " ", value)
+        value = html.unescape(value)
+        return re.sub(r"\\s+", " ", value).strip()
 
-    return f"No concise result found for: {query}"
+    try:
+        instant_url = f"https://api.duckduckgo.com/?q={encoded}&format=json&no_html=1&skip_disambig=1"
+        data = json.loads(fetch(instant_url))
+        for key in ("AbstractText", "Definition", "Answer"):
+            text = clean(str(data.get(key) or ""))
+            if text:
+                return text
+
+        pending = list(data.get("RelatedTopics", []))
+        while pending:
+            item = pending.pop(0)
+            pending.extend(item.get("Topics", []))
+            text = clean(str(item.get("Text") or ""))
+            if text:
+                return text
+    except Exception:
+        pass
+
+    page = fetch(f"https://duckduckgo.com/html/?q={encoded}")
+    titles = [clean(match) for match in re.findall(r'<a[^>]+class="result__a"[^>]*>(.*?)</a>', page, re.I | re.S)]
+    snippets = [
+        clean(a or b)
+        for a, b in re.findall(
+            r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>|<div[^>]+class="result__snippet"[^>]*>(.*?)</div>',
+            page,
+            re.I | re.S,
+        )
+    ]
+    results = []
+    for i, title in enumerate(titles[:3]):
+        if not title:
+            continue
+        snippet = snippets[i] if i < len(snippets) else ""
+        results.append(f"{i + 1}. {title}" + (f" - {snippet}" if snippet else ""))
+    if results:
+        return "\\n".join(results)
+
+    return f"No web snippets found for: {query}"
 `
 
 const CALCULATOR_SUBGRAPH: TemplateSubgraph = {
@@ -336,7 +371,7 @@ const TEMPLATES: Template[] = [
       { ref: 'tool',   type: 'PythonFn',  params: {
         code: WEB_SEARCH_TOOL_CODE,
         name: 'web_search',
-        description: 'Searches DuckDuckGo Instant Answer for a query and returns a compact text result.',
+        description: 'Searches DuckDuckGo and returns a compact result or top snippets.',
       },                                                                                                                            pos: [360,  80] },
       { ref: 'box',    type: 'ToolBox',   params: {},                                                                                pos: [620, 110] },
       { ref: 'loop',   type: 'AgentLoop', params: { max_iter: 3 },                                                                   pos: [620, 280] },
@@ -363,7 +398,7 @@ const TEMPLATES: Template[] = [
       { ref: 'tool',   type: 'PythonFn',        params: {
         code: WEB_SEARCH_TOOL_CODE,
         name: 'web_search',
-        description: 'Searches DuckDuckGo Instant Answer for a query and returns a compact text result.',
+        description: 'Searches DuckDuckGo and returns a compact result or top snippets.',
       },                                                                                                                            pos: [360,  80] },
       { ref: 'box',    type: 'ToolBox',         params: {},                                                                                pos: [620, 110] },
       { ref: 'loop',   type: 'VisualAgentLoop', params: { max_iter: 3 },                                                                   pos: [620, 280] },
