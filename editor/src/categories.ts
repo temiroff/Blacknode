@@ -1,7 +1,12 @@
 // value nodes each use their port color as header — see headerColor() below
 export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
   Values:   { color: '#6b7280', nodes: ['Text', 'Float', 'Int', 'Bool', 'Dict'] },
-  AI:       { color: '#6366f1', nodes: ['Model', 'LLMAgent', 'AgentLoop', 'EmbedText'] },
+  AI:       { color: '#6366f1', nodes: [
+    'Model', 'LLMAgent', 'AgentLoop', 'VisualAgentLoop',
+    'AgentMessages', 'AgentChatStep', 'ToolDispatch',
+    'AgentAppendMessages', 'AgentStopCheck', 'AgentFinalAnswer',
+    'EmbedText',
+  ] },
   Tools:    { color: '#14b8a6', nodes: ['PythonFn', 'SubnetAsTool', 'ToolBox', 'ToolCall'] },
   Math:     { color: '#22c55e', nodes: ['Add', 'Subtract', 'Multiply', 'Divide'] },
   Flow:     { color: '#d97706', nodes: ['Branch', 'Switch', 'Gate', 'Map', 'Filter', 'Reduce', 'ForEach'] },

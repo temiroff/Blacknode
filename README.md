@@ -137,6 +137,7 @@ Open the **Templates** tab in the left sidebar for one-click starter graphs:
 | NVIDIA NIM | Same pipeline routed to a free NVIDIA NIM model |
 | Text Pipeline | Concatenate two strings → Output |
 | Python Tool Agent | PythonFn → ToolBox → AgentLoop tool call |
+| Visual Tool Agent | PythonFn → ToolBox → VisualAgentLoop compatibility path |
 | Subnet Tool Call | Build a calculator inside SubnetAsTool and test it directly with ToolCall |
 | Subnet Tool Agent | Build a calculator inside SubnetAsTool and pass it to AgentLoop |
 
@@ -184,6 +185,21 @@ The outputs on **SubnetInput** become the tool arguments. The first input on **S
 **ToolBox** collects any number of connected `Fn` tools into a `List` for `AgentLoop.tools`. It starts with no empty slots; connecting a tool creates a slot, and disconnecting removes the empty slot.
 
 **ToolCall** runs one `Fn` directly with a `Dict` of arguments. Use it to test a PythonFn or SubnetAsTool before giving it to an AgentLoop.
+
+#### VisualAgentLoop
+
+**VisualAgentLoop** has the same inputs, outputs, and runtime behavior as **AgentLoop**. It uses the same shared implementation, while the smaller AI nodes expose the pieces of that loop:
+
+| Node | Purpose |
+|---|---|
+| AgentMessages | Build the initial chat message list from a prompt |
+| AgentChatStep | Run one model completion with optional tools |
+| ToolDispatch | Execute tool calls against connected `Fn` tools |
+| AgentAppendMessages | Append assistant tool calls and tool results to the message list |
+| AgentStopCheck | Report whether a loop step should continue or stop |
+| AgentFinalAnswer | Ask for a final answer after the tool-call limit |
+
+Those pieces are intentionally available now so the black-box **AgentLoop** can be replaced with a visual loop when graph-level loop control is added.
 
 ### Custom nodes (Script tab)
 
@@ -273,7 +289,7 @@ blacknode/
 │   │   ├── anthropic_provider.py
 │   │   └── openai_provider.py   ← also covers Ollama, NIM, local
 │   └── nodes/
-│       ├── ai.py                ← LLMAgent, AgentLoop, EmbedText, ToolCall
+│       ├── ai.py                ← LLMAgent, AgentLoop, VisualAgentLoop, tools
 │       ├── core.py              ← Literal, Concat, Switch, ForEach, Output
 │       ├── values.py            ← Text, Float, Int, Bool, Model
 │       ├── flow.py              ← Branch, Gate, Map, Filter, Reduce
@@ -299,6 +315,7 @@ See [LICENSE](LICENSE) for the full license text.
 - [x] Model picker node with per-provider API key storage
 - [x] Live custom node scripting (Script tab)
 - [x] PythonFn, SubnetAsTool, ToolBox, and ToolCall tool workflows
+- [x] VisualAgentLoop compatibility node and visible agent-step primitives
 - [x] Collapsible/resizable side panels and auto-organized templates
 - [ ] Rust core via maturin (milestone 2)
 - [ ] Tauri desktop wrapper (milestone 3)

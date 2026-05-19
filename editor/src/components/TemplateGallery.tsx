@@ -189,6 +189,33 @@ const TEMPLATES: Template[] = [
     ],
   },
   {
+    id: 'visual-tool-agent',
+    name: 'Visual Tool Agent',
+    description: 'PythonFn tool collected by ToolBox and used by VisualAgentLoop',
+    color: '#6366f1',
+    nodes: [
+      { ref: 'model',  type: 'Model',           params: { value: 'claude-sonnet-4-6' },                                                    pos: [60,  60] },
+      { ref: 'system', type: 'Text',            params: { value: 'You are an agent. Use web_search when outside context would help.' },    pos: [60, 210] },
+      { ref: 'task',   type: 'Text',            params: { value: 'Use web_search to learn what NVIDIA NIM is, then answer in one sentence.' }, pos: [60, 380] },
+      { ref: 'tool',   type: 'PythonFn',        params: {
+        code: WEB_SEARCH_TOOL_CODE,
+        name: 'web_search',
+        description: 'Searches DuckDuckGo Instant Answer for a query and returns a compact text result.',
+      },                                                                                                                            pos: [360,  80] },
+      { ref: 'box',    type: 'ToolBox',         params: {},                                                                                pos: [620, 110] },
+      { ref: 'loop',   type: 'VisualAgentLoop', params: { max_iter: 3 },                                                                   pos: [620, 280] },
+      { ref: 'out',    type: 'Output',          params: {},                                                                                pos: [900, 280] },
+    ],
+    edges: [
+      { from: 'model',  fromPort: 'value',  to: 'loop', toPort: 'model' },
+      { from: 'system', fromPort: 'value',  to: 'loop', toPort: 'system' },
+      { from: 'task',   fromPort: 'value',  to: 'loop', toPort: 'prompt' },
+      { from: 'tool',   fromPort: 'fn',     to: 'box',  toPort: 'tool_1' },
+      { from: 'box',    fromPort: 'tools',  to: 'loop', toPort: 'tools' },
+      { from: 'loop',   fromPort: 'result', to: 'out',  toPort: 'value' },
+    ],
+  },
+  {
     id: 'subnet-tool-call',
     name: 'Subnet Tool Call',
     description: 'Build a calculator inside SubnetAsTool and test it directly with ToolCall',

@@ -1,5 +1,179 @@
 from blacknode.node import node
-from blacknode.providers import resolve, ToolDef, ToolResult
+from blacknode.providers import resolve, ToolCall, ToolDef, ToolResult
+
+
+def _tool_defs(tools: list) -> list[ToolDef]:
+    return [
+        ToolDef(
+            name=t.__name__,
+            description=(t.__doc__ or "").strip(),
+            parameters=getattr(t, "_bn_schema", {"type": "object", "properties": {}}),
+        )
+        for t in tools
+        if callable(t)
+    ]
+
+
+def _tool_call_dict(tc: ToolCall) -> dict:
+    return {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+
+
+def _tool_call(value) -> ToolCall:
+    if isinstance(value, ToolCall):
+        return value
+    if not isinstance(value, dict):
+        return ToolCall(id="", name="", arguments={})
+    return ToolCall(
+        id=str(value.get("id", "")),
+        name=str(value.get("name", "")),
+        arguments=value.get("arguments", {}) or {},
+    )
+
+
+def _tool_result(value) -> ToolResult:
+    if isinstance(value, ToolResult):
+        return value
+    if not isinstance(value, dict):
+        return ToolResult(tool_call_id="", name="", output=str(value or ""))
+    return ToolResult(
+        tool_call_id=str(value.get("tool_call_id", value.get("id", ""))),
+        name=str(value.get("name", "")),
+        output=str(value.get("output", "")),
+    )
+
+
+def _tool_result_dict(result: ToolResult) -> dict:
+    return {"tool_call_id": result.tool_call_id, "name": result.name, "output": result.output}
+
+
+def _chat_step(
+    messages: list[dict],
+    *,
+    model: str,
+    system: str,
+    tools: list,
+    max_tokens: int,
+    provider_name: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+):
+    provider, clean_model = resolve(model, provider=provider_name, base_url=base_url, api_key=api_key)
+    resp = provider.complete(
+        messages,
+        model=clean_model,
+        system=system,
+        max_tokens=max_tokens,
+        tools=_tool_defs(tools) or None,
+    )
+    step = {
+        "role": "assistant",
+        "text": resp.text,
+        "tool_calls": [_tool_call_dict(tc) for tc in resp.tool_calls],
+    }
+    return provider, resp, step
+
+
+def _dispatch_tools(tool_calls: list, tools: list) -> tuple[list[ToolResult], list[dict]]:
+    tool_map = {t.__name__: t for t in tools if callable(t)}
+    results: list[ToolResult] = []
+    steps: list[dict] = []
+    for raw in tool_calls:
+        tc = _tool_call(raw)
+        fn = tool_map.get(tc.name)
+        try:
+            output = fn(**tc.arguments) if fn else f"[error] unknown tool '{tc.name}'"
+        except Exception as exc:
+            output = f"[error] {type(exc).__name__}: {exc}"
+        result = ToolResult(tool_call_id=tc.id, name=tc.name, output=str(output))
+        results.append(result)
+        steps.append({"role": "tool", "name": tc.name, "output": result.output})
+    return results, steps
+
+
+def _append_tool_messages(
+    messages: list[dict],
+    *,
+    model: str,
+    assistant_text: str,
+    tool_calls: list,
+    tool_results: list,
+    provider_name: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> list[dict]:
+    provider, _ = resolve(model, provider=provider_name, base_url=base_url, api_key=api_key)
+    calls = [_tool_call(tc) for tc in tool_calls]
+    results = [_tool_result(r) for r in tool_results]
+    return [
+        *messages,
+        *provider.tool_result_messages(assistant_text, calls, results),
+    ]
+
+
+def _agent_loop_run(ctx: dict) -> dict:
+    model      = ctx.get("model", "claude-sonnet-4-6")
+    system     = ctx.get("system", "You are a helpful agent. Use the available tools.")
+    prompt     = ctx.get("prompt", "")
+    tools      = ctx.get("tools") or []
+    max_tokens = int(ctx.get("max_tokens", 4096))
+    max_iter   = int(ctx.get("max_iter", 5))
+
+    messages: list[dict] = [{"role": "user", "content": prompt}]
+    steps: list[dict] = []
+
+    for _ in range(max_iter):
+        _, resp, step = _chat_step(
+            messages,
+            model=model,
+            system=system,
+            tools=tools,
+            max_tokens=max_tokens,
+            provider_name=ctx.get("provider"),
+            base_url=ctx.get("base_url"),
+            api_key=ctx.get("api_key"),
+        )
+        steps.append({
+            "role": "assistant",
+            "text": resp.text,
+            "tool_calls": [{"name": tc.name, "arguments": tc.arguments} for tc in resp.tool_calls],
+        })
+        if resp.stop_reason == "end_turn" or not resp.tool_calls:
+            return {"result": resp.text, "steps": steps}
+
+        tool_results, tool_steps = _dispatch_tools([_tool_call_dict(tc) for tc in resp.tool_calls], tools)
+        steps.extend(tool_steps)
+        messages = _append_tool_messages(
+            messages,
+            model=model,
+            assistant_text=resp.text,
+            tool_calls=[_tool_call_dict(tc) for tc in resp.tool_calls],
+            tool_results=[_tool_result_dict(r) for r in tool_results],
+            provider_name=ctx.get("provider"),
+            base_url=ctx.get("base_url"),
+            api_key=ctx.get("api_key"),
+        )
+
+    provider, clean_model = resolve(
+        model,
+        provider=ctx.get("provider"),
+        base_url=ctx.get("base_url"),
+        api_key=ctx.get("api_key"),
+    )
+    final = provider.complete(
+        [
+            *messages,
+            {
+                "role": "user",
+                "content": "The tool-call limit was reached. Give the final answer now using the tool results above. Do not call tools.",
+            },
+        ],
+        model=clean_model,
+        system=system,
+        max_tokens=max_tokens,
+        tools=None,
+    )
+    steps.append({"role": "assistant", "text": final.text, "tool_calls": []})
+    return {"result": final.text or "max iterations reached", "steps": steps}
 
 
 @node(
@@ -36,70 +210,116 @@ def llm_agent(ctx: dict) -> dict:
     name="AgentLoop",
 )
 def agent_loop(ctx: dict) -> dict:
-    model      = ctx.get("model", "claude-sonnet-4-6")
-    system     = ctx.get("system", "You are a helpful agent. Use the available tools.")
-    prompt     = ctx.get("prompt", "")
-    tools      = ctx.get("tools") or []
-    max_tokens = int(ctx.get("max_tokens", 4096))
-    max_iter   = int(ctx.get("max_iter", 5))
+    return _agent_loop_run(ctx)
 
+
+@node(
+    inputs=["prompt:Text", "system:Text", "model:Model=claude-sonnet-4-6", "tools:List", "max_tokens:Int=4096", "max_iter:Int=5"],
+    outputs=["result:Text", "steps:List"],
+    name="VisualAgentLoop",
+)
+def visual_agent_loop(ctx: dict) -> dict:
+    """AgentLoop-compatible node built from the same visible agent-step primitives."""
+    return _agent_loop_run(ctx)
+
+
+@node(inputs=["prompt:Text"], outputs=["messages:List"], name="AgentMessages")
+def agent_messages(ctx: dict) -> dict:
+    return {"messages": [{"role": "user", "content": ctx.get("prompt", "")}]}
+
+
+@node(
+    inputs=["messages:List", "system:Text", "model:Model=claude-sonnet-4-6", "tools:List", "max_tokens:Int=4096"],
+    outputs=["assistant_text:Text", "tool_calls:List", "stop_reason:Text", "step:Dict"],
+    name="AgentChatStep",
+)
+def agent_chat_step(ctx: dict) -> dict:
+    _, resp, step = _chat_step(
+        ctx.get("messages") or [],
+        model=ctx.get("model", "claude-sonnet-4-6"),
+        system=ctx.get("system", "You are a helpful agent. Use the available tools."),
+        tools=ctx.get("tools") or [],
+        max_tokens=int(ctx.get("max_tokens", 4096)),
+        provider_name=ctx.get("provider"),
+        base_url=ctx.get("base_url"),
+        api_key=ctx.get("api_key"),
+    )
+    return {
+        "assistant_text": resp.text,
+        "tool_calls": step["tool_calls"],
+        "stop_reason": resp.stop_reason,
+        "step": step,
+    }
+
+
+@node(inputs=["tool_calls:List", "tools:List"], outputs=["tool_results:List", "steps:List"], name="ToolDispatch")
+def tool_dispatch(ctx: dict) -> dict:
+    results, steps = _dispatch_tools(ctx.get("tool_calls") or [], ctx.get("tools") or [])
+    return {"tool_results": [_tool_result_dict(r) for r in results], "steps": steps}
+
+
+@node(
+    inputs=["messages:List", "model:Model=claude-sonnet-4-6", "assistant_text:Text", "tool_calls:List", "tool_results:List"],
+    outputs=["messages:List"],
+    name="AgentAppendMessages",
+)
+def agent_append_messages(ctx: dict) -> dict:
+    return {
+        "messages": _append_tool_messages(
+            ctx.get("messages") or [],
+            model=ctx.get("model", "claude-sonnet-4-6"),
+            assistant_text=ctx.get("assistant_text", ""),
+            tool_calls=ctx.get("tool_calls") or [],
+            tool_results=ctx.get("tool_results") or [],
+            provider_name=ctx.get("provider"),
+            base_url=ctx.get("base_url"),
+            api_key=ctx.get("api_key"),
+        )
+    }
+
+
+@node(
+    inputs=["stop_reason:Text", "tool_calls:List", "iteration:Int=1", "max_iter:Int=5"],
+    outputs=["continue:Bool", "done:Bool", "reason:Text"],
+    name="AgentStopCheck",
+)
+def agent_stop_check(ctx: dict) -> dict:
+    tool_calls = ctx.get("tool_calls") or []
+    iteration = int(ctx.get("iteration", 1))
+    max_iter = int(ctx.get("max_iter", 5))
+    done = ctx.get("stop_reason") == "end_turn" or not tool_calls or iteration >= max_iter
+    reason = "final" if ctx.get("stop_reason") == "end_turn" or not tool_calls else "max_iter" if done else "continue"
+    return {"continue": not done, "done": done, "reason": reason}
+
+
+@node(
+    inputs=["messages:List", "system:Text", "model:Model=claude-sonnet-4-6", "max_tokens:Int=4096"],
+    outputs=["result:Text", "step:Dict"],
+    name="AgentFinalAnswer",
+)
+def agent_final_answer(ctx: dict) -> dict:
+    model = ctx.get("model", "claude-sonnet-4-6")
     provider, clean_model = resolve(
         model,
         provider=ctx.get("provider"),
         base_url=ctx.get("base_url"),
         api_key=ctx.get("api_key"),
     )
-    tool_defs = [
-        ToolDef(
-            name=t.__name__,
-            description=(t.__doc__ or "").strip(),
-            parameters=getattr(t, "_bn_schema", {"type": "object", "properties": {}}),
-        )
-        for t in tools
-    ]
-    tool_map = {t.__name__: t for t in tools}
-    messages: list[dict] = [{"role": "user", "content": prompt}]
-    steps: list[dict] = []
-
-    for _ in range(max_iter):
-        resp = provider.complete(
-            messages, model=clean_model, system=system,
-            max_tokens=max_tokens, tools=tool_defs or None,
-        )
-        steps.append({"role": "assistant", "text": resp.text,
-                      "tool_calls": [{"name": tc.name, "arguments": tc.arguments}
-                                     for tc in resp.tool_calls]})
-        if resp.stop_reason == "end_turn" or not resp.tool_calls:
-            return {"result": resp.text, "steps": steps}
-
-        tool_results: list[ToolResult] = []
-        for tc in resp.tool_calls:
-            fn = tool_map.get(tc.name)
-            try:
-                output = fn(**tc.arguments) if fn else f"[error] unknown tool '{tc.name}'"
-            except Exception as exc:
-                output = f"[error] {type(exc).__name__}: {exc}"
-            result = ToolResult(tool_call_id=tc.id, name=tc.name, output=str(output))
-            tool_results.append(result)
-            steps.append({"role": "tool", "name": tc.name, "output": result.output})
-
-        messages.extend(provider.tool_result_messages(resp.text, resp.tool_calls, tool_results))
-
     final = provider.complete(
         [
-            *messages,
+            *(ctx.get("messages") or []),
             {
                 "role": "user",
                 "content": "The tool-call limit was reached. Give the final answer now using the tool results above. Do not call tools.",
             },
         ],
         model=clean_model,
-        system=system,
-        max_tokens=max_tokens,
+        system=ctx.get("system", "You are a helpful agent. Use the available tools."),
+        max_tokens=int(ctx.get("max_tokens", 4096)),
         tools=None,
     )
-    steps.append({"role": "assistant", "text": final.text, "tool_calls": []})
-    return {"result": final.text or "max iterations reached", "steps": steps}
+    step = {"role": "assistant", "text": final.text, "tool_calls": []}
+    return {"result": final.text or "max iterations reached", "step": step}
 
 
 @node(inputs=["fn:Fn", "args:Dict"], outputs=["result:Any"], name="ToolCall")
