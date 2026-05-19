@@ -71,7 +71,7 @@ class Graph:
 
     def node(self, type_name: str, **params) -> NodeProxy:
         """Add a node of the given registered type."""
-        if type_name not in _NODE_REGISTRY:
+        if type_name != "Subnet" and type_name not in _NODE_REGISTRY:
             raise ValueError(
                 f"Unknown node type '{type_name}'. "
                 f"Available: {sorted(_NODE_REGISTRY)}"
@@ -117,6 +117,16 @@ class Graph:
                 val = self._cook(e["from"], e["from_port"])
                 ctx[e["to_port"]] = val
 
+        # Subnet: delegate to nested graph
+        if node_def["type"] == "Subnet":
+            result = self._cook_subnet(node_id, port, ctx)
+            for k, v in result.items():
+                self._cache[(node_id, k)] = v
+            self._dirty.discard(node_id)
+            if cache_key not in self._cache:
+                raise KeyError(f"Subnet '{node_id}' did not produce port '{port}'.")
+            return self._cache[cache_key]
+
         fn = _NODE_REGISTRY[node_def["type"]]
         result = fn(ctx)
 
@@ -133,6 +143,45 @@ class Graph:
                 f"Available: {[k for (_, k) in self._cache if _ == node_id]}"
             )
         return self._cache[cache_key]
+
+    def _cook_subnet(self, node_id: str, port: str, outer_ctx: dict) -> dict:
+        """Cook a Subnet node by executing its internal subgraph."""
+        subgraph = self._nodes[node_id].get("subgraph", {})
+        inner_meta = subgraph.get("node_meta", {})
+        inner_edges = subgraph.get("edges", [])
+
+        # Build ephemeral inner graph
+        inner = Graph.__new__(Graph)
+        inner._edges = inner_edges
+        inner._cache = {}
+        inner._dirty = set(inner_meta.keys())
+        inner._nodes = {
+            nid: {"type": m["type"], "params": dict(m.get("params", {}))}
+            for nid, m in inner_meta.items()
+        }
+
+        # Inject outer input values into SubgraphInput nodes
+        for nid, m in inner_meta.items():
+            if m["type"] == "SubgraphInput":
+                port_name = m.get("params", {}).get("port_name", "input")
+                if port_name in outer_ctx:
+                    inner._nodes[nid]["params"]["value"] = outer_ctx[port_name]
+                    inner._cache[(nid, "value")] = outer_ctx[port_name]
+                    inner._dirty.discard(nid)
+
+        # Find SubgraphOutput node matching requested port
+        output_node_id = None
+        for nid, m in inner_meta.items():
+            if m["type"] == "SubgraphOutput":
+                if m.get("params", {}).get("port_name", "output") == port:
+                    output_node_id = nid
+                    break
+
+        if output_node_id is None:
+            return {port: None}
+
+        val = inner._cook(output_node_id, "value")
+        return {port: val}
 
     # ── Serialisation ─────────────────────────────────────────────────────────
 

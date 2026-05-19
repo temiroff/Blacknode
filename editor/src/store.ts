@@ -4,7 +4,7 @@ import {
   NodeChange, EdgeChange, Connection,
 } from 'reactflow'
 import { api, type CookEvent } from './api'
-import { BnNodeDef, BnNodeMeta, ConnectionDraft } from './types'
+import { BnNodeDef, BnNodeMeta, ConnectionDraft, SubnetFrame } from './types'
 import { VALUE_NODE_TYPES } from './categories'
 import { portsCompatible, portColor } from './portColors'
 
@@ -67,6 +67,12 @@ interface Store {
   deleteWorkflow: (slug: string) => Promise<void>
   saveActiveTabSnapshot: () => Promise<GraphSnapshot | null>
 
+  subnetStack: SubnetFrame[]
+  diveIntoSubnet: (subnetId: string) => void
+  exitSubnet: () => void
+  exitToRoot: () => void
+  collapseToSubnet: (nodeIds: string[], label: string) => Promise<void>
+
   addNode: (typeName: string, pos: { x: number; y: number }) => Promise<void>
   addNodeFromConnection: (typeName: string, pos: { x: number; y: number }, draft: ConnectionDraft) => Promise<void>
   removeNode: (id: string) => Promise<void>
@@ -82,6 +88,7 @@ interface Store {
 }
 
 function reactNodeType(typeName: string): string {
+  if (typeName === 'Subnet') return 'subnetnode'
   return OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode'
 }
 
@@ -112,6 +119,11 @@ function parseGraph(bnNodes: BnNodeMeta[], bnEdges: any[]): { nodes: Node<NodeDa
   return { nodes, edges }
 }
 
+function parseSubgraph(subgraph: { node_meta: Record<string, BnNodeMeta>; edges: any[] }): { nodes: any[]; edges: any[] } {
+  const metaList = Object.values(subgraph.node_meta) as BnNodeMeta[]
+  return parseGraph(metaList, subgraph.edges)
+}
+
 function firstCompatibleInput(def: BnNodeDef, fromType: string): string | undefined {
   return def.inputs.find(port => portsCompatible(fromType, def.input_types?.[port] ?? 'Any'))
 }
@@ -127,6 +139,7 @@ function defFromMeta(meta: BnNodeMeta): BnNodeDef {
     outputs: meta.outputs,
     input_types: meta.input_types,
     output_types: meta.output_types,
+    input_defaults: meta.input_defaults ?? {},
   }
 }
 
@@ -168,6 +181,7 @@ export const useStore = create<Store>((set, get) => ({
   tabs: [{ id: 'default', name: 'Untitled', slug: null, dirty: false, graph: null }],
   activeTabId: 'default',
   workflowRevision: 0,
+  subnetStack: [],
 
   checkServer: async () => {
     try {
@@ -409,7 +423,80 @@ export const useStore = create<Store>((set, get) => ({
 
   // ── Graph actions ─────────────────────────────────────────────────────────
 
+  diveIntoSubnet: (subnetId) => {
+    const { nodes, edges, subnetStack } = get()
+    const subnetNode = nodes.find(n => n.id === subnetId)
+    if (!subnetNode?.data?.subgraph) return
+    const label = String(subnetNode.data.params?.label ?? 'Subnet')
+    const { nodes: innerNodes, edges: innerEdges } = parseSubgraph(subnetNode.data.subgraph as any)
+    set(s => ({
+      subnetStack: [...s.subnetStack, {
+        subnetId,
+        subnetLabel: label,
+        parentNodes: s.nodes,
+        parentEdges: s.edges,
+      }],
+      nodes: innerNodes,
+      edges: innerEdges,
+      selectedId: null,
+    }))
+  },
+
+  exitSubnet: () => {
+    const { subnetStack } = get()
+    if (subnetStack.length === 0) return
+    const frame = subnetStack[subnetStack.length - 1]
+    set(s => ({
+      subnetStack: s.subnetStack.slice(0, -1),
+      nodes: frame.parentNodes as any,
+      edges: frame.parentEdges as any,
+      selectedId: null,
+    }))
+  },
+
+  exitToRoot: () => {
+    const { subnetStack } = get()
+    if (subnetStack.length === 0) return
+    const rootFrame = subnetStack[0]
+    set({
+      subnetStack: [],
+      nodes: rootFrame.parentNodes as any,
+      edges: rootFrame.parentEdges as any,
+      selectedId: null,
+    })
+  },
+
+  collapseToSubnet: async (nodeIds, label) => {
+    const result = await api.collapseToSubnet(nodeIds, label)
+    // Reload graph from server to get fresh state
+    const graphData = await api.getGraph()
+    const { nodes: newNodes, edges: newEdges } = parseGraph(graphData.nodes, graphData.edges)
+    set(s => ({ nodes: newNodes, edges: newEdges, ...markActiveTabDirty(s) }))
+  },
+
   addNode: async (typeName, pos) => {
+    const { subnetStack } = get()
+    if (subnetStack.length > 0) {
+      // Add node inside current subnet
+      const frame = subnetStack[subnetStack.length - 1]
+      const meta = await api.addNode(typeName, [pos.x, pos.y])
+      // We need to add it to the inner graph in memory and push subgraph update
+      const { nodes, edges } = get()
+      const newNode = makeReactNode(meta)
+      const newNodes = [...nodes, newNode]
+      // Build updated subgraph from current inner state
+      const innerMeta: Record<string, any> = {}
+      newNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      const innerEdges = edges.map(e => ({
+        from: e.source, from_port: e.sourceHandle ?? '',
+        to: e.target,   to_port: e.targetHandle ?? '',
+      }))
+      await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
+      // Also remove the node from the root graph (it was added there by api.addNode)
+      await api.removeNode(meta.id)
+      set(s => ({ nodes: newNodes, ...markActiveTabDirty(s) }))
+      return
+    }
     const meta = await api.addNode(typeName, [pos.x, pos.y])
     const node = makeReactNode(meta)
     set(s => ({ nodes: [...s.nodes, node], ...markActiveTabDirty(s) }))

@@ -92,4 +92,11 @@ export const api = {
     req<{ slug: string; name: string; saved_at: string }>('POST', `/workflows/${encodeURIComponent(slug)}/duplicate`),
   deleteWorkflow: (slug: string) =>
     req('DELETE', `/workflows/${encodeURIComponent(slug)}`),
+
+  getSubgraph: (nodeId: string) =>
+    req<{ node_meta: Record<string, any>; edges: any[] }>('GET', `/nodes/${nodeId}/subgraph`),
+  updateSubgraph: (nodeId: string, node_meta: Record<string, any>, edges: any[]) =>
+    req<any>('PATCH', `/nodes/${nodeId}/subgraph`, { node_meta, edges }),
+  collapseToSubnet: (nodeIds: string[], label: string) =>
+    req<{ subnet: any; removed_node_ids: string[] }>('POST', '/subnets', { node_ids: nodeIds, label }),
 }

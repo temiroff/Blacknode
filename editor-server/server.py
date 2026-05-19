@@ -54,13 +54,16 @@ def _load() -> None:
         edges:    list = data.get("edges",     [])
         # only restore nodes whose type is still registered
         for node_id, meta in meta_map.items():
-            if meta["type"] not in _NODE_REGISTRY:
+            if meta["type"] not in _NODE_REGISTRY and meta["type"] != "Subnet":
                 continue
             _session.node_meta[node_id] = meta
-            _session.graph._nodes[node_id] = {
+            node_entry = {
                 "type":   meta["type"],
                 "params": dict(meta.get("params", {})),
             }
+            if meta["type"] == "Subnet":
+                node_entry["subgraph"] = meta.get("subgraph", {"node_meta": {}, "edges": []})
+            _session.graph._nodes[node_id] = node_entry
             _session.graph._dirty.add(node_id)
         _session.graph._edges = [
             e for e in edges
@@ -121,6 +124,14 @@ class SaveWorkflowReq(BaseModel):
 
 class RenameWorkflowReq(BaseModel):
     name: str
+
+class UpdateSubgraphReq(BaseModel):
+    node_meta: dict[str, Any] = {}
+    edges: list[dict[str, Any]] = []
+
+class CollapseSubnetReq(BaseModel):
+    node_ids: list[str]
+    label: str = "Subnet"
 
 _PROVIDER_ENV: dict[str, str] = {
     "Anthropic":     "ANTHROPIC_API_KEY",
@@ -193,6 +204,33 @@ class AddCustomModelReq(BaseModel):
 _load_custom_models()
 
 
+def _sync_subnet_ports(subnet_meta: dict) -> None:
+    """Rebuild a Subnet node's inputs/outputs from its boundary nodes."""
+    subgraph = subnet_meta.get("subgraph", {})
+    inner_meta = subgraph.get("node_meta", {})
+    inputs, outputs = [], []
+    in_types: dict[str, str] = {}
+    out_types: dict[str, str] = {}
+    for m in inner_meta.values():
+        if m["type"] == "SubgraphInput":
+            name = m.get("params", {}).get("port_name", "input")
+            typ  = m.get("params", {}).get("port_type", "Any")
+            if name not in inputs:
+                inputs.append(name)
+                in_types[name] = typ
+        elif m["type"] == "SubgraphOutput":
+            name = m.get("params", {}).get("port_name", "output")
+            typ  = m.get("params", {}).get("port_type", "Any")
+            if name not in outputs:
+                outputs.append(name)
+                out_types[name] = typ
+    subnet_meta["inputs"]       = inputs
+    subnet_meta["outputs"]      = outputs
+    subnet_meta["input_types"]  = in_types
+    subnet_meta["output_types"] = out_types
+    subnet_meta["input_defaults"] = {}
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/node-types")
@@ -221,14 +259,17 @@ def get_graph():
     nodes = []
     for meta in _session.node_meta.values():
         fn = _NODE_REGISTRY.get(meta["type"])
-        nodes.append({
-            **meta,
-            "inputs":         getattr(fn, "_bn_inputs",         meta.get("inputs",         [])),
-            "outputs":        getattr(fn, "_bn_outputs",        meta.get("outputs",        [])),
-            "input_types":    getattr(fn, "_bn_input_types",    meta.get("input_types",    {})),
-            "output_types":   getattr(fn, "_bn_output_types",   meta.get("output_types",   {})),
-            "input_defaults": getattr(fn, "_bn_input_defaults", meta.get("input_defaults", {})),
-        })
+        if meta["type"] == "Subnet" or fn is None:
+            nodes.append({**meta})
+        else:
+            nodes.append({
+                **meta,
+                "inputs":         getattr(fn, "_bn_inputs",         meta.get("inputs",         [])),
+                "outputs":        getattr(fn, "_bn_outputs",        meta.get("outputs",        [])),
+                "input_types":    getattr(fn, "_bn_input_types",    meta.get("input_types",    {})),
+                "output_types":   getattr(fn, "_bn_output_types",   meta.get("output_types",   {})),
+                "input_defaults": getattr(fn, "_bn_input_defaults", meta.get("input_defaults", {})),
+            })
     return {"nodes": nodes, "edges": _session.graph._edges}
 
 
@@ -243,6 +284,29 @@ def set_graph(req: SetGraphReq):
 def add_node(req: AddNodeReq):
     if req.type_name not in _NODE_REGISTRY:
         raise HTTPException(400, f"Unknown node type '{req.type_name}'")
+    if req.type_name == "Subnet":
+        node_id = str(__import__('uuid').uuid4())
+        meta = {
+            "id":           node_id,
+            "type":         "Subnet",
+            "params":       {"label": req.params.get("label", "Subnet")},
+            "pos":          list(req.pos),
+            "inputs":       [],
+            "outputs":      [],
+            "input_types":  {},
+            "output_types": {},
+            "input_defaults": {},
+            "subgraph":     {"node_meta": {}, "edges": []},
+        }
+        _session.node_meta[node_id] = meta
+        _session.graph._nodes[node_id] = {
+            "type": "Subnet",
+            "params": meta["params"],
+            "subgraph": meta["subgraph"],
+        }
+        _session.graph._dirty.add(node_id)
+        _save()
+        return meta
     proxy = _session.graph.node(req.type_name, **req.params)
     fn = _NODE_REGISTRY[req.type_name]
     meta = {
@@ -317,6 +381,166 @@ def disconnect(from_id: str, from_port: str, to_id: str, to_port: str):
     return {"ok": True}
 
 
+@app.patch("/nodes/{node_id}/subgraph")
+def update_subgraph(node_id: str, req: UpdateSubgraphReq):
+    if node_id not in _session.node_meta:
+        raise HTTPException(404, "Node not found")
+    if _session.node_meta[node_id]["type"] != "Subnet":
+        raise HTTPException(400, "Node is not a Subnet")
+    subgraph = {"node_meta": req.node_meta, "edges": req.edges}
+    _session.node_meta[node_id]["subgraph"] = subgraph
+    _session.graph._nodes[node_id]["subgraph"] = subgraph
+    _sync_subnet_ports(_session.node_meta[node_id])
+    _session.graph._mark_dirty(node_id)
+    _save()
+    return _session.node_meta[node_id]
+
+
+@app.get("/nodes/{node_id}/subgraph")
+def get_subgraph(node_id: str):
+    if node_id not in _session.node_meta:
+        raise HTTPException(404, "Node not found")
+    return _session.node_meta[node_id].get("subgraph", {"node_meta": {}, "edges": []})
+
+
+@app.post("/subnets")
+def collapse_to_subnet(req: CollapseSubnetReq):
+    """Collapse selected nodes into a Subnet node."""
+    import uuid as _uuid
+    node_ids = set(req.node_ids)
+    for nid in node_ids:
+        if nid not in _session.node_meta:
+            raise HTTPException(404, f"Node {nid} not found")
+
+    # Compute bounding box centre for subnet position
+    positions = [_session.node_meta[nid]["pos"] for nid in node_ids]
+    cx = sum(p[0] for p in positions) / len(positions)
+    cy = sum(p[1] for p in positions) / len(positions)
+
+    # Classify edges as internal or crossing
+    all_edges = _session.graph._edges
+    internal_edges = [e for e in all_edges if e["from"] in node_ids and e["to"] in node_ids]
+    entering_edges  = [e for e in all_edges if e["from"] not in node_ids and e["to"] in node_ids]
+    exiting_edges   = [e for e in all_edges if e["from"] in node_ids and e["to"] not in node_ids]
+
+    # Build inner node_meta for collapsed nodes
+    inner_meta: dict[str, dict] = {}
+    for nid in node_ids:
+        inner_meta[nid] = dict(_session.node_meta[nid])
+
+    # Create SubgraphInput nodes for each unique (to_node, to_port) entry point
+    seen_entries: dict[tuple, str] = {}
+    new_inner_nodes: dict[str, dict] = {}
+    new_inner_edges: list[dict] = []
+    subnet_inputs: list[dict] = []  # {port_name, from_id, from_port}
+
+    for e in entering_edges:
+        key = (e["to"], e["to_port"])
+        if key not in seen_entries:
+            port_name = e["to_port"]
+            inp_id = str(_uuid.uuid4())
+            seen_entries[key] = inp_id
+            new_inner_nodes[inp_id] = {
+                "id": inp_id,
+                "type": "SubgraphInput",
+                "params": {"port_name": port_name, "port_type": "Any"},
+                "pos": [e["to"] and inner_meta[e["to"]]["pos"][0] - 200, inner_meta[e["to"]]["pos"][1]],
+                "inputs": [],
+                "outputs": ["value"],
+                "input_types": {},
+                "output_types": {"value": "Any"},
+                "input_defaults": {},
+            }
+            subnet_inputs.append({"port_name": port_name, "from_id": e["from"], "from_port": e["from_port"]})
+        inp_id = seen_entries[key]
+        new_inner_edges.append({"from": inp_id, "from_port": "value", "to": e["to"], "to_port": e["to_port"]})
+
+    # Create SubgraphOutput nodes for each unique (from_node, from_port) exit point
+    seen_exits: dict[tuple, str] = {}
+    subnet_outputs: list[dict] = []  # {port_name, to_id, to_port}
+
+    for e in exiting_edges:
+        key = (e["from"], e["from_port"])
+        if key not in seen_exits:
+            port_name = e["from_port"]
+            out_id = str(_uuid.uuid4())
+            seen_exits[key] = out_id
+            new_inner_nodes[out_id] = {
+                "id": out_id,
+                "type": "SubgraphOutput",
+                "params": {"port_name": port_name, "port_type": "Any"},
+                "pos": [inner_meta[e["from"]]["pos"][0] + 200, inner_meta[e["from"]]["pos"][1]],
+                "inputs": ["value"],
+                "outputs": ["value"],
+                "input_types": {"value": "Any"},
+                "output_types": {"value": "Any"},
+                "input_defaults": {},
+            }
+            subnet_outputs.append({"port_name": port_name, "to_id": e["to"], "to_port": e["to_port"]})
+        out_id = seen_exits[key]
+        new_inner_edges.append({"from": e["from"], "from_port": e["from_port"], "to": out_id, "to_port": "value"})
+
+    # Build complete inner meta
+    all_inner_meta = {**inner_meta, **new_inner_nodes}
+    all_inner_edges = internal_edges + new_inner_edges
+
+    # Create the Subnet node
+    subnet_id = str(_uuid.uuid4())
+    subnet_meta: dict[str, Any] = {
+        "id":       subnet_id,
+        "type":     "Subnet",
+        "params":   {"label": req.label},
+        "pos":      [cx, cy],
+        "inputs":   [],
+        "outputs":  [],
+        "input_types": {},
+        "output_types": {},
+        "input_defaults": {},
+        "subgraph": {"node_meta": all_inner_meta, "edges": all_inner_edges},
+    }
+    _sync_subnet_ports(subnet_meta)
+
+    # Remove collapsed nodes from session
+    for nid in node_ids:
+        del _session.node_meta[nid]
+        _session.graph._nodes.pop(nid, None)
+        _session.graph._dirty.discard(nid)
+
+    # Remove all edges involving collapsed nodes
+    _session.graph._edges = [
+        e for e in _session.graph._edges
+        if e["from"] not in node_ids and e["to"] not in node_ids
+    ]
+
+    # Add subnet node to session
+    _session.node_meta[subnet_id] = subnet_meta
+    _session.graph._nodes[subnet_id] = {
+        "type": "Subnet",
+        "params": subnet_meta["params"],
+        "subgraph": subnet_meta["subgraph"],
+    }
+    _session.graph._dirty.add(subnet_id)
+
+    # Rewire external edges through the subnet
+    for inp_info in subnet_inputs:
+        _session.graph._edges.append({
+            "from": inp_info["from_id"],
+            "from_port": inp_info["from_port"],
+            "to": subnet_id,
+            "to_port": inp_info["port_name"],
+        })
+    for out_info in subnet_outputs:
+        _session.graph._edges.append({
+            "from": subnet_id,
+            "from_port": out_info["port_name"],
+            "to": out_info["to_id"],
+            "to_port": out_info["to_port"],
+        })
+
+    _save()
+    return {"subnet": subnet_meta, "removed_node_ids": list(node_ids)}
+
+
 @app.post("/cook")
 def cook(req: CookReq):
     import traceback
@@ -366,6 +590,25 @@ def _cook_trace(node_id: str, port: str):
                 if edge["to"] == current_id:
                     val = yield from cook_one(edge["from"], edge["from_port"])
                     ctx[edge["to_port"]] = val
+
+            if node_def["type"] == "Subnet":
+                yield _json_line({"type": "start", "node_id": current_id, "port": current_port})
+                try:
+                    result = _session.graph._cook_subnet(current_id, current_port, ctx)
+                    value = result.get(current_port)
+                    _session.graph._cache[(current_id, current_port)] = value
+                    _session.graph._dirty.discard(current_id)
+                    yield _json_line({
+                        "type": "success",
+                        "node_id": current_id,
+                        "port": current_port,
+                        "value": value,
+                        "outputs": result,
+                    })
+                    return value
+                except Exception as exc:
+                    yield _json_line({"type": "error", "node_id": current_id, "port": current_port, "error": str(exc)})
+                    raise
 
             yield _json_line({
                 "type": "start",
@@ -520,13 +763,16 @@ def _restore_session(node_meta: dict, edges: list):
     _session.graph = bn.Graph()
     _session.node_meta.clear()
     for node_id, meta in node_meta.items():
-        if meta["type"] not in _NODE_REGISTRY:
+        if meta["type"] not in _NODE_REGISTRY and meta["type"] != "Subnet":
             continue
         _session.node_meta[node_id] = meta
-        _session.graph._nodes[node_id] = {
+        node_entry = {
             "type":   meta["type"],
             "params": dict(meta.get("params", {})),
         }
+        if meta["type"] == "Subnet":
+            node_entry["subgraph"] = meta.get("subgraph", {"node_meta": {}, "edges": []})
+        _session.graph._nodes[node_id] = node_entry
         _session.graph._dirty.add(node_id)
     _session.graph._edges = [
         e for e in edges

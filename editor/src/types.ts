@@ -1,3 +1,15 @@
+export interface SubgraphData {
+  node_meta: Record<string, BnNodeMeta>
+  edges: Array<{ from: string; from_port: string; to: string; to_port: string }>
+}
+
+export interface SubnetFrame {
+  subnetId: string
+  subnetLabel: string
+  parentNodes: any[]
+  parentEdges: any[]
+}
+
 export interface BnNodeMeta {
   id: string
   type: string
@@ -8,6 +20,7 @@ export interface BnNodeMeta {
   input_types: Record<string, string>
   output_types: Record<string, string>
   input_defaults: Record<string, unknown>
+  subgraph?: SubgraphData
 }
 
 export interface BnNodeDef {

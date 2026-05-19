@@ -10,13 +10,21 @@ import BlackNode from './components/BlackNode'
 import ValueNode from './components/ValueNode'
 import ModelNode from './components/ModelNode'
 import OutputNode from './components/OutputNode'
+import SubnetNode from './components/SubnetNode'
+import SubnetBreadcrumb from './components/SubnetBreadcrumb'
 import NodePalette from './components/NodePalette'
 import Inspector from './components/Inspector'
 import NodeSearch from './components/NodeSearch'
 import { portsCompatible } from './portColors'
 import type { BnNodeDef, ConnectionDraft } from './types'
 
-const NODE_TYPES = { blacknode: BlackNode, valuenode: ValueNode, modelnode: ModelNode, outputnode: OutputNode }
+const NODE_TYPES = {
+  blacknode: BlackNode,
+  valuenode: ValueNode,
+  modelnode: ModelNode,
+  outputnode: OutputNode,
+  subnetnode: SubnetNode,
+}
 
 const TAB_H = 36  // workflow tab bar height
 
@@ -35,6 +43,7 @@ export default function App() {
     addNodeFromConnection,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     renameTab, saveActiveWorkflow,
+    diveIntoSubnet, exitSubnet,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -87,6 +96,14 @@ export default function App() {
     const id = setInterval(checkServer, 5000)
     return () => clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') exitSubnet()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [exitSubnet])
 
   const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -465,6 +482,8 @@ export default function App() {
           </div>
         )}
 
+        <SubnetBreadcrumb />
+
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -480,6 +499,9 @@ export default function App() {
           onEdgeUpdateEnd={onEdgeUpdateEnd}
           onInit={i => { rfInstance.current = i }}
           onNodeClick={(_, node) => selectNode(node.id)}
+          onNodeDoubleClick={(_, node) => {
+            if (node.data?.type === 'Subnet') diveIntoSubnet(node.id)
+          }}
           onPaneClick={() => {
             if (suppressPaneClick.current) {
               suppressPaneClick.current = false
