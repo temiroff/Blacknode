@@ -1,5 +1,5 @@
 from blacknode.node import node
-from blacknode.providers import resolve, ToolDef
+from blacknode.providers import resolve, ToolDef, ToolResult
 
 
 @node(
@@ -72,20 +72,34 @@ def agent_loop(ctx: dict) -> dict:
         if resp.stop_reason == "end_turn" or not resp.tool_calls:
             return {"result": resp.text, "steps": steps}
 
-        tool_results = []
+        tool_results: list[ToolResult] = []
         for tc in resp.tool_calls:
             fn = tool_map.get(tc.name)
-            output = fn(**tc.arguments) if fn else f"[error] unknown tool '{tc.name}'"
-            tool_results.append({"tool_call_id": tc.id, "name": tc.name, "output": str(output)})
-            steps.append({"role": "tool", "name": tc.name, "output": str(output)})
+            try:
+                output = fn(**tc.arguments) if fn else f"[error] unknown tool '{tc.name}'"
+            except Exception as exc:
+                output = f"[error] {type(exc).__name__}: {exc}"
+            result = ToolResult(tool_call_id=tc.id, name=tc.name, output=str(output))
+            tool_results.append(result)
+            steps.append({"role": "tool", "name": tc.name, "output": result.output})
 
-        messages.append({"role": "assistant", "content": resp.text or "[tool use]"})
-        messages.append({
-            "role": "user",
-            "content": "\n".join(f"[{r['name']} result]: {r['output']}" for r in tool_results),
-        })
+        messages.extend(provider.tool_result_messages(resp.text, resp.tool_calls, tool_results))
 
-    return {"result": "max iterations reached", "steps": steps}
+    final = provider.complete(
+        [
+            *messages,
+            {
+                "role": "user",
+                "content": "The tool-call limit was reached. Give the final answer now using the tool results above. Do not call tools.",
+            },
+        ],
+        model=clean_model,
+        system=system,
+        max_tokens=max_tokens,
+        tools=None,
+    )
+    steps.append({"role": "assistant", "text": final.text, "tool_calls": []})
+    return {"result": final.text or "max iterations reached", "steps": steps}
 
 
 @node(inputs=["fn:Fn", "args:Dict"], outputs=["result:Any"], name="ToolCall")
@@ -127,27 +141,19 @@ def python_fn(ctx: dict) -> dict:
     return {"fn": fn}
 
 
-@node(inputs=["subnet_label:Text", "name:Text", "description:Text"], outputs=["fn:Fn"], name="SubnetAsTool")
+@node(inputs=["name:Text=tool", "description:Text"], outputs=["fn:Fn"], name="SubnetAsTool")
 def subnet_as_tool(ctx: dict) -> dict:
-    """Wrap a Subnet node (identified by its label) as a callable tool for AgentLoop."""
-    graph         = ctx.get("__graph__")
-    subnet_label  = (ctx.get("subnet_label") or "").strip()
-    fn_name       = (ctx.get("name") or subnet_label or "subnet_tool").strip()
-    description   = (ctx.get("description") or "").strip()
+    """Expose this node's internal subgraph as a callable tool for AgentLoop."""
+    graph       = ctx.get("__graph__")
+    node_id     = ctx.get("__node_id__")
+    fn_name     = (ctx.get("name") or "tool").strip()
+    description = (ctx.get("description") or "").strip()
     if not graph:
         raise ValueError("SubnetAsTool: graph context unavailable.")
-    if not subnet_label:
-        raise ValueError("SubnetAsTool: 'subnet_label' param is required.")
-    # Find subnet by label
-    target_id: str | None = None
-    for nid, ndef in graph._nodes.items():
-        if ndef["type"] == "Subnet" and ndef.get("params", {}).get("label") == subnet_label:
-            target_id = nid
-            break
-    if target_id is None:
-        raise ValueError(f"SubnetAsTool: no Subnet with label '{subnet_label}' found.")
+    if not node_id or node_id not in graph._nodes:
+        raise ValueError("SubnetAsTool: current node context unavailable.")
     # Derive parameter schema from SubnetInput's output ports
-    inner_meta = graph._nodes[target_id].get("subgraph", {}).get("node_meta", {})
+    inner_meta = graph._nodes[node_id].get("subgraph", {}).get("node_meta", {})
     props: dict = {}
     output_port = "output"
     for m in inner_meta.values():
@@ -165,7 +171,7 @@ def subnet_as_tool(ctx: dict) -> dict:
             result = graph._cook_subnet(sid, oport, kwargs)
             return result.get(oport)
         return tool
-    fn = _make_tool(target_id, output_port)
+    fn = _make_tool(node_id, output_port)
     fn.__name__ = fn_name
     fn.__doc__  = description
     fn._bn_schema = {"type": "object", "properties": props, "required": list(props.keys())}
@@ -173,14 +179,20 @@ def subnet_as_tool(ctx: dict) -> dict:
 
 
 @node(
-    inputs=["tool_1:Fn", "tool_2:Fn", "tool_3:Fn", "tool_4:Fn"],
+    inputs=[],
     outputs=["tools:List"],
     name="ToolBox",
 )
 def toolbox(ctx: dict) -> dict:
-    """Collect up to 4 Fn values into a list for AgentLoop.tools."""
-    tools = [v for k in ("tool_1", "tool_2", "tool_3", "tool_4")
-             if callable(v := ctx.get(k))]
+    """Collect connected Fn values into a list for AgentLoop.tools."""
+    def sort_key(name: str) -> tuple[int, str]:
+        try:
+            return int(name.rsplit("_", 1)[1]), name
+        except (IndexError, ValueError):
+            return 999_999, name
+
+    ports = sorted((k for k in ctx if k.startswith("tool_")), key=sort_key)
+    tools = [ctx[k] for k in ports if callable(ctx.get(k))]
     return {"tools": tools}
 
 

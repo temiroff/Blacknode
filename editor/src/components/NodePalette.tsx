@@ -56,6 +56,7 @@ export default function NodePalette() {
   const { nodeTypes, addNode } = useStore()
   const [activeTab, setActiveTab] = useState<Tab | null>('nodes')
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
 
   const startResize = (e: React.MouseEvent) => {
@@ -85,6 +86,62 @@ export default function NodePalette() {
   })).filter(g => g.types.length > 0)
 
   const ungrouped = nodeTypes.filter(t => !ALL_CATEGORISED.includes(t))
+
+  const toggleGroup = (group: string) => {
+    setOpenGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(group)) next.delete(group)
+      else next.add(group)
+      return next
+    })
+  }
+
+  const renderGroupHeader = (group: string, color: string, count: number) => {
+    const open = openGroups.has(group)
+    return (
+      <button
+        onClick={() => toggleGroup(group)}
+        style={{
+          width: '100%',
+          background: open ? 'var(--menu-active)' : 'transparent',
+          border: 'none',
+          borderTop: '1px solid var(--line)',
+          color,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 7,
+          padding: '8px 12px',
+          textAlign: 'left',
+          fontFamily: 'var(--font-ui)',
+        }}
+        onMouseEnter={e => { if (!open) e.currentTarget.style.background = 'var(--hover)' }}
+        onMouseLeave={e => { if (!open) e.currentTarget.style.background = 'transparent' }}
+      >
+        <span style={{ width: 10, color: 'var(--tx3)', fontSize: 12, lineHeight: 1 }}>
+          {open ? '-' : '+'}
+        </span>
+        <span style={{ width: 6, height: 6, borderRadius: 2, background: color, flexShrink: 0 }} />
+        <span style={{
+          flex: 1,
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+        }}>
+          {group}
+        </span>
+        <span style={{
+          color: 'var(--tx3)',
+          fontSize: 10,
+          fontWeight: 600,
+          fontFamily: 'var(--font-mono)',
+        }}>
+          {count}
+        </span>
+      </button>
+    )
+  }
 
   return (
     <div style={{ display: 'flex', flexShrink: 0, height: '100%' }}>
@@ -237,112 +294,79 @@ export default function NodePalette() {
               <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
 
                 {/* Structure — hardcoded, not from Python registry */}
-                <div style={{ marginBottom: 4, borderBottom: '1px solid var(--line)', paddingBottom: 6 }}>
-                  <div style={{
-                    padding: '8px 14px 4px',
-                    color: '#6366f1',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}>
-                    <div style={{ width: 6, height: 6, borderRadius: 2, background: '#6366f1', flexShrink: 0 }} />
-                    Structure
+                <div style={{ marginBottom: 4 }}>
+                  {renderGroupHeader('Structure', '#6366f1', 1)}
+                  {openGroups.has('Structure') && (
+                    <div
+                      draggable
+                      onDragStart={e => handleDragStart(e, 'Subnet')}
+                      onClick={() => addNode('Subnet', { x: 200 + Math.random() * 200, y: 80 + Math.random() * 200 })}
+                      style={{
+                        padding: '5px 14px 5px 26px',
+                        color: 'var(--tx2)',
+                        fontSize: 13,
+                        cursor: 'grab',
+                        borderRadius: 6,
+                        margin: '1px 6px',
+                        userSelect: 'none',
+                        borderLeft: '2px solid transparent',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'var(--hover)'
+                        e.currentTarget.style.color = '#6366f1'
+                        e.currentTarget.style.borderLeftColor = '#6366f1'
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'transparent'
+                        e.currentTarget.style.color = 'var(--tx2)'
+                        e.currentTarget.style.borderLeftColor = 'transparent'
+                      }}
+                    >
+                      Subnet
+                    </div>
+                  )}
                   </div>
-                  <div
-                    draggable
-                    onDragStart={e => handleDragStart(e, 'Subnet')}
-                    onClick={() => addNode('Subnet', { x: 200 + Math.random() * 200, y: 80 + Math.random() * 200 })}
-                    style={{
-                      padding: '5px 14px 5px 26px',
-                      color: 'var(--tx2)',
-                      fontSize: 13,
-                      cursor: 'grab',
-                      borderRadius: 6,
-                      margin: '1px 6px',
-                      userSelect: 'none',
-                      borderLeft: '2px solid transparent',
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.background = 'var(--hover)'
-                      e.currentTarget.style.color = '#6366f1'
-                      e.currentTarget.style.borderLeftColor = '#6366f1'
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.background = 'transparent'
-                      e.currentTarget.style.color = 'var(--tx2)'
-                      e.currentTarget.style.borderLeftColor = 'transparent'
-                    }}
-                  >
-                    ⬡ Subnet
-                  </div>
-                </div>
 
                 {groups.map(({ group, color, types }) => (
                   <div key={group} style={{ marginBottom: 4 }}>
-                    <div style={{
-                      padding: '8px 14px 4px',
-                      color,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}>
-                      <div style={{ width: 6, height: 6, borderRadius: 2, background: color, flexShrink: 0 }} />
-                      {group}
-                    </div>
-                    {types.map(type => (
-                      <div
-                        key={type}
-                        draggable
-                        onDragStart={e => handleDragStart(e, type)}
-                        onClick={() => addNode(type, { x: 200 + Math.random() * 200, y: 80 + Math.random() * 200 })}
-                        style={{
-                          padding: '5px 14px 5px 26px',
-                          color: 'var(--tx2)',
-                          fontSize: 13,
-                          cursor: 'grab',
-                          borderRadius: 6,
-                          margin: '1px 6px',
-                          userSelect: 'none',
-                          borderLeft: '2px solid transparent',
-                        }}
-                        onMouseEnter={e => {
-                          e.currentTarget.style.background = 'var(--hover)'
-                          e.currentTarget.style.color = 'var(--tx1)'
-                          e.currentTarget.style.borderLeftColor = color
-                        }}
-                        onMouseLeave={e => {
-                          e.currentTarget.style.background = 'transparent'
-                          e.currentTarget.style.color = 'var(--tx2)'
-                          e.currentTarget.style.borderLeftColor = 'transparent'
-                        }}
-                      >
-                        {type}
-                      </div>
-                    ))}
+                    {renderGroupHeader(group, color, types.length)}
+                    {openGroups.has(group) && types.map(type => (
+                        <div
+                          key={type}
+                          draggable
+                          onDragStart={e => handleDragStart(e, type)}
+                          onClick={() => addNode(type, { x: 200 + Math.random() * 200, y: 80 + Math.random() * 200 })}
+                          style={{
+                            padding: '5px 14px 5px 26px',
+                            color: 'var(--tx2)',
+                            fontSize: 13,
+                            cursor: 'grab',
+                            borderRadius: 6,
+                            margin: '1px 6px',
+                            userSelect: 'none',
+                            borderLeft: '2px solid transparent',
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = 'var(--hover)'
+                            e.currentTarget.style.color = 'var(--tx1)'
+                            e.currentTarget.style.borderLeftColor = color
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = 'transparent'
+                            e.currentTarget.style.color = 'var(--tx2)'
+                            e.currentTarget.style.borderLeftColor = 'transparent'
+                          }}
+                        >
+                          {type}
+                        </div>
+                      ))}
                   </div>
                 ))}
 
                 {ungrouped.length > 0 && (
                   <div style={{ marginTop: 8 }}>
-                    <div style={{
-                      padding: '8px 14px 4px',
-                      color: 'var(--tx3)',
-                      fontSize: 11,
-                      fontWeight: 700,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                    }}>
-                      Custom
-                    </div>
-                    {ungrouped.map(type => (
+                    {renderGroupHeader('Custom', 'var(--tx3)', ungrouped.length)}
+                    {openGroups.has('Custom') && ungrouped.map(type => (
                       <div
                         key={type}
                         draggable

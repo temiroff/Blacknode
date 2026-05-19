@@ -7,6 +7,7 @@ import { api, type CookEvent } from './api'
 import { BnNodeDef, BnNodeMeta, ConnectionDraft, SubnetFrame } from './types'
 import { VALUE_NODE_TYPES } from './categories'
 import { portsCompatible, portColor } from './portColors'
+import { organizeFlowNodes } from './graphLayout'
 
 const MODEL_NODE_TYPES  = new Set(['Model'])
 const OUTPUT_NODE_TYPES = new Set(['Output'])
@@ -72,6 +73,16 @@ interface Store {
   exitSubnet: () => Promise<void>
   exitToRoot: () => Promise<void>
   collapseToSubnet: (nodeIds: string[], label: string) => Promise<void>
+  organizeNodes: () => Promise<void>
+  updateNodePorts: (
+    nodeId: string,
+    inputs?: string[],
+    outputs?: string[],
+    inputTypes?: Record<string, string>,
+    outputTypes?: Record<string, string>,
+    inputDefaults?: Record<string, unknown>,
+    multiInputPorts?: string[],
+  ) => Promise<void>
   updateSubgraphBoundaryPorts: (
     innerNodeId: string,
     outputs?: string[],
@@ -95,7 +106,7 @@ interface Store {
 }
 
 function reactNodeType(typeName: string): string {
-  if (typeName === 'Subnet') return 'subnetnode'
+  if (typeName === 'Subnet' || typeName === 'SubnetAsTool') return 'subnetnode'
   if (typeName === 'SubnetInput') return 'subnetinput'
   if (typeName === 'SubnetOutput') return 'subnetoutput'
   return OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode'
@@ -108,6 +119,7 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     position: { x: meta.pos[0], y: meta.pos[1] },
     data: { ...meta },
     ...(meta.type === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
+    ...(meta.type === 'Dict'   ? { style: { width: 260, height: 150 } } : {}),
     ...(meta.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
   }
 }
@@ -154,6 +166,49 @@ function defFromMeta(meta: BnNodeMeta): BnNodeDef {
 
 function nextEdgeId(): string {
   return `e${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+}
+
+function nextToolInputName(inputs: string[]): string {
+  let i = 1
+  while (inputs.includes(`tool_${i}`)) i++
+  return `tool_${i}`
+}
+
+function pruneEmptyToolBoxSlots(nodes: Node<NodeData>[], edges: Edge[]): { nodes: Node<NodeData>[]; changedIds: Set<string> } {
+  const connectedPorts = new Map<string, Set<string>>()
+  edges.forEach(edge => {
+    if (!edge.targetHandle?.startsWith('tool_')) return
+    if (!connectedPorts.has(edge.target)) connectedPorts.set(edge.target, new Set())
+    connectedPorts.get(edge.target)!.add(edge.targetHandle)
+  })
+
+  const changedIds = new Set<string>()
+  const nextNodes = nodes.map(node => {
+    if (node.data.type !== 'ToolBox') return node
+    const connected = connectedPorts.get(node.id) ?? new Set<string>()
+    const inputs = (node.data.inputs ?? []).filter(port => connected.has(port))
+    if (
+      inputs.length === (node.data.inputs ?? []).length
+      && inputs.every((port, i) => port === node.data.inputs[i])
+    ) {
+      return node
+    }
+
+    changedIds.add(node.id)
+    const inputTypes: Record<string, string> = {}
+    inputs.forEach(port => { inputTypes[port] = node.data.input_types?.[port] ?? 'Fn' })
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        inputs,
+        input_types: inputTypes,
+        input_defaults: {},
+      },
+    }
+  })
+
+  return { nodes: nextNodes, changedIds }
 }
 
 function makeTabId(): string {
@@ -436,7 +491,11 @@ export const useStore = create<Store>((set, get) => ({
     const { nodes, edges } = get()
     const subnetNode = nodes.find(n => n.id === subnetId)
     if (!subnetNode) return
-    const label = String(subnetNode.data.params?.label ?? 'Subnet')
+    const label = String(
+      subnetNode.data.type === 'SubnetAsTool'
+        ? subnetNode.data.params?.name ?? 'tool'
+        : subnetNode.data.params?.label ?? 'Subnet'
+    )
     // Always fetch fresh inner graph from server
     const subgraph = await api.getSubgraph(subnetId)
     const { nodes: innerNodes, edges: innerEdges } = parseSubgraph(subgraph as any)
@@ -482,6 +541,84 @@ export const useStore = create<Store>((set, get) => ({
     const graphData = await api.getGraph()
     const { nodes: newNodes, edges: newEdges } = parseGraph(graphData.nodes, graphData.edges)
     set(s => ({ nodes: newNodes, edges: newEdges, ...markActiveTabDirty(s) }))
+  },
+
+  organizeNodes: async () => {
+    const { subnetStack, nodes, edges } = get()
+    const nextNodes = organizeFlowNodes(nodes, edges)
+
+    if (subnetStack.length > 0) {
+      const frame = subnetStack[subnetStack.length - 1]
+      const innerMeta: Record<string, any> = {}
+      nextNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      const innerEdges = edges.map(e => ({
+        from: e.source, from_port: e.sourceHandle ?? '',
+        to: e.target,   to_port:   e.targetHandle ?? '',
+      }))
+      await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
+      set(s => ({ nodes: nextNodes, ...markActiveTabDirty(s) }))
+      return
+    }
+
+    await Promise.all(nextNodes.map(n => api.updatePos(n.id, [n.position.x, n.position.y])))
+    set(s => ({ nodes: nextNodes, ...markActiveTabDirty(s) }))
+  },
+
+  updateNodePorts: async (nodeId, inputs, outputs, inputTypes, outputTypes, inputDefaults, multiInputPorts) => {
+    const { subnetStack, nodes, edges } = get()
+    const node = nodes.find(n => n.id === nodeId)
+    if (!node) return
+
+    const nextData = {
+      ...node.data,
+      ...(inputs !== undefined ? { inputs } : {}),
+      ...(outputs !== undefined ? { outputs } : {}),
+      ...(inputTypes !== undefined ? { input_types: inputTypes } : {}),
+      ...(outputTypes !== undefined ? { output_types: outputTypes } : {}),
+      ...(inputDefaults !== undefined ? { input_defaults: inputDefaults } : {}),
+      ...(multiInputPorts !== undefined ? { multi_input_ports: multiInputPorts } : {}),
+    }
+    const nextInputSet = inputs !== undefined ? new Set(inputs) : null
+    const nextOutputSet = outputs !== undefined ? new Set(outputs) : null
+    const nextEdges = edges.filter(e => {
+      if (nextInputSet && e.target === nodeId && !nextInputSet.has(e.targetHandle ?? '')) return false
+      if (nextOutputSet && e.source === nodeId && !nextOutputSet.has(e.sourceHandle ?? '')) return false
+      return true
+    })
+    const removedEdges = edges.filter(e => !nextEdges.includes(e))
+    const nextNodes = nodes.map(n => n.id === nodeId ? { ...n, data: nextData } : n)
+
+    if (subnetStack.length > 0) {
+      const frame = subnetStack[subnetStack.length - 1]
+      const innerMeta: Record<string, any> = {}
+      nextNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      const innerEdges = nextEdges.map(e => ({
+        from: e.source, from_port: e.sourceHandle ?? '',
+        to: e.target,   to_port:   e.targetHandle ?? '',
+      }))
+      await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
+      set(s => ({ nodes: nextNodes, edges: nextEdges, ...markActiveTabDirty(s) }))
+      return
+    }
+
+    const meta = await api.updatePorts(nodeId, {
+      ...(inputs !== undefined ? { inputs } : {}),
+      ...(outputs !== undefined ? { outputs } : {}),
+      ...(inputTypes !== undefined ? { input_types: inputTypes } : {}),
+      ...(outputTypes !== undefined ? { output_types: outputTypes } : {}),
+      ...(inputDefaults !== undefined ? { input_defaults: inputDefaults } : {}),
+      ...(multiInputPorts !== undefined ? { multi_input_ports: multiInputPorts } : {}),
+    })
+    for (const edge of removedEdges) {
+      if (edge.source && edge.sourceHandle && edge.target && edge.targetHandle) {
+        await api.disconnect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle)
+      }
+    }
+    set(s => ({
+      nodes: s.nodes.map(n => n.id === nodeId ? { ...n, data: { ...n.data, ...meta } } : n),
+      edges: nextEdges,
+      ...markActiveTabDirty(s),
+    }))
   },
 
   updateSubgraphBoundaryPorts: async (innerNodeId, outputs, inputs, outputTypes, inputTypes) => {
@@ -648,7 +785,7 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   onNodesChange: (changes) => {
-    const shouldMarkDirty = changes.some(c => c.type === 'position' || c.type === 'remove')
+    const shouldMarkDirty = changes.some(c => c.type === 'position' || c.type === 'dimensions' || c.type === 'remove')
     const { subnetStack, nodes, edges } = get()
 
     const removeChanges = changes.filter((c): c is { type: 'remove'; id: string } => c.type === 'remove')
@@ -703,11 +840,12 @@ export const useStore = create<Store>((set, get) => ({
       .filter(Boolean) as Edge[]
 
     const newEdges = applyEdgeChanges(changes, edges)
+    const { nodes: nextNodes, changedIds: prunedToolBoxes } = pruneEmptyToolBoxSlots(nodes, newEdges)
 
     if (subnetStack.length > 0 && removedEdges.length > 0) {
       const frame = subnetStack[subnetStack.length - 1]
       const innerMeta: Record<string, any> = {}
-      nodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      nextNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
       const innerEdges = newEdges.map(e => ({
         from: e.source, from_port: e.sourceHandle ?? '',
         to: e.target,   to_port:   e.targetHandle ?? '',
@@ -719,11 +857,21 @@ export const useStore = create<Store>((set, get) => ({
           api.disconnect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle).catch(() => {})
         }
       })
+      prunedToolBoxes.forEach(id => {
+        const node = nextNodes.find(n => n.id === id)
+        if (!node) return
+        api.updatePorts(id, {
+          inputs: node.data.inputs,
+          input_types: node.data.input_types,
+          input_defaults: node.data.input_defaults,
+        }).catch(() => {})
+      })
     }
 
     set(s => ({
+      nodes: nextNodes,
       edges: newEdges,
-      ...(shouldMarkDirty ? markActiveTabDirty(s) : {}),
+      ...(shouldMarkDirty || prunedToolBoxes.size > 0 ? markActiveTabDirty(s) : {}),
     }))
   },
 
@@ -772,6 +920,30 @@ export const useStore = create<Store>((set, get) => ({
       conn = { ...conn, targetHandle: portName }
     }
 
+    // __new__ target handle on ToolBox: connect to the first empty tool slot,
+    // creating a new tool_N input when all visible slots are already used.
+    if (conn.targetHandle === '__new__' && tgtNode?.data?.type === 'ToolBox') {
+      const fromType = srcNode?.data?.output_types?.[conn.sourceHandle!] ?? 'Any'
+      if (!portsCompatible(fromType, 'Fn')) return
+      const existing: string[] = tgtNode.data.inputs ?? []
+      const occupied = new Set(
+        edges
+          .filter(e => e.target === conn.target && e.targetHandle)
+          .map(e => e.targetHandle!)
+      )
+      let portName = existing.find(p => !occupied.has(p))
+      if (!portName) {
+        portName = nextToolInputName(existing)
+        await get().updateNodePorts(
+          conn.target!, [...existing, portName], undefined,
+          { ...(tgtNode.data.input_types ?? {}), [portName]: 'Fn' }, undefined,
+        )
+        ;({ nodes, edges, subnetStack } = get())
+        tgtNode = nodes.find(n => n.id === conn.target)
+      }
+      conn = { ...conn, targetHandle: portName }
+    }
+
     if (!conn.sourceHandle || !conn.targetHandle) return
     const fromType = srcNode?.data?.output_types?.[conn.sourceHandle] ?? 'Any'
     const toType   = tgtNode?.data?.input_types?.[conn.targetHandle]  ?? 'Any'
@@ -807,40 +979,128 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   disconnectEdge: async (edgeId) => {
-    const edge = get().edges.find(e => e.id === edgeId)
+    const { nodes, edges, subnetStack } = get()
+    const edge = edges.find(e => e.id === edgeId)
     if (!edge?.source || !edge.target || !edge.sourceHandle || !edge.targetHandle) return
-    await api.disconnect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle)
-    set(s => ({ edges: s.edges.filter(e => e.id !== edgeId), ...markActiveTabDirty(s) }))
+    const nextEdges = edges.filter(e => e.id !== edgeId)
+    const { nodes: nextNodes, changedIds: prunedToolBoxes } = pruneEmptyToolBoxSlots(nodes, nextEdges)
+
+    if (subnetStack.length > 0) {
+      const frame = subnetStack[subnetStack.length - 1]
+      const innerMeta: Record<string, any> = {}
+      nextNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      const innerEdges = nextEdges.map(e => ({
+        from: e.source, from_port: e.sourceHandle ?? '',
+        to: e.target,   to_port:   e.targetHandle ?? '',
+      }))
+      await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
+    } else {
+      await api.disconnect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle)
+      for (const id of prunedToolBoxes) {
+        const node = nextNodes.find(n => n.id === id)
+        if (!node) continue
+        await api.updatePorts(id, {
+          inputs: node.data.inputs,
+          input_types: node.data.input_types,
+          input_defaults: node.data.input_defaults,
+        })
+      }
+    }
+
+    set(s => ({ nodes: nextNodes, edges: nextEdges, ...markActiveTabDirty(s) }))
   },
 
   reconnectEdge: async (oldEdge, newConn) => {
-    if (oldEdge.sourceHandle && oldEdge.targetHandle)
-      await api.disconnect(oldEdge.source, oldEdge.sourceHandle, oldEdge.target, oldEdge.targetHandle)
     if (!newConn.source || !newConn.target || !newConn.sourceHandle || !newConn.targetHandle) return
-    const { nodes, edges } = get()
-    const srcNode = nodes.find(n => n.id === newConn.source)
-    const tgtNode = nodes.find(n => n.id === newConn.target)
-    const fromType = srcNode?.data?.output_types?.[newConn.sourceHandle] ?? 'Any'
-    const toType   = tgtNode?.data?.input_types?.[newConn.targetHandle]  ?? 'Any'
+    let { nodes, edges, subnetStack } = get()
+    let conn = {
+      source: newConn.source,
+      target: newConn.target,
+      sourceHandle: newConn.sourceHandle,
+      targetHandle: newConn.targetHandle,
+    }
+    let srcNode = nodes.find(n => n.id === conn.source)
+    let tgtNode = nodes.find(n => n.id === conn.target)
+
+    if (conn.targetHandle === '__new__' && tgtNode?.data?.type === 'ToolBox') {
+      const fromType = srcNode?.data?.output_types?.[conn.sourceHandle] ?? 'Any'
+      if (!portsCompatible(fromType, 'Fn')) return
+      const existing: string[] = tgtNode.data.inputs ?? []
+      const occupied = new Set(
+        edges
+          .filter(e => e.id !== oldEdge.id && e.target === conn.target && e.targetHandle)
+          .map(e => e.targetHandle!)
+      )
+      let portName = existing.find(p => !occupied.has(p))
+      if (!portName) {
+        const newPortName = nextToolInputName(existing)
+        nodes = nodes.map(n =>
+          n.id === conn.target
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  inputs: [...existing, newPortName],
+                  input_types: { ...(n.data.input_types ?? {}), [newPortName]: 'Fn' },
+                },
+              }
+            : n
+        )
+        portName = newPortName
+        tgtNode = nodes.find(n => n.id === conn.target)
+      }
+      conn = { ...conn, targetHandle: portName }
+    }
+
+    const fromType = srcNode?.data?.output_types?.[conn.sourceHandle] ?? 'Any'
+    const toType   = tgtNode?.data?.input_types?.[conn.targetHandle]  ?? 'Any'
     if (!portsCompatible(fromType, toType)) return
     const multiInputPorts: string[] = tgtNode?.data?.multi_input_ports ?? []
-    const conflictingEdge = multiInputPorts.includes(newConn.targetHandle) ? null
-      : edges.find(e => e.id !== oldEdge.id && e.target === newConn.target && e.targetHandle === newConn.targetHandle)
-    if (conflictingEdge?.source && conflictingEdge.sourceHandle && conflictingEdge.target && conflictingEdge.targetHandle) {
-      await api.disconnect(conflictingEdge.source, conflictingEdge.sourceHandle, conflictingEdge.target, conflictingEdge.targetHandle)
+    const conflictingEdge = multiInputPorts.includes(conn.targetHandle) ? null
+      : edges.find(e => e.id !== oldEdge.id && e.target === conn.target && e.targetHandle === conn.targetHandle)
+    const nextEdges = edges
+      .filter(e => e.id !== oldEdge.id && e.id !== conflictingEdge?.id)
+      .concat([{
+        id: oldEdge.id,
+        source: conn.source!,
+        sourceHandle: conn.sourceHandle,
+        target: conn.target!,
+        targetHandle: conn.targetHandle,
+        style: { stroke: portColor(fromType), strokeWidth: 1.5 },
+      }])
+    const { nodes: nextNodes, changedIds: prunedToolBoxes } = pruneEmptyToolBoxSlots(nodes, nextEdges)
+
+    if (subnetStack.length > 0) {
+      const frame = subnetStack[subnetStack.length - 1]
+      const innerMeta: Record<string, any> = {}
+      nextNodes.forEach(n => { innerMeta[n.id] = { ...n.data, pos: [n.position.x, n.position.y] } })
+      const innerEdges = nextEdges.map(e => ({
+        from: e.source, from_port: e.sourceHandle ?? '',
+        to: e.target,   to_port:   e.targetHandle ?? '',
+      }))
+      await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
+    } else {
+      if (oldEdge.sourceHandle && oldEdge.targetHandle) {
+        await api.disconnect(oldEdge.source, oldEdge.sourceHandle, oldEdge.target, oldEdge.targetHandle)
+      }
+      if (conflictingEdge?.source && conflictingEdge.sourceHandle && conflictingEdge.target && conflictingEdge.targetHandle) {
+        await api.disconnect(conflictingEdge.source, conflictingEdge.sourceHandle, conflictingEdge.target, conflictingEdge.targetHandle)
+      }
+      await api.connect(conn.source, conn.sourceHandle, conn.target, conn.targetHandle)
+      for (const id of prunedToolBoxes) {
+        const node = nextNodes.find(n => n.id === id)
+        if (!node) continue
+        await api.updatePorts(id, {
+          inputs: node.data.inputs,
+          input_types: node.data.input_types,
+          input_defaults: node.data.input_defaults,
+        })
+      }
     }
-    await api.connect(newConn.source, newConn.sourceHandle, newConn.target, newConn.targetHandle)
+
     set(s => ({
-      edges: s.edges
-        .filter(e => e.id !== oldEdge.id && e.id !== conflictingEdge?.id)
-        .concat([{
-          id: oldEdge.id,
-          source: newConn.source!,
-          sourceHandle: newConn.sourceHandle,
-          target: newConn.target!,
-          targetHandle: newConn.targetHandle,
-          style: { stroke: portColor(fromType), strokeWidth: 1.5 },
-        }]),
+      nodes: nextNodes,
+      edges: nextEdges,
       ...markActiveTabDirty(s),
     }))
   },

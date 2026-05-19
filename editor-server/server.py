@@ -20,6 +20,9 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 _SAVE_PATH      = os.path.join(os.path.dirname(__file__), "blacknode_graph.json")
 _WORKFLOWS_DIR  = os.path.join(os.path.dirname(__file__), "..", "workflows")
 _save_timer: threading.Timer | None = None
+_SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool"}
+_TOOLBOX_NODE_TYPES = {"ToolBox"}
+_DYNAMIC_PORT_TYPES = {*_SUBGRAPH_NODE_TYPES, "SubnetInput", "SubnetOutput", *_TOOLBOX_NODE_TYPES}
 
 
 def _save_now() -> None:
@@ -54,14 +57,18 @@ def _load() -> None:
         edges:    list = data.get("edges",     [])
         # only restore nodes whose type is still registered
         for node_id, meta in meta_map.items():
-            if meta["type"] not in _NODE_REGISTRY and meta["type"] != "Subnet":
+            if meta["type"] not in _NODE_REGISTRY and meta["type"] not in _SUBGRAPH_NODE_TYPES:
                 continue
+            if meta["type"] in _SUBGRAPH_NODE_TYPES:
+                _sync_subgraph_node_ports(meta)
+            elif meta["type"] in _TOOLBOX_NODE_TYPES:
+                _sync_toolbox_ports(meta, edges)
             _session.node_meta[node_id] = meta
             node_entry = {
                 "type":   meta["type"],
                 "params": dict(meta.get("params", {})),
             }
-            if meta["type"] == "Subnet":
+            if meta["type"] in _SUBGRAPH_NODE_TYPES:
                 node_entry["subgraph"] = meta.get("subgraph", {"node_meta": {}, "edges": []})
             _session.graph._nodes[node_id] = node_entry
             _session.graph._dirty.add(node_id)
@@ -83,7 +90,6 @@ class Session:
         self.node_meta: dict[str, dict] = {}
 
 _session = Session()
-_load()   # restore last session on startup
 
 
 # ── Schema models ─────────────────────────────────────────────────────────────
@@ -102,6 +108,14 @@ class ConnectReq(BaseModel):
 class UpdateParamReq(BaseModel):
     key: str
     value: Any
+
+class UpdatePortsReq(BaseModel):
+    inputs: list[str] | None = None
+    outputs: list[str] | None = None
+    input_types: dict[str, str] | None = None
+    output_types: dict[str, str] | None = None
+    input_defaults: dict[str, Any] | None = None
+    multi_input_ports: list[str] | None = None
 
 class CookReq(BaseModel):
     node_id: str
@@ -204,12 +218,54 @@ class AddCustomModelReq(BaseModel):
 _load_custom_models()
 
 
-def _sync_subnet_ports(subnet_meta: dict) -> None:
+def _toolbox_port_sort_key(port: str) -> tuple[int, str]:
+    match = re.fullmatch(r"tool_(\d+)", str(port))
+    return (int(match.group(1)), str(port)) if match else (999_999, str(port))
+
+
+def _sync_toolbox_ports(toolbox_meta: dict, edges: list[dict] | None = None) -> None:
+    """Keep ToolBox metadata dynamic and remove disconnected tool slots."""
+    fn = _NODE_REGISTRY.get("ToolBox")
+    inputs = [
+        str(port)
+        for port in list(toolbox_meta.get("inputs") or [])
+        if str(port).startswith("tool_")
+    ]
+    if edges is not None:
+        connected = sorted({
+            str(e.get("to_port"))
+            for e in edges
+            if e.get("to") == toolbox_meta.get("id") and str(e.get("to_port", "")).startswith("tool_")
+        }, key=_toolbox_port_sort_key)
+        inputs = connected
+
+    input_types = dict(toolbox_meta.get("input_types", {}))
+    toolbox_meta["inputs"] = inputs
+    toolbox_meta["input_types"] = {port: input_types.get(port, "Fn") for port in inputs}
+    toolbox_meta["outputs"] = getattr(fn, "_bn_outputs", ["tools"])
+    toolbox_meta["output_types"] = getattr(fn, "_bn_output_types", {"tools": "List"})
+    toolbox_meta["input_defaults"] = {}
+
+
+def _sync_subgraph_node_ports(subnet_meta: dict) -> None:
     """Rebuild a Subnet node's inputs/outputs from its single boundary nodes.
 
     SubnetInput outputs  → outer Subnet inputs
     SubnetOutput inputs  → outer Subnet outputs
     """
+    subnet_meta.setdefault("subgraph", {"node_meta": {}, "edges": []})
+    if subnet_meta.get("type") == "SubnetAsTool":
+        params = subnet_meta.setdefault("params", {})
+        params["name"] = params.get("name") or params.get("subnet_label") or params.get("label") or "tool"
+        params.setdefault("description", "")
+        fn = _NODE_REGISTRY.get("SubnetAsTool")
+        subnet_meta["inputs"]         = getattr(fn, "_bn_inputs", ["name", "description"])
+        subnet_meta["outputs"]        = getattr(fn, "_bn_outputs", ["fn"])
+        subnet_meta["input_types"]    = getattr(fn, "_bn_input_types", {"name": "Text", "description": "Text"})
+        subnet_meta["output_types"]   = getattr(fn, "_bn_output_types", {"fn": "Fn"})
+        subnet_meta["input_defaults"] = getattr(fn, "_bn_input_defaults", {"name": "tool"})
+        return
+
     subgraph = subnet_meta.get("subgraph", {})
     inner_meta = subgraph.get("node_meta", {})
     inputs, outputs = [], []
@@ -233,6 +289,9 @@ def _sync_subnet_ports(subnet_meta: dict) -> None:
     subnet_meta["input_defaults"] = {}
 
 
+_load()   # restore last session on startup
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/node-types")
@@ -253,10 +312,6 @@ def list_node_defs():
         }
         for name, fn in sorted(_NODE_REGISTRY.items())
     }
-
-
-_DYNAMIC_PORT_TYPES = {"Subnet", "SubnetInput", "SubnetOutput"}
-
 
 @app.get("/graph")
 def get_graph():
@@ -287,12 +342,20 @@ def set_graph(req: SetGraphReq):
 
 @app.post("/nodes")
 def add_node(req: AddNodeReq):
-    if req.type_name == "Subnet":
+    if req.type_name in _SUBGRAPH_NODE_TYPES:
         node_id = str(__import__('uuid').uuid4())
-        meta = {
+        params = (
+            {"label": req.params.get("label", "Subnet")}
+            if req.type_name == "Subnet"
+            else {
+                "name": req.params.get("name") or req.params.get("subnet_label") or "tool",
+                "description": req.params.get("description", ""),
+            }
+        )
+        meta: dict[str, Any] = {
             "id":           node_id,
-            "type":         "Subnet",
-            "params":       {"label": req.params.get("label", "Subnet")},
+            "type":         req.type_name,
+            "params":       params,
             "pos":          list(req.pos),
             "inputs":       [],
             "outputs":      [],
@@ -301,9 +364,10 @@ def add_node(req: AddNodeReq):
             "input_defaults": {},
             "subgraph":     {"node_meta": {}, "edges": []},
         }
+        _sync_subgraph_node_ports(meta)
         _session.node_meta[node_id] = meta
         _session.graph._nodes[node_id] = {
-            "type": "Subnet",
+            "type": req.type_name,
             "params": meta["params"],
             "subgraph": meta["subgraph"],
         }
@@ -325,6 +389,8 @@ def add_node(req: AddNodeReq):
         "output_types":   getattr(fn, "_bn_output_types",   {}),
         "input_defaults": getattr(fn, "_bn_input_defaults", {}),
     }
+    if req.type_name in _TOOLBOX_NODE_TYPES:
+        _sync_toolbox_ports(meta)
     _session.node_meta[proxy._id] = meta
     _save()
     return meta
@@ -356,6 +422,33 @@ def update_param(node_id: str, req: UpdateParamReq):
     return _session.node_meta[node_id]
 
 
+@app.patch("/nodes/{node_id}/ports")
+def update_ports(node_id: str, req: UpdatePortsReq):
+    if node_id not in _session.node_meta:
+        raise HTTPException(404, "Node not found")
+    meta = _session.node_meta[node_id]
+    if meta["type"] not in _TOOLBOX_NODE_TYPES:
+        raise HTTPException(400, "Only ToolBox supports editable root ports")
+
+    if req.inputs is not None:
+        meta["inputs"] = req.inputs
+    if req.outputs is not None:
+        meta["outputs"] = req.outputs
+    if req.input_types is not None:
+        meta["input_types"] = req.input_types
+    if req.output_types is not None:
+        meta["output_types"] = req.output_types
+    if req.input_defaults is not None:
+        meta["input_defaults"] = req.input_defaults
+    if req.multi_input_ports is not None:
+        meta["multi_input_ports"] = req.multi_input_ports
+
+    _sync_toolbox_ports(meta)
+    _session.graph._mark_dirty(node_id)
+    _save()
+    return meta
+
+
 @app.patch("/nodes/{node_id}/pos")
 def update_pos(node_id: str, pos: list[float]):
     if node_id not in _session.node_meta:
@@ -371,6 +464,13 @@ def connect(req: ConnectReq):
         _session.graph._add_edge(req.from_id, req.from_port, req.to_id, req.to_port)
     except Exception as e:
         raise HTTPException(400, str(e))
+    meta = _session.node_meta.get(req.to_id)
+    if meta and meta.get("type") in _TOOLBOX_NODE_TYPES and req.to_port.startswith("tool_"):
+        inputs = list(meta.get("inputs", []))
+        if req.to_port not in inputs:
+            meta["inputs"] = [*inputs, req.to_port]
+            meta["input_types"] = {**meta.get("input_types", {}), req.to_port: "Fn"}
+        _sync_toolbox_ports(meta)
     _save()
     return {"ok": True}
 
@@ -382,6 +482,9 @@ def disconnect(from_id: str, from_port: str, to_id: str, to_port: str):
         if not (e["from"] == from_id and e["from_port"] == from_port
                 and e["to"] == to_id and e["to_port"] == to_port)
     ]
+    meta = _session.node_meta.get(to_id)
+    if meta and meta.get("type") in _TOOLBOX_NODE_TYPES:
+        _sync_toolbox_ports(meta, _session.graph._edges)
     _save()
     return {"ok": True}
 
@@ -390,12 +493,12 @@ def disconnect(from_id: str, from_port: str, to_id: str, to_port: str):
 def update_subgraph(node_id: str, req: UpdateSubgraphReq):
     if node_id not in _session.node_meta:
         raise HTTPException(404, "Node not found")
-    if _session.node_meta[node_id]["type"] != "Subnet":
-        raise HTTPException(400, "Node is not a Subnet")
+    if _session.node_meta[node_id]["type"] not in _SUBGRAPH_NODE_TYPES:
+        raise HTTPException(400, "Node does not own a subgraph")
     subgraph = {"node_meta": req.node_meta, "edges": req.edges}
     _session.node_meta[node_id]["subgraph"] = subgraph
     _session.graph._nodes[node_id]["subgraph"] = subgraph
-    _sync_subnet_ports(_session.node_meta[node_id])
+    _sync_subgraph_node_ports(_session.node_meta[node_id])
     _session.graph._mark_dirty(node_id)
     _save()
     return _session.node_meta[node_id]
@@ -514,7 +617,7 @@ def collapse_to_subnet(req: CollapseSubnetReq):
         "input_defaults": {},
         "subgraph": {"node_meta": all_inner_meta, "edges": all_inner_edges},
     }
-    _sync_subnet_ports(subnet_meta)
+    _sync_subgraph_node_ports(subnet_meta)
 
     # Remove collapsed nodes from session
     for nid in node_ids:
@@ -634,6 +737,7 @@ def _cook_trace(node_id: str, port: str):
 
             fn = _NODE_REGISTRY[node_def["type"]]
             ctx["__graph__"] = _session.graph
+            ctx["__node_id__"] = current_id
             result = fn(ctx)
             if not isinstance(result, dict):
                 result = {"output": result}
@@ -780,14 +884,18 @@ def _restore_session(node_meta: dict, edges: list):
     _session.graph = bn.Graph()
     _session.node_meta.clear()
     for node_id, meta in node_meta.items():
-        if meta["type"] not in _NODE_REGISTRY and meta["type"] != "Subnet":
+        if meta["type"] not in _NODE_REGISTRY and meta["type"] not in _SUBGRAPH_NODE_TYPES:
             continue
+        if meta["type"] in _SUBGRAPH_NODE_TYPES:
+            _sync_subgraph_node_ports(meta)
+        elif meta["type"] in _TOOLBOX_NODE_TYPES:
+            _sync_toolbox_ports(meta, edges)
         _session.node_meta[node_id] = meta
         node_entry = {
             "type":   meta["type"],
             "params": dict(meta.get("params", {})),
         }
-        if meta["type"] == "Subnet":
+        if meta["type"] in _SUBGRAPH_NODE_TYPES:
             node_entry["subgraph"] = meta.get("subgraph", {"node_meta": {}, "edges": []})
         _session.graph._nodes[node_id] = node_entry
         _session.graph._dirty.add(node_id)
@@ -812,7 +920,7 @@ def _node_pos(meta: dict) -> tuple[float, float]:
 def _insert_workflow(node_meta: dict, edges: list):
     valid_nodes = [
         meta for meta in node_meta.values()
-        if meta.get("type") in _NODE_REGISTRY
+        if meta.get("type") in _NODE_REGISTRY or meta.get("type") in _SUBGRAPH_NODE_TYPES
     ]
     if not valid_nodes:
         return
@@ -838,11 +946,25 @@ def _insert_workflow(node_meta: dict, edges: list):
             "params": dict(meta.get("params", {})),
             "pos": [x + offset_x, y + offset_y],
         }
+        if next_meta["type"] in _SUBGRAPH_NODE_TYPES:
+            _sync_subgraph_node_ports(next_meta)
+        elif next_meta["type"] in _TOOLBOX_NODE_TYPES:
+            old_id_meta = {**next_meta, "id": old_id}
+            _sync_toolbox_ports(old_id_meta, edges)
+            next_meta.update({
+                "inputs": old_id_meta["inputs"],
+                "outputs": old_id_meta["outputs"],
+                "input_types": old_id_meta["input_types"],
+                "output_types": old_id_meta["output_types"],
+                "input_defaults": old_id_meta["input_defaults"],
+            })
         _session.node_meta[new_id] = next_meta
         _session.graph._nodes[new_id] = {
             "type": next_meta["type"],
             "params": dict(next_meta.get("params", {})),
         }
+        if next_meta["type"] in _SUBGRAPH_NODE_TYPES:
+            _session.graph._nodes[new_id]["subgraph"] = next_meta.get("subgraph", {"node_meta": {}, "edges": []})
         _session.graph._dirty.add(new_id)
 
     for edge in edges:

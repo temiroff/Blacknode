@@ -19,6 +19,13 @@ class ToolCall:
 
 
 @dataclass
+class ToolResult:
+    tool_call_id: str
+    name: str
+    output: str
+
+
+@dataclass
 class CompletionResponse:
     text: str
     tool_calls: list[ToolCall] = field(default_factory=list)
@@ -45,3 +52,15 @@ class BaseProvider(ABC):
 
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}>"
+
+    def tool_result_messages(
+        self,
+        assistant_text: str,
+        tool_calls: list[ToolCall],
+        tool_results: list[ToolResult],
+    ) -> list[dict]:
+        results = "\n".join(f"[{r.name} result]: {r.output}" for r in tool_results)
+        return [
+            {"role": "assistant", "content": assistant_text or "[tool use]"},
+            {"role": "user", "content": results},
+        ]

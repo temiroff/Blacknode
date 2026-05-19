@@ -20,6 +20,7 @@ export interface BnNodeMeta {
   input_types: Record<string, string>
   output_types: Record<string, string>
   input_defaults: Record<string, unknown>
+  multi_input_ports?: string[]
   subgraph?: SubgraphData
 }
 

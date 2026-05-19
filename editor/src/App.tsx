@@ -47,7 +47,7 @@ export default function App() {
     addNodeFromConnection,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     renameTab, saveActiveWorkflow,
-    diveIntoSubnet, exitSubnet, collapseToSubnet,
+    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -108,6 +108,24 @@ export default function App() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [exitSubnet])
+
+  const fitCurrentCanvas = useCallback((duration = 280) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        rfInstance.current?.fitView({
+          padding: 0.24,
+          maxZoom: 1,
+          duration,
+        })
+      })
+    })
+  }, [])
+
+  useEffect(() => {
+    const handler = () => fitCurrentCanvas(320)
+    window.addEventListener('blacknode:fit-view', handler)
+    return () => window.removeEventListener('blacknode:fit-view', handler)
+  }, [fitCurrentCanvas])
 
   const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -218,6 +236,11 @@ export default function App() {
     }
   }, [activeTab, activeTabId, editingTabId, renameTab, saveActiveWorkflow, tabDraft])
 
+  const handleOrganize = useCallback(async () => {
+    await organizeNodes()
+    fitCurrentCanvas(320)
+  }, [fitCurrentCanvas, organizeNodes])
+
   const runTabMenuAction = useCallback((action: () => void | Promise<void>) => {
     setTabMenu(null)
     void action()
@@ -260,6 +283,29 @@ export default function App() {
 
           <span style={{ color: 'var(--tx3)', fontSize: 12 }}>right-click to add</span>
 
+          <button
+            className="bn-top-button"
+            onClick={() => void handleOrganize()}
+            title="Organize current graph"
+          >
+            Organize
+          </button>
+
+          <button
+            className="bn-top-button"
+            onClick={() => setIsDark(d => !d)}
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            Theme
+          </button>
+
+          <button
+            className="bn-top-button"
+            onClick={() => void reset()}
+          >
+            Clear
+          </button>
+
           <span style={{
             padding: '3px 10px',
             borderRadius: 20,
@@ -267,43 +313,10 @@ export default function App() {
             color: serverOk ? 'var(--ok)' : 'var(--err)',
             fontSize: 12,
             fontWeight: 500,
+            marginLeft: 2,
           }}>
             {serverOk ? '● server' : '○ offline'}
           </span>
-
-          <button
-            onClick={() => setIsDark(d => !d)}
-            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-            style={{
-              background: 'var(--hover)',
-              border: '1px solid var(--line2)',
-              borderRadius: 6,
-              color: 'var(--tx2)',
-              cursor: 'pointer',
-              fontSize: 15,
-              width: 32, height: 32,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >
-            {isDark ? '☀' : '☾'}
-          </button>
-
-          <button
-            onClick={() => void reset()}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--line2)',
-              borderRadius: 6,
-              color: 'var(--err)',
-              cursor: 'pointer',
-              fontFamily: 'var(--font-ui)',
-              fontSize: 12,
-              fontWeight: 500,
-              padding: '5px 12px',
-            }}
-          >
-            Clear
-          </button>
         </div>
 
         {/* ── workflow tab bar ── */}
@@ -545,7 +558,7 @@ export default function App() {
           onInit={i => { rfInstance.current = i }}
           onNodeClick={(_, node) => selectNode(node.id)}
           onNodeDoubleClick={(_, node) => {
-            if (node.data?.type === 'Subnet') void diveIntoSubnet(node.id)
+            if (node.data?.type === 'Subnet' || node.data?.type === 'SubnetAsTool') void diveIntoSubnet(node.id)
           }}
           onPaneClick={() => {
             if (suppressPaneClick.current) {
@@ -558,6 +571,7 @@ export default function App() {
           }}
           onPaneContextMenu={onPaneContextMenu}
           fitView
+          fitViewOptions={{ padding: 0.24, maxZoom: 1 }}
           deleteKeyCode={['Delete', 'Backspace']}
           selectionKeyCode="Control"
           multiSelectionKeyCode="Control"

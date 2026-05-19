@@ -34,23 +34,22 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   const isFloat = data.type === 'Float'
   const isInt   = data.type === 'Int'
   const isDict  = data.type === 'Dict'
+  const isLargeText = isText || isDict
 
   const rawValue  = data.params.value
-  const initDraft = isFloat ? formatFloat(rawValue)
-    : isInt  ? (rawValue ?? 0)
-    : isDict ? (typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue ?? {}, null, 2))
-    : (rawValue ?? '')
+  const resolveDraft = (value: unknown): string | number => isFloat ? formatFloat(value)
+    : isInt  ? Number(value ?? 0)
+    : isDict ? (typeof value === 'string' ? value : JSON.stringify(value ?? {}, null, 2))
+    : typeof value === 'string' || typeof value === 'number' ? value
+    : value === undefined || value === null ? ''
+    : String(value)
+  const initDraft = resolveDraft(rawValue)
   const [draft, setDraft] = useState<string | number>(initDraft)
   const [jsonError, setJsonError] = useState(false)
   const commitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    setDraft(
-      isFloat ? formatFloat(rawValue)
-      : isInt  ? (rawValue ?? 0)
-      : isDict ? (typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue ?? {}, null, 2))
-      : (rawValue ?? '')
-    )
+    setDraft(resolveDraft(rawValue))
   }, [rawValue])
 
   const commit = (val: unknown) => {
@@ -68,10 +67,10 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
       onClick={() => selectNode(id)}
       style={{
         position: 'relative',
-        width:  (isText || isDict) ? '100%' : 170,
-        height: (isText || isDict) ? '100%' : undefined,
-        minWidth: (isText || isDict) ? 180 : undefined,
-        minHeight: (isText || isDict) ? 80 : undefined,
+        width:  isLargeText ? '100%' : 170,
+        height: isLargeText ? '100%' : undefined,
+        minWidth: isLargeText ? 180 : undefined,
+        minHeight: isLargeText ? 80 : undefined,
         background: 'var(--node)',
         border: `1px solid ${selected ? color : 'var(--line2)'}`,
         borderRadius: 9,
@@ -81,13 +80,14 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
           ? `0 0 0 2px ${color}55, 0 4px 16px rgba(0,0,0,.4)`
           : '0 2px 10px rgba(0,0,0,.25)',
         cursor: 'default',
-        display: isText ? 'flex' : undefined,
-        flexDirection: isText ? 'column' : undefined,
+        display: isLargeText ? 'flex' : undefined,
+        flexDirection: isLargeText ? 'column' : undefined,
         boxSizing: 'border-box',
+        overflow: isLargeText ? 'hidden' : undefined,
       }}
     >
       {/* resize handle — Text and Dict */}
-      {(isText || isDict) && (
+      {isLargeText && (
         <NodeResizer
           minWidth={180}
           minHeight={80}
@@ -124,10 +124,12 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
 
       {/* value input */}
       <div style={{
-        padding: isText ? '6px 8px' : '6px 8px',
+        padding: '6px 8px',
         display: 'flex',
-        alignItems: (isText || isDict) ? 'stretch' : 'center',
-        flex: (isText || isDict) ? 1 : undefined,
+        alignItems: isLargeText ? 'stretch' : 'center',
+        flex: isLargeText ? 1 : undefined,
+        minHeight: isLargeText ? 0 : undefined,
+        boxSizing: 'border-box',
       }}>
         {data.type === 'Bool' ? (
           <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', width: '100%' }}>
@@ -183,6 +185,8 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
             style={{
               width: '100%',
               flex: 1,
+              minHeight: 0,
+              height: '100%',
               background: 'transparent',
               border: 'none',
               borderTop: `1px solid ${jsonError ? 'var(--err)' : pColor + '40'}`,
@@ -192,7 +196,9 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               lineHeight: 1.6,
               outline: 'none',
               resize: 'none',
+              overflow: 'auto',
               padding: '6px 4px',
+              boxSizing: 'border-box',
             }}
           />
 
@@ -212,6 +218,8 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
             style={{
               width: '100%',
               flex: 1,
+              minHeight: 0,
+              height: '100%',
               background: 'transparent',
               border: 'none',
               borderTop: `1px solid ${pColor}40`,
@@ -221,7 +229,9 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               lineHeight: 1.6,
               outline: 'none',
               resize: 'none',
+              overflow: 'auto',
               padding: '6px 4px',
+              boxSizing: 'border-box',
             }}
           />
 

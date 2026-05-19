@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any
-from .base import BaseProvider, CompletionResponse, ToolCall, ToolDef
+from .base import BaseProvider, CompletionResponse, ToolCall, ToolDef, ToolResult
 
 
 class OpenAIProvider(BaseProvider):
@@ -65,3 +65,36 @@ class OpenAIProvider(BaseProvider):
         finish = choice.finish_reason
         stop_reason = "tool_use" if finish == "tool_calls" else ("length" if finish == "length" else "end_turn")
         return CompletionResponse(text=text, tool_calls=tool_calls, stop_reason=stop_reason)
+
+    def tool_result_messages(
+        self,
+        assistant_text: str,
+        tool_calls: list[ToolCall],
+        tool_results: list[ToolResult],
+    ) -> list[dict]:
+        return [
+            {
+                "role": "assistant",
+                "content": assistant_text or None,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.arguments),
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            },
+            *[
+                {
+                    "role": "tool",
+                    "tool_call_id": r.tool_call_id,
+                    "name": r.name,
+                    "content": r.output,
+                }
+                for r in tool_results
+            ],
+        ]

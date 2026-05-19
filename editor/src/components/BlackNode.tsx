@@ -7,6 +7,8 @@ import { portColor } from '../portColors'
 import { headerColor } from '../categories'
 import NodeStatus from './NodeStatus'
 
+const TOOLBOX_NEW_HANDLE_COLOR = '#ef444488'
+
 interface NodeData {
   id: string
   type: string
@@ -21,7 +23,17 @@ interface NodeData {
   cookPort?: string
 }
 
-function PortRow({ name, type, dir }: { name: string; type: string; dir: 'input' | 'output' }) {
+function PortRow({
+  name,
+  type,
+  dir,
+  onRemove,
+}: {
+  name: string
+  type: string
+  dir: 'input' | 'output'
+  onRemove?: () => void
+}) {
   const [hovering, setHovering] = useState(false)
   const color   = portColor(type)
   const isInput = dir === 'input'
@@ -32,7 +44,7 @@ function PortRow({ name, type, dir }: { name: string; type: string; dir: 'input'
         display: 'flex',
         alignItems: 'center',
         justifyContent: isInput ? 'flex-start' : 'flex-end',
-        padding: isInput ? '4px 10px 4px 12px' : '4px 12px 4px 10px',
+        padding: isInput ? `4px 10px 4px ${onRemove ? 28 : 12}px` : '4px 12px 4px 10px',
         position: 'relative',
         gap: 5,
       }}
@@ -53,6 +65,27 @@ function PortRow({ name, type, dir }: { name: string; type: string; dir: 'input'
           transition: 'box-shadow 0.15s',
         }}
       />
+      {onRemove && (
+        <button
+          onClick={e => { e.stopPropagation(); onRemove() }}
+          onMouseDown={e => e.stopPropagation()}
+          title="Remove slot"
+          style={{
+            position: 'absolute',
+            left: 7,
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--tx3)',
+            cursor: 'pointer',
+            fontSize: 12,
+            lineHeight: 1,
+            padding: '0 2px',
+            opacity: hovering ? 1 : 0.55,
+          }}
+        >
+          x
+        </button>
+      )}
       <span style={{
         color: 'var(--tx2)',
         fontSize: 12,
@@ -81,9 +114,21 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode    = useStore(s => s.cookNode)
   const selectNode  = useStore(s => s.selectNode)
   const updateParam = useStore(s => s.updateParam)
+  const updateNodePorts = useStore(s => s.updateNodePorts)
   const edges       = useStore(s => s.edges)
   const nodes       = useStore(s => s.nodes)
   const color       = headerColor(data.type)
+  const isToolBox   = data.type === 'ToolBox'
+  const connectedToolInputs = new Set(
+    isToolBox
+      ? edges
+          .filter(e => e.target === id && e.targetHandle?.startsWith('tool_'))
+          .map(e => e.targetHandle!)
+      : []
+  )
+  const visibleInputs = isToolBox
+    ? (data.inputs ?? []).filter(inp => connectedToolInputs.has(inp))
+    : (data.inputs ?? [])
 
   const effectivePortType = (portName: string, side: 'input' | 'output'): string => {
     const declared = side === 'input'
@@ -121,6 +166,13 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     setEditingLabel(false)
     const v = labelDraft.trim()
     updateParam(id, 'label', v || null).catch(() => {})
+  }
+
+  const removeToolSlot = async (port: string) => {
+    const nextInputs = visibleInputs.filter(p => p !== port)
+    const nextTypes = { ...(data.input_types ?? {}) }
+    delete nextTypes[port]
+    await updateNodePorts(id, nextInputs, undefined, nextTypes, undefined)
   }
 
   useEffect(() => {
@@ -229,8 +281,39 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
 
       {/* ports */}
       <div ref={portsRef} style={{ flex: 1, padding: '6px 0' }}>
-        {data.inputs.map(inp => (
-          <PortRow key={inp} name={inp} type={effectivePortType(inp, 'input')} dir="input" />
+        {isToolBox && (
+          <div style={{
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            padding: '2px 10px 6px 16px',
+          }}>
+            <Handle
+              type="target"
+              position={Position.Left}
+              id="__new__"
+              style={{
+                left: -5,
+                background: 'var(--node)',
+                width: 11,
+                height: 11,
+                border: `2px dashed ${TOOLBOX_NEW_HANDLE_COLOR}`,
+                borderRadius: '50%',
+              }}
+            />
+            <span style={{ fontSize: 9, color: TOOLBOX_NEW_HANDLE_COLOR, fontFamily: 'var(--font-ui)', userSelect: 'none' }}>
+              drag tool here
+            </span>
+          </div>
+        )}
+        {visibleInputs.map(inp => (
+          <PortRow
+            key={inp}
+            name={inp}
+            type={effectivePortType(inp, 'input')}
+            dir="input"
+            onRemove={isToolBox ? () => removeToolSlot(inp) : undefined}
+          />
         ))}
         {data.outputs.map(out => (
           <PortRow key={out} name={out} type={effectivePortType(out, 'output')} dir="output" />

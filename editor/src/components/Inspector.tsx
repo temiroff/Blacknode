@@ -3,6 +3,11 @@ import { useStore } from '../store'
 import { portColor } from '../portColors'
 
 const WIRE_ONLY = new Set(['List', 'Dict', 'Fn', 'Embedding'])
+const TOP_BAR_H = 44
+const RAIL_W = 78
+const PANEL_DEFAULT_W = 260
+const PANEL_MIN_W = 200
+const PANEL_MAX_W = 560
 
 const formatFloat = (v: unknown): string => {
   const n = parseFloat(String(v))
@@ -10,145 +15,249 @@ const formatFloat = (v: unknown): string => {
   return Number.isInteger(n) ? `${n}.0` : String(n)
 }
 
+const ICON_PARAMS = (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <line x1="3" y1="5"  x2="15" y2="5"  stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    <circle cx="7"  cy="5"  r="2" fill="var(--panel)" stroke="currentColor" strokeWidth="1.3"/>
+    <line x1="3" y1="9"  x2="15" y2="9"  stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    <circle cx="11" cy="9"  r="2" fill="var(--panel)" stroke="currentColor" strokeWidth="1.3"/>
+    <line x1="3" y1="13" x2="15" y2="13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    <circle cx="6"  cy="13" r="2" fill="var(--panel)" stroke="currentColor" strokeWidth="1.3"/>
+  </svg>
+)
+
 export default function Inspector() {
   const { nodes, edges, nodeDefs, selectedId, updateParam, cookNode, removeNode } = useStore()
   const node = nodes.find(n => n.id === selectedId)
 
-  if (!node) {
-    return (
-      <aside style={{
-        width: 260,
-        background: 'var(--panel)',
-        borderLeft: '1px solid var(--line)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: 'var(--tx3)',
-        fontSize: 13,
-        flexShrink: 0,
-      }}>
-        Select a node
-      </aside>
-    )
+  const [open, setOpen]             = useState(true)
+  const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null)
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault()
+    dragRef.current = { startX: e.clientX, startW: panelWidth }
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return
+      // dragging left = wider (right panel resizes from left edge)
+      const next = dragRef.current.startW - (ev.clientX - dragRef.current.startX)
+      setPanelWidth(Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, next)))
+    }
+    const onUp = () => {
+      dragRef.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
   }
 
-  const { data } = node
-  const connectedPorts = new Set(
-    edges.filter(e => e.target === node.id).map(e => e.targetHandle).filter(Boolean)
-  )
+  const panelContent = (() => {
+    if (!node) {
+      return (
+        <div style={{
+          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--tx3)', fontSize: 13,
+        }}>
+          Select a node
+        </div>
+      )
+    }
+
+    const { data } = node
+    const connectedPorts = new Set(
+      edges.filter(e => e.target === node.id).map(e => e.targetHandle).filter(Boolean)
+    )
+    const visibleInputs = data.type === 'ToolBox'
+      ? data.inputs.filter(inp => connectedPorts.has(inp))
+      : data.inputs
+
+    return (
+      <>
+        {/* header */}
+        <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+          <div style={{ color: 'var(--tx1)', fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
+            {data.type}
+          </div>
+          <div style={{ color: 'var(--tx2)', fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em' }}>
+            {data.id.slice(0, 14)}…
+          </div>
+        </div>
+
+        {/* params */}
+        <div style={{ padding: '12px 16px', flex: 1, overflowY: 'auto' }}>
+          {visibleInputs.length > 0 ? (
+            <>
+              <div style={{
+                color: 'var(--tx2)', fontSize: 12, fontWeight: 700,
+                letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10,
+              }}>
+                Parameters
+              </div>
+              {visibleInputs.map(inp => {
+                const type = (data.input_types as Record<string, string>)?.[inp] ?? 'Any'
+                const def  = (data.input_defaults as Record<string, unknown>)?.[inp]
+                          ?? nodeDefs[data.type]?.input_defaults?.[inp]
+                return (
+                  <ParamRow
+                    key={`${node.id}-${inp}`}
+                    label={inp}
+                    type={type}
+                    value={data.params[inp]}
+                    defaultValue={def}
+                    connected={connectedPorts.has(inp)}
+                    onChange={v => updateParam(node.id, inp, v)}
+                  />
+                )
+              })}
+            </>
+          ) : (
+            <div style={{ color: 'var(--tx2)', fontSize: 13 }}>
+              {data.type === 'ToolBox' ? 'No tools connected' : 'No inputs'}
+            </div>
+          )}
+        </div>
+
+        {/* cook result */}
+        {(data.cookResult !== undefined || data.cookError) && (
+          <div style={{ padding: '12px 16px', borderTop: '1px solid var(--line)', flexShrink: 0 }}>
+            <div style={{
+              color: 'var(--tx3)', fontSize: 11, fontWeight: 600,
+              letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8,
+            }}>
+              Result
+            </div>
+            <pre style={{
+              background: 'var(--lift)',
+              border: `1px solid ${data.cookError ? 'var(--err)' : 'var(--line2)'}`,
+              borderRadius: 6, padding: '8px 10px',
+              color: data.cookError ? 'var(--err)' : 'var(--ok)',
+              fontSize: 12, fontFamily: 'var(--font-mono)',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+              maxHeight: 200, overflowY: 'auto', margin: 0,
+            }}>
+              {data.cookError
+                ? data.cookError
+                : typeof data.cookResult === 'object'
+                  ? JSON.stringify(data.cookResult, null, 2)
+                  : String(data.cookResult)}
+            </pre>
+          </div>
+        )}
+
+        {/* actions */}
+        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button
+            onClick={() => cookNode(node.id, data.outputs[0] ?? 'output')}
+            style={btnStyle('var(--accent)', true)}
+          >
+            {data.cooking ? 'Cooking…' : '▶  Cook'}
+          </button>
+          <button
+            onClick={() => removeNode(node.id)}
+            style={btnStyle('var(--err)', false)}
+          >
+            Delete
+          </button>
+        </div>
+      </>
+    )
+  })()
 
   return (
-    <aside style={{
-      width: 260,
-      background: 'var(--panel)',
-      borderLeft: '1px solid var(--line)',
-      overflowY: 'auto',
-      display: 'flex',
-      flexDirection: 'column',
-      flexShrink: 0,
-    }}>
-      {/* header */}
-      <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--line)' }}>
-        <div style={{ color: 'var(--tx1)', fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
-          {data.type}
-        </div>
+    <div style={{ display: 'flex', flexShrink: 0, height: '100%' }}>
+
+      {/* ── Content panel ── */}
+      {open && (
         <div style={{
-          color: 'var(--tx2)',
-          fontSize: 12,
-          fontFamily: 'var(--font-mono)',
-          letterSpacing: '0.03em',
+          width: panelWidth,
+          background: 'var(--panel)',
+          borderLeft: '1px solid var(--line)',
+          display: 'flex',
+          flexDirection: 'column',
+          flexShrink: 0,
+          position: 'relative',
+          overflow: 'hidden',
         }}>
-          {data.id.slice(0, 14)}…
-        </div>
-      </div>
-
-      {/* params */}
-      <div style={{ padding: '12px 16px', flex: 1 }}>
-        {data.inputs.length > 0 ? (
-          <>
-            <div style={{
-              color: 'var(--tx2)',
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              marginBottom: 10,
-            }}>
-              Parameters
-            </div>
-            {data.inputs.map(inp => {
-              const type = (data.input_types as Record<string, string>)?.[inp] ?? 'Any'
-              const def  = (data.input_defaults as Record<string, unknown>)?.[inp]
-                        ?? nodeDefs[data.type]?.input_defaults?.[inp]
-              return (
-                <ParamRow
-                  key={`${node.id}-${inp}`}
-                  label={inp}
-                  type={type}
-                  value={data.params[inp]}
-                  defaultValue={def}
-                  connected={connectedPorts.has(inp)}
-                  onChange={v => updateParam(node.id, inp, v)}
-                />
-              )
-            })}
-          </>
-        ) : (
-          <div style={{ color: 'var(--tx2)', fontSize: 13 }}>No inputs</div>
-        )}
-      </div>
-
-      {/* cook result */}
-      {(data.cookResult !== undefined || data.cookError) && (
-        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--line)' }}>
+          {/* resize handle at left edge */}
+          <div
+            onMouseDown={startResize}
+            style={{ position: 'absolute', left: -2, top: 0, bottom: 0, width: 4, cursor: 'col-resize', zIndex: 5 }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+          />
+          {/* panel title */}
           <div style={{
-            color: 'var(--tx3)',
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: '0.1em',
-            textTransform: 'uppercase',
-            marginBottom: 8,
+            height: TOP_BAR_H, padding: '0 14px',
+            borderBottom: '1px solid var(--line)',
+            display: 'flex', alignItems: 'center', flexShrink: 0,
           }}>
-            Result
+            <span style={{
+              fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-ui)',
+              letterSpacing: 0, textTransform: 'uppercase', color: 'var(--tx2)',
+            }}>
+              Properties
+            </span>
           </div>
-          <pre style={{
-            background: 'var(--lift)',
-            border: `1px solid ${data.cookError ? 'var(--err)' : 'var(--line2)'}`,
-            borderRadius: 6,
-            padding: '8px 10px',
-            color: data.cookError ? 'var(--err)' : 'var(--ok)',
-            fontSize: 12,
-            fontFamily: 'var(--font-mono)',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-            maxHeight: 200,
-            overflowY: 'auto',
-          }}>
-            {data.cookError
-              ? data.cookError
-              : typeof data.cookResult === 'object'
-                ? JSON.stringify(data.cookResult, null, 2)
-                : String(data.cookResult)}
-          </pre>
+          {panelContent}
         </div>
       )}
 
-      {/* actions */}
-      <div style={{ padding: '12px 16px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>
+      {/* ── Icon rail ── */}
+      <div style={{
+        width: RAIL_W,
+        background: 'var(--panel)',
+        borderLeft: '1px solid var(--line)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        flexShrink: 0,
+      }}>
+        {/* logo area matching left rail */}
+        <div style={{
+          height: TOP_BAR_H, borderBottom: '1px solid var(--line)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }} />
+
+        {/* Parameters tab button */}
         <button
-          onClick={() => cookNode(node.id, data.outputs[0] ?? 'output')}
-          style={btnStyle('var(--accent)', true)}
+          onClick={() => setOpen(o => !o)}
+          title="Properties"
+          style={{
+            width: '100%', height: 50,
+            background: open ? 'var(--menu-active)' : 'transparent',
+            border: 'none', borderRadius: 0,
+            color: open ? 'var(--tx1)' : 'var(--tx3)',
+            cursor: 'pointer',
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 3,
+            padding: '0 4px',
+            boxShadow: open ? 'inset -3px 0 0 var(--accent)' : 'none',
+            transition: 'color 0.13s, background 0.13s',
+          }}
+          onMouseEnter={e => {
+            if (!open) {
+              e.currentTarget.style.background = 'var(--menu-hover)'
+              e.currentTarget.style.color = 'var(--tx1)'
+            }
+          }}
+          onMouseLeave={e => {
+            if (!open) {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = 'var(--tx3)'
+            }
+          }}
         >
-          {data.cooking ? 'Cooking…' : '▶  Cook'}
-        </button>
-        <button
-          onClick={() => removeNode(node.id)}
-          style={btnStyle('var(--err)', false)}
-        >
-          Delete
+          {ICON_PARAMS}
+          <span style={{
+            fontSize: 9, fontFamily: 'var(--font-ui)',
+            fontWeight: open ? 700 : 500, userSelect: 'none', lineHeight: 1.1,
+          }}>
+            Properties
+          </span>
         </button>
       </div>
-    </aside>
+    </div>
   )
 }
 

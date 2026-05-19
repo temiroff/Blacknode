@@ -124,7 +124,9 @@ Open the **Templates** tab in the left sidebar for one-click starter graphs:
 | LLM Chat | System prompt + user message → Anthropic / OpenAI |
 | NVIDIA NIM | Same pipeline routed to a free NVIDIA NIM model |
 | Text Pipeline | Concatenate two strings → Output |
-| Agent Loop | Multi-turn reasoning loop |
+| Python Tool Agent | PythonFn → ToolBox → AgentLoop tool call |
+| Subnet Tool Call | Build a calculator inside SubnetAsTool and test it directly with ToolCall |
+| Subnet Tool Agent | Build a calculator inside SubnetAsTool and pass it to AgentLoop |
 
 ### Custom nodes (Script tab)
 

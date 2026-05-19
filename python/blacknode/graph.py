@@ -71,13 +71,15 @@ class Graph:
 
     def node(self, type_name: str, **params) -> NodeProxy:
         """Add a node of the given registered type."""
-        if type_name != "Subnet" and type_name not in _NODE_REGISTRY:
+        if type_name not in ("Subnet", "SubnetAsTool") and type_name not in _NODE_REGISTRY:
             raise ValueError(
                 f"Unknown node type '{type_name}'. "
                 f"Available: {sorted(_NODE_REGISTRY)}"
             )
         node_id = str(uuid.uuid4())
         self._nodes[node_id] = {"type": type_name, "params": dict(params)}
+        if type_name in ("Subnet", "SubnetAsTool"):
+            self._nodes[node_id]["subgraph"] = {"node_meta": {}, "edges": []}
         self._dirty.add(node_id)
         return NodeProxy(self, node_id, type_name, params)
 
@@ -129,6 +131,7 @@ class Graph:
 
         fn = _NODE_REGISTRY[node_def["type"]]
         ctx["__graph__"] = self
+        ctx["__node_id__"] = node_id
         result = fn(ctx)
 
         if not isinstance(result, dict):
@@ -156,10 +159,12 @@ class Graph:
         inner._edges = inner_edges
         inner._cache = {}
         inner._dirty = set(inner_meta.keys())
-        inner._nodes = {
-            nid: {"type": m["type"], "params": dict(m.get("params", {}))}
-            for nid, m in inner_meta.items()
-        }
+        inner._nodes = {}
+        for nid, m in inner_meta.items():
+            entry = {"type": m["type"], "params": dict(m.get("params", {}))}
+            if "subgraph" in m:
+                entry["subgraph"] = m["subgraph"]
+            inner._nodes[nid] = entry
 
         # Inject outer input values into the single SubnetInput node's output
         # ports.  We pre-populate the cache so downstream nodes can pull from

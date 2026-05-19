@@ -112,6 +112,31 @@ body {
   opacity: 0.55;
 }
 
+.bn-top-button {
+  background: transparent;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  color: var(--tx2);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 70ms ease;
+}
+
+.bn-top-button:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+  color: var(--tx1);
+}
+
+.bn-top-button:active {
+  background: var(--menu-active);
+  border-color: var(--accent);
+  transform: translateY(1px);
+}
+
 .bn-workflow-row:hover {
   background: var(--hover) !important;
   border-color: var(--accent) !important;
