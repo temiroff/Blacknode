@@ -185,6 +185,81 @@ Metadata to track:
 - Whether the node is deterministic.
 - Whether the node has side effects.
 
+### Cloud-hosted Blacknode
+
+Recommendation: good future idea, but do not make cloud the only path.
+
+Blacknode could eventually run as a cloud app so users can open the editor anywhere, save workflows remotely, share graphs, run background jobs, and connect hosted agents or GPUs. This could become especially useful if graphs are used for real automation, team workflows, or long-running agent tasks.
+
+Good cloud use cases:
+
+- Hosted graph editor with saved projects.
+- Remote graph execution.
+- Scheduled workflows.
+- Shared workflow templates.
+- Team collaboration.
+- Hosted MCP endpoint for AI agents.
+- GPU-backed execution for CUDA or inference nodes.
+- Run history, logs, and artifacts stored with each workflow.
+
+Important constraint:
+
+Local-first should still matter. Many users will want local execution for API keys, private files, local models, CUDA experiments, and fast iteration. Cloud should be an optional deployment target, not a replacement for the local app.
+
+Suggested approach:
+
+1. Make workflows portable and runnable from CLI.
+2. Add project/workflow storage abstraction.
+3. Add auth and secret management.
+4. Add run history and logs.
+5. Add hosted execution workers.
+6. Add collaboration only after single-user cloud execution is solid.
+
+Risks to handle:
+
+- Secrets and API keys must not be stored casually in graph files.
+- GPU execution can become expensive if jobs are not controlled.
+- Agent automation needs permissions, audit logs, and kill switches.
+- Cloud graphs need versioning so runs can be reproduced later.
+
+### Analytics and agent activity page
+
+Recommendation: yes, high value, especially before adding agent automation.
+
+An analytics page would show what the graph and any connected AI agent are doing. This is useful for debugging, trust, performance tuning, cost control, and understanding why a workflow produced a result.
+
+Possible views:
+
+- Run timeline: node-by-node execution order, duration, status, and retries.
+- Agent trace: agent thoughts/actions at a safe abstraction level, tool calls, graph edits, and decisions.
+- Cost view: token usage, provider cost estimates, GPU time, and external API calls.
+- Data flow view: inputs and outputs per node, with redaction for secrets.
+- Error view: failed nodes, stack traces, invalid ports, missing models, and bad credentials.
+- Performance view: slow nodes, cache hits, cache misses, compile time, and CUDA/GPU metrics.
+- Audit log: who or what changed a graph, when, and why.
+
+For AI agents, this page should answer:
+
+- What did the agent change?
+- Which nodes did it create or edit?
+- Which tools did it call?
+- What did it run?
+- What failed?
+- What did it spend?
+- Can I undo the change?
+
+Suggested implementation direction:
+
+1. Add a structured event log to graph execution.
+2. Store events per run ID.
+3. Emit node start, node finish, node error, cache hit, tool call, graph edit, and export events.
+4. Build a simple run history panel first.
+5. Expand into a full analytics page once agent/MCP workflows exist.
+
+Safety rule:
+
+Do not log raw secrets by default. Prompts, outputs, files, and API payloads should support redaction or summary-only logging.
+
 ### Graph package format
 
 Recommendation: useful as a future umbrella feature.
@@ -209,10 +284,12 @@ This gives Blacknode a clean path from visual prototype to portable runnable wor
 3. Add CLI execution.
 4. Add Python export.
 5. Write `docs/agent-guide.md`.
-6. Add an MCP server using the CLI/runtime as its backend.
-7. Add native/precompiled node support.
-8. Add CUDA nodes and compile cache.
-9. Add binary/package export.
+6. Add structured run logs and a basic analytics/run history page.
+7. Add an MCP server using the CLI/runtime as its backend.
+8. Add native/precompiled node support.
+9. Add CUDA nodes and compile cache.
+10. Add binary/package export.
+11. Add optional cloud hosting and hosted execution.
 
 ## Open Questions
 
@@ -223,7 +300,10 @@ This gives Blacknode a clean path from visual prototype to portable runnable wor
 - Should graph execution be deterministic by default?
 - How should secrets and API keys be represented in portable graphs?
 - Should AI agents modify graph files directly, or only through validated tools?
+- What telemetry should be kept locally only, and what can be stored in cloud runs?
+- Should cloud execution support user-provided workers for private/GPU workloads?
+- How much agent reasoning should be visible in analytics without exposing sensitive prompts or hidden system behavior?
 
 ## Current Best Answer
 
-The best near-term investment is not binary export yet. Build a stable, readable graph format, CLI runner, and Python exporter first. Then AI docs and MCP become straightforward. After that, binary graph packages, CUDA nodes, and precompiled execution will have a solid foundation instead of becoming separate one-off systems.
+The best near-term investment is not binary export or cloud hosting yet. Build a stable, readable graph format, CLI runner, Python exporter, and structured run logs first. Then AI docs, analytics, and MCP become straightforward. After that, binary graph packages, CUDA nodes, precompiled execution, and optional cloud hosting will have a solid foundation instead of becoming separate one-off systems.
