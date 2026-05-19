@@ -68,9 +68,9 @@ interface Store {
   saveActiveTabSnapshot: () => Promise<GraphSnapshot | null>
 
   subnetStack: SubnetFrame[]
-  diveIntoSubnet: (subnetId: string) => void
-  exitSubnet: () => void
-  exitToRoot: () => void
+  diveIntoSubnet: (subnetId: string) => Promise<void>
+  exitSubnet: () => Promise<void>
+  exitToRoot: () => Promise<void>
   collapseToSubnet: (nodeIds: string[], label: string) => Promise<void>
   updateSubgraphBoundaryPorts: (
     innerNodeId: string,
@@ -432,18 +432,20 @@ export const useStore = create<Store>((set, get) => ({
 
   // ── Graph actions ─────────────────────────────────────────────────────────
 
-  diveIntoSubnet: (subnetId) => {
-    const { nodes, edges, subnetStack } = get()
+  diveIntoSubnet: async (subnetId) => {
+    const { nodes, edges } = get()
     const subnetNode = nodes.find(n => n.id === subnetId)
-    if (!subnetNode?.data?.subgraph) return
+    if (!subnetNode) return
     const label = String(subnetNode.data.params?.label ?? 'Subnet')
-    const { nodes: innerNodes, edges: innerEdges } = parseSubgraph(subnetNode.data.subgraph as any)
+    // Always fetch fresh inner graph from server
+    const subgraph = await api.getSubgraph(subnetId)
+    const { nodes: innerNodes, edges: innerEdges } = parseSubgraph(subgraph as any)
     set(s => ({
       subnetStack: [...s.subnetStack, {
         subnetId,
         subnetLabel: label,
-        parentNodes: s.nodes,
-        parentEdges: s.edges,
+        parentNodes: nodes,
+        parentEdges: edges,
       }],
       nodes: innerNodes,
       edges: innerEdges,
@@ -451,28 +453,28 @@ export const useStore = create<Store>((set, get) => ({
     }))
   },
 
-  exitSubnet: () => {
+  exitSubnet: async () => {
     const { subnetStack } = get()
     if (subnetStack.length === 0) return
-    const frame = subnetStack[subnetStack.length - 1]
-    set(s => ({
-      subnetStack: s.subnetStack.slice(0, -1),
-      nodes: frame.parentNodes as any,
-      edges: frame.parentEdges as any,
-      selectedId: null,
-    }))
+    const newStack = subnetStack.slice(0, -1)
+    if (newStack.length === 0) {
+      // Back to root — reload from server so subnet node shows fresh ports
+      const graphData = await api.getGraph()
+      const { nodes, edges } = parseGraph(graphData.nodes, graphData.edges)
+      set({ subnetStack: [], nodes, edges, selectedId: null })
+    } else {
+      // Back to parent subnet — reload its inner graph from server
+      const parentFrame = newStack[newStack.length - 1]
+      const subgraph = await api.getSubgraph(parentFrame.subnetId)
+      const { nodes: innerNodes, edges: innerEdges } = parseSubgraph(subgraph as any)
+      set({ subnetStack: newStack, nodes: innerNodes, edges: innerEdges, selectedId: null })
+    }
   },
 
-  exitToRoot: () => {
-    const { subnetStack } = get()
-    if (subnetStack.length === 0) return
-    const rootFrame = subnetStack[0]
-    set({
-      subnetStack: [],
-      nodes: rootFrame.parentNodes as any,
-      edges: rootFrame.parentEdges as any,
-      selectedId: null,
-    })
+  exitToRoot: async () => {
+    const graphData = await api.getGraph()
+    const { nodes, edges } = parseGraph(graphData.nodes, graphData.edges)
+    set({ subnetStack: [], nodes, edges, selectedId: null })
   },
 
   collapseToSubnet: async (nodeIds, label) => {
@@ -508,8 +510,28 @@ export const useStore = create<Store>((set, get) => ({
       to: e.target,   to_port:   e.targetHandle ?? '',
     }))
 
-    await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
-    set(s => ({ nodes: updatedNodes, ...markActiveTabDirty(s) }))
+    const freshSubnetMeta = await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
+
+    // Patch the subnet node in parentNodes so the outer canvas reflects new ports immediately
+    const updatedSubnetStack = subnetStack.map((f, i) => {
+      if (i !== subnetStack.length - 1) return f
+      const updatedParentNodes = (f.parentNodes as any[]).map((pn: any) => {
+        if (pn.id !== frame.subnetId) return pn
+        return {
+          ...pn,
+          data: {
+            ...pn.data,
+            inputs:       freshSubnetMeta.inputs       ?? pn.data.inputs,
+            outputs:      freshSubnetMeta.outputs      ?? pn.data.outputs,
+            input_types:  freshSubnetMeta.input_types  ?? pn.data.input_types,
+            output_types: freshSubnetMeta.output_types ?? pn.data.output_types,
+          },
+        }
+      })
+      return { ...f, parentNodes: updatedParentNodes }
+    })
+
+    set(s => ({ nodes: updatedNodes, subnetStack: updatedSubnetStack, ...markActiveTabDirty(s) }))
   },
 
   addNode: async (typeName, pos) => {

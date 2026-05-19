@@ -20,9 +20,22 @@ interface NodeData {
 const HEADER = '#6366f1'
 
 function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
-  const { selectNode, diveIntoSubnet, cookNode } = useStore()
+  const { selectNode, diveIntoSubnet, cookNode, updateParam } = useStore()
   const [hovered, setHovered] = useState(false)
+  const [editingLabel, setEditingLabel] = useState(false)
+  const [labelDraft, setLabelDraft] = useState('')
   const label = String(data.params?.label ?? 'Subnet')
+
+  const startRename = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setLabelDraft(label)
+    setEditingLabel(true)
+  }
+  const commitRename = () => {
+    setEditingLabel(false)
+    const v = labelDraft.trim()
+    if (v && v !== label) updateParam(id, 'label', v).catch(() => {})
+  }
 
   return (
     <div
@@ -53,10 +66,34 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
         justifyContent: 'space-between',
         gap: 6,
       }}>
-        <span style={{ fontSize: 10, opacity: 0.7 }}>⬡</span>
-        <span style={{ flex: 1, fontWeight: 600, fontSize: 12, fontFamily: 'var(--font-ui)' }}>
-          {label}
-        </span>
+        <span style={{ fontSize: 10, opacity: 0.7, flexShrink: 0 }}>⬡</span>
+        {editingLabel ? (
+          <input
+            autoFocus
+            value={labelDraft}
+            onChange={e => setLabelDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); commitRename() }
+              if (e.key === 'Escape') setEditingLabel(false)
+            }}
+            onClick={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
+            style={{
+              flex: 1, background: 'rgba(0,0,0,.25)', border: 'none', outline: 'none',
+              color: '#fff', fontWeight: 600, fontSize: 12,
+              fontFamily: 'var(--font-ui)', borderRadius: 3, padding: '1px 4px',
+            }}
+          />
+        ) : (
+          <span
+            title="Double-click to rename"
+            onDoubleClick={startRename}
+            style={{ flex: 1, fontWeight: 600, fontSize: 12, fontFamily: 'var(--font-ui)', cursor: 'text' }}
+          >
+            {label}
+          </span>
+        )}
         <button
           title="Cook"
           onClick={e => { e.stopPropagation(); cookNode(id, data.outputs[0] ?? 'output') }}

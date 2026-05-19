@@ -103,7 +103,7 @@ export default function App() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') exitSubnet()
+      if (e.key === 'Escape') void exitSubnet()
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -545,7 +545,7 @@ export default function App() {
           onInit={i => { rfInstance.current = i }}
           onNodeClick={(_, node) => selectNode(node.id)}
           onNodeDoubleClick={(_, node) => {
-            if (node.data?.type === 'Subnet') diveIntoSubnet(node.id)
+            if (node.data?.type === 'Subnet') void diveIntoSubnet(node.id)
           }}
           onPaneClick={() => {
             if (suppressPaneClick.current) {

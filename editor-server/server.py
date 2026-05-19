@@ -284,8 +284,6 @@ def set_graph(req: SetGraphReq):
 
 @app.post("/nodes")
 def add_node(req: AddNodeReq):
-    if req.type_name not in _NODE_REGISTRY:
-        raise HTTPException(400, f"Unknown node type '{req.type_name}'")
     if req.type_name == "Subnet":
         node_id = str(__import__('uuid').uuid4())
         meta = {
@@ -309,6 +307,8 @@ def add_node(req: AddNodeReq):
         _session.graph._dirty.add(node_id)
         _save()
         return meta
+    if req.type_name not in _NODE_REGISTRY:
+        raise HTTPException(400, f"Unknown node type '{req.type_name}'")
     proxy = _session.graph.node(req.type_name, **req.params)
     fn = _NODE_REGISTRY[req.type_name]
     meta = {

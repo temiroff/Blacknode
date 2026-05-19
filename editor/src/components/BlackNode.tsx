@@ -78,10 +78,25 @@ function PortRow({ name, type, dir }: { name: string; type: string; dir: 'input'
 }
 
 function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
-  const cookNode   = useStore(s => s.cookNode)
-  const selectNode = useStore(s => s.selectNode)
-  const color      = headerColor(data.type)
-  const portsRef   = useRef<HTMLDivElement>(null)
+  const cookNode    = useStore(s => s.cookNode)
+  const selectNode  = useStore(s => s.selectNode)
+  const updateParam = useStore(s => s.updateParam)
+  const color       = headerColor(data.type)
+  const portsRef    = useRef<HTMLDivElement>(null)
+  const [editingLabel, setEditingLabel] = useState(false)
+  const [labelDraft, setLabelDraft] = useState('')
+  const label = data.params?.label ? String(data.params.label) : null
+
+  const startRename = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setLabelDraft(label ?? data.type)
+    setEditingLabel(true)
+  }
+  const commitRename = () => {
+    setEditingLabel(false)
+    const v = labelDraft.trim()
+    updateParam(id, 'label', v || null).catch(() => {})
+  }
 
   useEffect(() => {
     const el = portsRef.current
@@ -132,10 +147,43 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
+        gap: 6,
       }}>
-        <span style={{ fontWeight: 600, fontSize: 13, fontFamily: 'var(--font-ui)' }}>
-          {data.type}
-        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {editingLabel ? (
+            <input
+              autoFocus
+              value={labelDraft}
+              onChange={e => setLabelDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); commitRename() }
+                if (e.key === 'Escape') setEditingLabel(false)
+              }}
+              onClick={e => e.stopPropagation()}
+              onMouseDown={e => e.stopPropagation()}
+              style={{
+                background: 'rgba(0,0,0,.25)', border: 'none', outline: 'none',
+                color: '#fff', fontWeight: 600, fontSize: 13,
+                fontFamily: 'var(--font-ui)', width: '100%', borderRadius: 3,
+                padding: '1px 4px',
+              }}
+            />
+          ) : (
+            <span
+              title="Double-click to rename"
+              onDoubleClick={startRename}
+              style={{ fontWeight: 600, fontSize: 13, fontFamily: 'var(--font-ui)', display: 'block', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {label ?? data.type}
+            </span>
+          )}
+          {label && !editingLabel && (
+            <span style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1 }}>
+              {data.type}
+            </span>
+          )}
+        </div>
         <button
           onClick={e => { e.stopPropagation(); cookNode(id, data.outputs[0] ?? 'output') }}
           style={{
@@ -147,6 +195,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             fontSize: 10,
             padding: '2px 7px',
             fontFamily: 'var(--font-ui)',
+            flexShrink: 0,
           }}
         >
           {data.cooking ? '…' : '▶'}

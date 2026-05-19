@@ -22,7 +22,7 @@ export default function SubnetBreadcrumb() {
     }}>
       {/* Exit button */}
       <button
-        onClick={exitSubnet}
+        onClick={() => void exitSubnet()}
         title="Exit subnet (Escape)"
         style={{
           background: 'rgba(255,255,255,0.12)',
@@ -47,7 +47,7 @@ export default function SubnetBreadcrumb() {
 
       {/* Breadcrumb path */}
       <button
-        onClick={exitToRoot}
+        onClick={() => void exitToRoot()}
         style={{
           background: 'none', border: 'none', color: '#a5b4fc',
           cursor: 'pointer', fontSize: 12, padding: '0 2px',
@@ -65,7 +65,12 @@ export default function SubnetBreadcrumb() {
           <button
             onClick={() => {
               const stepsBack = subnetStack.length - 1 - i
-              for (let s = 0; s < stepsBack; s++) exitSubnet()
+              if (stepsBack === 0) return
+              if (stepsBack >= subnetStack.length) { void exitToRoot(); return }
+              const runExit = async () => {
+                for (let s = 0; s < stepsBack; s++) await exitSubnet()
+              }
+              void runExit()
             }}
             style={{
               background: 'none', border: 'none',

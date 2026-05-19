@@ -6,7 +6,7 @@ export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
   IO:       { color: '#0891b2', nodes: ['FileRead', 'FileWrite', 'HTTPGet', 'JSONParse', 'JSONDump'] },
   Core:     { color: '#374151', nodes: ['Literal', 'Print', 'Concat', 'Switch'] },
   Output:   { color: '#8b5cf6', nodes: ['Output'] },
-  Subgraph: { color: '#6366f1', nodes: ['SubgraphInput', 'SubgraphOutput'] },
+  Subnet:   { color: '#6366f1', nodes: ['SubgraphInput', 'SubgraphOutput'] },
 }
 
 export const VALUE_NODE_TYPES = new Set(CATEGORIES.Values.nodes)
