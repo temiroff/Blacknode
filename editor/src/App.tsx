@@ -38,6 +38,12 @@ interface SearchState {
   connect?: ConnectionDraft
 }
 
+interface NoticeState {
+  kind: 'error' | 'warning' | 'info'
+  title: string
+  message: string
+}
+
 export default function App() {
   const {
     nodes, edges, nodeTypes, nodeDefs, serverOk,
@@ -59,11 +65,15 @@ export default function App() {
   const [savingWorkflow, setSavingWorkflow] = useState(false)
   const [saveOk, setSaveOk] = useState(false)
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tabId: string } | null>(null)
+  const [notice, setNotice] = useState<NoticeState | null>(null)
   const saveOkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const graphClipboard = useRef<GraphClipboard | null>(null)
   const lastMouseFlowPos = useRef<{ x: number; y: number } | null>(null)
   const connectionMade = useRef(false)
   const connectionDraft = useRef<ConnectionDraft | null>(null)
+  const edgeUpdateActive = useRef(false)
+  const suppressConnectMenuUntil = useRef(0)
   const altDragCopy = useRef<{
     nodeIds: string[]
     originalPositions: Record<string, { x: number; y: number }>
@@ -81,7 +91,24 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (saveOkTimer.current) clearTimeout(saveOkTimer.current)
+      if (noticeTimer.current) clearTimeout(noticeTimer.current)
     }
+  }, [])
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<Partial<NoticeState>>).detail ?? {}
+      const next: NoticeState = {
+        kind: detail.kind ?? 'info',
+        title: detail.title ?? 'Notice',
+        message: detail.message ?? '',
+      }
+      setNotice(next)
+      if (noticeTimer.current) clearTimeout(noticeTimer.current)
+      noticeTimer.current = setTimeout(() => setNotice(null), next.kind === 'error' ? 7000 : 4500)
+    }
+    window.addEventListener('blacknode:notice', handler)
+    return () => window.removeEventListener('blacknode:notice', handler)
   }, [])
 
   useEffect(() => {
@@ -197,13 +224,20 @@ export default function App() {
   }, [search, addNode, addNodeFromConnection])
 
   const edgeReconnected = useRef(false)
-  const onEdgeUpdateStart = useCallback(() => { edgeReconnected.current = false }, [])
+  const onEdgeUpdateStart = useCallback(() => {
+    edgeReconnected.current = false
+    edgeUpdateActive.current = true
+    suppressConnectMenuUntil.current = Date.now() + 500
+    connectionDraft.current = null
+  }, [])
   const onEdgeUpdate = useCallback((oldEdge: Edge, newConn: Connection) => {
     edgeReconnected.current = true
     reconnectEdge(oldEdge, newConn)
   }, [reconnectEdge])
   const onEdgeUpdateEnd = useCallback((_: MouseEvent | TouchEvent, edge: Edge) => {
     if (!edgeReconnected.current) disconnectEdge(edge.id)
+    suppressConnectMenuUntil.current = Date.now() + 200
+    window.setTimeout(() => { edgeUpdateActive.current = false }, 0)
   }, [disconnectEdge])
   const onEdgeDoubleClick = useCallback((_: React.MouseEvent, edge: any) => {
     disconnectEdge(edge.id)
@@ -215,6 +249,10 @@ export default function App() {
   }, [storeOnConnect])
   const onConnectStart = useCallback((_: React.MouseEvent | React.TouchEvent, params: any) => {
     connectionMade.current = false
+    if (edgeUpdateActive.current || Date.now() < suppressConnectMenuUntil.current) {
+      connectionDraft.current = null
+      return
+    }
     const nodeId = params?.nodeId
     const handleId = params?.handleId
     const handleType = params?.handleType
@@ -231,17 +269,31 @@ export default function App() {
   const onConnectEnd = useCallback((event: MouseEvent | TouchEvent) => {
     const draft = connectionDraft.current
     connectionDraft.current = null
+    if (edgeUpdateActive.current || Date.now() < suppressConnectMenuUntil.current) return
     if (connectionMade.current || !draft || !rfInstance.current) return
     const point = clientPointFromEvent(event)
     if (!point) return
+    const flowPos = rfInstance.current.screenToFlowPosition(point)
+    if (draft.handleType === 'source' && portsCompatible(draft.portType, 'Fn')) {
+      const toolBoxId = findToolBoxAtScreenPoint(nodes, point) ?? findToolBoxAtPoint(nodes, flowPos)
+      if (toolBoxId) {
+        connectionMade.current = true
+        void storeOnConnect({
+          source: draft.nodeId,
+          sourceHandle: draft.handleId,
+          target: toolBoxId,
+          targetHandle: '__new__',
+        })
+        return
+      }
+    }
     const hasNodeDefs = Object.keys(nodeDefs).length > 0
     const compatibleTypes = hasNodeDefs ? getCompatibleNodeTypes(draft, nodeDefs) : []
     if (hasNodeDefs && compatibleTypes.length === 0) return
-    const flowPos = rfInstance.current.screenToFlowPosition(point)
     suppressPaneClick.current = true
     window.setTimeout(() => { suppressPaneClick.current = false }, 200)
     setSearch({ screenPos: point, flowPos, connect: draft })
-  }, [nodeDefs])
+  }, [nodeDefs, nodes, storeOnConnect])
 
   const onNodeDragStart = useCallback((event: React.MouseEvent, node: any) => {
     if (!event.altKey) {
@@ -570,6 +622,60 @@ export default function App() {
 
         <SubnetBreadcrumb />
 
+        {notice && (
+          <div
+            role="alert"
+            style={{
+              position: 'absolute',
+              left: '50%',
+              bottom: 24,
+              transform: 'translateX(-50%)',
+              zIndex: 60,
+              width: 'min(520px, calc(100% - 48px))',
+              background: 'var(--panel)',
+              border: `1px solid ${notice.kind === 'error' ? 'var(--err)' : notice.kind === 'warning' ? 'var(--warn)' : 'var(--accent)'}`,
+              borderRadius: 8,
+              boxShadow: '0 12px 32px rgba(0,0,0,.35)',
+              padding: '10px 12px',
+              color: 'var(--tx1)',
+              pointerEvents: 'auto',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <div style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                marginTop: 5,
+                flexShrink: 0,
+                background: notice.kind === 'error' ? 'var(--err)' : notice.kind === 'warning' ? 'var(--warn)' : 'var(--accent)',
+              }} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 3 }}>{notice.title}</div>
+                {notice.message && (
+                  <div style={{ fontSize: 12, color: 'var(--tx2)', lineHeight: 1.45, overflowWrap: 'anywhere' }}>
+                    {notice.message}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setNotice(null)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--tx3)',
+                  cursor: 'pointer',
+                  fontSize: 16,
+                  lineHeight: 1,
+                  padding: 0,
+                }}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── Collapse-to-subnet floating button ── */}
         {(() => {
           const selected = nodes.filter(n => n.selected)
@@ -629,7 +735,7 @@ export default function App() {
           onInit={i => { rfInstance.current = i }}
           onNodeClick={(_, node) => selectNode(node.id)}
           onNodeDoubleClick={(_, node) => {
-            if (node.data?.type === 'Subnet' || node.data?.type === 'SubnetAsTool') void diveIntoSubnet(node.id)
+            if (['Subnet', 'SubnetAsTool', 'VisualAgentLoop'].includes(node.data?.type)) void diveIntoSubnet(node.id)
           }}
           onPaneClick={() => {
             if (suppressPaneClick.current) {
@@ -692,6 +798,40 @@ function isEditableTarget(target: EventTarget | null): boolean {
   if (target.isContentEditable) return true
   const tag = target.tagName.toLowerCase()
   return tag === 'input' || tag === 'textarea' || tag === 'select'
+}
+
+function findToolBoxAtPoint(nodes: any[], point: { x: number; y: number }): string | null {
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const node = nodes[i]
+    if (node.data?.type !== 'ToolBox') continue
+    const pos = node.positionAbsolute ?? node.position
+    const width = node.width ?? 180
+    const height = node.height ?? 96
+    const pad = 24
+    if (
+      point.x >= pos.x - pad &&
+      point.x <= pos.x + width + pad &&
+      point.y >= pos.y - pad &&
+      point.y <= pos.y + height + pad
+    ) {
+      return node.id
+    }
+  }
+  return null
+}
+
+function findToolBoxAtScreenPoint(nodes: any[], point: { x: number; y: number }): string | null {
+  const elements = document.elementsFromPoint(point.x, point.y)
+  for (const element of elements) {
+    if (!(element instanceof HTMLElement)) continue
+    const nodeEl = element.closest('.react-flow__node[data-id]')
+    if (!(nodeEl instanceof HTMLElement)) continue
+    const nodeId = nodeEl.dataset.id
+    if (nodeId && nodes.some(node => node.id === nodeId && node.data?.type === 'ToolBox')) {
+      return nodeId
+    }
+  }
+  return null
 }
 
 function getCompatibleNodeTypes(draft: ConnectionDraft, nodeDefs: Record<string, BnNodeDef>): string[] {

@@ -2,8 +2,10 @@ import { memo, useState } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
+import NodeFrame from './NodeFrame'
+import type { NodeCookState } from '../types'
 
-interface NodeData {
+interface NodeData extends NodeCookState {
   id: string
   type: string
   inputs: string[]
@@ -11,17 +13,13 @@ interface NodeData {
   input_types: Record<string, string>
   output_types: Record<string, string>
   params: Record<string, unknown>
-  cookResult?: unknown
-  cookError?: string
-  cooking?: boolean
-  cookPort?: string
 }
 
 const SUBNET_HEADER = '#6366f1'
 const TOOL_HEADER = '#14b8a6'
 
 function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
-  const { selectNode, diveIntoSubnet, cookNode, updateParam } = useStore()
+  const { diveIntoSubnet, cookNode, updateParam } = useStore()
   const edges = useStore(s => s.edges)
   const nodes = useStore(s => s.nodes)
   const [hovered, setHovered] = useState(false)
@@ -51,9 +49,10 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
   const [editingLabel, setEditingLabel] = useState(false)
   const [labelDraft, setLabelDraft] = useState('')
   const isToolSubnet = data.type === 'SubnetAsTool'
+  const isVisualLoop = data.type === 'VisualAgentLoop'
   const headerColor = isToolSubnet ? TOOL_HEADER : SUBNET_HEADER
   const labelKey = isToolSubnet ? 'name' : 'label'
-  const label = String(data.params?.[labelKey] ?? (isToolSubnet ? 'tool' : 'Subnet'))
+  const label = String(data.params?.[labelKey] ?? (isVisualLoop ? 'VisualAgentLoop' : isToolSubnet ? 'tool' : 'Subnet'))
 
   const startRename = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -67,22 +66,15 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
   }
 
   return (
-    <div
-      onClick={() => selectNode(id)}
+    <NodeFrame
+      id={id}
+      data={data}
+      selected={selected}
+      color={headerColor}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        position: 'relative',
         minWidth: 160,
-        background: 'var(--node)',
-        border: `1px solid ${selected ? headerColor : 'var(--line2)'}`,
-        borderRadius: 9,
-        fontSize: 12,
-        color: 'var(--tx1)',
-        boxShadow: selected
-          ? `0 0 0 2px ${headerColor}55, 0 4px 16px rgba(0,0,0,.4)`
-          : '0 2px 10px rgba(0,0,0,.25)',
-        cursor: 'default',
       }}
     >
       {/* header */}
@@ -95,7 +87,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
         justifyContent: 'space-between',
         gap: 6,
       }}>
-        <span style={{ fontSize: 10, opacity: 0.7, flexShrink: 0 }}>{isToolSubnet ? 'fn' : '⬡'}</span>
+        <span style={{ fontSize: 10, opacity: 0.7, flexShrink: 0 }}>{isToolSubnet ? 'fn' : isVisualLoop ? 'loop' : '⬡'}</span>
         {editingLabel ? (
           <input
             autoFocus
@@ -116,7 +108,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
           />
         ) : (
           <span
-            title={isToolSubnet ? 'Double-click to rename tool' : 'Double-click to rename'}
+            title={isToolSubnet ? 'Double-click to rename tool' : isVisualLoop ? 'Double-click to rename loop' : 'Double-click to rename'}
             onDoubleClick={startRename}
             style={{ flex: 1, fontWeight: 600, fontSize: 12, fontFamily: 'var(--font-ui)', cursor: 'text' }}
           >
@@ -134,7 +126,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
           {data.cooking ? '…' : '▶'}
         </button>
         <button
-          title={isToolSubnet ? 'Build tool inside' : 'Dive inside'}
+          title={isToolSubnet ? 'Build tool inside' : isVisualLoop ? 'Inspect loop inside' : 'Dive inside'}
           onClick={e => { e.stopPropagation(); diveIntoSubnet(id) }}
           style={{
             background: 'rgba(255,255,255,.15)', border: 'none', borderRadius: 3,
@@ -189,10 +181,10 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
           background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 4,
           padding: '2px 6px', fontSize: 10, color: 'var(--tx2)', whiteSpace: 'nowrap', pointerEvents: 'none',
         }}>
-          {isToolSubnet ? 'double-click to build tool' : 'double-click to dive in'}
+          {isToolSubnet ? 'double-click to build tool' : isVisualLoop ? 'double-click to inspect loop' : 'double-click to dive in'}
         </div>
       )}
-    </div>
+    </NodeFrame>
   )
 }
 

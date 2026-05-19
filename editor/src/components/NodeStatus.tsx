@@ -1,11 +1,5 @@
 import { useState } from 'react'
-
-interface NodeStatusData {
-  cookResult?: unknown
-  cookError?: string
-  cooking?: boolean
-  cookPort?: string
-}
+import type { NodeCookState } from '../types'
 
 function previewValue(v: unknown): string {
   if (v === undefined || v === null) return ''
@@ -13,7 +7,7 @@ function previewValue(v: unknown): string {
   return s.length > 1200 ? s.slice(0, 1200) + '\n...' : s
 }
 
-export default function NodeStatus({ data }: { data: NodeStatusData }) {
+export default function NodeStatus({ data }: { data: NodeCookState }) {
   const [visible, setVisible] = useState(false)
 
   if (!data.cookError && data.cookResult === undefined && !data.cooking) return null
@@ -33,9 +27,21 @@ export default function NodeStatus({ data }: { data: NodeStatusData }) {
 
   return (
     <div
-      style={{ position: 'absolute', top: -5, right: -5, zIndex: 20 }}
+      title={title}
+      style={{
+        position: 'absolute',
+        top: -9,
+        right: -9,
+        zIndex: 20,
+        width: 22,
+        height: 22,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => setVisible(false)}
+      onMouseDown={e => e.stopPropagation()}
     >
       <div style={{
         width: 10,
@@ -49,7 +55,7 @@ export default function NodeStatus({ data }: { data: NodeStatusData }) {
       {visible && (
         <div style={{
           position: 'absolute',
-          bottom: 16,
+          bottom: 22,
           right: 0,
           width: 280,
           background: 'var(--panel)',

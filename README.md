@@ -188,7 +188,7 @@ The outputs on **SubnetInput** become the tool arguments. The first input on **S
 
 #### VisualAgentLoop
 
-**VisualAgentLoop** has the same inputs, outputs, and runtime behavior as **AgentLoop**. It uses the same shared implementation, while the smaller AI nodes expose the pieces of that loop:
+**VisualAgentLoop** has the same inputs, outputs, and runtime behavior as **AgentLoop**. It appears as a diveable subnet-style node with an internal graph showing the agent loop pieces, while the outer node still cooks through the same shared implementation as **AgentLoop**:
 
 | Node | Purpose |
 |---|---|
@@ -199,7 +199,7 @@ The outputs on **SubnetInput** become the tool arguments. The first input on **S
 | AgentStopCheck | Report whether a loop step should continue or stop |
 | AgentFinalAnswer | Ask for a final answer after the tool-call limit |
 
-Those pieces are intentionally available now so the black-box **AgentLoop** can be replaced with a visual loop when graph-level loop control is added.
+Those pieces are intentionally available now so the black-box **AgentLoop** can be replaced with a fully visual loop when graph-level loop control is added.
 
 ### Custom nodes (Script tab)
 

@@ -20,7 +20,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 _SAVE_PATH      = os.path.join(os.path.dirname(__file__), "blacknode_graph.json")
 _WORKFLOWS_DIR  = os.path.join(os.path.dirname(__file__), "..", "workflows")
 _save_timer: threading.Timer | None = None
-_SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool"}
+_SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool", "VisualAgentLoop"}
 _TOOLBOX_NODE_TYPES = {"ToolBox"}
 _DYNAMIC_PORT_TYPES = {*_SUBGRAPH_NODE_TYPES, "SubnetInput", "SubnetOutput", *_TOOLBOX_NODE_TYPES}
 
@@ -247,6 +247,152 @@ def _sync_toolbox_ports(toolbox_meta: dict, edges: list[dict] | None = None) -> 
     toolbox_meta["input_defaults"] = {}
 
 
+def _default_visual_agent_loop_subgraph() -> dict:
+    node_meta = {
+        "loop_in": {
+            "id": "loop_in", "type": "SubnetInput", "params": {},
+            "pos": [40, 220],
+            "inputs": [],
+            "outputs": ["prompt", "system", "model", "tools", "max_tokens", "max_iter"],
+            "input_types": {},
+            "output_types": {
+                "prompt": "Text",
+                "system": "Text",
+                "model": "Model",
+                "tools": "List",
+                "max_tokens": "Int",
+                "max_iter": "Int",
+            },
+            "input_defaults": {},
+        },
+        "messages": {
+            "id": "messages", "type": "AgentMessages", "params": {},
+            "pos": [300, 120],
+            "inputs": ["prompt"],
+            "outputs": ["messages"],
+            "input_types": {"prompt": "Text"},
+            "output_types": {"messages": "List"},
+            "input_defaults": {},
+        },
+        "chat": {
+            "id": "chat", "type": "AgentChatStep", "params": {},
+            "pos": [560, 100],
+            "inputs": ["messages", "system", "model", "tools", "max_tokens"],
+            "outputs": ["assistant_text", "tool_calls", "stop_reason", "step"],
+            "input_types": {
+                "messages": "List",
+                "system": "Text",
+                "model": "Model",
+                "tools": "List",
+                "max_tokens": "Int",
+            },
+            "output_types": {
+                "assistant_text": "Text",
+                "tool_calls": "List",
+                "stop_reason": "Text",
+                "step": "Dict",
+            },
+            "input_defaults": {"model": "claude-sonnet-4-6", "max_tokens": 4096},
+        },
+        "iter_one": {
+            "id": "iter_one", "type": "Int", "params": {"value": 1},
+            "pos": [560, 360],
+            "inputs": [],
+            "outputs": ["value"],
+            "input_types": {},
+            "output_types": {"value": "Int"},
+            "input_defaults": {},
+        },
+        "dispatch": {
+            "id": "dispatch", "type": "ToolDispatch", "params": {},
+            "pos": [840, 80],
+            "inputs": ["tool_calls", "tools"],
+            "outputs": ["tool_results", "steps"],
+            "input_types": {"tool_calls": "List", "tools": "List"},
+            "output_types": {"tool_results": "List", "steps": "List"},
+            "input_defaults": {},
+        },
+        "stop": {
+            "id": "stop", "type": "AgentStopCheck", "params": {},
+            "pos": [840, 330],
+            "inputs": ["stop_reason", "tool_calls", "iteration", "max_iter"],
+            "outputs": ["continue", "done", "reason"],
+            "input_types": {
+                "stop_reason": "Text",
+                "tool_calls": "List",
+                "iteration": "Int",
+                "max_iter": "Int",
+            },
+            "output_types": {"continue": "Bool", "done": "Bool", "reason": "Text"},
+            "input_defaults": {"iteration": 1, "max_iter": 5},
+        },
+        "append": {
+            "id": "append", "type": "AgentAppendMessages", "params": {},
+            "pos": [1120, 120],
+            "inputs": ["messages", "model", "assistant_text", "tool_calls", "tool_results"],
+            "outputs": ["messages"],
+            "input_types": {
+                "messages": "List",
+                "model": "Model",
+                "assistant_text": "Text",
+                "tool_calls": "List",
+                "tool_results": "List",
+            },
+            "output_types": {"messages": "List"},
+            "input_defaults": {"model": "claude-sonnet-4-6"},
+        },
+        "final": {
+            "id": "final", "type": "AgentFinalAnswer", "params": {},
+            "pos": [1400, 150],
+            "inputs": ["messages", "system", "model", "max_tokens"],
+            "outputs": ["result", "step"],
+            "input_types": {
+                "messages": "List",
+                "system": "Text",
+                "model": "Model",
+                "max_tokens": "Int",
+            },
+            "output_types": {"result": "Text", "step": "Dict"},
+            "input_defaults": {"model": "claude-sonnet-4-6", "max_tokens": 4096},
+        },
+        "loop_out": {
+            "id": "loop_out", "type": "SubnetOutput", "params": {},
+            "pos": [1680, 180],
+            "inputs": ["result", "steps"],
+            "outputs": [],
+            "input_types": {"result": "Text", "steps": "List"},
+            "output_types": {},
+            "input_defaults": {},
+        },
+    }
+    edges = [
+        {"from": "loop_in", "from_port": "prompt", "to": "messages", "to_port": "prompt"},
+        {"from": "messages", "from_port": "messages", "to": "chat", "to_port": "messages"},
+        {"from": "loop_in", "from_port": "system", "to": "chat", "to_port": "system"},
+        {"from": "loop_in", "from_port": "model", "to": "chat", "to_port": "model"},
+        {"from": "loop_in", "from_port": "tools", "to": "chat", "to_port": "tools"},
+        {"from": "loop_in", "from_port": "max_tokens", "to": "chat", "to_port": "max_tokens"},
+        {"from": "chat", "from_port": "tool_calls", "to": "dispatch", "to_port": "tool_calls"},
+        {"from": "loop_in", "from_port": "tools", "to": "dispatch", "to_port": "tools"},
+        {"from": "messages", "from_port": "messages", "to": "append", "to_port": "messages"},
+        {"from": "loop_in", "from_port": "model", "to": "append", "to_port": "model"},
+        {"from": "chat", "from_port": "assistant_text", "to": "append", "to_port": "assistant_text"},
+        {"from": "chat", "from_port": "tool_calls", "to": "append", "to_port": "tool_calls"},
+        {"from": "dispatch", "from_port": "tool_results", "to": "append", "to_port": "tool_results"},
+        {"from": "chat", "from_port": "stop_reason", "to": "stop", "to_port": "stop_reason"},
+        {"from": "chat", "from_port": "tool_calls", "to": "stop", "to_port": "tool_calls"},
+        {"from": "iter_one", "from_port": "value", "to": "stop", "to_port": "iteration"},
+        {"from": "loop_in", "from_port": "max_iter", "to": "stop", "to_port": "max_iter"},
+        {"from": "append", "from_port": "messages", "to": "final", "to_port": "messages"},
+        {"from": "loop_in", "from_port": "system", "to": "final", "to_port": "system"},
+        {"from": "loop_in", "from_port": "model", "to": "final", "to_port": "model"},
+        {"from": "loop_in", "from_port": "max_tokens", "to": "final", "to_port": "max_tokens"},
+        {"from": "final", "from_port": "result", "to": "loop_out", "to_port": "result"},
+        {"from": "dispatch", "from_port": "steps", "to": "loop_out", "to_port": "steps"},
+    ]
+    return {"node_meta": node_meta, "edges": edges}
+
+
 def _sync_subgraph_node_ports(subnet_meta: dict) -> None:
     """Rebuild a Subnet node's inputs/outputs from its single boundary nodes.
 
@@ -264,6 +410,17 @@ def _sync_subgraph_node_ports(subnet_meta: dict) -> None:
         subnet_meta["input_types"]    = getattr(fn, "_bn_input_types", {"name": "Text", "description": "Text"})
         subnet_meta["output_types"]   = getattr(fn, "_bn_output_types", {"fn": "Fn"})
         subnet_meta["input_defaults"] = getattr(fn, "_bn_input_defaults", {"name": "tool"})
+        return
+
+    if subnet_meta.get("type") == "VisualAgentLoop":
+        if not subnet_meta.get("subgraph", {}).get("node_meta"):
+            subnet_meta["subgraph"] = _default_visual_agent_loop_subgraph()
+        fn = _NODE_REGISTRY.get("VisualAgentLoop")
+        subnet_meta["inputs"]         = getattr(fn, "_bn_inputs", [])
+        subnet_meta["outputs"]        = getattr(fn, "_bn_outputs", ["result", "steps"])
+        subnet_meta["input_types"]    = getattr(fn, "_bn_input_types", {})
+        subnet_meta["output_types"]   = getattr(fn, "_bn_output_types", {})
+        subnet_meta["input_defaults"] = getattr(fn, "_bn_input_defaults", {})
         return
 
     subgraph = subnet_meta.get("subgraph", {})
@@ -319,6 +476,8 @@ def get_graph():
     nodes = []
     for meta in _session.node_meta.values():
         fn = _NODE_REGISTRY.get(meta["type"])
+        if meta["type"] in _TOOLBOX_NODE_TYPES:
+            _sync_toolbox_ports(meta, _session.graph._edges)
         if meta["type"] in _DYNAMIC_PORT_TYPES or fn is None:
             nodes.append({**meta})
         else:
@@ -344,14 +503,15 @@ def set_graph(req: SetGraphReq):
 def add_node(req: AddNodeReq):
     if req.type_name in _SUBGRAPH_NODE_TYPES:
         node_id = str(__import__('uuid').uuid4())
-        params = (
-            {"label": req.params.get("label", "Subnet")}
-            if req.type_name == "Subnet"
-            else {
+        if req.type_name == "Subnet":
+            params = {"label": req.params.get("label", "Subnet")}
+        elif req.type_name == "SubnetAsTool":
+            params = {
                 "name": req.params.get("name") or req.params.get("subnet_label") or "tool",
                 "description": req.params.get("description", ""),
             }
-        )
+        else:
+            params = dict(req.params)
         meta: dict[str, Any] = {
             "id":           node_id,
             "type":         req.type_name,

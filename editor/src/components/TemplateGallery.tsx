@@ -105,6 +105,169 @@ const CALCULATOR_SUBGRAPH: TemplateSubgraph = {
   ],
 }
 
+const VISUAL_AGENT_LOOP_SUBGRAPH: TemplateSubgraph = {
+  nodeMeta: {
+    loop_in: {
+      id: 'loop_in',
+      type: 'SubnetInput',
+      params: {},
+      pos: [40, 220],
+      inputs: [],
+      outputs: ['prompt', 'system', 'model', 'tools', 'max_tokens', 'max_iter'],
+      input_types: {},
+      output_types: {
+        prompt: 'Text',
+        system: 'Text',
+        model: 'Model',
+        tools: 'List',
+        max_tokens: 'Int',
+        max_iter: 'Int',
+      },
+      input_defaults: {},
+    },
+    messages: {
+      id: 'messages',
+      type: 'AgentMessages',
+      params: {},
+      pos: [300, 120],
+      inputs: ['prompt'],
+      outputs: ['messages'],
+      input_types: { prompt: 'Text' },
+      output_types: { messages: 'List' },
+      input_defaults: {},
+    },
+    chat: {
+      id: 'chat',
+      type: 'AgentChatStep',
+      params: {},
+      pos: [560, 100],
+      inputs: ['messages', 'system', 'model', 'tools', 'max_tokens'],
+      outputs: ['assistant_text', 'tool_calls', 'stop_reason', 'step'],
+      input_types: {
+        messages: 'List',
+        system: 'Text',
+        model: 'Model',
+        tools: 'List',
+        max_tokens: 'Int',
+      },
+      output_types: {
+        assistant_text: 'Text',
+        tool_calls: 'List',
+        stop_reason: 'Text',
+        step: 'Dict',
+      },
+      input_defaults: { model: 'claude-sonnet-4-6', max_tokens: 4096 },
+    },
+    iter_one: {
+      id: 'iter_one',
+      type: 'Int',
+      params: { value: 1 },
+      pos: [560, 360],
+      inputs: [],
+      outputs: ['value'],
+      input_types: {},
+      output_types: { value: 'Int' },
+      input_defaults: {},
+    },
+    dispatch: {
+      id: 'dispatch',
+      type: 'ToolDispatch',
+      params: {},
+      pos: [840, 80],
+      inputs: ['tool_calls', 'tools'],
+      outputs: ['tool_results', 'steps'],
+      input_types: { tool_calls: 'List', tools: 'List' },
+      output_types: { tool_results: 'List', steps: 'List' },
+      input_defaults: {},
+    },
+    stop: {
+      id: 'stop',
+      type: 'AgentStopCheck',
+      params: {},
+      pos: [840, 330],
+      inputs: ['stop_reason', 'tool_calls', 'iteration', 'max_iter'],
+      outputs: ['continue', 'done', 'reason'],
+      input_types: {
+        stop_reason: 'Text',
+        tool_calls: 'List',
+        iteration: 'Int',
+        max_iter: 'Int',
+      },
+      output_types: { continue: 'Bool', done: 'Bool', reason: 'Text' },
+      input_defaults: { iteration: 1, max_iter: 5 },
+    },
+    append: {
+      id: 'append',
+      type: 'AgentAppendMessages',
+      params: {},
+      pos: [1120, 120],
+      inputs: ['messages', 'model', 'assistant_text', 'tool_calls', 'tool_results'],
+      outputs: ['messages'],
+      input_types: {
+        messages: 'List',
+        model: 'Model',
+        assistant_text: 'Text',
+        tool_calls: 'List',
+        tool_results: 'List',
+      },
+      output_types: { messages: 'List' },
+      input_defaults: { model: 'claude-sonnet-4-6' },
+    },
+    final: {
+      id: 'final',
+      type: 'AgentFinalAnswer',
+      params: {},
+      pos: [1400, 150],
+      inputs: ['messages', 'system', 'model', 'max_tokens'],
+      outputs: ['result', 'step'],
+      input_types: {
+        messages: 'List',
+        system: 'Text',
+        model: 'Model',
+        max_tokens: 'Int',
+      },
+      output_types: { result: 'Text', step: 'Dict' },
+      input_defaults: { model: 'claude-sonnet-4-6', max_tokens: 4096 },
+    },
+    loop_out: {
+      id: 'loop_out',
+      type: 'SubnetOutput',
+      params: {},
+      pos: [1680, 180],
+      inputs: ['result', 'steps'],
+      outputs: [],
+      input_types: { result: 'Text', steps: 'List' },
+      output_types: {},
+      input_defaults: {},
+    },
+  },
+  edges: [
+    { from: 'loop_in',  fromPort: 'prompt',         to: 'messages', toPort: 'prompt' },
+    { from: 'messages', fromPort: 'messages',       to: 'chat',     toPort: 'messages' },
+    { from: 'loop_in',  fromPort: 'system',         to: 'chat',     toPort: 'system' },
+    { from: 'loop_in',  fromPort: 'model',          to: 'chat',     toPort: 'model' },
+    { from: 'loop_in',  fromPort: 'tools',          to: 'chat',     toPort: 'tools' },
+    { from: 'loop_in',  fromPort: 'max_tokens',     to: 'chat',     toPort: 'max_tokens' },
+    { from: 'chat',     fromPort: 'tool_calls',     to: 'dispatch', toPort: 'tool_calls' },
+    { from: 'loop_in',  fromPort: 'tools',          to: 'dispatch', toPort: 'tools' },
+    { from: 'messages', fromPort: 'messages',       to: 'append',   toPort: 'messages' },
+    { from: 'loop_in',  fromPort: 'model',          to: 'append',   toPort: 'model' },
+    { from: 'chat',     fromPort: 'assistant_text', to: 'append',   toPort: 'assistant_text' },
+    { from: 'chat',     fromPort: 'tool_calls',     to: 'append',   toPort: 'tool_calls' },
+    { from: 'dispatch', fromPort: 'tool_results',   to: 'append',   toPort: 'tool_results' },
+    { from: 'chat',     fromPort: 'stop_reason',    to: 'stop',     toPort: 'stop_reason' },
+    { from: 'chat',     fromPort: 'tool_calls',     to: 'stop',     toPort: 'tool_calls' },
+    { from: 'iter_one', fromPort: 'value',          to: 'stop',     toPort: 'iteration' },
+    { from: 'loop_in',  fromPort: 'max_iter',       to: 'stop',     toPort: 'max_iter' },
+    { from: 'append',   fromPort: 'messages',       to: 'final',    toPort: 'messages' },
+    { from: 'loop_in',  fromPort: 'system',         to: 'final',    toPort: 'system' },
+    { from: 'loop_in',  fromPort: 'model',          to: 'final',    toPort: 'model' },
+    { from: 'loop_in',  fromPort: 'max_tokens',     to: 'final',    toPort: 'max_tokens' },
+    { from: 'final',    fromPort: 'result',         to: 'loop_out', toPort: 'result' },
+    { from: 'dispatch', fromPort: 'steps',          to: 'loop_out', toPort: 'steps' },
+  ],
+}
+
 const TEMPLATES: Template[] = [
   {
     id: 'llm-chat',
@@ -206,6 +369,9 @@ const TEMPLATES: Template[] = [
       { ref: 'loop',   type: 'VisualAgentLoop', params: { max_iter: 3 },                                                                   pos: [620, 280] },
       { ref: 'out',    type: 'Output',          params: {},                                                                                pos: [900, 280] },
     ],
+    subgraphs: {
+      loop: VISUAL_AGENT_LOOP_SUBGRAPH,
+    },
     edges: [
       { from: 'model',  fromPort: 'value',  to: 'loop', toPort: 'model' },
       { from: 'system', fromPort: 'value',  to: 'loop', toPort: 'system' },
@@ -277,6 +443,7 @@ export default function TemplateGallery() {
   const loadTemplate = async (t: Template) => {
     setLoading(t.id)
     setLoaded(null)
+    const previousGraph = await api.getGraph().catch(() => null)
     try {
       await reset()
       const idMap: Record<string, string> = {}
@@ -310,6 +477,17 @@ export default function TemplateGallery() {
       setLoaded(t.id)
     } catch (err) {
       console.error(err)
+      if (previousGraph) {
+        await api.setGraph(previousGraph.nodes, previousGraph.edges).catch(console.error)
+        await loadGraph().catch(console.error)
+      }
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: `Could not load ${t.name}`,
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
     } finally {
       setLoading(null)
     }

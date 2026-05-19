@@ -5,22 +5,19 @@ import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { MODEL_GROUPS, modelProviderColor, modelProviderName, DEFAULT_MODEL } from '../models'
-import NodeStatus from './NodeStatus'
+import NodeFrame from './NodeFrame'
+import type { NodeCookState } from '../types'
 
-interface NodeData {
+interface NodeData extends NodeCookState {
   id: string
   type: string
   params: Record<string, unknown>
   outputs: string[]
   output_types: Record<string, string>
-  cooking?: boolean
-  cookResult?: unknown
-  cookError?: string
-  cookPort?: string
 }
 
 function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
-  const { updateParam, selectNode, apiKeys, setApiKey, customModels, addCustomModel, removeCustomModel } = useStore()
+  const { updateParam, apiKeys, setApiKey, customModels, addCustomModel, removeCustomModel } = useStore()
 
   const current   = String(data.params.value ?? DEFAULT_MODEL)
   const provColor = modelProviderColor(current)
@@ -86,22 +83,14 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
   })).filter(g => g.models.length > 0)
 
   return (
-    <div
-      onClick={() => selectNode(id)}
+    <NodeFrame
+      id={id}
+      data={data}
+      selected={selected}
+      color={provColor}
       style={{
-        position: 'relative',
         width: '100%',
         minWidth: 200,
-        boxSizing: 'border-box' as const,
-        background: 'var(--node)',
-        border: `1px solid ${selected ? provColor : 'var(--line2)'}`,
-        borderRadius: 9,
-        fontSize: 12,
-        color: 'var(--tx1)',
-        boxShadow: selected
-          ? `0 0 0 2px ${provColor}55, 0 4px 16px rgba(0,0,0,.4)`
-          : '0 2px 10px rgba(0,0,0,.25)',
-        overflow: 'visible',
       }}
     >
       <NodeResizer
@@ -111,7 +100,6 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         lineStyle={{ borderColor: provColor }}
         handleStyle={{ background: provColor, borderColor: provColor, width: 8, height: 8, borderRadius: 2 }}
       />
-      <NodeStatus data={data} />
 
       {/* header */}
       <div style={{
@@ -424,7 +412,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
           borderRadius: 3,
         }}
       />
-    </div>
+    </NodeFrame>
   )
 }
 

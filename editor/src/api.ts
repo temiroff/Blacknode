@@ -16,7 +16,8 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail ?? res.statusText)
+    const detail = err.detail ?? res.statusText
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
   }
   return res.json()
 }

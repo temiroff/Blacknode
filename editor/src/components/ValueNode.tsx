@@ -5,19 +5,16 @@ import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { headerColor } from '../categories'
-import NodeStatus from './NodeStatus'
+import NodeFrame from './NodeFrame'
+import type { NodeCookState } from '../types'
 
-interface NodeData {
+interface NodeData extends NodeCookState {
   id: string
   type: 'Text' | 'Float' | 'Int' | 'Bool' | 'Dict'
   inputs: string[]
   outputs: string[]
   output_types: Record<string, string>
   params: Record<string, unknown>
-  cookResult?: unknown
-  cookError?: string
-  cooking?: boolean
-  cookPort?: string
 }
 
 const formatFloat = (v: unknown): string => {
@@ -27,7 +24,7 @@ const formatFloat = (v: unknown): string => {
 }
 
 function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
-  const { updateParam, selectNode, cookNode } = useStore()
+  const { updateParam, cookNode } = useStore()
   const color  = headerColor(data.type)
   const pColor = portColor(data.type)
   const isText  = data.type === 'Text'
@@ -63,27 +60,18 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   }
 
   return (
-    <div
-      onClick={() => selectNode(id)}
+    <NodeFrame
+      id={id}
+      data={data}
+      selected={selected}
+      color={color}
       style={{
-        position: 'relative',
         width:  isLargeText ? '100%' : 170,
         height: isLargeText ? '100%' : undefined,
         minWidth: isLargeText ? 180 : undefined,
         minHeight: isLargeText ? 80 : undefined,
-        background: 'var(--node)',
-        border: `1px solid ${selected ? color : 'var(--line2)'}`,
-        borderRadius: 9,
-        fontSize: 12,
-        color: 'var(--tx1)',
-        boxShadow: selected
-          ? `0 0 0 2px ${color}55, 0 4px 16px rgba(0,0,0,.4)`
-          : '0 2px 10px rgba(0,0,0,.25)',
-        cursor: 'default',
         display: isLargeText ? 'flex' : undefined,
         flexDirection: isLargeText ? 'column' : undefined,
-        boxSizing: 'border-box',
-        overflow: isLargeText ? 'hidden' : undefined,
       }}
     >
       {/* resize handle — Text and Dict */}
@@ -96,7 +84,6 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
           handleStyle={{ background: color, borderColor: color, width: 8, height: 8, borderRadius: 2 }}
         />
       )}
-      <NodeStatus data={data} />
 
       {/* header */}
       <div style={{
@@ -370,7 +357,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
           borderRadius: 3,
         }}
       />
-    </div>
+    </NodeFrame>
   )
 }
 

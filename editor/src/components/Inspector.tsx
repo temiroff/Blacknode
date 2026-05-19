@@ -68,9 +68,7 @@ export default function Inspector() {
     const connectedPorts = new Set(
       edges.filter(e => e.target === node.id).map(e => e.targetHandle).filter(Boolean)
     )
-    const visibleInputs = data.type === 'ToolBox'
-      ? data.inputs.filter(inp => connectedPorts.has(inp))
-      : data.inputs
+    const visibleInputs = data.inputs
 
     return (
       <>

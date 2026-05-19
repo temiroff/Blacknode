@@ -1,15 +1,16 @@
 import { memo, useState, useRef, useEffect } from 'react'
-import { Handle, Position, NodeProps } from 'reactflow'
+import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { headerColor } from '../categories'
-import NodeStatus from './NodeStatus'
+import NodeFrame from './NodeFrame'
+import type { NodeCookState } from '../types'
 
 const TOOLBOX_NEW_HANDLE_COLOR = '#ef444488'
 
-interface NodeData {
+interface NodeData extends NodeCookState {
   id: string
   type: string
   inputs: string[]
@@ -17,10 +18,6 @@ interface NodeData {
   input_types: Record<string, string>
   output_types: Record<string, string>
   params: Record<string, unknown>
-  cookResult?: unknown
-  cookError?: string
-  cooking?: boolean
-  cookPort?: string
 }
 
 function PortRow({
@@ -112,23 +109,16 @@ function PortRow({
 
 function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode    = useStore(s => s.cookNode)
-  const selectNode  = useStore(s => s.selectNode)
   const updateParam = useStore(s => s.updateParam)
-  const updateNodePorts = useStore(s => s.updateNodePorts)
+  const disconnectEdge = useStore(s => s.disconnectEdge)
   const edges       = useStore(s => s.edges)
   const nodes       = useStore(s => s.nodes)
+  const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
   const isToolBox   = data.type === 'ToolBox'
-  const connectedToolInputs = new Set(
-    isToolBox
-      ? edges
-          .filter(e => e.target === id && e.targetHandle?.startsWith('tool_'))
-          .map(e => e.targetHandle!)
-      : []
-  )
-  const visibleInputs = isToolBox
-    ? (data.inputs ?? []).filter(inp => connectedToolInputs.has(inp))
-    : (data.inputs ?? [])
+  const visibleInputs = data.inputs ?? []
+  const inputsKey = visibleInputs.join('|')
+  const outputsKey = (data.outputs ?? []).join('|')
 
   const effectivePortType = (portName: string, side: 'input' | 'output'): string => {
     const declared = side === 'input'
@@ -169,10 +159,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   }
 
   const removeToolSlot = async (port: string) => {
-    const nextInputs = visibleInputs.filter(p => p !== port)
-    const nextTypes = { ...(data.input_types ?? {}) }
-    delete nextTypes[port]
-    await updateNodePorts(id, nextInputs, undefined, nextTypes, undefined)
+    const edge = edges.find(e => e.target === id && e.targetHandle === port)
+    if (edge) await disconnectEdge(edge.id)
   }
 
   useEffect(() => {
@@ -183,28 +171,23 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     return () => el.removeEventListener('wheel', stop)
   }, [])
 
+  useEffect(() => {
+    updateNodeInternals(id)
+  }, [id, inputsKey, outputsKey, updateNodeInternals])
+
   return (
-    <div
-      onClick={() => selectNode(id)}
+    <NodeFrame
+      id={id}
+      data={data}
+      selected={selected}
+      color={color}
       style={{
-        position: 'relative',
         width: '100%',
         height: '100%',
         minWidth: 160,
         minHeight: 60,
-        background: 'var(--node)',
-        border: `1px solid ${selected ? color : 'var(--line2)'}`,
-        borderRadius: 9,
-        fontSize: 12,
-        color: 'var(--tx1)',
-        boxShadow: selected
-          ? `0 0 0 2px ${color}55, 0 4px 16px rgba(0,0,0,.4)`
-          : '0 2px 10px rgba(0,0,0,.25)',
-        cursor: 'default',
         display: 'flex',
         flexDirection: 'column',
-        boxSizing: 'border-box',
-        overflow: 'visible',
       }}
     >
       <NodeResizer
@@ -214,7 +197,6 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         lineStyle={{ borderColor: color }}
         handleStyle={{ background: color, borderColor: color, width: 8, height: 8, borderRadius: 2 }}
       />
-      <NodeStatus data={data} />
 
       {/* header */}
       <div style={{
@@ -286,7 +268,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             position: 'relative',
             display: 'flex',
             alignItems: 'center',
-            padding: '2px 10px 6px 16px',
+            padding: '6px 10px 2px 16px',
           }}>
             <Handle
               type="target"
@@ -302,7 +284,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               }}
             />
             <span style={{ fontSize: 9, color: TOOLBOX_NEW_HANDLE_COLOR, fontFamily: 'var(--font-ui)', userSelect: 'none' }}>
-              drag tool here
+              ← drag to create
             </span>
           </div>
         )}
@@ -319,7 +301,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           <PortRow key={out} name={out} type={effectivePortType(out, 'output')} dir="output" />
         ))}
       </div>
-    </div>
+    </NodeFrame>
   )
 }
 

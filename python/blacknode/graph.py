@@ -71,14 +71,15 @@ class Graph:
 
     def node(self, type_name: str, **params) -> NodeProxy:
         """Add a node of the given registered type."""
-        if type_name not in ("Subnet", "SubnetAsTool") and type_name not in _NODE_REGISTRY:
+        subgraph_types = ("Subnet", "SubnetAsTool", "VisualAgentLoop")
+        if type_name not in subgraph_types and type_name not in _NODE_REGISTRY:
             raise ValueError(
                 f"Unknown node type '{type_name}'. "
                 f"Available: {sorted(_NODE_REGISTRY)}"
             )
         node_id = str(uuid.uuid4())
         self._nodes[node_id] = {"type": type_name, "params": dict(params)}
-        if type_name in ("Subnet", "SubnetAsTool"):
+        if type_name in subgraph_types:
             self._nodes[node_id]["subgraph"] = {"node_meta": {}, "edges": []}
         self._dirty.add(node_id)
         return NodeProxy(self, node_id, type_name, params)

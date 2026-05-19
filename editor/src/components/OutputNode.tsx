@@ -3,26 +3,22 @@ import { Handle, Position, NodeProps } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
-import NodeStatus from './NodeStatus'
+import NodeFrame from './NodeFrame'
+import type { NodeCookState } from '../types'
 
-interface NodeData {
+interface NodeData extends NodeCookState {
   id: string
   type: string
   inputs: string[]
   outputs: string[]
   input_types: Record<string, string>
   params: Record<string, unknown>
-  cookResult?: unknown
-  cookError?: string
-  cooking?: boolean
-  cookPort?: string
 }
 
 const COLOR = '#8b5cf6'
 
 function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode   = useStore(s => s.cookNode)
-  const selectNode = useStore(s => s.selectNode)
   const edges      = useStore(s => s.edges)
   const nodes      = useStore(s => s.nodes)
 
@@ -58,24 +54,19 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
     : null
 
   return (
-    <div
-      onClick={() => selectNode(id)}
+    <NodeFrame
+      id={id}
+      data={data}
+      selected={selected}
+      color={COLOR}
+      selectedRingAlpha="44"
       style={{
-        position: 'relative',
         width: '100%',
         height: '100%',
         minWidth: 240,
         minHeight: 120,
-        background: 'var(--node)',
-        border: `1px solid ${selected ? COLOR : 'var(--line2)'}`,
-        borderRadius: 9,
-        color: 'var(--tx1)',
-        boxShadow: selected
-          ? `0 0 0 2px ${COLOR}44, 0 4px 16px rgba(0,0,0,.4)`
-          : '0 2px 10px rgba(0,0,0,.25)',
         display: 'flex',
         flexDirection: 'column',
-        boxSizing: 'border-box',
       }}
     >
       <NodeResizer
@@ -85,7 +76,6 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
         lineStyle={{ borderColor: COLOR }}
         handleStyle={{ background: COLOR, borderColor: COLOR, width: 8, height: 8, borderRadius: 2 }}
       />
-      <NodeStatus data={data} />
 
       {/* header */}
       <div style={{
@@ -183,7 +173,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
           </pre>
         )}
       </div>
-    </div>
+    </NodeFrame>
   )
 }
 

@@ -11,6 +11,7 @@ import { organizeFlowNodes } from './graphLayout'
 
 const MODEL_NODE_TYPES  = new Set(['Model'])
 const OUTPUT_NODE_TYPES = new Set(['Output'])
+const SUBGRAPH_NODE_TYPES = new Set(['Subnet', 'SubnetAsTool', 'VisualAgentLoop'])
 
 export interface WorkflowTab {
   id: string
@@ -138,7 +139,7 @@ interface Store {
 }
 
 function reactNodeType(typeName: string): string {
-  if (typeName === 'Subnet' || typeName === 'SubnetAsTool') return 'subnetnode'
+  if (SUBGRAPH_NODE_TYPES.has(typeName)) return 'subnetnode'
   if (typeName === 'SubnetInput') return 'subnetinput'
   if (typeName === 'SubnetOutput') return 'subnetoutput'
   return OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode'
@@ -174,7 +175,8 @@ function parseGraph(bnNodes: BnNodeMeta[], bnEdges: any[]): { nodes: Node<NodeDa
 
 function parseSubgraph(subgraph: { node_meta: Record<string, BnNodeMeta>; edges: any[] }): { nodes: any[]; edges: any[] } {
   const metaList = Object.values(subgraph.node_meta) as BnNodeMeta[]
-  return parseGraph(metaList, subgraph.edges)
+  const parsed = parseGraph(metaList, subgraph.edges)
+  return { nodes: ensureConnectedToolBoxSlots(parsed.nodes, parsed.edges), edges: parsed.edges }
 }
 
 function firstCompatibleInput(def: BnNodeDef, fromType: string): string | undefined {
@@ -318,38 +320,165 @@ function shouldRecordNodeChange(changes: NodeChange[]): boolean {
   return true
 }
 
-function pruneEmptyToolBoxSlots(nodes: Node<NodeData>[], edges: Edge[]): { nodes: Node<NodeData>[]; changedIds: Set<string> } {
-  const connectedPorts = new Map<string, Set<string>>()
+function pruneDisconnectedDynamicPorts(
+  nodes: Node<NodeData>[],
+  edges: Edge[],
+  removedEdges: Edge[] = [],
+): { nodes: Node<NodeData>[]; changedIds: Set<string> } {
+  const connectedToolPorts = new Map<string, Set<string>>()
   edges.forEach(edge => {
     if (!edge.targetHandle?.startsWith('tool_')) return
-    if (!connectedPorts.has(edge.target)) connectedPorts.set(edge.target, new Set())
-    connectedPorts.get(edge.target)!.add(edge.targetHandle)
+    if (!connectedToolPorts.has(edge.target)) connectedToolPorts.set(edge.target, new Set())
+    connectedToolPorts.get(edge.target)!.add(edge.targetHandle)
+  })
+
+  const removedInputs = new Map<string, Set<string>>()
+  const removedOutputs = new Map<string, Set<string>>()
+  const addRemoved = (map: Map<string, Set<string>>, nodeId: string | undefined, port: string | null | undefined) => {
+    if (!nodeId || !port || port === '__new__') return
+    if (!map.has(nodeId)) map.set(nodeId, new Set())
+    map.get(nodeId)!.add(port)
+  }
+  removedEdges.forEach(edge => {
+    const source = nodes.find(n => n.id === edge.source)
+    const target = nodes.find(n => n.id === edge.target)
+    if (target?.data.type === 'SubnetOutput' || target?.data.type === 'Subnet') {
+      addRemoved(removedInputs, edge.target, edge.targetHandle)
+    }
+    if (source?.data.type === 'SubnetInput' || source?.data.type === 'Subnet') {
+      addRemoved(removedOutputs, edge.source, edge.sourceHandle)
+    }
   })
 
   const changedIds = new Set<string>()
   const nextNodes = nodes.map(node => {
-    if (node.data.type !== 'ToolBox') return node
-    const connected = connectedPorts.get(node.id) ?? new Set<string>()
-    const inputs = (node.data.inputs ?? []).filter(port => connected.has(port))
-    if (
-      inputs.length === (node.data.inputs ?? []).length
-      && inputs.every((port, i) => port === node.data.inputs[i])
-    ) {
-      return node
+    if (node.data.type === 'ToolBox') {
+      const connected = sortToolInputs(Array.from(connectedToolPorts.get(node.id) ?? []))
+      if (
+        connected.length === (node.data.inputs ?? []).length
+        && connected.every((port, i) => port === node.data.inputs[i])
+      ) {
+        return node
+      }
+
+      changedIds.add(node.id)
+      const inputTypes: Record<string, string> = {}
+      connected.forEach(port => { inputTypes[port] = node.data.input_types?.[port] ?? 'Fn' })
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          inputs: connected,
+          input_types: inputTypes,
+          input_defaults: {},
+        },
+      }
     }
 
-    changedIds.add(node.id)
-    const inputTypes: Record<string, string> = {}
-    inputs.forEach(port => { inputTypes[port] = node.data.input_types?.[port] ?? 'Fn' })
-    return {
-      ...node,
-      data: {
-        ...node.data,
-        inputs,
-        input_types: inputTypes,
-        input_defaults: {},
-      },
+    if (node.data.type === 'SubnetOutput') {
+      const removed = removedInputs.get(node.id)
+      if (!removed) return node
+      const removePorts = new Set(
+        Array.from(removed).filter(port =>
+          (node.data.inputs ?? []).includes(port)
+          && !edges.some(edge => edge.target === node.id && edge.targetHandle === port)
+        )
+      )
+      if (removePorts.size === 0) return node
+      changedIds.add(node.id)
+      const inputs = (node.data.inputs ?? []).filter(port => !removePorts.has(port))
+      const inputTypes = Object.fromEntries(
+        Object.entries(node.data.input_types ?? {}).filter(([port]) => !removePorts.has(port))
+      )
+      const inputDefaults = Object.fromEntries(
+        Object.entries(node.data.input_defaults ?? {}).filter(([port]) => !removePorts.has(port))
+      )
+      return { ...node, data: { ...node.data, inputs, input_types: inputTypes, input_defaults: inputDefaults } }
     }
+
+    if (node.data.type === 'SubnetInput') {
+      const removed = removedOutputs.get(node.id)
+      if (!removed) return node
+      const removePorts = new Set(
+        Array.from(removed).filter(port =>
+          (node.data.outputs ?? []).includes(port)
+          && !edges.some(edge => edge.source === node.id && edge.sourceHandle === port)
+        )
+      )
+      if (removePorts.size === 0) return node
+      changedIds.add(node.id)
+      const outputs = (node.data.outputs ?? []).filter(port => !removePorts.has(port))
+      const outputTypes = Object.fromEntries(
+        Object.entries(node.data.output_types ?? {}).filter(([port]) => !removePorts.has(port))
+      )
+      return { ...node, data: { ...node.data, outputs, output_types: outputTypes } }
+    }
+
+    if (node.data.type === 'Subnet') {
+      const removedIn = removedInputs.get(node.id)
+      const removedOut = removedOutputs.get(node.id)
+      if (!removedIn && !removedOut) return node
+
+      const removeInputs = new Set(
+        Array.from(removedIn ?? []).filter(port =>
+          (node.data.inputs ?? []).includes(port)
+          && !edges.some(edge => edge.target === node.id && edge.targetHandle === port)
+        )
+      )
+      const removeOutputs = new Set(
+        Array.from(removedOut ?? []).filter(port =>
+          (node.data.outputs ?? []).includes(port)
+          && !edges.some(edge => edge.source === node.id && edge.sourceHandle === port)
+        )
+      )
+      if (removeInputs.size === 0 && removeOutputs.size === 0) return node
+
+      const subgraph = cloneDeep(node.data.subgraph ?? { node_meta: {}, edges: [] })
+      const subnetInputIds = new Set<string>()
+      const subnetOutputIds = new Set<string>()
+      Object.values(subgraph.node_meta).forEach((meta: any) => {
+        if (meta.type === 'SubnetInput' && removeInputs.size > 0) {
+          subnetInputIds.add(meta.id)
+          meta.outputs = (meta.outputs ?? []).filter((port: string) => !removeInputs.has(port))
+          meta.output_types = Object.fromEntries(
+            Object.entries(meta.output_types ?? {}).filter(([port]) => !removeInputs.has(port))
+          )
+        }
+        if (meta.type === 'SubnetOutput' && removeOutputs.size > 0) {
+          subnetOutputIds.add(meta.id)
+          meta.inputs = (meta.inputs ?? []).filter((port: string) => !removeOutputs.has(port))
+          meta.input_types = Object.fromEntries(
+            Object.entries(meta.input_types ?? {}).filter(([port]) => !removeOutputs.has(port))
+          )
+          meta.input_defaults = Object.fromEntries(
+            Object.entries(meta.input_defaults ?? {}).filter(([port]) => !removeOutputs.has(port))
+          )
+        }
+      })
+      subgraph.edges = (subgraph.edges ?? []).filter(edge =>
+        !(removeInputs.size > 0 && subnetInputIds.has(edge.from) && removeInputs.has(edge.from_port))
+        && !(removeOutputs.size > 0 && subnetOutputIds.has(edge.to) && removeOutputs.has(edge.to_port))
+      )
+
+      changedIds.add(node.id)
+      const inputs = (node.data.inputs ?? []).filter(port => !removeInputs.has(port))
+      const outputs = (node.data.outputs ?? []).filter(port => !removeOutputs.has(port))
+      const inputTypes = Object.fromEntries(
+        Object.entries(node.data.input_types ?? {}).filter(([port]) => !removeInputs.has(port))
+      )
+      const outputTypes = Object.fromEntries(
+        Object.entries(node.data.output_types ?? {}).filter(([port]) => !removeOutputs.has(port))
+      )
+      const inputDefaults = Object.fromEntries(
+        Object.entries(node.data.input_defaults ?? {}).filter(([port]) => !removeInputs.has(port))
+      )
+      return {
+        ...node,
+        data: { ...node.data, inputs, outputs, input_types: inputTypes, output_types: outputTypes, input_defaults: inputDefaults, subgraph },
+      }
+    }
+
+    return node
   })
 
   return { nodes: nextNodes, changedIds }
@@ -476,7 +605,8 @@ export const useStore = create<Store>((set, get) => ({
 
   loadGraph: async () => {
     const { nodes: bnNodes, edges: bnEdges } = await api.getGraph()
-    set({ ...parseGraph(bnNodes, bnEdges), selectedId: null })
+    const parsed = parseGraph(bnNodes, bnEdges)
+    set({ nodes: ensureConnectedToolBoxSlots(parsed.nodes, parsed.edges), edges: parsed.edges, selectedId: null })
   },
 
   // ── Tab management ────────────────────────────────────────────────────────
@@ -670,7 +800,9 @@ export const useStore = create<Store>((set, get) => ({
     const subnetNode = nodes.find(n => n.id === subnetId)
     if (!subnetNode) return
     const label = String(
-      subnetNode.data.type === 'SubnetAsTool'
+      subnetNode.data.type === 'VisualAgentLoop'
+        ? 'VisualAgentLoop'
+        : subnetNode.data.type === 'SubnetAsTool'
         ? subnetNode.data.params?.name ?? 'tool'
         : subnetNode.data.params?.label ?? 'Subnet'
     )
@@ -698,7 +830,7 @@ export const useStore = create<Store>((set, get) => ({
       // Back to root — reload from server so subnet node shows fresh ports
       const graphData = await api.getGraph()
       const { nodes, edges } = parseGraph(graphData.nodes, graphData.edges)
-      set({ subnetStack: [], nodes, edges, selectedId: null })
+      set({ subnetStack: [], nodes: ensureConnectedToolBoxSlots(nodes, edges), edges, selectedId: null })
     } else {
       // Back to parent subnet — reload its inner graph from server
       const parentFrame = newStack[newStack.length - 1]
@@ -711,7 +843,7 @@ export const useStore = create<Store>((set, get) => ({
   exitToRoot: async () => {
     const graphData = await api.getGraph()
     const { nodes, edges } = parseGraph(graphData.nodes, graphData.edges)
-    set({ subnetStack: [], nodes, edges, selectedId: null })
+    set({ subnetStack: [], nodes: ensureConnectedToolBoxSlots(nodes, edges), edges, selectedId: null })
   },
 
   collapseToSubnet: async (nodeIds, label) => {
@@ -719,7 +851,7 @@ export const useStore = create<Store>((set, get) => ({
     await api.collapseToSubnet(nodeIds, label)
     const graphData = await api.getGraph()
     const { nodes: newNodes, edges: newEdges } = parseGraph(graphData.nodes, graphData.edges)
-    set(s => ({ nodes: newNodes, edges: newEdges, ...markActiveTabDirty(s) }))
+    set(s => ({ nodes: ensureConnectedToolBoxSlots(newNodes, newEdges), edges: newEdges, ...markActiveTabDirty(s) }))
   },
 
   organizeNodes: async () => {
@@ -1042,7 +1174,7 @@ export const useStore = create<Store>((set, get) => ({
       .filter(Boolean) as Edge[]
 
     const newEdges = applyEdgeChanges(changes, edges)
-    const { nodes: nextNodes, changedIds: prunedToolBoxes } = pruneEmptyToolBoxSlots(nodes, newEdges)
+    const { nodes: nextNodes, changedIds: prunedDynamicNodes } = pruneDisconnectedDynamicPorts(nodes, newEdges, removedEdges)
 
     if (subnetStack.length > 0 && removedEdges.length > 0) {
       const frame = subnetStack[subnetStack.length - 1]
@@ -1059,21 +1191,25 @@ export const useStore = create<Store>((set, get) => ({
           api.disconnect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle).catch(() => {})
         }
       })
-      prunedToolBoxes.forEach(id => {
+      prunedDynamicNodes.forEach(id => {
         const node = nextNodes.find(n => n.id === id)
         if (!node) return
-        api.updatePorts(id, {
-          inputs: node.data.inputs,
-          input_types: node.data.input_types,
-          input_defaults: node.data.input_defaults,
-        }).catch(() => {})
+        if (node.data.type === 'ToolBox') {
+          api.updatePorts(id, {
+            inputs: node.data.inputs,
+            input_types: node.data.input_types,
+            input_defaults: node.data.input_defaults,
+          }).catch(() => {})
+        } else if (node.data.type === 'Subnet' && node.data.subgraph) {
+          api.updateSubgraph(id, node.data.subgraph.node_meta, node.data.subgraph.edges).catch(() => {})
+        }
       })
     }
 
     set(s => ({
       nodes: nextNodes,
       edges: newEdges,
-      ...(shouldMarkDirty || prunedToolBoxes.size > 0 ? markActiveTabDirty(s) : {}),
+      ...(shouldMarkDirty || prunedDynamicNodes.size > 0 ? markActiveTabDirty(s) : {}),
     }))
   },
 
@@ -1137,15 +1273,44 @@ export const useStore = create<Store>((set, get) => ({
       )
       let portName = existing.find(p => !occupied.has(p))
       if (!portName) {
-        portName = nextToolInputName(existing)
-        await get().updateNodePorts(
-          conn.target!, [...existing, portName], undefined,
-          { ...(tgtNode.data.input_types ?? {}), [portName]: 'Fn' }, undefined, undefined, undefined, false,
+        const newPortName = nextToolInputName(existing)
+        nodes = nodes.map(n =>
+          n.id === conn.target
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  inputs: sortToolInputs([...existing, newPortName]),
+                  input_types: { ...(n.data.input_types ?? {}), [newPortName]: 'Fn' },
+                },
+              }
+            : n
         )
-        ;({ nodes, edges, subnetStack } = get())
+        portName = newPortName
         tgtNode = nodes.find(n => n.id === conn.target)
       }
       conn = { ...conn, targetHandle: portName }
+    }
+
+    if (
+      tgtNode?.data?.type === 'ToolBox'
+      && conn.targetHandle?.startsWith('tool_')
+      && !(tgtNode.data.inputs ?? []).includes(conn.targetHandle)
+    ) {
+      const nextInputs = sortToolInputs([...(tgtNode.data.inputs ?? []), conn.targetHandle])
+      nodes = nodes.map(n =>
+        n.id === conn.target
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                inputs: nextInputs,
+                input_types: { ...(n.data.input_types ?? {}), [conn.targetHandle!]: 'Fn' },
+              },
+            }
+          : n
+      )
+      tgtNode = nodes.find(n => n.id === conn.target)
     }
 
     if (!conn.sourceHandle || !conn.targetHandle) return
@@ -1179,7 +1344,8 @@ export const useStore = create<Store>((set, get) => ({
       await api.connect(conn.source!, conn.sourceHandle!, conn.target!, conn.targetHandle!)
     }
 
-    set(s => ({ edges: updatedEdges, ...markActiveTabDirty(s) }))
+    const nextNodes = ensureConnectedToolBoxSlots(nodes, updatedEdges)
+    set(s => ({ nodes: nextNodes, edges: updatedEdges, ...markActiveTabDirty(s) }))
   },
 
   disconnectEdge: async (edgeId) => {
@@ -1188,7 +1354,7 @@ export const useStore = create<Store>((set, get) => ({
     if (!edge?.source || !edge.target || !edge.sourceHandle || !edge.targetHandle) return
     set(s => pushUndoSnapshot(s))
     const nextEdges = edges.filter(e => e.id !== edgeId)
-    const { nodes: nextNodes, changedIds: prunedToolBoxes } = pruneEmptyToolBoxSlots(nodes, nextEdges)
+    const { nodes: nextNodes, changedIds: prunedDynamicNodes } = pruneDisconnectedDynamicPorts(nodes, nextEdges, [edge])
 
     if (subnetStack.length > 0) {
       const frame = subnetStack[subnetStack.length - 1]
@@ -1201,14 +1367,12 @@ export const useStore = create<Store>((set, get) => ({
       await api.updateSubgraph(frame.subnetId, innerMeta, innerEdges)
     } else {
       await api.disconnect(edge.source, edge.sourceHandle, edge.target, edge.targetHandle)
-      for (const id of prunedToolBoxes) {
+      for (const id of prunedDynamicNodes) {
         const node = nextNodes.find(n => n.id === id)
         if (!node) continue
-        await api.updatePorts(id, {
-          inputs: node.data.inputs,
-          input_types: node.data.input_types,
-          input_defaults: node.data.input_defaults,
-        })
+        if (node.data.type === 'Subnet' && node.data.subgraph) {
+          await api.updateSubgraph(id, node.data.subgraph.node_meta, node.data.subgraph.edges)
+        }
       }
     }
 
@@ -1274,7 +1438,8 @@ export const useStore = create<Store>((set, get) => ({
         targetHandle: conn.targetHandle,
         style: { stroke: portColor(fromType), strokeWidth: 1.5 },
       }])
-    const { nodes: nextNodes, changedIds: prunedToolBoxes } = pruneEmptyToolBoxSlots(nodes, nextEdges)
+    const removedForPrune = [oldEdge, conflictingEdge].filter(Boolean) as Edge[]
+    const { nodes: nextNodes, changedIds: prunedDynamicNodes } = pruneDisconnectedDynamicPorts(nodes, nextEdges, removedForPrune)
 
     if (subnetStack.length > 0) {
       const frame = subnetStack[subnetStack.length - 1]
@@ -1293,14 +1458,12 @@ export const useStore = create<Store>((set, get) => ({
         await api.disconnect(conflictingEdge.source, conflictingEdge.sourceHandle, conflictingEdge.target, conflictingEdge.targetHandle)
       }
       await api.connect(conn.source, conn.sourceHandle, conn.target, conn.targetHandle)
-      for (const id of prunedToolBoxes) {
+      for (const id of prunedDynamicNodes) {
         const node = nextNodes.find(n => n.id === id)
         if (!node) continue
-        await api.updatePorts(id, {
-          inputs: node.data.inputs,
-          input_types: node.data.input_types,
-          input_defaults: node.data.input_defaults,
-        })
+        if (node.data.type === 'Subnet' && node.data.subgraph) {
+          await api.updateSubgraph(id, node.data.subgraph.node_meta, node.data.subgraph.edges)
+        }
       }
     }
 
@@ -1346,7 +1509,7 @@ export const useStore = create<Store>((set, get) => ({
         [x, y],
         cloneDeep(source.data.params ?? {}),
       )
-      const cloneMeta = source.data.type === 'Subnet' || source.data.type === 'SubnetAsTool'
+      const cloneMeta = SUBGRAPH_NODE_TYPES.has(source.data.type)
         ? await api.updateSubgraph(
             meta.id,
             cloneDeep(source.data.subgraph?.node_meta ?? {}),
@@ -1450,7 +1613,7 @@ export const useStore = create<Store>((set, get) => ({
         [start.x, start.y],
         cloneDeep(source.data.params ?? {}),
       )
-      const cloneMeta = source.data.type === 'Subnet' || source.data.type === 'SubnetAsTool'
+      const cloneMeta = SUBGRAPH_NODE_TYPES.has(source.data.type)
         ? await api.updateSubgraph(
             meta.id,
             cloneDeep(source.data.subgraph?.node_meta ?? {}),

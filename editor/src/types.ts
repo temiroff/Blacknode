@@ -24,6 +24,13 @@ export interface BnNodeMeta {
   subgraph?: SubgraphData
 }
 
+export interface NodeCookState {
+  cookResult?: unknown
+  cookError?: string
+  cooking?: boolean
+  cookPort?: string
+}
+
 export interface BnNodeDef {
   type: string
   inputs: string[]
