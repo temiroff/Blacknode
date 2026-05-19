@@ -270,16 +270,16 @@ function BoolControl({ value, onChange }: { value: unknown; onChange: (v: unknow
 }
 
 function IntControl({ value, defaultValue, onChange }: { value: unknown; defaultValue: unknown; onChange: (v: unknown) => void }) {
-  const hasValue = value !== undefined && value !== null
-  const [draft, setDraft] = useState<string>(hasValue ? String(Number(value)) : '')
+  const resolve = (v: unknown) =>
+    v !== undefined && v !== null ? String(Number(v))
+    : defaultValue !== undefined && defaultValue !== null ? String(Number(defaultValue))
+    : ''
 
-  useEffect(() => {
-    const has = value !== undefined && value !== null
-    setDraft(has ? String(Number(value)) : '')
-  }, [value])
+  const [draft, setDraft] = useState<string>(() => resolve(value))
+
+  useEffect(() => { setDraft(resolve(value)) }, [value, defaultValue])
 
   const commit = (raw: string) => {
-    if (raw === '') { onChange(undefined); return }
     const v = parseInt(raw)
     if (!isNaN(v)) onChange(v)
   }
@@ -294,7 +294,6 @@ function IntControl({ value, defaultValue, onChange }: { value: unknown; default
         type="text"
         inputMode="numeric"
         value={draft}
-        placeholder={defaultValue !== undefined ? String(defaultValue) : 'default'}
         onChange={e => {
           const raw = e.target.value.replace(/[^-\d]/g, '')
           setDraft(raw)
@@ -333,13 +332,14 @@ function IntControl({ value, defaultValue, onChange }: { value: unknown; default
 }
 
 function FloatControl({ value, defaultValue, onChange }: { value: unknown; defaultValue: unknown; onChange: (v: unknown) => void }) {
-  const hasValue = value !== undefined && value !== null
-  const [draft, setDraft] = useState<string>(hasValue ? formatFloat(value) : '')
+  const resolve = (v: unknown) =>
+    v !== undefined && v !== null ? formatFloat(v)
+    : defaultValue !== undefined && defaultValue !== null ? formatFloat(defaultValue)
+    : ''
 
-  useEffect(() => {
-    const has = value !== undefined && value !== null
-    setDraft(has ? formatFloat(value) : '')
-  }, [value])
+  const [draft, setDraft] = useState<string>(() => resolve(value))
+
+  useEffect(() => { setDraft(resolve(value)) }, [value, defaultValue])
 
   return (
     <div style={{
@@ -351,7 +351,6 @@ function FloatControl({ value, defaultValue, onChange }: { value: unknown; defau
         type="text"
         inputMode="decimal"
         value={draft}
-        placeholder={defaultValue !== undefined ? String(defaultValue) : 'default'}
         onChange={e => {
           setDraft(e.target.value)
           const v = parseFloat(e.target.value)
@@ -397,9 +396,14 @@ function TextControl({ value, defaultValue, onChange, multiline }: {
   onChange: (v: unknown) => void
   multiline: boolean
 }) {
-  const [draft, setDraft] = useState(String(value ?? ''))
+  const resolve = (v: unknown) =>
+    v !== undefined && v !== null && v !== '' ? String(v)
+    : defaultValue !== undefined && defaultValue !== null ? String(defaultValue)
+    : ''
 
-  useEffect(() => { setDraft(String(value ?? '')) }, [value])
+  const [draft, setDraft] = useState(() => resolve(value))
+
+  useEffect(() => { setDraft(resolve(value)) }, [value, defaultValue])
 
   const commit = () => onChange(draft)
   const sharedStyle: React.CSSProperties = {
