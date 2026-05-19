@@ -20,17 +20,28 @@ interface NodeData {
   cookPort?: string
 }
 
+const formatFloat = (v: unknown): string => {
+  const n = parseFloat(String(v))
+  if (isNaN(n)) return '0.0'
+  return Number.isInteger(n) ? `${n}.0` : String(n)
+}
+
 function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   const { updateParam, selectNode, cookNode } = useStore()
   const color  = headerColor(data.type)
   const pColor = portColor(data.type)
   const isText = data.type === 'Text'
+  const isFloat = data.type === 'Float'
 
   const rawValue = data.params.value
-  const [draft, setDraft] = useState(rawValue ?? '')
+  const [draft, setDraft] = useState<string | number>(
+    isFloat ? formatFloat(rawValue) : (rawValue ?? '')
+  )
   const commitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => { setDraft(rawValue ?? '') }, [rawValue])
+  useEffect(() => {
+    setDraft(isFloat ? formatFloat(rawValue) : (rawValue ?? ''))
+  }, [rawValue])
 
   const commit = (val: unknown) => {
     if (commitRef.current) clearTimeout(commitRef.current)
@@ -168,34 +179,125 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
             }}
           />
 
+        ) : isFloat ? (
+          <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 2 }}>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={String(draft)}
+              onClick={e => e.stopPropagation()}
+              onMouseDown={e => e.stopPropagation()}
+              onChange={e => {
+                setDraft(e.target.value)
+                const v = parseFloat(e.target.value)
+                if (!isNaN(v)) scheduleCommit(v)
+              }}
+              onBlur={() => {
+                if (commitRef.current) clearTimeout(commitRef.current)
+                const v = parseFloat(String(draft)) || 0
+                setDraft(formatFloat(v))
+                commit(v)
+              }}
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                borderBottom: `1.5px solid ${pColor}60`,
+                color: 'var(--tx1)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 14,
+                fontWeight: 600,
+                outline: 'none',
+                padding: '2px 0',
+                minWidth: 0,
+              }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+              {([['▲', 1], ['▼', -1]] as const).map(([label, delta]) => (
+                <button
+                  key={label}
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={e => {
+                    e.stopPropagation()
+                    const v = (parseFloat(String(draft)) || 0) + delta
+                    setDraft(formatFloat(v))
+                    commit(v)
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--tx2)',
+                    cursor: 'pointer',
+                    fontSize: 7,
+                    lineHeight: 1.3,
+                    padding: '0 3px',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         ) : (
-          <input
-            type="number"
-            step={data.type === 'Float' ? 'any' : 1}
-            value={String(draft)}
-            onClick={e => e.stopPropagation()}
-            onChange={e => {
-              const v = data.type === 'Float' ? parseFloat(e.target.value) || 0 : parseInt(e.target.value) || 0
-              setDraft(v)
-              scheduleCommit(v)
-            }}
-            onBlur={() => {
-              if (commitRef.current) clearTimeout(commitRef.current)
-              commit(draft)
-            }}
-            style={{
-              width: '100%',
-              background: 'transparent',
-              border: 'none',
-              borderBottom: `1.5px solid ${pColor}60`,
-              color: 'var(--tx1)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 14,
-              fontWeight: 600,
-              outline: 'none',
-              padding: '2px 0',
-            }}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 2 }}>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={String(draft)}
+              onClick={e => e.stopPropagation()}
+              onMouseDown={e => e.stopPropagation()}
+              onChange={e => {
+                const raw = e.target.value.replace(/[^-\d]/g, '')
+                setDraft(raw)
+                const v = parseInt(raw)
+                if (!isNaN(v)) scheduleCommit(v)
+              }}
+              onBlur={() => {
+                if (commitRef.current) clearTimeout(commitRef.current)
+                const v = parseInt(String(draft)) || 0
+                setDraft(v)
+                commit(v)
+              }}
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                borderBottom: `1.5px solid ${pColor}60`,
+                color: 'var(--tx1)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 14,
+                fontWeight: 600,
+                outline: 'none',
+                padding: '2px 0',
+                minWidth: 0,
+              }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+              {([['▲', 1], ['▼', -1]] as const).map(([label, delta]) => (
+                <button
+                  key={label}
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={e => {
+                    e.stopPropagation()
+                    const v = (parseInt(String(draft)) || 0) + delta
+                    setDraft(v)
+                    commit(v)
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--tx2)',
+                    cursor: 'pointer',
+                    fontSize: 7,
+                    lineHeight: 1.3,
+                    padding: '0 3px',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 

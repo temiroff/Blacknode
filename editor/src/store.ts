@@ -521,18 +521,27 @@ export const useStore = create<Store>((set, get) => ({
 
   onConnect: async (conn) => {
     if (!conn.source || !conn.target || !conn.sourceHandle || !conn.targetHandle) return
-    const { nodes } = get()
+    const { nodes, edges } = get()
     const srcNode = nodes.find(n => n.id === conn.source)
     const tgtNode = nodes.find(n => n.id === conn.target)
     const fromType = srcNode?.data?.output_types?.[conn.sourceHandle!] ?? 'Any'
     const toType   = tgtNode?.data?.input_types?.[conn.targetHandle!]  ?? 'Any'
     if (!portsCompatible(fromType, toType)) return
+    const multiInputPorts: string[] = tgtNode?.data?.multi_input_ports ?? []
+    const existingEdge = multiInputPorts.includes(conn.targetHandle!) ? null
+      : edges.find(e => e.target === conn.target && e.targetHandle === conn.targetHandle)
+    if (existingEdge?.source && existingEdge.sourceHandle && existingEdge.target && existingEdge.targetHandle) {
+      await api.disconnect(existingEdge.source, existingEdge.sourceHandle, existingEdge.target, existingEdge.targetHandle)
+    }
     await api.connect(conn.source, conn.sourceHandle, conn.target, conn.targetHandle)
-    set(s => ({ edges: addEdge({
-      ...conn,
-      id: `e${Date.now()}`,
-      style: { stroke: portColor(fromType), strokeWidth: 1.5 },
-    }, s.edges), ...markActiveTabDirty(s) }))
+    set(s => ({
+      edges: addEdge({
+        ...conn,
+        id: `e${Date.now()}`,
+        style: { stroke: portColor(fromType), strokeWidth: 1.5 },
+      }, existingEdge ? s.edges.filter(e => e.id !== existingEdge.id) : s.edges),
+      ...markActiveTabDirty(s),
+    }))
   },
 
   disconnectEdge: async (edgeId) => {
@@ -546,22 +555,30 @@ export const useStore = create<Store>((set, get) => ({
     if (oldEdge.sourceHandle && oldEdge.targetHandle)
       await api.disconnect(oldEdge.source, oldEdge.sourceHandle, oldEdge.target, oldEdge.targetHandle)
     if (!newConn.source || !newConn.target || !newConn.sourceHandle || !newConn.targetHandle) return
-    const { nodes } = get()
+    const { nodes, edges } = get()
     const srcNode = nodes.find(n => n.id === newConn.source)
     const tgtNode = nodes.find(n => n.id === newConn.target)
     const fromType = srcNode?.data?.output_types?.[newConn.sourceHandle] ?? 'Any'
     const toType   = tgtNode?.data?.input_types?.[newConn.targetHandle]  ?? 'Any'
     if (!portsCompatible(fromType, toType)) return
+    const multiInputPorts: string[] = tgtNode?.data?.multi_input_ports ?? []
+    const conflictingEdge = multiInputPorts.includes(newConn.targetHandle) ? null
+      : edges.find(e => e.id !== oldEdge.id && e.target === newConn.target && e.targetHandle === newConn.targetHandle)
+    if (conflictingEdge?.source && conflictingEdge.sourceHandle && conflictingEdge.target && conflictingEdge.targetHandle) {
+      await api.disconnect(conflictingEdge.source, conflictingEdge.sourceHandle, conflictingEdge.target, conflictingEdge.targetHandle)
+    }
     await api.connect(newConn.source, newConn.sourceHandle, newConn.target, newConn.targetHandle)
     set(s => ({
-      edges: s.edges.map(e => e.id !== oldEdge.id ? e : {
-        ...e,
-        source: newConn.source!,
-        sourceHandle: newConn.sourceHandle,
-        target: newConn.target!,
-        targetHandle: newConn.targetHandle,
-        style: { stroke: portColor(fromType), strokeWidth: 1.5 },
-      }),
+      edges: s.edges
+        .filter(e => e.id !== oldEdge.id && e.id !== conflictingEdge?.id)
+        .concat([{
+          id: oldEdge.id,
+          source: newConn.source!,
+          sourceHandle: newConn.sourceHandle,
+          target: newConn.target!,
+          targetHandle: newConn.targetHandle,
+          style: { stroke: portColor(fromType), strokeWidth: 1.5 },
+        }]),
       ...markActiveTabDirty(s),
     }))
   },

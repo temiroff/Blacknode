@@ -82,6 +82,7 @@ class Graph:
         return NodeProxy(self, node_id, type_name, params)
 
     def _add_edge(self, from_id: str, from_port: str, to_id: str, to_port: str):
+        self._edges = [e for e in self._edges if not (e["to"] == to_id and e["to_port"] == to_port)]
         self._edges.append({
             "from": from_id, "from_port": from_port,
             "to":   to_id,   "to_port":   to_port,
