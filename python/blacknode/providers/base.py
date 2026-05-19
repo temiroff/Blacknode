@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+class ProviderConfigError(RuntimeError):
+    """Raised when a provider cannot run because required local settings are missing."""
+
+
 @dataclass
 class ToolDef:
     name: str

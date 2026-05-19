@@ -1610,7 +1610,15 @@ export const useStore = create<Store>((set, get) => ({
 
   cookNode: async (id, port = 'output') => {
     const applyCookEvent = (event: CookEvent) => {
-      if (event.type === 'done') return
+      if (event.type === 'done') {
+        set(s => ({
+          nodes: s.nodes.map(n => ({
+            ...n,
+            data: { ...n.data, cooking: false },
+          })),
+        }))
+        return
+      }
       set(s => ({
         nodes: s.nodes.map(n => {
           if (n.id !== event.node_id) return n
@@ -1621,6 +1629,7 @@ export const useStore = create<Store>((set, get) => ({
                 ...n.data,
                 cooking: true,
                 cookError: undefined,
+                cookResult: undefined,
                 cookPort: event.port,
               },
             }
@@ -1657,6 +1666,7 @@ export const useStore = create<Store>((set, get) => ({
           ...n.data,
           cooking: n.id === id,
           cookError: n.id === id ? undefined : n.data.cookError,
+          cookResult: n.id === id ? undefined : n.data.cookResult,
           cookPort: n.id === id ? port : n.data.cookPort,
         },
       })),

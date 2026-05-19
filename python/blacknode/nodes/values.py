@@ -1,5 +1,18 @@
 """Primitive value nodes — drop one on the canvas and type a value directly."""
+import os
+
 from blacknode.node import node
+from blacknode.providers.base import ProviderConfigError
+
+
+def _required_api_key(model: str) -> tuple[str, str] | None:
+    if model.startswith("claude"):
+        return "Anthropic", "ANTHROPIC_API_KEY"
+    if model.startswith(("gpt", "o1", "o3", "o4", "chatgpt", "text-", "ft:gpt")):
+        return "OpenAI", "OPENAI_API_KEY"
+    if model.startswith("nim:"):
+        return "NVIDIA NIM", "NVIDIA_API_KEY"
+    return None
 
 
 @node(inputs=[], outputs=["value:Text"], name="Text")
@@ -25,7 +38,15 @@ def bool_value(ctx: dict) -> dict:
 
 @node(inputs=[], outputs=["value:Model"], name="Model")
 def model_value(ctx: dict) -> dict:
-    return {"value": str(ctx.get("value", "claude-sonnet-4-6"))}
+    value = str(ctx.get("value", "claude-sonnet-4-6"))
+    required = _required_api_key(value)
+    if required:
+        provider, env_var = required
+        if not os.environ.get(env_var):
+            raise ProviderConfigError(
+                f"{provider} API key is missing. Add it on the Model node before cooking this graph."
+            )
+    return {"value": value}
 
 
 @node(inputs=[], outputs=["value:Dict"], name="Dict")

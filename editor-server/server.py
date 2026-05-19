@@ -704,12 +704,12 @@ def _cook_trace(node_id: str, port: str):
         node_def = _session.graph._nodes[current_id]
         ctx = dict(node_def["params"])
 
-        try:
-            for edge in _session.graph._edges:
-                if edge["to"] == current_id:
-                    val = yield from cook_one(edge["from"], edge["from_port"])
-                    ctx[edge["to_port"]] = val
+        for edge in _session.graph._edges:
+            if edge["to"] == current_id:
+                val = yield from cook_one(edge["from"], edge["from_port"])
+                ctx[edge["to_port"]] = val
 
+        try:
             if node_def["type"] == "Subnet":
                 yield _json_line({"type": "start", "node_id": current_id, "port": current_port})
                 try:
@@ -761,12 +761,13 @@ def _cook_trace(node_id: str, port: str):
                 "outputs": result,
             })
             return value
-        except Exception:
+        except Exception as exc:
+            error = str(exc) if exc.__class__.__name__ == "ProviderConfigError" else traceback.format_exc()
             yield _json_line({
                 "type": "error",
                 "node_id": current_id,
                 "port": current_port,
-                "error": traceback.format_exc(),
+                "error": error,
             })
             raise
 
