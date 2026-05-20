@@ -18,6 +18,9 @@ dev = [
     "pytest",
     "maturin",
 ]
+mcp = [
+    "mcp>=1.0",
+]
 
 [project.scripts]
 blacknode = "blacknode.cli:main"

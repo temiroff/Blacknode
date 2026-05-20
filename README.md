@@ -207,6 +207,7 @@ Installed as a package, Blacknode exposes a workflow CLI:
 blacknode validate .\workflows\my-workflow.json
 blacknode run .\workflows\my-workflow.json --output .\result.json
 blacknode export-python .\workflows\my-workflow.json --output .\workflow.py
+blacknode mcp
 ```
 
 `blacknode run` writes a JSON result containing the cooked value plus a structured `events` run log with node timings, errors, model calls, and tool calls:
@@ -310,6 +311,60 @@ Wire that `path` output into **FileRead** to read the saved file back into the g
 
 ---
 
+## MCP server (for AI agents)
+
+Blacknode ships an MCP server so AI agents (Claude Desktop, Cursor, any MCP
+client) can build, validate, and run Blacknode workflows through a typed tool
+interface — no raw JSON guessing.
+
+Install the MCP dependency once:
+
+```powershell
+pip install -e ".[mcp]"
+```
+
+Launch the server over stdio:
+
+```powershell
+blacknode mcp
+```
+
+### Claude Desktop config
+
+Add an entry to `claude_desktop_config.json` (Settings → Developer → Edit Config):
+
+```json
+{
+  "mcpServers": {
+    "blacknode": {
+      "command": "blacknode",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### Exposed tools
+
+| Tool | Purpose |
+|---|---|
+| `list_nodes` | Every node type, grouped by category, with port schemas |
+| `get_node_schema` | Detailed ports + defaults for one node type |
+| `list_templates` | Shipped templates in `templates/*.json` |
+| `load_workflow` | Read a workflow JSON file |
+| `create_workflow` | Empty workflow scaffold with an Output node |
+| `add_node` | Add a node; rejects unknown types and subnet types |
+| `connect_nodes` | Add an edge; rejects incompatible port types |
+| `validate_workflow` | Full schema + type validation |
+| `run_workflow` | Execute and return cooked value + event log |
+| `export_python` | Convert workflow to a runnable Python script |
+
+Every mutation tool returns a fresh validation report so agents get fast
+feedback when they build something invalid. API keys are read from
+`editor-server/api_keys.json` (same store the visual editor uses).
+
+---
+
 ## Supported model providers
 
 Connect a **Model** node to any `model` port. The model string is routed automatically:
@@ -402,6 +457,9 @@ blacknode/
 ├── python/blacknode/
 │   ├── graph.py                 ← lazy DAG evaluation engine
 │   ├── node.py                  ← @node decorator + registry
+│   ├── mcp/                     ← MCP server for AI agents
+│   │   ├── tools.py             ← pure-Python tool surface (tested)
+│   │   └── server.py            ← FastMCP wrapper
 │   ├── providers/               ← LLM provider abstraction
 │   │   ├── registry.py          ← auto-route from model string
 │   │   ├── anthropic_provider.py
@@ -435,6 +493,7 @@ See [LICENSE](LICENSE) for the full license text.
 - [x] PythonFn, SubnetAsTool, ToolBox, and ToolCall tool workflows
 - [x] VisualAgentLoop compatibility node and visible agent-step primitives
 - [x] Collapsible/resizable side panels and auto-organized templates
+- [x] MCP server for AI-agent-driven workflow building
 - [ ] Rust core via maturin (milestone 2)
 - [ ] Tauri desktop wrapper (milestone 3)
 - [ ] `.bn` binary graph file format

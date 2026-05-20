@@ -18,6 +18,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run(args.workflow, args.output)
     if args.command == "export-python":
         return _export_python(args.workflow, args.output)
+    if args.command == "mcp":
+        return _mcp()
     parser.print_help()
     return 2
 
@@ -36,6 +38,8 @@ def _parser() -> argparse.ArgumentParser:
     export_python = subcommands.add_parser("export-python", help="export a workflow JSON file as a Python script")
     export_python.add_argument("workflow", type=Path)
     export_python.add_argument("--output", "-o", type=Path, help="write Python script to this path")
+
+    subcommands.add_parser("mcp", help="run the Blacknode MCP server over stdio")
 
     return parser
 
@@ -74,6 +78,13 @@ def _export_python(path: Path, output: Path | None) -> int:
         return 0
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(script, encoding="utf-8")
+    return 0
+
+
+def _mcp() -> int:
+    from .mcp import main as run_mcp
+
+    run_mcp()
     return 0
 
 
