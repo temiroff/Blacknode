@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .workflow import WorkflowRunError, load_workflow, run_workflow, validate_workflow
+from .workflow import WorkflowRunError, export_workflow_python, load_workflow, run_workflow, validate_workflow
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -16,6 +16,8 @@ def main(argv: list[str] | None = None) -> int:
         return _validate(args.workflow)
     if args.command == "run":
         return _run(args.workflow, args.output)
+    if args.command == "export-python":
+        return _export_python(args.workflow, args.output)
     parser.print_help()
     return 2
 
@@ -30,6 +32,10 @@ def _parser() -> argparse.ArgumentParser:
     run = subcommands.add_parser("run", help="run a workflow JSON file")
     run.add_argument("workflow", type=Path)
     run.add_argument("--output", "-o", type=Path, help="write run result JSON to this path")
+
+    export_python = subcommands.add_parser("export-python", help="export a workflow JSON file as a Python script")
+    export_python.add_argument("workflow", type=Path)
+    export_python.add_argument("--output", "-o", type=Path, help="write Python script to this path")
 
     return parser
 
@@ -53,6 +59,21 @@ def _run(path: Path, output: Path | None) -> int:
         return 1
 
     _write_json(result, output)
+    return 0
+
+
+def _export_python(path: Path, output: Path | None) -> int:
+    try:
+        script = export_workflow_python(load_workflow(path))
+    except (OSError, json.JSONDecodeError, WorkflowRunError, Exception) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if output is None:
+        print(script)
+        return 0
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(script, encoding="utf-8")
     return 0
 
 

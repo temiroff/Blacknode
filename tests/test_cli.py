@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import runpy
 import tempfile
 import unittest
 from pathlib import Path
@@ -85,6 +86,22 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             result = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertEqual(result, {"node_id": "out", "port": "value", "value": "hello"})
+
+    def test_export_python_writes_runnable_script(self):
+        with tempfile.TemporaryDirectory() as td:
+            workflow_path = Path(td) / "workflow.json"
+            script_path = Path(td) / "workflow.py"
+            workflow_path.write_text(json.dumps(_valid_workflow()), encoding="utf-8")
+
+            code = main(["export-python", str(workflow_path), "--output", str(script_path)])
+
+            self.assertEqual(code, 0)
+            script = script_path.read_text(encoding="utf-8")
+            self.assertIn("g = bn.Graph()", script)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                runpy.run_path(str(script_path), run_name="__main__")
+            self.assertEqual(stdout.getvalue().strip(), "hello")
 
 
 def _valid_workflow() -> dict:

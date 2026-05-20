@@ -101,6 +101,7 @@ The command-line interface uses the same validator and runtime:
 ```powershell
 blacknode validate workflow.json
 blacknode run workflow.json --output result.json
+blacknode export-python workflow.json --output workflow.py
 ```
 
 Semantic validation enforces:

@@ -181,6 +181,7 @@ Installed as a package, Blacknode exposes a workflow CLI:
 ```powershell
 blacknode validate .\workflows\my-workflow.json
 blacknode run .\workflows\my-workflow.json --output .\result.json
+blacknode export-python .\workflows\my-workflow.json --output .\workflow.py
 ```
 
 ### Tool workflows

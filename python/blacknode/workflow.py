@@ -182,6 +182,48 @@ def run_workflow(data: Mapping[str, Any]) -> dict[str, Any]:
     return {"node_id": node_id, "port": port, "value": value}
 
 
+def export_workflow_python(data: Mapping[str, Any]) -> str:
+    report = validate_workflow(data)
+    if not report.ok:
+        raise WorkflowRunError(json.dumps(report.to_dict(), indent=2))
+
+    node_id, port = infer_entrypoint(data)
+    node_meta = data.get("node_meta") or {}
+    edges = data.get("edges") or []
+    names = _python_node_names(node_meta.keys())
+    lines = [
+        "from __future__ import annotations",
+        "",
+        "import blacknode as bn",
+        "",
+        "",
+        "g = bn.Graph()",
+        "",
+    ]
+
+    for original_id, meta in node_meta.items():
+        var_name = names[str(original_id)]
+        params = dict(meta.get("params", {}))
+        lines.append(f"{var_name} = g.node({meta['type']!r}, **{params!r})")
+        lines.append(f"_generated_id = {var_name}._id")
+        lines.append(f"{var_name}._id = {str(original_id)!r}")
+        lines.append(f"{var_name}._params = g._nodes[_generated_id]['params']")
+        lines.append(f"g._nodes[{str(original_id)!r}] = g._nodes.pop(_generated_id)")
+        lines.append(f"g._dirty.discard(_generated_id)")
+        lines.append(f"g._dirty.add({str(original_id)!r})")
+        subgraph = meta.get("subgraph")
+        if isinstance(subgraph, Mapping):
+            lines.append(f"g._nodes[{str(original_id)!r}]['subgraph'] = {_literal(_runtime_subgraph(subgraph))}")
+        lines.append("")
+
+    lines.append(f"g._edges = {_literal([dict(edge) for edge in edges])}")
+    lines.append("")
+    lines.append(f"result = g._cook({node_id!r}, {port!r})")
+    lines.append("print(result)")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _validate_graph(
     node_meta: Mapping[str, Any],
     edges: list[Any],
@@ -475,3 +517,34 @@ def _runtime_subgraph(subgraph: Mapping[str, Any]) -> dict[str, Any]:
             if isinstance(edge, Mapping)
         ],
     }
+
+
+def _python_node_names(node_ids) -> dict[str, str]:
+    names: dict[str, str] = {}
+    used: set[str] = set()
+    for fallback_index, node_id in enumerate(node_ids, start=1):
+        base = _python_identifier(str(node_id)) or f"node_{fallback_index}"
+        name = base
+        suffix = 2
+        while name in used:
+            name = f"{base}_{suffix}"
+            suffix += 1
+        names[str(node_id)] = name
+        used.add(name)
+    return names
+
+
+def _python_identifier(value: str) -> str:
+    chars = [ch if ch.isalnum() or ch == "_" else "_" for ch in value.strip()]
+    name = "".join(chars).strip("_").lower()
+    if not name:
+        return ""
+    if name[0].isdigit():
+        name = f"node_{name}"
+    if name in {"False", "None", "True"}:
+        name = f"{name.lower()}_node"
+    return name
+
+
+def _literal(value: Any) -> str:
+    return repr(value)
