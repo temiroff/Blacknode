@@ -99,17 +99,17 @@ Drag from an output handle (right side of a node) to an input handle (left side)
 
 | Handle color | Hex | Type |
 |---|---:|---|
-| Amber | `#f59e0b` | Text |
-| Green | `#22c55e` | Int |
-| Cyan | `#06b6d4` | Float |
-| Emerald | `#34d399` | Number |
-| Fuchsia | `#e879f9` | Bool |
-| Orange | `#f97316` | List |
-| Purple | `#a855f7` | Dict |
-| Pink | `#ec4899` | Embedding |
-| Red | `#ef4444` | Fn (callable tool) |
-| NVIDIA green | `#76b900` | Model |
-| Grey | `#6b7280` | Any |
+| ![Amber](docs/images/swatches/swatch-f59e0b.svg) Amber | `#f59e0b` | Text |
+| ![Green](docs/images/swatches/swatch-22c55e.svg) Green | `#22c55e` | Int |
+| ![Cyan](docs/images/swatches/swatch-06b6d4.svg) Cyan | `#06b6d4` | Float |
+| ![Emerald](docs/images/swatches/swatch-34d399.svg) Emerald | `#34d399` | Number |
+| ![Fuchsia](docs/images/swatches/swatch-e879f9.svg) Fuchsia | `#e879f9` | Bool |
+| ![Orange](docs/images/swatches/swatch-f97316.svg) Orange | `#f97316` | List |
+| ![Purple](docs/images/swatches/swatch-a855f7.svg) Purple | `#a855f7` | Dict |
+| ![Pink](docs/images/swatches/swatch-ec4899.svg) Pink | `#ec4899` | Embedding |
+| ![Red](docs/images/swatches/swatch-ef4444.svg) Red | `#ef4444` | Fn (callable tool) |
+| ![NVIDIA green](docs/images/swatches/swatch-76b900.svg) NVIDIA green | `#76b900` | Model |
+| ![Grey](docs/images/swatches/swatch-6b7280.svg) Grey | `#6b7280` | Any |
 
 Compatibility rules:
 
@@ -122,16 +122,16 @@ Node category/header colors:
 
 | Category | Hex | Nodes |
 |---|---:|---|
-| Values | `#6b7280` | Text, Float, Int, Bool, Dict |
-| AI | `#6366f1` | Model, LLMAgent, AgentLoop, VisualAgentLoop, agent-step nodes, EmbedText |
-| Tools | `#14b8a6` | PythonFn, SubnetAsTool, ToolBox, ToolCall |
-| PythonTools | `#0ea5e9` | web_search, fetch_url, calculator, current_time, regex_extract, json_lookup, text_stats |
-| Math | `#22c55e` | Add, Subtract, Multiply, Divide |
-| Flow | `#d97706` | Branch, Switch, Gate, Map, Filter, Reduce, ForEach |
-| IO | `#0891b2` | FileRead, FileWrite, HTTPGet, JSONParse, JSONDump |
-| Core | `#374151` | Literal, Print, Concat |
-| Output | `#8b5cf6` | Output |
-| Subnet | `#6366f1` | SubnetInput, SubnetOutput |
+| ![Values](docs/images/swatches/swatch-6b7280.svg) Values | `#6b7280` | Text, Float, Int, Bool, Dict |
+| ![AI](docs/images/swatches/swatch-6366f1.svg) AI | `#6366f1` | Model, LLMAgent, AgentLoop, VisualAgentLoop, agent-step nodes, EmbedText |
+| ![Tools](docs/images/swatches/swatch-14b8a6.svg) Tools | `#14b8a6` | PythonFn, SubnetAsTool, ToolBox, ToolCall |
+| ![PythonTools](docs/images/swatches/swatch-0ea5e9.svg) PythonTools | `#0ea5e9` | web_search, fetch_url, calculator, current_time, regex_extract, json_lookup, text_stats |
+| ![Math](docs/images/swatches/swatch-22c55e.svg) Math | `#22c55e` | Add, Subtract, Multiply, Divide |
+| ![Flow](docs/images/swatches/swatch-d97706.svg) Flow | `#d97706` | Branch, Switch, Gate, Map, Filter, Reduce, ForEach |
+| ![IO](docs/images/swatches/swatch-0891b2.svg) IO | `#0891b2` | FileRead, FileWrite, HTTPGet, JSONParse, JSONDump |
+| ![Core](docs/images/swatches/swatch-374151.svg) Core | `#374151` | Literal, Print, Concat |
+| ![Output](docs/images/swatches/swatch-8b5cf6.svg) Output | `#8b5cf6` | Output |
+| ![Subnet](docs/images/swatches/swatch-6366f1.svg) Subnet | `#6366f1` | SubnetInput, SubnetOutput |
 
 ### Disconnecting lines
 
