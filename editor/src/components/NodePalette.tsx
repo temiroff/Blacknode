@@ -2,13 +2,14 @@ import { useEffect, useState, useRef } from 'react'
 import { useStore } from '../store'
 import { CATEGORIES } from '../categories'
 import { isPythonToolPreset, resolvePythonToolPreset } from '../pythonToolPresets'
+import RunsPanel from './RunsPanel'
 import ScriptEditor from './ScriptEditor'
 import TemplateGallery from './TemplateGallery'
 import WorkflowManager from './WorkflowManager'
 
 const ALL_CATEGORISED = Object.values(CATEGORIES).flatMap(c => c.nodes)
 
-type Tab = 'nodes' | 'templates' | 'workflows' | 'script'
+type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs'
 
 const TOP_BAR_H = 44
 const RAIL_W = 78
@@ -45,12 +46,19 @@ const ICON_SCRIPT = (
     <path d="M12 5l4 4-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 )
+const ICON_RUNS = (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.3"/>
+    <path d="M9 5v4l2.5 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+)
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'nodes',     label: 'Nodes',     icon: ICON_NODES     },
   { id: 'templates', label: 'Templates', icon: ICON_TEMPLATES },
   { id: 'workflows', label: 'Workflows', icon: ICON_WORKFLOWS },
   { id: 'script',    label: 'Script',    icon: ICON_SCRIPT    },
+  { id: 'runs',      label: 'Runs',      icon: ICON_RUNS      },
 ]
 
 export default function NodePalette() {
@@ -424,6 +432,9 @@ export default function NodePalette() {
                 <ScriptEditor />
               </div>
             )}
+
+            {/* ── RUNS ── */}
+            {activeTab === 'runs' && <RunsPanel />}
 
           </div>
         </div>

@@ -326,6 +326,10 @@ JSON run record under `editor-server/runs/`. Each record has:
 The store keeps the most recent 200 runs and prunes older finished runs on
 each new run. The directory is git-ignored.
 
+The editor's left sidebar has a **Runs** tab that lists recent runs with a
+status badge, duration, and node/model/tool counters. Click a row to expand
+its event timeline and result value or error.
+
 ### Endpoints
 
 | Method + path | Purpose |

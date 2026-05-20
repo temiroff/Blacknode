@@ -1095,17 +1095,23 @@ def _visual_emit_success(inner_meta: dict[str, dict], node_id: str | None, port:
     })
 
 
-def _visual_emit_start(node_id: str | None, port: str):
+def _visual_emit_start(node_id: str | None, port: str, inner_meta: dict[str, dict] | None = None):
     if not node_id:
         return
-    yield _json_line({"type": "start", "node_id": node_id, "port": port})
+    payload: dict[str, Any] = {"type": "start", "node_id": node_id, "port": port}
+    if inner_meta and node_id in inner_meta:
+        payload["node_type"] = str(inner_meta[node_id].get("type", ""))
+    yield _json_line(payload)
 
 
 def _visual_emit_error(inner_meta: dict[str, dict], node_id: str | None, port: str, error: str):
     if not node_id:
         return
     _record_node_error(inner_meta, node_id, port, error)
-    yield _json_line({"type": "error", "node_id": node_id, "port": port, "error": error})
+    payload: dict[str, Any] = {"type": "error", "node_id": node_id, "port": port, "error": error}
+    if node_id in inner_meta:
+        payload["node_type"] = str(inner_meta[node_id].get("type", ""))
+    yield _json_line(payload)
 
 
 def _cook_visual_agent_loop_streamed_value(subnet_id: str, port: str, outer_ctx: dict):
@@ -1270,16 +1276,80 @@ def _refresh_subgraph_status_if_needed(subnet_id: str, port: str):
     _session.graph._dirty.discard(subnet_id)
 
 
+def _lookup_node_type(node_id: str | None) -> str:
+    if not isinstance(node_id, str):
+        return ""
+    meta = _session.node_meta.get(node_id)
+    if isinstance(meta, dict):
+        return str(meta.get("type", ""))
+    return ""
+
+
+def _node_event(payload: dict[str, Any]) -> str:
+    """Build an ndjson event line, auto-filling node_type when a node_id is set."""
+    if "node_id" in payload and "node_type" not in payload:
+        node_type = _lookup_node_type(payload["node_id"])
+        if node_type:
+            payload = {**payload, "node_type": node_type}
+    return _json_line(payload)
+
+
+class _CookStreamLogger:
+    """RunLogger-shaped adapter that forwards model/tool events into the cook stream.
+
+    The AI nodes call ``ctx['__run_logger__'].model_call(...)`` and
+    ``.tool_call(...)``. The CLI runtime gives them a real RunLogger; the editor
+    cook path used to drop those events on the floor. This adapter queues them
+    so ``_cook_trace`` can yield them as ndjson lines, which means both the live
+    frontend and the persistent RunStore see them.
+    """
+
+    def __init__(self):
+        self._pending: list[dict[str, Any]] = []
+
+    def drain(self) -> list[dict[str, Any]]:
+        pending, self._pending = self._pending, []
+        return pending
+
+    def model_call(self, *, node_id, model, provider=None, action="complete", tool_count=None):
+        event: dict[str, Any] = {
+            "type": "model_call",
+            "node_id": node_id,
+            "node_type": _lookup_node_type(node_id),
+            "model": model,
+            "action": action,
+        }
+        if provider:
+            event["provider"] = provider
+        if tool_count is not None:
+            event["tool_count"] = tool_count
+        self._pending.append(event)
+
+    def tool_call(self, *, node_id, name, arguments=None):
+        self._pending.append({
+            "type": "tool_call",
+            "node_id": node_id,
+            "node_type": _lookup_node_type(node_id),
+            "name": name,
+            "arguments": dict(arguments or {}),
+        })
+
+
 def _cook_trace(node_id: str, port: str):
     import traceback
     emitted_cached: set[tuple[str, str]] = set()
+    logger = _CookStreamLogger()
+
+    def drain_logger():
+        for event in logger.drain():
+            yield _json_line(event)
 
     def emit_cached_success(current_id: str, current_port: str):
         cache_key = (current_id, current_port)
         if cache_key in emitted_cached or cache_key not in _session.graph._cache:
             return
         emitted_cached.add(cache_key)
-        yield _json_line({
+        yield _node_event({
             "type": "success",
             "node_id": current_id,
             "port": current_port,
@@ -1329,7 +1399,7 @@ def _cook_trace(node_id: str, port: str):
 
         try:
             if node_def["type"] in {"Subnet", "VisualAgentLoop"}:
-                yield _json_line({"type": "start", "node_id": current_id, "port": current_port})
+                yield _node_event({"type": "start", "node_id": current_id, "port": current_port})
                 try:
                     if node_def["type"] == "VisualAgentLoop":
                         value = yield from _cook_visual_agent_loop_streamed_value(current_id, current_port, ctx)
@@ -1338,7 +1408,7 @@ def _cook_trace(node_id: str, port: str):
                     result = {current_port: value}
                     _session.graph._cache[(current_id, current_port)] = value
                     _session.graph._dirty.discard(current_id)
-                    yield _json_line({
+                    yield _node_event({
                         "type": "success",
                         "node_id": current_id,
                         "port": current_port,
@@ -1347,10 +1417,10 @@ def _cook_trace(node_id: str, port: str):
                     })
                     return value
                 except Exception as exc:
-                    yield _json_line({"type": "error", "node_id": current_id, "port": current_port, "error": str(exc)})
+                    yield _node_event({"type": "error", "node_id": current_id, "port": current_port, "error": str(exc)})
                     raise
 
-            yield _json_line({
+            yield _node_event({
                 "type": "start",
                 "node_id": current_id,
                 "port": current_port,
@@ -1359,7 +1429,11 @@ def _cook_trace(node_id: str, port: str):
             fn = _NODE_REGISTRY[node_def["type"]]
             ctx["__graph__"] = _session.graph
             ctx["__node_id__"] = current_id
-            result = fn(ctx)
+            ctx["__run_logger__"] = logger
+            try:
+                result = fn(ctx)
+            finally:
+                yield from drain_logger()
             if not isinstance(result, dict):
                 result = {"output": result}
 
@@ -1374,7 +1448,7 @@ def _cook_trace(node_id: str, port: str):
                 )
 
             value = _session.graph._cache[cache_key]
-            yield _json_line({
+            yield _node_event({
                 "type": "success",
                 "node_id": current_id,
                 "port": current_port,
@@ -1383,8 +1457,9 @@ def _cook_trace(node_id: str, port: str):
             })
             return value
         except Exception as exc:
+            yield from drain_logger()
             error = str(exc) if exc.__class__.__name__ == "ProviderConfigError" else traceback.format_exc()
-            yield _json_line({
+            yield _node_event({
                 "type": "error",
                 "node_id": current_id,
                 "port": current_port,
@@ -1467,6 +1542,12 @@ def clear_runs():
 def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
     import traceback
 
+    logger = _CookStreamLogger()
+
+    def drain_logger():
+        for event in logger.drain():
+            yield _json_line(event)
+
     try:
         if subnet_id not in _session.node_meta:
             raise KeyError(f"Subnet node {subnet_id} not found")
@@ -1494,7 +1575,7 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
             if cache_key in emitted_outer_cached or cache_key not in _session.graph._cache:
                 return
             emitted_outer_cached.add(cache_key)
-            yield _json_line({
+            yield _node_event({
                 "type": "success",
                 "node_id": current_id,
                 "port": current_port,
@@ -1543,7 +1624,11 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
                     fn = _NODE_REGISTRY[node_def["type"]]
                     ctx["__graph__"] = _session.graph
                     ctx["__node_id__"] = current_id
-                    result = fn(ctx)
+                    ctx["__run_logger__"] = logger
+                    try:
+                        result = fn(ctx)
+                    finally:
+                        yield from drain_logger()
                     if not isinstance(result, dict):
                         result = {"output": result}
 
@@ -1558,7 +1643,7 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
                     )
 
                 value = _session.graph._cache[cache_key]
-                yield _json_line({
+                yield _node_event({
                     "type": "success",
                     "node_id": current_id,
                     "port": current_port,
@@ -1567,8 +1652,9 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
                 })
                 return value
             except Exception as exc:
+                yield from drain_logger()
                 error = str(exc) if exc.__class__.__name__ == "ProviderConfigError" else traceback.format_exc()
-                yield _json_line({
+                yield _node_event({
                     "type": "error",
                     "node_id": current_id,
                     "port": current_port,
@@ -1659,7 +1745,8 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
                     ctx[edge["to_port"]] = val
 
             try:
-                yield _json_line({"type": "start", "node_id": current_id, "port": current_port})
+                node_type = node_def["type"]
+                yield _json_line({"type": "start", "node_id": current_id, "port": current_port, "node_type": node_type})
                 if node_def["type"] in {"Subnet", "VisualAgentLoop"}:
                     result = inner._cook_subnet(current_id, current_port, ctx)
                 else:

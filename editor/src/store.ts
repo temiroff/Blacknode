@@ -41,7 +41,7 @@ export interface GraphClipboard {
 
 export interface CookLogEntry {
   id: string
-  kind: 'start' | 'success' | 'error' | 'done'
+  kind: 'start' | 'success' | 'error' | 'done' | 'info'
   label: string
   message: string
   nodeId?: string
@@ -318,6 +318,27 @@ function cookEventLogEntry(event: CookEvent, nodes: Node<NodeData>[]): CookLogEn
   }
 
   const label = nodeRunLabel(nodes, event.node_id)
+  if (event.type === 'model_call') {
+    return {
+      id: `${ts}-${event.node_id}-model`,
+      kind: 'info',
+      label,
+      message: `${label} model: ${event.model}`,
+      nodeId: event.node_id,
+      ts,
+    }
+  }
+  if (event.type === 'tool_call') {
+    return {
+      id: `${ts}-${event.node_id}-tool`,
+      kind: 'info',
+      label,
+      message: `${label} tool: ${event.name}`,
+      nodeId: event.node_id,
+      ts,
+    }
+  }
+
   const port = event.port ? `.${event.port}` : ''
   if (event.type === 'start') {
     return {
@@ -1895,6 +1916,12 @@ export const useStore = create<Store>((set, get) => ({
             ...n,
             data: { ...n.data, cooking: false },
           })),
+        }))
+        return
+      }
+      if (event.type === 'model_call' || event.type === 'tool_call') {
+        set(s => ({
+          cookLog: appendCookLog(s.cookLog, cookEventLogEntry(event, s.nodes)),
         }))
         return
       }

@@ -3,10 +3,12 @@ import type { BnNodeDef, BnNodeMeta } from './types'
 const BASE = 'http://127.0.0.1:7777'
 
 export type CookEvent =
-  | { type: 'start'; node_id: string; port: string }
-  | { type: 'success'; node_id: string; port: string; value: unknown; cached?: boolean; outputs?: Record<string, unknown> }
-  | { type: 'error'; node_id: string; port: string; error: string }
+  | { type: 'start'; node_id: string; port: string; node_type?: string }
+  | { type: 'success'; node_id: string; port: string; value: unknown; cached?: boolean; outputs?: Record<string, unknown>; node_type?: string }
+  | { type: 'error'; node_id: string; port: string; error: string; node_type?: string }
   | { type: 'done'; port: string; value?: unknown; error?: string }
+  | { type: 'model_call'; node_id: string; model: string; action?: string; provider?: string; tool_count?: number; node_type?: string }
+  | { type: 'tool_call'; node_id: string; name: string; arguments?: Record<string, unknown>; node_type?: string }
 
 export interface TemplateMeta {
   slug: string
@@ -15,6 +17,29 @@ export interface TemplateMeta {
   color: string
   saved_at: string
   node_count: number
+}
+
+export type RunStatus = 'success' | 'error' | 'running'
+
+export interface RunSummary {
+  run_id: string
+  started_at: string
+  finished_at: string | null
+  duration_ms: number | null
+  status: RunStatus
+  node_id: string
+  port: string
+  node_type: string
+  node_count: number
+  model_calls: number
+  tool_calls: number
+  cached_nodes: number
+  error?: string
+}
+
+export interface RunRecord extends RunSummary {
+  events: Array<Record<string, unknown> & { type: string; ts?: string }>
+  value?: unknown
 }
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -140,6 +165,15 @@ export const api = {
     req<TemplateMeta[]>('GET', '/templates'),
   loadTemplate: (slug: string) =>
     req<{ nodes: any[]; edges: any[] }>('POST', `/templates/${encodeURIComponent(slug)}/load`),
+
+  listRuns:   (limit = 50) =>
+    req<{ runs: RunSummary[] }>('GET', `/runs?limit=${limit}`),
+  getRun:     (runId: string) =>
+    req<RunRecord>('GET', `/runs/${encodeURIComponent(runId)}`),
+  deleteRun:  (runId: string) =>
+    req<{ ok: boolean; run_id: string }>('DELETE', `/runs/${encodeURIComponent(runId)}`),
+  clearRuns:  () =>
+    req<{ ok: boolean; removed: number }>('DELETE', '/runs'),
 
   getSubgraph: (nodeId: string) =>
     req<{ node_meta: Record<string, any>; edges: any[] }>('GET', `/nodes/${nodeId}/subgraph`),
