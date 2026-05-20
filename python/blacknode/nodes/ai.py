@@ -278,6 +278,11 @@ def tool_dispatch(ctx: dict) -> dict:
     return {"tool_results": [_tool_result_dict(r) for r in results], "steps": steps}
 
 
+@node(inputs=["start:Int=1"], outputs=["iteration:Int"], name="AgentIteration")
+def agent_iteration(ctx: dict) -> dict:
+    return {"iteration": _int_value(ctx.get("iteration", ctx.get("start")), 1)}
+
+
 @node(
     inputs=["messages:List", "model:Model=claude-sonnet-4-6", "assistant_text:Text", "tool_calls:List", "tool_results:List"],
     outputs=["messages:List"],
@@ -313,12 +318,28 @@ def agent_stop_check(ctx: dict) -> dict:
 
 
 @node(
-    inputs=["messages:List", "system:Text", "model:Model=claude-sonnet-4-6", "max_tokens:Int=1024"],
+    inputs=[
+        "messages:List",
+        "system:Text",
+        "model:Model=claude-sonnet-4-6",
+        "max_tokens:Int=1024",
+        "assistant_text:Text",
+        "stop_reason:Text",
+        "reason:Text",
+        "tool_calls:List",
+    ],
     outputs=["result:Text", "step:Dict"],
     name="AgentFinalAnswer",
 )
 def agent_final_answer(ctx: dict) -> dict:
     model = ctx.get("model", "claude-sonnet-4-6")
+    assistant_text = str(ctx.get("assistant_text") or "")
+    reason = str(ctx.get("reason") or "")
+    tool_calls = ctx.get("tool_calls") or []
+    if reason == "final" or ctx.get("stop_reason") == "end_turn" or not tool_calls:
+        step = {"role": "assistant", "text": assistant_text, "tool_calls": [], "reason": reason or "final"}
+        return {"result": assistant_text, "step": step}
+
     provider, clean_model = resolve(
         model,
         provider=ctx.get("provider"),
@@ -338,7 +359,7 @@ def agent_final_answer(ctx: dict) -> dict:
         max_tokens=_max_tokens_for_model(model, ctx.get("max_tokens")),
         tools=None,
     )
-    step = {"role": "assistant", "text": final.text, "tool_calls": []}
+    step = {"role": "assistant", "text": final.text, "tool_calls": [], "reason": reason or "max_iter"}
     return {"result": final.text or "max iterations reached", "step": step}
 
 

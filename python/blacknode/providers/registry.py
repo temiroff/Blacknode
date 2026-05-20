@@ -1,5 +1,6 @@
 from __future__ import annotations
 from .base import BaseProvider
+from .keys import api_key_for_provider
 
 _ANTHROPIC_PREFIXES = ("claude-",)
 _OPENAI_PREFIXES    = ("gpt-", "o1-", "o3-", "o4-", "chatgpt-", "text-", "ft:gpt-")
@@ -74,20 +75,19 @@ def resolve(
 
 def _make_anthropic(api_key):
     from .anthropic_provider import AnthropicProvider
-    return AnthropicProvider(api_key)
+    return AnthropicProvider(api_key_for_provider("Anthropic", "ANTHROPIC_API_KEY", api_key))
 
 def _make_openai(api_key, base_url):
     from .openai_provider import OpenAIProvider
-    return OpenAIProvider(api_key, base_url)
+    return OpenAIProvider(api_key_for_provider("OpenAI", "OPENAI_API_KEY", api_key), base_url)
 
 def _make_ollama():
     from .openai_provider import OpenAIProvider
     return OpenAIProvider(api_key="ollama", base_url="http://localhost:11434/v1")
 
 def _make_nim(api_key):
-    import os
     from .openai_provider import OpenAIProvider
     return OpenAIProvider(
-        api_key=api_key or os.environ.get("NVIDIA_API_KEY", ""),
+        api_key=api_key_for_provider("NVIDIA NIM", "NVIDIA_API_KEY", api_key),
         base_url=_NIM_BASE_URL,
     )

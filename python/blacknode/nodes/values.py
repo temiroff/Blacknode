@@ -1,8 +1,8 @@
 """Primitive value nodes — drop one on the canvas and type a value directly."""
-import os
 
 from blacknode.node import node
 from blacknode.providers.base import ProviderConfigError
+from blacknode.providers.keys import api_key_for_provider
 
 
 def _required_api_key(model: str) -> tuple[str, str] | None:
@@ -42,9 +42,9 @@ def model_value(ctx: dict) -> dict:
     required = _required_api_key(value)
     if required:
         provider, env_var = required
-        if not os.environ.get(env_var):
+        if not api_key_for_provider(provider, env_var):
             raise ProviderConfigError(
-                f"{provider} API key is missing. Add it on the Model node before cooking this graph."
+                f"{provider} API key is missing. Add it on the Model node, save it in the editor, or set {env_var}."
             )
     return {"value": value}
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import { organizeTemplateNodes } from '../graphLayout'
+import { PYTHON_TOOL_PRESETS } from '../pythonToolPresets'
 
 interface TemplateNode {
   ref: string
@@ -37,65 +38,6 @@ interface Template {
   edges: TemplateEdge[]
   subgraphs?: Record<string, TemplateSubgraph>
 }
-
-const WEB_SEARCH_TOOL_CODE = `def run(query: str) -> str:
-    import html
-    import json
-    import re
-    import urllib.parse
-    import urllib.request
-
-    encoded = urllib.parse.quote_plus(query)
-
-    def fetch(url: str) -> str:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 Blacknode/1.0"})
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            return resp.read().decode("utf-8", errors="replace")
-
-    def clean(value: str) -> str:
-        value = re.sub(r"<[^>]+>", " ", value)
-        value = html.unescape(value)
-        return re.sub(r"\\s+", " ", value).strip()
-
-    try:
-        instant_url = f"https://api.duckduckgo.com/?q={encoded}&format=json&no_html=1&skip_disambig=1"
-        data = json.loads(fetch(instant_url))
-        for key in ("AbstractText", "Definition", "Answer"):
-            text = clean(str(data.get(key) or ""))
-            if text:
-                return text
-
-        pending = list(data.get("RelatedTopics", []))
-        while pending:
-            item = pending.pop(0)
-            pending.extend(item.get("Topics", []))
-            text = clean(str(item.get("Text") or ""))
-            if text:
-                return text
-    except Exception:
-        pass
-
-    page = fetch(f"https://duckduckgo.com/html/?q={encoded}")
-    titles = [clean(match) for match in re.findall(r'<a[^>]+class="result__a"[^>]*>(.*?)</a>', page, re.I | re.S)]
-    snippets = [
-        clean(a or b)
-        for a, b in re.findall(
-            r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>|<div[^>]+class="result__snippet"[^>]*>(.*?)</div>',
-            page,
-            re.I | re.S,
-        )
-    ]
-    results = []
-    for i, title in enumerate(titles[:3]):
-        if not title:
-            continue
-        snippet = snippets[i] if i < len(snippets) else ""
-        results.append(f"{i + 1}. {title}" + (f" - {snippet}" if snippet else ""))
-    if results:
-        return "\\n".join(results)
-
-    return f"No web snippets found for: {query}"
-`
 
 const CALCULATOR_SUBGRAPH: TemplateSubgraph = {
   nodeMeta: {
@@ -193,16 +135,16 @@ const VISUAL_AGENT_LOOP_SUBGRAPH: TemplateSubgraph = {
       },
       input_defaults: { model: 'claude-sonnet-4-6', max_tokens: 1024 },
     },
-    iter_one: {
-      id: 'iter_one',
-      type: 'Int',
-      params: { value: 1 },
+    iteration: {
+      id: 'iteration',
+      type: 'AgentIteration',
+      params: { start: 1 },
       pos: [560, 360],
-      inputs: [],
-      outputs: ['value'],
-      input_types: {},
-      output_types: { value: 'Int' },
-      input_defaults: {},
+      inputs: ['start'],
+      outputs: ['iteration'],
+      input_types: { start: 'Int' },
+      output_types: { iteration: 'Int' },
+      input_defaults: { start: 1 },
     },
     dispatch: {
       id: 'dispatch',
@@ -253,13 +195,17 @@ const VISUAL_AGENT_LOOP_SUBGRAPH: TemplateSubgraph = {
       type: 'AgentFinalAnswer',
       params: {},
       pos: [1400, 150],
-      inputs: ['messages', 'system', 'model', 'max_tokens'],
+      inputs: ['messages', 'system', 'model', 'max_tokens', 'assistant_text', 'stop_reason', 'reason', 'tool_calls'],
       outputs: ['result', 'step'],
       input_types: {
         messages: 'List',
         system: 'Text',
         model: 'Model',
         max_tokens: 'Int',
+        assistant_text: 'Text',
+        stop_reason: 'Text',
+        reason: 'Text',
+        tool_calls: 'List',
       },
       output_types: { result: 'Text', step: 'Dict' },
       input_defaults: { model: 'claude-sonnet-4-6', max_tokens: 1024 },
@@ -292,12 +238,16 @@ const VISUAL_AGENT_LOOP_SUBGRAPH: TemplateSubgraph = {
     { from: 'dispatch', fromPort: 'tool_results',   to: 'append',   toPort: 'tool_results' },
     { from: 'chat',     fromPort: 'stop_reason',    to: 'stop',     toPort: 'stop_reason' },
     { from: 'chat',     fromPort: 'tool_calls',     to: 'stop',     toPort: 'tool_calls' },
-    { from: 'iter_one', fromPort: 'value',          to: 'stop',     toPort: 'iteration' },
+    { from: 'iteration', fromPort: 'iteration',     to: 'stop',     toPort: 'iteration' },
     { from: 'loop_in',  fromPort: 'max_iter',       to: 'stop',     toPort: 'max_iter' },
     { from: 'append',   fromPort: 'messages',       to: 'final',    toPort: 'messages' },
     { from: 'loop_in',  fromPort: 'system',         to: 'final',    toPort: 'system' },
     { from: 'loop_in',  fromPort: 'model',          to: 'final',    toPort: 'model' },
     { from: 'loop_in',  fromPort: 'max_tokens',     to: 'final',    toPort: 'max_tokens' },
+    { from: 'chat',     fromPort: 'assistant_text', to: 'final',    toPort: 'assistant_text' },
+    { from: 'chat',     fromPort: 'stop_reason',    to: 'final',    toPort: 'stop_reason' },
+    { from: 'chat',     fromPort: 'tool_calls',     to: 'final',    toPort: 'tool_calls' },
+    { from: 'stop',     fromPort: 'reason',         to: 'final',    toPort: 'reason' },
     { from: 'final',    fromPort: 'result',         to: 'loop_out', toPort: 'result' },
     { from: 'dispatch', fromPort: 'steps',          to: 'loop_out', toPort: 'steps' },
   ],
@@ -362,17 +312,13 @@ const TEMPLATES: Template[] = [
   {
     id: 'python-tool-agent',
     name: 'Python Tool Agent',
-    description: 'PythonFn tool collected by ToolBox and used by AgentLoop',
+    description: 'web_search collected by ToolBox and used by AgentLoop',
     color: '#14b8a6',
     nodes: [
       { ref: 'model',  type: 'Model',     params: { value: 'claude-sonnet-4-6' },                                                    pos: [60,  60] },
       { ref: 'system', type: 'Text',      params: { value: 'You are an agent. Use web_search when outside context would help.' },    pos: [60, 210] },
       { ref: 'task',   type: 'Text',      params: { value: 'Use web_search to learn what NVIDIA NIM is, then answer in one sentence.' }, pos: [60, 380] },
-      { ref: 'tool',   type: 'PythonFn',  params: {
-        code: WEB_SEARCH_TOOL_CODE,
-        name: 'web_search',
-        description: 'Searches DuckDuckGo and returns a compact result or top snippets.',
-      },                                                                                                                            pos: [360,  80] },
+      { ref: 'tool',   type: 'PythonFn',  params: PYTHON_TOOL_PRESETS.web_search.params,                                             pos: [360,  80] },
       { ref: 'box',    type: 'ToolBox',   params: {},                                                                                pos: [620, 110] },
       { ref: 'loop',   type: 'AgentLoop', params: { max_iter: 3 },                                                                   pos: [620, 280] },
       { ref: 'out',    type: 'Output',    params: {},                                                                                pos: [900, 280] },
@@ -389,17 +335,13 @@ const TEMPLATES: Template[] = [
   {
     id: 'visual-tool-agent',
     name: 'Visual Tool Agent',
-    description: 'PythonFn tool collected by ToolBox and used by VisualAgentLoop',
+    description: 'web_search collected by ToolBox and used by VisualAgentLoop',
     color: '#6366f1',
     nodes: [
       { ref: 'model',  type: 'Model',           params: { value: 'claude-sonnet-4-6' },                                                    pos: [60,  60] },
       { ref: 'system', type: 'Text',            params: { value: 'You are an agent. Use web_search when outside context would help.' },    pos: [60, 210] },
       { ref: 'task',   type: 'Text',            params: { value: 'Use web_search to learn what NVIDIA NIM is, then answer in one sentence.' }, pos: [60, 380] },
-      { ref: 'tool',   type: 'PythonFn',        params: {
-        code: WEB_SEARCH_TOOL_CODE,
-        name: 'web_search',
-        description: 'Searches DuckDuckGo and returns a compact result or top snippets.',
-      },                                                                                                                            pos: [360,  80] },
+      { ref: 'tool',   type: 'PythonFn',        params: PYTHON_TOOL_PRESETS.web_search.params,                                             pos: [360,  80] },
       { ref: 'box',    type: 'ToolBox',         params: {},                                                                                pos: [620, 110] },
       { ref: 'loop',   type: 'VisualAgentLoop', params: { max_iter: 3 },                                                                   pos: [620, 280] },
       { ref: 'out',    type: 'Output',          params: {},                                                                                pos: [900, 280] },

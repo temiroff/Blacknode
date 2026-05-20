@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useStore } from '../store'
 import { CATEGORIES } from '../categories'
+import { isPythonToolPreset, resolvePythonToolPreset } from '../pythonToolPresets'
 import ScriptEditor from './ScriptEditor'
 import TemplateGallery from './TemplateGallery'
 import WorkflowManager from './WorkflowManager'
@@ -53,11 +54,15 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 ]
 
 export default function NodePalette() {
-  const { nodeTypes, addNode } = useStore()
+  const { nodeTypes, addNode, loadNodeTypes } = useStore()
   const [activeTab, setActiveTab] = useState<Tab | null>('nodes')
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
+
+  useEffect(() => {
+    if (activeTab === 'nodes') loadNodeTypes()
+  }, [activeTab, loadNodeTypes])
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -75,14 +80,23 @@ export default function NodePalette() {
     window.addEventListener('mouseup', onUp)
   }
 
+  const nodeSpec = (type: string) => {
+    const preset = resolvePythonToolPreset(type)
+    return preset
+      ? { type: preset.type, params: { ...preset.params } }
+      : { type, params: {} }
+  }
+
   const handleDragStart = (e: React.DragEvent, type: string) => {
-    e.dataTransfer.setData('application/blacknode-type', type)
+    const spec = nodeSpec(type)
+    e.dataTransfer.setData('application/blacknode-type', spec.type)
+    e.dataTransfer.setData('application/blacknode-params', JSON.stringify(spec.params))
     e.dataTransfer.effectAllowed = 'move'
   }
 
   const groups = Object.entries(CATEGORIES).map(([group, { color, nodes }]) => ({
     group, color,
-    types: nodes.filter(t => nodeTypes.includes(t)),
+    types: nodes.filter(t => isPythonToolPreset(t) || nodeTypes.includes(t)),
   })).filter(g => g.types.length > 0)
 
   const ungrouped = nodeTypes.filter(t => !ALL_CATEGORISED.includes(t))
@@ -335,7 +349,10 @@ export default function NodePalette() {
                           key={type}
                           draggable
                           onDragStart={e => handleDragStart(e, type)}
-                          onClick={() => addNode(type, { x: 200 + Math.random() * 200, y: 80 + Math.random() * 200 })}
+                          onClick={() => {
+                            const spec = nodeSpec(type)
+                            addNode(spec.type, { x: 200 + Math.random() * 200, y: 80 + Math.random() * 200 }, spec.params)
+                          }}
                           style={{
                             padding: '5px 14px 5px 26px',
                             color: 'var(--tx2)',

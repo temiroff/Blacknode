@@ -1,14 +1,17 @@
 """Multi-node research pipeline: fetch → summarise → write to file."""
+from _bootstrap import NIM_MODEL, require_nim_api_key
+
 import blacknode as bn
+
+require_nim_api_key()
 
 g = bn.Graph()
 
 url      = g.node("Literal", value="https://en.wikipedia.org/wiki/Houdini_(software)")
 fetcher  = g.node("HTTPGet")
-parser   = g.node("JSONParse")
 summarise = g.node("LLMAgent",
                    system="You are a technical writer. Summarise the text in 3 bullet points.",
-                   model="claude-haiku-4-5-20251001")
+                   model=NIM_MODEL)
 writer   = g.node("FileWrite", path="summary.txt")
 
 url.out("value")       >> fetcher.inp("url")

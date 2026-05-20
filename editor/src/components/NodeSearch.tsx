@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { CATEGORIES } from '../categories'
+import { PYTHON_TOOL_TYPES } from '../pythonToolPresets'
 
 interface Props {
   screenPos: { x: number; y: number }
@@ -25,7 +26,9 @@ const KNOWN_BY_TYPE = new Map(KNOWN_NODES.map(n => [n.type, n]))
 
 function buildNodeItems(nodeTypes?: string[], allowedTypes?: string[]): SearchNode[] {
   const allowed = allowedTypes ? new Set(allowedTypes) : null
-  const source = nodeTypes && nodeTypes.length > 0 ? nodeTypes : KNOWN_NODES.map(n => n.type)
+  const source = nodeTypes && nodeTypes.length > 0
+    ? [...nodeTypes, ...PYTHON_TOOL_TYPES.filter(type => !nodeTypes.includes(type))]
+    : KNOWN_NODES.map(n => n.type)
   return source
     .filter(type => !allowed || allowed.has(type))
     .map(type => KNOWN_BY_TYPE.get(type) ?? { type, category: 'Custom', color: 'var(--tx3)' })

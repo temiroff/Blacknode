@@ -11,6 +11,7 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import blacknode as bn
 from blacknode.node import _NODE_REGISTRY
+from blacknode.nodes import ai as ai_nodes
 
 app = FastAPI(title="Blacknode Editor Server")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -294,14 +295,14 @@ def _default_visual_agent_loop_subgraph() -> dict:
             },
             "input_defaults": {"model": "claude-sonnet-4-6", "max_tokens": 1024},
         },
-        "iter_one": {
-            "id": "iter_one", "type": "Int", "params": {"value": 1},
+        "iteration": {
+            "id": "iteration", "type": "AgentIteration", "params": {"start": 1},
             "pos": [560, 360],
-            "inputs": [],
-            "outputs": ["value"],
-            "input_types": {},
-            "output_types": {"value": "Int"},
-            "input_defaults": {},
+            "inputs": ["start"],
+            "outputs": ["iteration"],
+            "input_types": {"start": "Int"},
+            "output_types": {"iteration": "Int"},
+            "input_defaults": {"start": 1},
         },
         "dispatch": {
             "id": "dispatch", "type": "ToolDispatch", "params": {},
@@ -344,13 +345,17 @@ def _default_visual_agent_loop_subgraph() -> dict:
         "final": {
             "id": "final", "type": "AgentFinalAnswer", "params": {},
             "pos": [1400, 150],
-            "inputs": ["messages", "system", "model", "max_tokens"],
+            "inputs": ["messages", "system", "model", "max_tokens", "assistant_text", "stop_reason", "reason", "tool_calls"],
             "outputs": ["result", "step"],
             "input_types": {
                 "messages": "List",
                 "system": "Text",
                 "model": "Model",
                 "max_tokens": "Int",
+                "assistant_text": "Text",
+                "stop_reason": "Text",
+                "reason": "Text",
+                "tool_calls": "List",
             },
             "output_types": {"result": "Text", "step": "Dict"},
             "input_defaults": {"model": "claude-sonnet-4-6", "max_tokens": 1024},
@@ -381,16 +386,79 @@ def _default_visual_agent_loop_subgraph() -> dict:
         {"from": "dispatch", "from_port": "tool_results", "to": "append", "to_port": "tool_results"},
         {"from": "chat", "from_port": "stop_reason", "to": "stop", "to_port": "stop_reason"},
         {"from": "chat", "from_port": "tool_calls", "to": "stop", "to_port": "tool_calls"},
-        {"from": "iter_one", "from_port": "value", "to": "stop", "to_port": "iteration"},
+        {"from": "iteration", "from_port": "iteration", "to": "stop", "to_port": "iteration"},
         {"from": "loop_in", "from_port": "max_iter", "to": "stop", "to_port": "max_iter"},
         {"from": "append", "from_port": "messages", "to": "final", "to_port": "messages"},
         {"from": "loop_in", "from_port": "system", "to": "final", "to_port": "system"},
         {"from": "loop_in", "from_port": "model", "to": "final", "to_port": "model"},
         {"from": "loop_in", "from_port": "max_tokens", "to": "final", "to_port": "max_tokens"},
+        {"from": "chat", "from_port": "assistant_text", "to": "final", "to_port": "assistant_text"},
+        {"from": "chat", "from_port": "stop_reason", "to": "final", "to_port": "stop_reason"},
+        {"from": "chat", "from_port": "tool_calls", "to": "final", "to_port": "tool_calls"},
+        {"from": "stop", "from_port": "reason", "to": "final", "to_port": "reason"},
         {"from": "final", "from_port": "result", "to": "loop_out", "to_port": "result"},
         {"from": "dispatch", "from_port": "steps", "to": "loop_out", "to_port": "steps"},
     ]
     return {"node_meta": node_meta, "edges": edges}
+
+
+def _ensure_edge(edges: list[dict], from_id: str, from_port: str, to_id: str, to_port: str) -> None:
+    if not any(
+        e.get("from") == from_id
+        and e.get("from_port") == from_port
+        and e.get("to") == to_id
+        and e.get("to_port") == to_port
+        for e in edges
+    ):
+        edges.append({"from": from_id, "from_port": from_port, "to": to_id, "to_port": to_port})
+
+
+def _migrate_visual_agent_loop_subgraph(subnet_meta: dict) -> None:
+    subgraph = subnet_meta.setdefault("subgraph", {"node_meta": {}, "edges": []})
+    inner_meta = subgraph.setdefault("node_meta", {})
+    edges = subgraph.setdefault("edges", [])
+
+    if "iter_one" in inner_meta and "iteration" not in inner_meta:
+        old = inner_meta.pop("iter_one")
+        inner_meta["iteration"] = {
+            **old,
+            "id": "iteration",
+            "type": "AgentIteration",
+            "params": {"start": old.get("params", {}).get("value", 1)},
+            "inputs": ["start"],
+            "outputs": ["iteration"],
+            "input_types": {"start": "Int"},
+            "output_types": {"iteration": "Int"},
+            "input_defaults": {"start": 1},
+        }
+        for edge in edges:
+            if edge.get("from") == "iter_one":
+                edge["from"] = "iteration"
+            if edge.get("from") == "iteration" and edge.get("from_port") == "value":
+                edge["from_port"] = "iteration"
+
+    final = inner_meta.get("final")
+    if final:
+        final["inputs"] = ["messages", "system", "model", "max_tokens", "assistant_text", "stop_reason", "reason", "tool_calls"]
+        final["input_types"] = {
+            **final.get("input_types", {}),
+            "messages": "List",
+            "system": "Text",
+            "model": "Model",
+            "max_tokens": "Int",
+            "assistant_text": "Text",
+            "stop_reason": "Text",
+            "reason": "Text",
+            "tool_calls": "List",
+        }
+        final["input_defaults"] = {**final.get("input_defaults", {}), "model": "claude-sonnet-4-6", "max_tokens": 1024}
+
+    _ensure_edge(edges, "chat", "assistant_text", "append", "assistant_text")
+    _ensure_edge(edges, "iteration", "iteration", "stop", "iteration")
+    _ensure_edge(edges, "chat", "assistant_text", "final", "assistant_text")
+    _ensure_edge(edges, "chat", "stop_reason", "final", "stop_reason")
+    _ensure_edge(edges, "chat", "tool_calls", "final", "tool_calls")
+    _ensure_edge(edges, "stop", "reason", "final", "reason")
 
 
 def _sync_subgraph_node_ports(subnet_meta: dict) -> None:
@@ -415,6 +483,8 @@ def _sync_subgraph_node_ports(subnet_meta: dict) -> None:
     if subnet_meta.get("type") == "VisualAgentLoop":
         if not subnet_meta.get("subgraph", {}).get("node_meta"):
             subnet_meta["subgraph"] = _default_visual_agent_loop_subgraph()
+        else:
+            _migrate_visual_agent_loop_subgraph(subnet_meta)
         fn = _NODE_REGISTRY.get("VisualAgentLoop")
         subnet_meta["inputs"]         = getattr(fn, "_bn_inputs", [])
         subnet_meta["outputs"]        = getattr(fn, "_bn_outputs", ["result", "steps"])
@@ -444,6 +514,38 @@ def _sync_subgraph_node_ports(subnet_meta: dict) -> None:
     subnet_meta["input_types"]    = in_types
     subnet_meta["output_types"]   = out_types
     subnet_meta["input_defaults"] = {}
+
+
+def _meta_fingerprint(meta: dict) -> str:
+    fields = {
+        "params": meta.get("params", {}),
+        "inputs": meta.get("inputs", []),
+        "outputs": meta.get("outputs", []),
+        "input_types": meta.get("input_types", {}),
+        "output_types": meta.get("output_types", {}),
+        "input_defaults": meta.get("input_defaults", {}),
+        "subgraph": meta.get("subgraph", None),
+    }
+    return json.dumps(fields, sort_keys=True, default=str)
+
+
+def _sync_dynamic_node_meta(meta: dict, edges: list[dict] | None = None) -> bool:
+    """Refresh dynamic node metadata and mirror it into the runtime graph entry."""
+    before = _meta_fingerprint(meta)
+    if meta.get("type") in _SUBGRAPH_NODE_TYPES:
+        _sync_subgraph_node_ports(meta)
+    elif meta.get("type") in _TOOLBOX_NODE_TYPES:
+        _sync_toolbox_ports(meta, edges)
+    changed = before != _meta_fingerprint(meta)
+
+    node_id = meta.get("id")
+    if node_id in _session.graph._nodes:
+        entry = _session.graph._nodes[node_id]
+        entry["type"] = meta.get("type")
+        entry["params"] = dict(meta.get("params", {}))
+        if meta.get("type") in _SUBGRAPH_NODE_TYPES:
+            entry["subgraph"] = meta.get("subgraph", {"node_meta": {}, "edges": []})
+    return changed
 
 
 _load()   # restore last session on startup
@@ -476,8 +578,7 @@ def get_graph():
     nodes = []
     for meta in _session.node_meta.values():
         fn = _NODE_REGISTRY.get(meta["type"])
-        if meta["type"] in _TOOLBOX_NODE_TYPES:
-            _sync_toolbox_ports(meta, _session.graph._edges)
+        _sync_dynamic_node_meta(meta, _session.graph._edges)
         if meta["type"] in _DYNAMIC_PORT_TYPES or fn is None:
             nodes.append({**meta})
         else:
@@ -668,6 +769,8 @@ def update_subgraph(node_id: str, req: UpdateSubgraphReq):
 def get_subgraph(node_id: str):
     if node_id not in _session.node_meta:
         raise HTTPException(404, "Node not found")
+    if _sync_dynamic_node_meta(_session.node_meta[node_id], _session.graph._edges):
+        _save()
     return _session.node_meta[node_id].get("subgraph", {"node_meta": {}, "edges": []})
 
 
@@ -840,6 +943,289 @@ def _json_line(payload: dict) -> str:
     return json.dumps(payload, default=str) + "\n"
 
 
+_RUNTIME_STATUS_KEYS = ("cookResult", "cookError", "cooking", "cookPort")
+
+
+def _status_value(value: Any) -> Any:
+    try:
+        return json.loads(json.dumps(value, default=str))
+    except Exception:
+        return str(value)
+
+
+def _clear_runtime_status(meta: dict) -> None:
+    for key in _RUNTIME_STATUS_KEYS:
+        meta.pop(key, None)
+
+
+def _record_node_success(meta_map: dict[str, dict], node_id: str, port: str, value: Any) -> None:
+    meta = meta_map.get(node_id)
+    if not meta:
+        return
+    _clear_runtime_status(meta)
+    meta["cookResult"] = _status_value(value)
+    meta["cookPort"] = port
+    meta["cooking"] = False
+
+
+def _record_node_error(meta_map: dict[str, dict], node_id: str, port: str, error: str) -> None:
+    meta = meta_map.get(node_id)
+    if not meta:
+        return
+    _clear_runtime_status(meta)
+    meta["cookError"] = str(error)
+    meta["cookPort"] = port
+    meta["cooking"] = False
+
+
+def _node_cached_outputs(cache: dict[tuple, Any], node_id: str, fallback_port: str, fallback_value: Any) -> Any:
+    outputs = {
+        str(port): _status_value(value)
+        for (nid, port), value in cache.items()
+        if nid == node_id
+    }
+    return outputs if len(outputs) > 1 else fallback_value
+
+
+def _subgraph_output_node_id(subgraph: dict) -> str:
+    for nid, meta in subgraph.get("node_meta", {}).items():
+        if meta.get("type") == "SubnetOutput":
+            return nid
+    raise KeyError("Subgraph has no SubnetOutput node")
+
+
+def _subgraph_output_has_status(subnet_id: str, port: str) -> bool:
+    subgraph = _session.node_meta[subnet_id].get("subgraph", {})
+    try:
+        output_id = _subgraph_output_node_id(subgraph)
+    except KeyError:
+        return False
+    meta = subgraph.get("node_meta", {}).get(output_id, {})
+    return meta.get("cookPort") == port and ("cookResult" in meta or "cookError" in meta)
+
+
+def _cook_subgraph_streamed_value(subnet_id: str, port: str):
+    output_id = _subgraph_output_node_id(_session.node_meta[subnet_id].get("subgraph", {}))
+    final_value: Any = None
+    final_error: str | None = None
+    saw_done = False
+
+    for line in _subgraph_cook_trace(subnet_id, output_id, port):
+        yield line
+        try:
+            event = json.loads(line)
+        except Exception:
+            continue
+        if event.get("type") == "done":
+            saw_done = True
+            final_value = event.get("value")
+            final_error = event.get("error")
+
+    if final_error:
+        raise RuntimeError(final_error)
+    if not saw_done:
+        raise RuntimeError("Subgraph cook did not complete")
+    return final_value
+
+
+def _visual_node_id(inner_meta: dict[str, dict], preferred: str, type_name: str) -> str | None:
+    if preferred in inner_meta:
+        return preferred
+    for node_id, meta in inner_meta.items():
+        if meta.get("type") == type_name:
+            return node_id
+    return None
+
+
+def _visual_emit_success(inner_meta: dict[str, dict], node_id: str | None, port: str, value: Any, outputs: dict | None = None):
+    if not node_id:
+        return
+    status_value = outputs if outputs is not None else value
+    _record_node_success(inner_meta, node_id, port, status_value)
+    yield _json_line({
+        "type": "success",
+        "node_id": node_id,
+        "port": port,
+        "value": status_value,
+        "outputs": outputs if outputs is not None else {port: value},
+    })
+
+
+def _visual_emit_start(node_id: str | None, port: str):
+    if not node_id:
+        return
+    yield _json_line({"type": "start", "node_id": node_id, "port": port})
+
+
+def _visual_emit_error(inner_meta: dict[str, dict], node_id: str | None, port: str, error: str):
+    if not node_id:
+        return
+    _record_node_error(inner_meta, node_id, port, error)
+    yield _json_line({"type": "error", "node_id": node_id, "port": port, "error": error})
+
+
+def _cook_visual_agent_loop_streamed_value(subnet_id: str, port: str, outer_ctx: dict):
+    import traceback
+
+    subgraph = _session.node_meta[subnet_id].get("subgraph", {})
+    inner_meta = subgraph.get("node_meta", {})
+    _migrate_visual_agent_loop_subgraph(_session.node_meta[subnet_id])
+
+    loop_in_id = _visual_node_id(inner_meta, "loop_in", "SubnetInput")
+    messages_id = _visual_node_id(inner_meta, "messages", "AgentMessages")
+    chat_id = _visual_node_id(inner_meta, "chat", "AgentChatStep")
+    iteration_id = _visual_node_id(inner_meta, "iteration", "AgentIteration") or _visual_node_id(inner_meta, "iter_one", "Int")
+    stop_id = _visual_node_id(inner_meta, "stop", "AgentStopCheck")
+    dispatch_id = _visual_node_id(inner_meta, "dispatch", "ToolDispatch")
+    append_id = _visual_node_id(inner_meta, "append", "AgentAppendMessages")
+    final_id = _visual_node_id(inner_meta, "final", "AgentFinalAnswer")
+    loop_out_id = _visual_node_id(inner_meta, "loop_out", "SubnetOutput")
+
+    model = outer_ctx.get("model", "claude-sonnet-4-6")
+    system = outer_ctx.get("system", "You are a helpful agent. Use the available tools.")
+    prompt = outer_ctx.get("prompt", "")
+    tools = outer_ctx.get("tools") or []
+    max_tokens = ai_nodes._max_tokens_for_model(model, outer_ctx.get("max_tokens"))
+    max_iter = max(1, ai_nodes._int_value(outer_ctx.get("max_iter"), 5))
+
+    injected = {
+        "prompt": prompt,
+        "system": system,
+        "model": model,
+        "tools": tools,
+        "max_tokens": max_tokens,
+        "max_iter": max_iter,
+    }
+    yield from _visual_emit_success(inner_meta, loop_in_id, "inputs", injected, injected)
+
+    messages: list[dict] = [{"role": "user", "content": prompt}]
+    yield from _visual_emit_success(inner_meta, messages_id, "messages", messages, {"messages": messages})
+
+    steps: list[dict] = []
+    final_result = ""
+    final_step: dict = {"role": "assistant", "text": "", "tool_calls": []}
+
+    for iteration in range(1, max_iter + 1):
+        yield from _visual_emit_success(
+            inner_meta,
+            iteration_id,
+            "iteration",
+            iteration,
+            {"iteration": iteration},
+        )
+
+        try:
+            yield from _visual_emit_start(chat_id, "step")
+            _, resp, chat_step = ai_nodes._chat_step(
+                messages,
+                model=model,
+                system=system,
+                tools=tools,
+                max_tokens=max_tokens,
+                provider_name=outer_ctx.get("provider"),
+                base_url=outer_ctx.get("base_url"),
+                api_key=outer_ctx.get("api_key"),
+            )
+        except Exception as exc:
+            error = str(exc) if exc.__class__.__name__ == "ProviderConfigError" else traceback.format_exc()
+            yield from _visual_emit_error(inner_meta, chat_id, "step", error)
+            raise
+
+        chat_outputs = {
+            "assistant_text": resp.text,
+            "tool_calls": chat_step["tool_calls"],
+            "stop_reason": resp.stop_reason,
+            "step": chat_step,
+        }
+        yield from _visual_emit_success(inner_meta, chat_id, "step", chat_step, chat_outputs)
+        steps.append({
+            "role": "assistant",
+            "text": resp.text,
+            "tool_calls": [{"name": tc.name, "arguments": tc.arguments} for tc in resp.tool_calls],
+        })
+
+        stop_outputs = ai_nodes.agent_stop_check({
+            "stop_reason": resp.stop_reason,
+            "tool_calls": chat_step["tool_calls"],
+            "iteration": iteration,
+            "max_iter": max_iter,
+        })
+        yield from _visual_emit_success(inner_meta, stop_id, "reason", stop_outputs["reason"], stop_outputs)
+
+        if stop_outputs["reason"] == "final":
+            final_result = resp.text
+            final_step = {"role": "assistant", "text": final_result, "tool_calls": [], "reason": "final"}
+            yield from _visual_emit_success(inner_meta, final_id, "result", final_result, {"result": final_result, "step": final_step})
+            break
+
+        tool_call_dicts = [ai_nodes._tool_call_dict(tc) for tc in resp.tool_calls]
+        yield from _visual_emit_start(dispatch_id, "steps")
+        tool_results, tool_steps = ai_nodes._dispatch_tools(tool_call_dicts, tools)
+        dispatch_outputs = {
+            "tool_results": [ai_nodes._tool_result_dict(r) for r in tool_results],
+            "steps": tool_steps,
+        }
+        yield from _visual_emit_success(inner_meta, dispatch_id, "steps", tool_steps, dispatch_outputs)
+        steps.extend(tool_steps)
+
+        messages = ai_nodes._append_tool_messages(
+            messages,
+            model=model,
+            assistant_text=resp.text,
+            tool_calls=tool_call_dicts,
+            tool_results=[ai_nodes._tool_result_dict(r) for r in tool_results],
+            provider_name=outer_ctx.get("provider"),
+            base_url=outer_ctx.get("base_url"),
+            api_key=outer_ctx.get("api_key"),
+        )
+        yield from _visual_emit_success(inner_meta, append_id, "messages", messages, {"messages": messages})
+
+        if stop_outputs["reason"] == "max_iter":
+            try:
+                yield from _visual_emit_start(final_id, "result")
+                final_outputs = ai_nodes.agent_final_answer({
+                    "messages": messages,
+                    "system": system,
+                    "model": model,
+                    "max_tokens": max_tokens,
+                    "assistant_text": resp.text,
+                    "stop_reason": resp.stop_reason,
+                    "reason": "max_iter",
+                    "tool_calls": chat_step["tool_calls"],
+                    "provider": outer_ctx.get("provider"),
+                    "base_url": outer_ctx.get("base_url"),
+                    "api_key": outer_ctx.get("api_key"),
+                })
+            except Exception as exc:
+                error = str(exc) if exc.__class__.__name__ == "ProviderConfigError" else traceback.format_exc()
+                yield from _visual_emit_error(inner_meta, final_id, "result", error)
+                raise
+            final_result = final_outputs.get("result", "")
+            final_step = final_outputs.get("step", {})
+            steps.append(final_step)
+            yield from _visual_emit_success(inner_meta, final_id, "result", final_result, final_outputs)
+            break
+
+    loop_outputs = {"result": final_result, "steps": steps}
+    yield from _visual_emit_success(inner_meta, loop_out_id, port, loop_outputs.get(port), loop_outputs)
+    return loop_outputs.get(port)
+
+
+def _refresh_subgraph_status_if_needed(subnet_id: str, port: str):
+    if _subgraph_output_has_status(subnet_id, port):
+        return
+    if _session.node_meta[subnet_id].get("type") == "VisualAgentLoop":
+        outer_ctx = dict(_session.graph._nodes.get(subnet_id, {}).get("params", {}))
+        for edge in _session.graph._edges:
+            if edge["to"] == subnet_id and (edge["from"], edge["from_port"]) in _session.graph._cache:
+                outer_ctx[edge["to_port"]] = _session.graph._cache[(edge["from"], edge["from_port"])]
+        value = yield from _cook_visual_agent_loop_streamed_value(subnet_id, port, outer_ctx)
+    else:
+        value = yield from _cook_subgraph_streamed_value(subnet_id, port)
+    _session.graph._cache[(subnet_id, port)] = value
+    _session.graph._dirty.discard(subnet_id)
+
+
 def _cook_trace(node_id: str, port: str):
     import traceback
     emitted_cached: set[tuple[str, str]] = set()
@@ -866,6 +1252,9 @@ def _cook_trace(node_id: str, port: str):
         for edge in _session.graph._edges:
             if edge["to"] == current_id:
                 yield from emit_cached_upstream(edge["from"], visiting)
+                source_def = _session.graph._nodes.get(edge["from"])
+                if source_def and source_def.get("type") in {"Subnet", "VisualAgentLoop"}:
+                    yield from _refresh_subgraph_status_if_needed(edge["from"], edge["from_port"])
                 yield from emit_cached_success(edge["from"], edge["from_port"])
         visiting.remove(current_id)
 
@@ -875,14 +1264,18 @@ def _cook_trace(node_id: str, port: str):
         if current_id not in _session.graph._nodes:
             raise KeyError(f"Node {current_id} missing from graph")
 
+        node_def = _session.graph._nodes[current_id]
         cache_key = (current_id, current_port)
-        if current_id not in _session.graph._dirty and cache_key in _session.graph._cache:
+        if (
+            node_def["type"] not in {"Subnet", "VisualAgentLoop"}
+            and current_id not in _session.graph._dirty
+            and cache_key in _session.graph._cache
+        ):
             value = _session.graph._cache[cache_key]
             yield from emit_cached_upstream(current_id)
             yield from emit_cached_success(current_id, current_port)
             return value
 
-        node_def = _session.graph._nodes[current_id]
         ctx = dict(node_def["params"])
 
         for edge in _session.graph._edges:
@@ -891,11 +1284,14 @@ def _cook_trace(node_id: str, port: str):
                 ctx[edge["to_port"]] = val
 
         try:
-            if node_def["type"] == "Subnet":
+            if node_def["type"] in {"Subnet", "VisualAgentLoop"}:
                 yield _json_line({"type": "start", "node_id": current_id, "port": current_port})
                 try:
-                    result = _session.graph._cook_subnet(current_id, current_port, ctx)
-                    value = result.get(current_port)
+                    if node_def["type"] == "VisualAgentLoop":
+                        value = yield from _cook_visual_agent_loop_streamed_value(current_id, current_port, ctx)
+                    else:
+                        value = yield from _cook_subgraph_streamed_value(current_id, current_port)
+                    result = {current_port: value}
                     _session.graph._cache[(current_id, current_port)] = value
                     _session.graph._dirty.discard(current_id)
                     yield _json_line({
@@ -1037,7 +1433,7 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
 
             try:
                 yield _json_line({"type": "start", "node_id": current_id, "port": current_port})
-                if node_def["type"] in _SUBGRAPH_NODE_TYPES:
+                if node_def["type"] in {"Subnet", "VisualAgentLoop"}:
                     result = _session.graph._cook_subnet(current_id, current_port, ctx)
                 else:
                     fn = _NODE_REGISTRY[node_def["type"]]
@@ -1083,9 +1479,19 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
 
         for nid, meta in inner_meta.items():
             if meta["type"] == "SubnetInput":
+                injected: dict[str, Any] = {}
                 for out_port in meta.get("outputs", []):
-                    inner._cache[(nid, out_port)] = outer_ctx.get(out_port)
+                    injected[out_port] = outer_ctx.get(out_port)
+                    inner._cache[(nid, out_port)] = injected[out_port]
                 inner._dirty.discard(nid)
+                _record_node_success(inner_meta, nid, "inputs", injected)
+                yield _json_line({
+                    "type": "success",
+                    "node_id": nid,
+                    "port": "inputs",
+                    "value": injected,
+                    "outputs": injected,
+                })
 
         emitted_inner_cached: set[tuple[str, str]] = set()
 
@@ -1094,11 +1500,18 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
             if cache_key in emitted_inner_cached or cache_key not in inner._cache:
                 return
             emitted_inner_cached.add(cache_key)
+            value = inner._cache[cache_key]
+            _record_node_success(
+                inner_meta,
+                current_id,
+                current_port,
+                _node_cached_outputs(inner._cache, current_id, current_port, value),
+            )
             yield _json_line({
                 "type": "success",
                 "node_id": current_id,
                 "port": current_port,
-                "value": inner._cache[cache_key],
+                "value": value,
                 "cached": True,
             })
 
@@ -1125,6 +1538,12 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
                 value = inner._cache[cache_key]
                 yield from emit_inner_cached_upstream(current_id)
                 yield from emit_inner_cached_success(current_id, current_port)
+                _record_node_success(
+                    inner_meta,
+                    current_id,
+                    current_port,
+                    _node_cached_outputs(inner._cache, current_id, current_port, value),
+                )
                 return value
 
             node_def = inner._nodes[current_id]
@@ -1137,7 +1556,7 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
 
             try:
                 yield _json_line({"type": "start", "node_id": current_id, "port": current_port})
-                if node_def["type"] in _SUBGRAPH_NODE_TYPES:
+                if node_def["type"] in {"Subnet", "VisualAgentLoop"}:
                     result = inner._cook_subnet(current_id, current_port, ctx)
                 else:
                     fn = _NODE_REGISTRY[node_def["type"]]
@@ -1158,6 +1577,12 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
                     )
 
                 value = inner._cache[cache_key]
+                _record_node_success(
+                    inner_meta,
+                    current_id,
+                    current_port,
+                    result if len(result) > 1 else value,
+                )
                 yield _json_line({
                     "type": "success",
                     "node_id": current_id,
@@ -1168,6 +1593,7 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
                 return value
             except Exception as exc:
                 error = str(exc) if exc.__class__.__name__ == "ProviderConfigError" else traceback.format_exc()
+                _record_node_error(inner_meta, current_id, current_port, error)
                 yield _json_line({
                     "type": "error",
                     "node_id": current_id,

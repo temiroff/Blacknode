@@ -1,4 +1,6 @@
 """Show how to define and use a custom node."""
+import _bootstrap  # noqa: F401
+
 import blacknode as bn
 from blacknode.node import node
 

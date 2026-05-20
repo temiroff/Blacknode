@@ -232,6 +232,28 @@ Connect a **Model** node to any `model` port. The model string is routed automat
 
 ---
 
+## Running tests
+
+The Python example tests use `unittest` and stub external LLM/network calls, so they do not require an API key:
+
+```powershell
+python -m unittest discover -s tests
+```
+
+To run the live NIM examples manually, save a NVIDIA NIM key in the editor's Model node API-key field, or set `NVIDIA_API_KEY`:
+
+API keys are resolved in this order:
+
+1. Explicit key passed in code.
+2. Environment variable such as `NVIDIA_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`.
+3. Editor-saved JSON at `editor-server/api_keys.json`.
+
+```powershell
+python .\examples\hello_agent.py
+```
+
+---
+
 ## Writing a custom node (Python API)
 
 ```python
@@ -240,7 +262,7 @@ import blacknode as bn
 g = bn.Graph()
 
 question = g.node("Text",     value="Summarise Dune in 3 bullets.")
-agent    = g.node("LLMAgent", model="claude-sonnet-4-6")
+agent    = g.node("LLMAgent", model="nim:meta/llama-3.1-8b-instruct")
 output   = g.node("Output")
 
 question.out("value") >> agent.inp("prompt")

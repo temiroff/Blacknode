@@ -39,6 +39,17 @@ export interface GraphClipboard {
   edges: Edge[]
 }
 
+export interface CookLogEntry {
+  id: string
+  kind: 'start' | 'success' | 'error' | 'done'
+  label: string
+  message: string
+  nodeId?: string
+  port?: string
+  cached?: boolean
+  ts: number
+}
+
 interface UndoSnapshot {
   activeTabId: string
   graph: GraphSnapshot
@@ -64,6 +75,8 @@ interface Store {
   activeTabId: string
   workflowRevision: number
   undoHistory: UndoSnapshot[]
+  cookLog: CookLogEntry[]
+  cookActive: boolean
 
   loadNodeTypes: () => Promise<void>
   loadGraph: () => Promise<void>
@@ -113,8 +126,8 @@ interface Store {
     recordHistory?: boolean,
   ) => Promise<void>
 
-  addNode: (typeName: string, pos: { x: number; y: number }) => Promise<void>
-  addNodeFromConnection: (typeName: string, pos: { x: number; y: number }, draft: ConnectionDraft) => Promise<void>
+  addNode: (typeName: string, pos: { x: number; y: number }, params?: Record<string, unknown>) => Promise<void>
+  addNodeFromConnection: (typeName: string, pos: { x: number; y: number }, draft: ConnectionDraft, params?: Record<string, unknown>) => Promise<void>
   removeNode: (id: string) => Promise<void>
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
@@ -257,6 +270,91 @@ function subgraphFromFlow(nodes: Node<NodeData>[], edges: Edge[]): { node_meta: 
     node_meta: nodesToMeta(nodes),
     edges: flowEdgesToBackend(edges),
   }
+}
+
+const INNER_NODE_LABELS: Record<string, string> = {
+  loop_in: 'SubnetInput',
+  messages: 'AgentMessages',
+  chat: 'AgentChatStep',
+  iteration: 'AgentIteration',
+  iter_one: 'Int',
+  dispatch: 'ToolDispatch',
+  stop: 'AgentStopCheck',
+  append: 'AgentAppendMessages',
+  final: 'AgentFinalAnswer',
+  loop_out: 'SubnetOutput',
+}
+
+function nodeRunLabel(nodes: Node<NodeData>[], nodeId?: string): string {
+  if (!nodeId) return 'Graph'
+  const node = nodes.find(n => n.id === nodeId)
+  if (node) {
+    const type = node.data.type
+    if (type === 'SubnetAsTool') return String(node.data.params?.name ?? 'SubnetAsTool')
+    if (type === 'Subnet') return String(node.data.params?.label ?? 'Subnet')
+    if (type === 'VisualAgentLoop') return 'VisualAgentLoop'
+    return type
+  }
+  return INNER_NODE_LABELS[nodeId] ?? nodeId.slice(0, 8)
+}
+
+function shortText(value: unknown, max = 120): string {
+  if (value === undefined || value === null) return ''
+  const encoded = typeof value === 'string' ? value : JSON.stringify(value)
+  const text = encoded === undefined ? String(value) : encoded
+  return text.length > max ? `${text.slice(0, max)}...` : text
+}
+
+function cookEventLogEntry(event: CookEvent, nodes: Node<NodeData>[]): CookLogEntry {
+  const ts = Date.now()
+  if (event.type === 'done') {
+    return {
+      id: `${ts}-done`,
+      kind: 'done',
+      label: 'Graph',
+      message: event.error ? 'Run stopped with error' : `Run complete${event.value !== undefined ? `: ${shortText(event.value)}` : ''}`,
+      ts,
+    }
+  }
+
+  const label = nodeRunLabel(nodes, event.node_id)
+  const port = event.port ? `.${event.port}` : ''
+  if (event.type === 'start') {
+    return {
+      id: `${ts}-${event.node_id}-${event.port}-start`,
+      kind: 'start',
+      label,
+      message: `Cooking ${label}${port}`,
+      nodeId: event.node_id,
+      port: event.port,
+      ts,
+    }
+  }
+  if (event.type === 'success') {
+    return {
+      id: `${ts}-${event.node_id}-${event.port}-success`,
+      kind: 'success',
+      label,
+      message: `${label}${port} ${event.cached ? 'cached' : 'done'}${event.value !== undefined ? `: ${shortText(event.value)}` : ''}`,
+      nodeId: event.node_id,
+      port: event.port,
+      cached: event.cached,
+      ts,
+    }
+  }
+  return {
+    id: `${ts}-${event.node_id}-${event.port}-error`,
+    kind: 'error',
+    label,
+    message: `${label}${port} error: ${shortText(event.error, 180)}`,
+    nodeId: event.node_id,
+    port: event.port,
+    ts,
+  }
+}
+
+function appendCookLog(log: CookLogEntry[], entry: CookLogEntry): CookLogEntry[] {
+  return [...log, entry].slice(-80)
 }
 
 function graphSnapshotFromState(s: Store): GraphSnapshot {
@@ -552,6 +650,8 @@ export const useStore = create<Store>((set, get) => ({
   activeTabId: 'default',
   workflowRevision: 0,
   undoHistory: [],
+  cookLog: [],
+  cookActive: false,
   subnetStack: [],
 
   checkServer: async () => {
@@ -997,13 +1097,13 @@ export const useStore = create<Store>((set, get) => ({
     set(s => ({ nodes: updatedNodes, subnetStack: updatedSubnetStack, ...markActiveTabDirty(s) }))
   },
 
-  addNode: async (typeName, pos) => {
+  addNode: async (typeName, pos, params = {}) => {
     set(s => pushUndoSnapshot(s))
     const { subnetStack } = get()
     if (subnetStack.length > 0) {
       // Add node inside current subnet
       const frame = subnetStack[subnetStack.length - 1]
-      const meta = await api.addNode(typeName, [pos.x, pos.y])
+      const meta = await api.addNode(typeName, [pos.x, pos.y], params)
       // We need to add it to the inner graph in memory and push subgraph update
       const { nodes, edges } = get()
       const newNode = makeReactNode(meta)
@@ -1021,18 +1121,18 @@ export const useStore = create<Store>((set, get) => ({
       set(s => ({ nodes: newNodes, ...markActiveTabDirty(s) }))
       return
     }
-    const meta = await api.addNode(typeName, [pos.x, pos.y])
+    const meta = await api.addNode(typeName, [pos.x, pos.y], params)
     const node = makeReactNode(meta)
     set(s => ({ nodes: [...s.nodes, node], ...markActiveTabDirty(s) }))
   },
 
-  addNodeFromConnection: async (typeName, pos, draft) => {
+  addNodeFromConnection: async (typeName, pos, draft, params = {}) => {
     const { nodes } = get()
     const existing = nodes.find(n => n.id === draft.nodeId)
     if (!existing) return
     set(s => pushUndoSnapshot(s))
 
-    const meta = await api.addNode(typeName, [pos.x, pos.y])
+    const meta = await api.addNode(typeName, [pos.x, pos.y], params)
     const node = makeReactNode(meta)
     const def = defFromMeta(meta)
     let nextConn: Connection | null = null
@@ -1789,6 +1889,8 @@ export const useStore = create<Store>((set, get) => ({
     const applyCookEvent = (event: CookEvent) => {
       if (event.type === 'done') {
         set(s => ({
+          cookActive: false,
+          cookLog: appendCookLog(s.cookLog, cookEventLogEntry(event, s.nodes)),
           nodes: s.nodes.map(n => ({
             ...n,
             data: { ...n.data, cooking: false },
@@ -1797,6 +1899,8 @@ export const useStore = create<Store>((set, get) => ({
         return
       }
       set(s => ({
+        cookActive: true,
+        cookLog: appendCookLog(s.cookLog, cookEventLogEntry(event, s.nodes)),
         nodes: s.nodes.map(n => {
           if (n.id !== event.node_id) return n
           if (event.type === 'start') {
@@ -1837,6 +1941,16 @@ export const useStore = create<Store>((set, get) => ({
     }
 
     set(s => ({
+      cookActive: true,
+      cookLog: [{
+        id: `${Date.now()}-${id}-queued`,
+        kind: 'start',
+        label: nodeRunLabel(s.nodes, id),
+        message: `Queued ${nodeRunLabel(s.nodes, id)}.${port}`,
+        nodeId: id,
+        port,
+        ts: Date.now(),
+      }],
       nodes: s.nodes.map(n => ({
         ...n,
         data: {
@@ -1857,6 +1971,16 @@ export const useStore = create<Store>((set, get) => ({
       }
     } catch (e: any) {
       set(s => ({
+        cookActive: false,
+        cookLog: appendCookLog(s.cookLog, {
+          id: `${Date.now()}-${id}-client-error`,
+          kind: 'error',
+          label: nodeRunLabel(s.nodes, id),
+          message: `${nodeRunLabel(s.nodes, id)}.${port} error: ${e.message}`,
+          nodeId: id,
+          port,
+          ts: Date.now(),
+        }),
         nodes: s.nodes.map(n =>
           n.id === id ? { ...n, data: { ...n.data, cooking: false, cookError: e.message, cookPort: port } } : n
         ),

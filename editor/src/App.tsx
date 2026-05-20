@@ -5,7 +5,7 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 
-import { useStore, type GraphClipboard } from './store'
+import { useStore, type CookLogEntry, type GraphClipboard } from './store'
 import BlackNode from './components/BlackNode'
 import ValueNode from './components/ValueNode'
 import ModelNode from './components/ModelNode'
@@ -18,6 +18,7 @@ import NodePalette from './components/NodePalette'
 import Inspector from './components/Inspector'
 import NodeSearch from './components/NodeSearch'
 import { portsCompatible } from './portColors'
+import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
 
 const NODE_TYPES = {
@@ -46,7 +47,7 @@ interface NoticeState {
 
 export default function App() {
   const {
-    nodes, edges, nodeTypes, nodeDefs, serverOk,
+    nodes, edges, nodeTypes, nodeDefs, serverOk, cookLog, cookActive,
     tabs, activeTabId,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels,
@@ -192,8 +193,10 @@ export default function App() {
     e.preventDefault()
     const type = e.dataTransfer.getData('application/blacknode-type')
     if (!type || !rfInstance.current) return
+    const paramsRaw = e.dataTransfer.getData('application/blacknode-params')
+    const params = paramsRaw ? JSON.parse(paramsRaw) : {}
     const pos = rfInstance.current.screenToFlowPosition({ x: e.clientX, y: e.clientY })
-    addNode(type, pos)
+    addNode(type, pos, params)
   }, [addNode])
 
   const onDragOver = (e: React.DragEvent) => {
@@ -215,10 +218,13 @@ export default function App() {
 
   const handleSearchSelect = useCallback((type: string) => {
     if (!search) return
+    const preset = resolvePythonToolPreset(type)
+    const typeName = preset?.type ?? type
+    const params = preset ? { ...preset.params } : {}
     if (search.connect) {
-      addNodeFromConnection(type, search.flowPos, search.connect)
+      addNodeFromConnection(typeName, search.flowPos, search.connect, params)
     } else {
-      addNode(type, search.flowPos)
+      addNode(typeName, search.flowPos, params)
     }
     setSearch(null)
   }, [search, addNode, addNodeFromConnection])
@@ -622,6 +628,8 @@ export default function App() {
 
         <SubnetBreadcrumb />
 
+        <CookStatusPanel entries={cookLog} active={cookActive} raised={Boolean(notice)} />
+
         {notice && (
           <div
             role="alert"
@@ -834,14 +842,131 @@ function findToolBoxAtScreenPoint(nodes: any[], point: { x: number; y: number })
   return null
 }
 
+function CookStatusPanel({
+  entries,
+  active,
+  raised,
+}: {
+  entries: CookLogEntry[]
+  active: boolean
+  raised: boolean
+}) {
+  if (entries.length === 0) return null
+  const latest = entries[entries.length - 1]
+  const recent = entries.slice(-8).reverse()
+  const statusColor = active ? 'var(--warn)' : latest.kind === 'error' ? 'var(--err)' : 'var(--ok)'
+
+  return (
+    <div style={{
+      position: 'absolute',
+      left: '50%',
+      bottom: raised ? 108 : 20,
+      transform: 'translateX(-50%)',
+      zIndex: 35,
+      width: 'min(680px, calc(100% - 48px))',
+      pointerEvents: 'none',
+    }}>
+      <div style={{
+        background: 'var(--panel)',
+        border: `1px solid ${statusColor}`,
+        borderRadius: 8,
+        boxShadow: '0 12px 32px rgba(0,0,0,.35)',
+        color: 'var(--tx1)',
+        overflow: 'hidden',
+        pointerEvents: 'auto',
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 9,
+          minHeight: 34,
+          padding: '7px 10px',
+          borderBottom: '1px solid var(--line)',
+        }}>
+          <div style={{
+            width: 9,
+            height: 9,
+            borderRadius: '50%',
+            background: statusColor,
+            boxShadow: active ? `0 0 8px ${statusColor}` : 'none',
+            flexShrink: 0,
+          }} />
+          <div style={{
+            flex: 1,
+            minWidth: 0,
+            fontFamily: 'var(--font-ui)',
+            fontSize: 12,
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}>
+            {latest.message}
+          </div>
+          <div style={{
+            color: active ? 'var(--warn)' : 'var(--tx3)',
+            fontSize: 11,
+            fontFamily: 'var(--font-ui)',
+            flexShrink: 0,
+          }}>
+            {active ? 'running' : 'idle'} · {entries.length}
+          </div>
+        </div>
+
+        <div style={{ maxHeight: 168, overflowY: 'auto', padding: '4px 0' }}>
+          {recent.map(entry => {
+            const color = entry.kind === 'error'
+              ? 'var(--err)'
+              : entry.kind === 'start'
+                ? 'var(--warn)'
+                : entry.kind === 'done'
+                  ? 'var(--accent)'
+                  : 'var(--ok)'
+            return (
+              <div
+                key={entry.id}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '70px 1fr',
+                  gap: 8,
+                  padding: '4px 10px',
+                  fontSize: 11,
+                  lineHeight: 1.35,
+                  fontFamily: 'var(--font-ui)',
+                }}
+              >
+                <span style={{ color, fontWeight: 700, textTransform: 'uppercase' }}>
+                  {entry.kind}
+                </span>
+                <span style={{
+                  color: entry.kind === 'error' ? 'var(--err)' : 'var(--tx2)',
+                  fontFamily: 'var(--font-mono)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}>
+                  {entry.message}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function getCompatibleNodeTypes(draft: ConnectionDraft, nodeDefs: Record<string, BnNodeDef>): string[] {
-  return Object.values(nodeDefs)
+  const types = Object.values(nodeDefs)
     .filter(def => draft.handleType === 'source'
       ? def.inputs.some(port => portsCompatible(draft.portType, def.input_types?.[port] ?? 'Any'))
       : def.outputs.some(port => portsCompatible(def.output_types?.[port] ?? 'Any', draft.portType))
     )
     .map(def => def.type)
-    .sort()
+  if (draft.handleType === 'target' && portsCompatible('Fn', draft.portType)) {
+    types.push(...PYTHON_TOOL_TYPES)
+  }
+  return [...new Set(types)].sort()
 }
 
 function menuItemStyle(disabled = false, color = 'var(--tx2)'): React.CSSProperties {
