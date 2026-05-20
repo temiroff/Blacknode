@@ -19,6 +19,9 @@ dev = [
     "maturin",
 ]
 
+[project.scripts]
+blacknode = "blacknode.cli:main"
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"

@@ -96,6 +96,13 @@ GET /validate
 GET /workflows/{slug}/validate
 ```
 
+The command-line interface uses the same validator and runtime:
+
+```powershell
+blacknode validate workflow.json
+blacknode run workflow.json --output result.json
+```
+
 Semantic validation enforces:
 
 - every `node_meta` key equals its node's `id`

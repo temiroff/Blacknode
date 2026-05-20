@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Mapping
 
 from .node import _NODE_REGISTRY
@@ -48,6 +50,10 @@ class ValidationReport:
             "errors": [asdict(issue) for issue in self.errors],
             "warnings": [asdict(issue) for issue in self.warnings],
         }
+
+
+class WorkflowRunError(Exception):
+    pass
 
 
 def ports_compatible(from_type: str, to_type: str) -> bool:
@@ -115,6 +121,65 @@ def validate_workflow(data: Mapping[str, Any]) -> ValidationReport:
         is_root=True,
     )
     return ValidationReport(errors=errors, warnings=warnings)
+
+
+def load_workflow(path: str | Path) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise WorkflowRunError("Workflow file must contain a JSON object.")
+    return data
+
+
+def graph_from_workflow(data: Mapping[str, Any]):
+    from .graph import Graph
+
+    graph = Graph()
+    node_meta = data.get("node_meta") or {}
+    edges = data.get("edges") or []
+    for node_id, meta in node_meta.items():
+        entry = {
+            "type": meta["type"],
+            "params": dict(meta.get("params", {})),
+        }
+        if isinstance(meta.get("subgraph"), Mapping):
+            entry["subgraph"] = _runtime_subgraph(meta["subgraph"])
+        graph._nodes[node_id] = entry
+        graph._dirty.add(node_id)
+    graph._edges = [dict(edge) for edge in edges]
+    return graph
+
+
+def infer_entrypoint(data: Mapping[str, Any]) -> tuple[str, str]:
+    entrypoint = data.get("entrypoint")
+    if isinstance(entrypoint, Mapping):
+        node_id = entrypoint.get("node_id")
+        port = entrypoint.get("port")
+        if isinstance(node_id, str) and isinstance(port, str):
+            return node_id, port
+
+    node_meta = data.get("node_meta") or {}
+    output_nodes = [
+        node_id
+        for node_id, meta in node_meta.items()
+        if isinstance(meta, Mapping) and meta.get("type") == "Output"
+    ]
+    if len(output_nodes) == 1:
+        return output_nodes[0], "value"
+    if not output_nodes:
+        raise WorkflowRunError("Workflow has no Output node or explicit entrypoint.")
+    raise WorkflowRunError("Workflow has multiple Output nodes; add an explicit entrypoint.")
+
+
+def run_workflow(data: Mapping[str, Any]) -> dict[str, Any]:
+    report = validate_workflow(data)
+    if not report.ok:
+        raise WorkflowRunError(json.dumps(report.to_dict(), indent=2))
+
+    node_id, port = infer_entrypoint(data)
+    graph = graph_from_workflow(data)
+    value = graph._cook(node_id, port)
+    return {"node_id": node_id, "port": port, "value": value}
 
 
 def _validate_graph(
@@ -393,3 +458,20 @@ def _error(errors: list[ValidationIssue], code: str, message: str, path: str) ->
 
 def _warn(warnings: list[ValidationIssue], code: str, message: str, path: str) -> None:
     warnings.append(ValidationIssue(code=code, message=message, path=path, severity="warning"))
+
+
+def _runtime_subgraph(subgraph: Mapping[str, Any]) -> dict[str, Any]:
+    node_meta = subgraph.get("node_meta") or {}
+    edges = subgraph.get("edges") or []
+    return {
+        "node_meta": {
+            str(node_id): dict(meta)
+            for node_id, meta in node_meta.items()
+            if isinstance(meta, Mapping)
+        },
+        "edges": [
+            dict(edge)
+            for edge in edges
+            if isinstance(edge, Mapping)
+        ],
+    }

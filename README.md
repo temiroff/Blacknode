@@ -176,6 +176,13 @@ Templates are auto-organized when loaded and framed with padding so the graph st
 
 Saved workflows use a versioned JSON format with `kind: "blacknode.workflow"` and `schema_version: 1`. The canonical schema is documented in [docs/workflow-schema.md](docs/workflow-schema.md), with the machine-readable JSON Schema in [docs/workflow.schema.json](docs/workflow.schema.json).
 
+Installed as a package, Blacknode exposes a workflow CLI:
+
+```powershell
+blacknode validate .\workflows\my-workflow.json
+blacknode run .\workflows\my-workflow.json --output .\result.json
+```
+
 ### Tool workflows
 
 Tools live in the **Tools** category.
