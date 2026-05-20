@@ -115,13 +115,13 @@ Avoid making CUDA nodes depend on editor-specific behavior. They should run thro
 
 ### AI agent documentation
 
-Recommendation: yes, high priority and low risk.
+Status: first implementation complete. Keep extending it as agent workflows grow.
 
 Blacknode should include documentation written specifically for AI agents so an assistant can understand how to create, edit, validate, and run graphs.
 
 This should be a machine-friendly guide, not only human docs.
 
-Suggested file:
+Current file:
 
 - `docs/agent-guide.md`
 
@@ -137,7 +137,7 @@ Suggested contents:
 - Common graph patterns, such as LLM chat, tool agent, CUDA pipeline, and batch workflow.
 - Error handling and validation rules.
 
-This should come before MCP because MCP tools need stable behavior and documentation anyway.
+This comes before MCP because MCP tools need stable behavior and documentation anyway.
 
 ### MCP server for Blacknode
 
@@ -164,7 +164,7 @@ Recommended dependency order:
 
 1. Stable graph schema.
 2. CLI execution and validation.
-3. Agent guide.
+3. Agent guide. Done.
 4. MCP server.
 
 ### Precompiled and live-compiled nodes
@@ -288,7 +288,7 @@ This gives Blacknode a clean path from visual prototype to portable runnable wor
 3. Add CLI execution. Done.
 4. Add Python export. Done.
 5. Add structured run logs. Done.
-6. Write `docs/agent-guide.md`.
+6. Write `docs/agent-guide.md`. Done.
 7. Add a basic analytics/run history page.
 8. Add an MCP server using the CLI/runtime as its backend.
 9. Add native/precompiled node support.
@@ -311,4 +311,4 @@ This gives Blacknode a clean path from visual prototype to portable runnable wor
 
 ## Current Best Answer
 
-The best next investment is not binary export or cloud hosting yet. Blacknode now has a stable readable graph format, validation, a CLI runner, Python export, and structured run logs. Next, add AI-agent documentation, a basic run history/analytics view, and MCP tools on top of the same runtime boundary. After that, binary graph packages, CUDA nodes, precompiled execution, and optional cloud hosting will have a solid foundation instead of becoming separate one-off systems.
+The best next investment is not binary export or cloud hosting yet. Blacknode now has a stable readable graph format, validation, a CLI runner, Python export, structured run logs, reusable workflow templates, and AI-agent documentation. Next, add a basic run history/analytics view and MCP tools on top of the same runtime boundary. After that, binary graph packages, CUDA nodes, precompiled execution, and optional cloud hosting will have a solid foundation instead of becoming separate one-off systems.

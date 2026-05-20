@@ -199,6 +199,8 @@ Checked-in converted examples live at `examples/converted_text_pipeline.py` and 
 
 Saved workflows use a versioned JSON format with `kind: "blacknode.workflow"` and `schema_version: 1`. The canonical schema is documented in [docs/workflow-schema.md](docs/workflow-schema.md), with the machine-readable JSON Schema in [docs/workflow.schema.json](docs/workflow.schema.json).
 
+Agents and contributors that need to create or modify workflows should start with [docs/agent-guide.md](docs/agent-guide.md).
+
 Installed as a package, Blacknode exposes a workflow CLI:
 
 ```powershell
@@ -377,6 +379,9 @@ def MyNode(ctx: dict) -> dict:
 ```
 blacknode/
 ├── start.bat                    ← double-click to launch everything
+├── docs/
+│   ├── agent-guide.md           ← workflow instructions for agents
+│   └── workflow-schema.md       ← portable workflow format
 ├── editor-server/
 │   ├── server.py                ← FastAPI backend (port 7777)
 │   └── requirements.txt
