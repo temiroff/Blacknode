@@ -184,6 +184,8 @@ blacknode run .\workflows\my-workflow.json --output .\result.json
 blacknode export-python .\workflows\my-workflow.json --output .\workflow.py
 ```
 
+`blacknode run` writes a JSON result containing the cooked value plus a structured `events` run log with node timings, model calls, and tool calls.
+
 ### Tool workflows
 
 Tools live in the **Tools** category.

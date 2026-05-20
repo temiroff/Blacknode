@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
+import traceback
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -53,7 +56,84 @@ class ValidationReport:
 
 
 class WorkflowRunError(Exception):
-    pass
+    def __init__(self, message: str, *, run_id: str | None = None, events: list[dict[str, Any]] | None = None):
+        super().__init__(message)
+        self.run_id = run_id
+        self.events = events or []
+
+
+class RunLogger:
+    def __init__(self):
+        self.run_id = str(uuid.uuid4())
+        self._events: list[dict[str, Any]] = []
+
+    @property
+    def events(self) -> list[dict[str, Any]]:
+        return list(self._events)
+
+    def emit(self, event_type: str, **fields: Any) -> None:
+        self._events.append({
+            "type": event_type,
+            "run_id": self.run_id,
+            "ts": time.time(),
+            **fields,
+        })
+
+    def node_start(self, node_id: str, node_type: str, port: str) -> None:
+        self.emit("node_start", node_id=node_id, node_type=node_type, port=port)
+
+    def node_finish(
+        self,
+        node_id: str,
+        node_type: str,
+        port: str,
+        *,
+        duration_ms: float,
+        outputs: Mapping[str, Any],
+        cached: bool = False,
+    ) -> None:
+        self.emit(
+            "node_finish",
+            node_id=node_id,
+            node_type=node_type,
+            port=port,
+            duration_ms=round(duration_ms, 3),
+            output_ports=sorted(str(key) for key in outputs),
+            cached=cached,
+        )
+
+    def node_error(self, node_id: str, node_type: str, port: str, *, duration_ms: float, error: str) -> None:
+        self.emit(
+            "node_error",
+            node_id=node_id,
+            node_type=node_type,
+            port=port,
+            duration_ms=round(duration_ms, 3),
+            error=error,
+        )
+
+    def model_call(
+        self,
+        *,
+        node_id: str | None,
+        model: str,
+        provider: str | None = None,
+        action: str = "complete",
+        tool_count: int | None = None,
+    ) -> None:
+        fields: dict[str, Any] = {
+            "node_id": node_id,
+            "model": model,
+            "action": action,
+        }
+        if provider:
+            fields["provider"] = provider
+        if tool_count is not None:
+            fields["tool_count"] = tool_count
+        self.emit("model_call", **fields)
+
+    def tool_call(self, *, node_id: str | None, name: str, arguments: Mapping[str, Any] | None = None) -> None:
+        self.emit("tool_call", node_id=node_id, name=name, arguments=dict(arguments or {}))
 
 
 def ports_compatible(from_type: str, to_type: str) -> bool:
@@ -178,8 +258,26 @@ def run_workflow(data: Mapping[str, Any]) -> dict[str, Any]:
 
     node_id, port = infer_entrypoint(data)
     graph = graph_from_workflow(data)
-    value = graph._cook(node_id, port)
-    return {"node_id": node_id, "port": port, "value": value}
+    logger = RunLogger()
+    graph._run_logger = logger
+    logger.emit("run_start", node_id=node_id, port=port)
+    try:
+        value = _cook_logged(graph, node_id, port, logger)
+    except Exception as exc:
+        logger.emit("run_error", node_id=node_id, port=port, error=traceback.format_exc())
+        raise WorkflowRunError(str(exc), run_id=logger.run_id, events=logger.events) from exc
+    logger.emit("run_finish", node_id=node_id, port=port)
+    return {
+        "run_id": logger.run_id,
+        "node_id": node_id,
+        "port": port,
+        "value": value,
+        "events": logger.events,
+    }
+
+
+def run_workflow_logged(data: Mapping[str, Any]) -> dict[str, Any]:
+    return run_workflow(data)
 
 
 def export_workflow_python(data: Mapping[str, Any]) -> str:
@@ -222,6 +320,96 @@ def export_workflow_python(data: Mapping[str, Any]) -> str:
     lines.append("print(result)")
     lines.append("")
     return "\n".join(lines)
+
+
+def _cook_logged(graph, node_id: str, port: str, logger: RunLogger) -> Any:
+    cache_key = (node_id, port)
+    node_def = graph._nodes[node_id]
+    node_type = node_def["type"]
+    if node_id not in graph._dirty and cache_key in graph._cache:
+        outputs = {
+            cached_port: value
+            for (cached_id, cached_port), value in graph._cache.items()
+            if cached_id == node_id
+        }
+        logger.node_finish(node_id, node_type, port, duration_ms=0.0, outputs=outputs, cached=True)
+        return graph._cache[cache_key]
+
+    ctx = dict(node_def["params"])
+    for edge in graph._edges:
+        if edge["to"] == node_id:
+            ctx[edge["to_port"]] = _cook_logged(graph, edge["from"], edge["from_port"], logger)
+
+    logger.node_start(node_id, node_type, port)
+    started = time.perf_counter()
+    try:
+        if node_type == "Subnet":
+            result = _cook_subnet_logged(graph, node_id, port, ctx, logger)
+        else:
+            fn = _NODE_REGISTRY[node_type]
+            ctx["__graph__"] = graph
+            ctx["__node_id__"] = node_id
+            ctx["__run_logger__"] = logger
+            result = fn(ctx)
+        if not isinstance(result, dict):
+            result = {"output": result}
+        for output_port, value in result.items():
+            graph._cache[(node_id, output_port)] = value
+        graph._dirty.discard(node_id)
+        duration_ms = (time.perf_counter() - started) * 1000
+        logger.node_finish(node_id, node_type, port, duration_ms=duration_ms, outputs=result)
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - started) * 1000
+        logger.node_error(node_id, node_type, port, duration_ms=duration_ms, error=str(exc))
+        raise
+
+    if cache_key not in graph._cache:
+        raise KeyError(
+            f"Node '{node_type}' did not produce port '{port}'. "
+            f"Available: {[cached_port for (cached_id, cached_port) in graph._cache if cached_id == node_id]}"
+        )
+    return graph._cache[cache_key]
+
+
+def _cook_subnet_logged(graph, node_id: str, port: str, outer_ctx: dict, logger: RunLogger) -> dict[str, Any]:
+    from .graph import Graph
+
+    subgraph = graph._nodes[node_id].get("subgraph", {})
+    inner_meta = subgraph.get("node_meta", {})
+    inner_edges = subgraph.get("edges", [])
+
+    inner = Graph.__new__(Graph)
+    inner._edges = inner_edges
+    inner._cache = {}
+    inner._dirty = set(inner_meta.keys())
+    inner._nodes = {}
+    inner._run_logger = logger
+    for nid, meta in inner_meta.items():
+        entry = {"type": meta["type"], "params": dict(meta.get("params", {}))}
+        if "subgraph" in meta:
+            entry["subgraph"] = meta["subgraph"]
+        inner._nodes[nid] = entry
+
+    for nid, meta in inner_meta.items():
+        if meta["type"] == "SubnetInput":
+            injected = {
+                out_port: outer_ctx[out_port]
+                for out_port in meta.get("outputs", [])
+                if out_port in outer_ctx
+            }
+            for out_port, value in injected.items():
+                inner._cache[(nid, out_port)] = value
+            inner._dirty.discard(nid)
+            logger.node_finish(nid, "SubnetInput", "inputs", duration_ms=0.0, outputs=injected, cached=True)
+
+    for nid, meta in inner_meta.items():
+        if meta["type"] == "SubnetOutput":
+            try:
+                return {port: _cook_logged(inner, nid, port, logger)}
+            except KeyError:
+                return {port: None}
+
+    return {port: None}
 
 
 def _validate_graph(

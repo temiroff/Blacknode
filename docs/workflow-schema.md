@@ -104,6 +104,15 @@ blacknode run workflow.json --output result.json
 blacknode export-python workflow.json --output workflow.py
 ```
 
+`blacknode run` writes a structured result object. The `events` array is the run log and includes:
+
+| Event | Purpose |
+|---|---|
+| `run_start` / `run_finish` / `run_error` | Run-level lifecycle. |
+| `node_start` / `node_finish` / `node_error` | Node execution lifecycle with `duration_ms`. |
+| `model_call` | Model invocation metadata, including model/provider/action. |
+| `tool_call` | Tool invocation metadata, including tool name and JSON arguments. |
+
 Semantic validation enforces:
 
 - every `node_meta` key equals its node's `id`

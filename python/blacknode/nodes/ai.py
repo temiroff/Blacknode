@@ -75,8 +75,17 @@ def _chat_step(
     provider_name: str | None = None,
     base_url: str | None = None,
     api_key: str | None = None,
+    run_logger=None,
+    node_id: str | None = None,
 ):
     provider, clean_model = resolve(model, provider=provider_name, base_url=base_url, api_key=api_key)
+    if run_logger:
+        run_logger.model_call(
+            node_id=node_id,
+            model=clean_model,
+            provider=provider_name or provider.__class__.__name__,
+            tool_count=len(_tool_defs(tools)),
+        )
     resp = provider.complete(
         messages,
         model=clean_model,
@@ -92,13 +101,15 @@ def _chat_step(
     return provider, resp, step
 
 
-def _dispatch_tools(tool_calls: list, tools: list) -> tuple[list[ToolResult], list[dict]]:
+def _dispatch_tools(tool_calls: list, tools: list, *, run_logger=None, node_id: str | None = None) -> tuple[list[ToolResult], list[dict]]:
     tool_map = {t.__name__: t for t in tools if callable(t)}
     results: list[ToolResult] = []
     steps: list[dict] = []
     for raw in tool_calls:
         tc = _tool_call(raw)
         fn = tool_map.get(tc.name)
+        if run_logger:
+            run_logger.tool_call(node_id=node_id, name=tc.name, arguments=tc.arguments)
         try:
             output = fn(**tc.arguments) if fn else f"[error] unknown tool '{tc.name}'"
         except Exception as exc:
@@ -136,6 +147,8 @@ def _agent_loop_run(ctx: dict) -> dict:
     tools      = ctx.get("tools") or []
     max_tokens = _max_tokens_for_model(model, ctx.get("max_tokens"))
     max_iter   = _int_value(ctx.get("max_iter"), 5)
+    run_logger = ctx.get("__run_logger__")
+    node_id = ctx.get("__node_id__")
 
     messages: list[dict] = [{"role": "user", "content": prompt}]
     steps: list[dict] = []
@@ -150,6 +163,8 @@ def _agent_loop_run(ctx: dict) -> dict:
             provider_name=ctx.get("provider"),
             base_url=ctx.get("base_url"),
             api_key=ctx.get("api_key"),
+            run_logger=run_logger,
+            node_id=node_id,
         )
         steps.append({
             "role": "assistant",
@@ -159,7 +174,12 @@ def _agent_loop_run(ctx: dict) -> dict:
         if resp.stop_reason == "end_turn" or not resp.tool_calls:
             return {"result": resp.text, "steps": steps}
 
-        tool_results, tool_steps = _dispatch_tools([_tool_call_dict(tc) for tc in resp.tool_calls], tools)
+        tool_results, tool_steps = _dispatch_tools(
+            [_tool_call_dict(tc) for tc in resp.tool_calls],
+            tools,
+            run_logger=run_logger,
+            node_id=node_id,
+        )
         steps.extend(tool_steps)
         messages = _append_tool_messages(
             messages,
@@ -178,6 +198,13 @@ def _agent_loop_run(ctx: dict) -> dict:
         base_url=ctx.get("base_url"),
         api_key=ctx.get("api_key"),
     )
+    if run_logger:
+        run_logger.model_call(
+            node_id=node_id,
+            model=clean_model,
+            provider=ctx.get("provider") or provider.__class__.__name__,
+            tool_count=0,
+        )
     final = provider.complete(
         [
             *messages,
@@ -213,6 +240,14 @@ def llm_agent(ctx: dict) -> dict:
         base_url=ctx.get("base_url"),
         api_key=ctx.get("api_key"),
     )
+    run_logger = ctx.get("__run_logger__")
+    if run_logger:
+        run_logger.model_call(
+            node_id=ctx.get("__node_id__"),
+            model=clean_model,
+            provider=ctx.get("provider") or provider.__class__.__name__,
+            tool_count=0,
+        )
     resp = provider.complete(
         messages=[{"role": "user", "content": prompt}],
         model=clean_model,
@@ -263,6 +298,8 @@ def agent_chat_step(ctx: dict) -> dict:
         provider_name=ctx.get("provider"),
         base_url=ctx.get("base_url"),
         api_key=ctx.get("api_key"),
+        run_logger=ctx.get("__run_logger__"),
+        node_id=ctx.get("__node_id__"),
     )
     return {
         "assistant_text": resp.text,
@@ -274,7 +311,12 @@ def agent_chat_step(ctx: dict) -> dict:
 
 @node(inputs=["tool_calls:List", "tools:List"], outputs=["tool_results:List", "steps:List"], name="ToolDispatch")
 def tool_dispatch(ctx: dict) -> dict:
-    results, steps = _dispatch_tools(ctx.get("tool_calls") or [], ctx.get("tools") or [])
+    results, steps = _dispatch_tools(
+        ctx.get("tool_calls") or [],
+        ctx.get("tools") or [],
+        run_logger=ctx.get("__run_logger__"),
+        node_id=ctx.get("__node_id__"),
+    )
     return {"tool_results": [_tool_result_dict(r) for r in results], "steps": steps}
 
 
@@ -346,6 +388,14 @@ def agent_final_answer(ctx: dict) -> dict:
         base_url=ctx.get("base_url"),
         api_key=ctx.get("api_key"),
     )
+    run_logger = ctx.get("__run_logger__")
+    if run_logger:
+        run_logger.model_call(
+            node_id=ctx.get("__node_id__"),
+            model=clean_model,
+            provider=ctx.get("provider") or provider.__class__.__name__,
+            tool_count=0,
+        )
     final = provider.complete(
         [
             *(ctx.get("messages") or []),
@@ -369,6 +419,13 @@ def tool_call(ctx: dict) -> dict:
     args = ctx.get("args", {})
     if not callable(fn):
         raise ValueError("'fn' input must be a callable")
+    run_logger = ctx.get("__run_logger__")
+    if run_logger:
+        run_logger.tool_call(
+            node_id=ctx.get("__node_id__"),
+            name=getattr(fn, "__name__", "tool"),
+            arguments=args if isinstance(args, dict) else {"value": args},
+        )
     result = fn(**args) if isinstance(args, dict) else fn(args)
     return {"result": result}
 
@@ -468,5 +525,13 @@ def embed_text(ctx: dict) -> dict:
         api_key=ctx.get("api_key") or os.environ.get("OPENAI_API_KEY", "sk-local"),
         base_url=ctx.get("base_url"),
     )
+    run_logger = ctx.get("__run_logger__")
+    if run_logger:
+        run_logger.model_call(
+            node_id=ctx.get("__node_id__"),
+            model=model,
+            provider="OpenAI",
+            action="embedding",
+        )
     resp = client.embeddings.create(input=text, model=model)
     return {"embedding": resp.data[0].embedding}
