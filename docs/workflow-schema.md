@@ -104,7 +104,41 @@ blacknode run workflow.json --output result.json
 blacknode export-python workflow.json --output workflow.py
 ```
 
-`blacknode run` writes a structured result object. The `events` array is the run log and includes:
+## Run Results
+
+`blacknode run` writes a structured result object. This is intentionally separate from saved workflow files, so portable workflows stay free of run logs, cached values, and transient errors.
+
+```json
+{
+  "run_id": "e5e7b3e2-77a0-40c3-bbd7-02c22b61d5d2",
+  "node_id": "out",
+  "port": "value",
+  "value": "hello",
+  "events": [
+    {
+      "type": "node_finish",
+      "run_id": "e5e7b3e2-77a0-40c3-bbd7-02c22b61d5d2",
+      "node_id": "agent",
+      "node_type": "LLMAgent",
+      "port": "text",
+      "duration_ms": 118.42,
+      "output_ports": ["text"],
+      "cached": false
+    }
+  ]
+}
+```
+
+Top-level result fields:
+
+| Field | Purpose |
+|---|---|
+| `run_id` | Unique ID shared by every event emitted during the run. |
+| `node_id` / `port` | Cooked entrypoint. |
+| `value` | Final cooked value returned from the entrypoint port. |
+| `events` | Ordered event log for the run. |
+
+The `events` array includes:
 
 | Event | Purpose |
 |---|---|
@@ -112,6 +146,8 @@ blacknode export-python workflow.json --output workflow.py
 | `node_start` / `node_finish` / `node_error` | Node execution lifecycle with `duration_ms`. |
 | `model_call` | Model invocation metadata, including model/provider/action. |
 | `tool_call` | Tool invocation metadata, including tool name and JSON arguments. |
+
+Errors raised by the runtime keep the same structured events on `WorkflowRunError.events`, including `node_error` and `run_error`.
 
 Semantic validation enforces:
 

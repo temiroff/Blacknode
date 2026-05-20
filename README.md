@@ -184,7 +184,24 @@ blacknode run .\workflows\my-workflow.json --output .\result.json
 blacknode export-python .\workflows\my-workflow.json --output .\workflow.py
 ```
 
-`blacknode run` writes a JSON result containing the cooked value plus a structured `events` run log with node timings, model calls, and tool calls.
+`blacknode run` writes a JSON result containing the cooked value plus a structured `events` run log with node timings, errors, model calls, and tool calls:
+
+```json
+{
+  "run_id": "e5e7b3e2-77a0-40c3-bbd7-02c22b61d5d2",
+  "node_id": "out",
+  "port": "value",
+  "value": "hello",
+  "events": [
+    { "type": "run_start", "node_id": "out", "port": "value" },
+    { "type": "node_start", "node_id": "agent", "node_type": "LLMAgent" },
+    { "type": "model_call", "node_id": "agent", "model": "meta/llama-3.1-8b-instruct" },
+    { "type": "node_finish", "node_id": "agent", "duration_ms": 118.42 }
+  ]
+}
+```
+
+Run logs are output artifacts, not part of saved workflow files.
 
 ### Tool workflows
 
