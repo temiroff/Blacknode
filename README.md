@@ -193,6 +193,8 @@ python subnet_tool_call.py
 
 LLM templates also export, but running them calls model providers and requires saved or environment API keys.
 
+A checked-in converted example lives at `examples/converted_text_pipeline.py`.
+
 ### Workflow files
 
 Saved workflows use a versioned JSON format with `kind: "blacknode.workflow"` and `schema_version: 1`. The canonical schema is documented in [docs/workflow-schema.md](docs/workflow-schema.md), with the machine-readable JSON Schema in [docs/workflow.schema.json](docs/workflow.schema.json).

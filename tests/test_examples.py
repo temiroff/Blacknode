@@ -59,6 +59,10 @@ class ExampleTests(unittest.TestCase):
         out = self.run_example("custom_node.py")
         self.assertIn("HELLO, BLACKNODE WORLD", out)
 
+    def test_converted_text_pipeline_template_runs(self):
+        out = self.run_example("converted_text_pipeline.py")
+        self.assertEqual(out.strip(), "Hello World")
+
     def test_hello_agent_uses_nim_model(self):
         calls, env_patch, nim_patch = self.fake_nim()
         with env_patch, nim_patch:

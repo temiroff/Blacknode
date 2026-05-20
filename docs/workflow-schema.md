@@ -104,6 +104,8 @@ python subnet_tool_call.py
 
 That exported script prints `59.0`. LLM templates export the same way, but running them requires the relevant model provider API key.
 
+The repository also includes `examples/converted_text_pipeline.py` as a checked-in Python export of `templates/text-pipeline.json`.
+
 The editor's Workflows tab saves personal files under `workflows/`, which is ignored by git. Copy a saved workflow JSON into `templates/` when it should become a shared starter template.
 
 ## Edges
