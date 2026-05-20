@@ -174,6 +174,25 @@ Templates are loaded from tracked workflow JSON files in `templates/*.json`. The
 
 Personal saves from the Workflows tab go to `workflows/*.json`, which is ignored by git until you choose to promote one into `templates/`.
 
+To test a template without installing the package, run from the repo root:
+
+```powershell
+$env:PYTHONPATH="python"
+python -m blacknode.cli validate templates\text-pipeline.json
+python -m blacknode.cli export-python templates\text-pipeline.json --output workflow.py
+python workflow.py
+```
+
+`text-pipeline.json` prints `Hello World`. `subnet-tool-call.json` is another no-API-key template and prints `59.0` after export:
+
+```powershell
+$env:PYTHONPATH="python"
+python -m blacknode.cli export-python templates\subnet-tool-call.json --output subnet_tool_call.py
+python subnet_tool_call.py
+```
+
+LLM templates also export, but running them calls model providers and requires saved or environment API keys.
+
 ### Workflow files
 
 Saved workflows use a versioned JSON format with `kind: "blacknode.workflow"` and `schema_version: 1`. The canonical schema is documented in [docs/workflow-schema.md](docs/workflow-schema.md), with the machine-readable JSON Schema in [docs/workflow.schema.json](docs/workflow.schema.json).

@@ -85,6 +85,25 @@ blacknode validate .\templates\text-pipeline.json
 blacknode export-python .\templates\text-pipeline.json --output .\workflow.py
 ```
 
+From a repo checkout where Blacknode is not installed as a package yet, set `PYTHONPATH` first:
+
+```powershell
+$env:PYTHONPATH="python"
+python -m blacknode.cli validate templates\text-pipeline.json
+python -m blacknode.cli export-python templates\text-pipeline.json --output workflow.py
+python workflow.py
+```
+
+`text-pipeline.json` prints `Hello World`. A tool/subgraph template can be tested the same way:
+
+```powershell
+$env:PYTHONPATH="python"
+python -m blacknode.cli export-python templates\subnet-tool-call.json --output subnet_tool_call.py
+python subnet_tool_call.py
+```
+
+That exported script prints `59.0`. LLM templates export the same way, but running them requires the relevant model provider API key.
+
 The editor's Workflows tab saves personal files under `workflows/`, which is ignored by git. Copy a saved workflow JSON into `templates/` when it should become a shared starter template.
 
 ## Edges
