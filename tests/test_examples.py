@@ -63,6 +63,14 @@ class ExampleTests(unittest.TestCase):
         out = self.run_example("converted_text_pipeline.py")
         self.assertEqual(out.strip(), "Hello World")
 
+    def test_converted_nvidia_nim_template_uses_nim_model(self):
+        calls, env_patch, nim_patch = self.fake_nim()
+        with env_patch, nim_patch:
+            out = self.run_example("converted_nvidia_nim.py")
+
+        self.assertIn("Paris", out)
+        self.assertEqual(calls[0]["model"], "meta/llama-3.1-8b-instruct")
+
     def test_hello_agent_uses_nim_model(self):
         calls, env_patch, nim_patch = self.fake_nim()
         with env_patch, nim_patch:

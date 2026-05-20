@@ -193,7 +193,7 @@ python subnet_tool_call.py
 
 LLM templates also export, but running them calls model providers and requires saved or environment API keys.
 
-A checked-in converted example lives at `examples/converted_text_pipeline.py`.
+Checked-in converted examples live at `examples/converted_text_pipeline.py` and `examples/converted_nvidia_nim.py`. The NIM example requires a NVIDIA API key when run outside tests.
 
 ### Workflow files
 
