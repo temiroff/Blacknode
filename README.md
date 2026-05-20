@@ -27,7 +27,7 @@ A node-based framework for building AI agent pipelines, typed data flows, and re
 | Tool | Version | Download |
 |---|---|---|
 | Python | 3.10 + | https://python.org |
-| Node.js | 18 + | https://nodejs.org |
+| Node.js | 20.19+ or 22.12+ | https://nodejs.org |
 
 ### First-time setup (run once)
 
