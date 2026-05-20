@@ -1,0 +1,310 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "Subnet Tool Agent",
+  "saved_at": "2026-05-20T00:00:00",
+  "entrypoint": {
+    "node_id": "out",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Build a calculator inside SubnetAsTool and give it to AgentLoop",
+    "color": "#0f766e"
+  },
+  "node_meta": {
+    "model": {
+      "id": "model",
+      "type": "Model",
+      "params": {
+        "value": "claude-sonnet-4-6"
+      },
+      "pos": [
+        60,
+        60
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Model"
+      },
+      "input_defaults": {}
+    },
+    "system": {
+      "id": "system",
+      "type": "Text",
+      "params": {
+        "value": "You are an agent. Use tools for arithmetic."
+      },
+      "pos": [
+        60,
+        210
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "task": {
+      "id": "task",
+      "type": "Text",
+      "params": {
+        "value": "Use add_numbers to add 17 and 42. Answer with the result only."
+      },
+      "pos": [
+        60,
+        380
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "tool": {
+      "id": "tool",
+      "type": "SubnetAsTool",
+      "params": {
+        "name": "add_numbers",
+        "description": "Adds two numbers and returns the numeric result."
+      },
+      "pos": [
+        360,
+        160
+      ],
+      "inputs": [
+        "name",
+        "description"
+      ],
+      "outputs": [
+        "fn"
+      ],
+      "input_types": {
+        "name": "Text",
+        "description": "Text"
+      },
+      "output_types": {
+        "fn": "Fn"
+      },
+      "input_defaults": {
+        "name": "tool"
+      },
+      "subgraph": {
+        "node_meta": {
+          "calc_in": {
+            "id": "calc_in",
+            "type": "SubnetInput",
+            "params": {},
+            "pos": [
+              40,
+              120
+            ],
+            "inputs": [],
+            "outputs": [
+              "a",
+              "b"
+            ],
+            "input_types": {},
+            "output_types": {
+              "a": "Float",
+              "b": "Float"
+            },
+            "input_defaults": {}
+          },
+          "calc_add": {
+            "id": "calc_add",
+            "type": "Add",
+            "params": {},
+            "pos": [
+              260,
+              120
+            ],
+            "inputs": [
+              "a",
+              "b"
+            ],
+            "outputs": [
+              "value"
+            ],
+            "input_types": {
+              "a": "Float",
+              "b": "Float"
+            },
+            "output_types": {
+              "value": "Float"
+            },
+            "input_defaults": {}
+          },
+          "calc_out": {
+            "id": "calc_out",
+            "type": "SubnetOutput",
+            "params": {},
+            "pos": [
+              480,
+              120
+            ],
+            "inputs": [
+              "result"
+            ],
+            "outputs": [],
+            "input_types": {
+              "result": "Float"
+            },
+            "output_types": {},
+            "input_defaults": {}
+          }
+        },
+        "edges": [
+          {
+            "from": "calc_in",
+            "from_port": "a",
+            "to": "calc_add",
+            "to_port": "a"
+          },
+          {
+            "from": "calc_in",
+            "from_port": "b",
+            "to": "calc_add",
+            "to_port": "b"
+          },
+          {
+            "from": "calc_add",
+            "from_port": "value",
+            "to": "calc_out",
+            "to_port": "result"
+          }
+        ]
+      }
+    },
+    "box": {
+      "id": "box",
+      "type": "ToolBox",
+      "params": {},
+      "pos": [
+        620,
+        190
+      ],
+      "inputs": [
+        "tool_1"
+      ],
+      "outputs": [
+        "tools"
+      ],
+      "input_types": {
+        "tool_1": "Fn"
+      },
+      "output_types": {
+        "tools": "List"
+      },
+      "input_defaults": {}
+    },
+    "loop": {
+      "id": "loop",
+      "type": "AgentLoop",
+      "params": {
+        "max_iter": 3
+      },
+      "pos": [
+        820,
+        220
+      ],
+      "inputs": [
+        "prompt",
+        "system",
+        "model",
+        "tools",
+        "max_tokens",
+        "max_iter"
+      ],
+      "outputs": [
+        "result",
+        "steps"
+      ],
+      "input_types": {
+        "prompt": "Text",
+        "system": "Text",
+        "model": "Model",
+        "tools": "List",
+        "max_tokens": "Int",
+        "max_iter": "Int"
+      },
+      "output_types": {
+        "result": "Text",
+        "steps": "List"
+      },
+      "input_defaults": {
+        "model": "claude-sonnet-4-6",
+        "max_tokens": 1024,
+        "max_iter": 5
+      }
+    },
+    "out": {
+      "id": "out",
+      "type": "Output",
+      "params": {},
+      "pos": [
+        1080,
+        220
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "model",
+      "from_port": "value",
+      "to": "loop",
+      "to_port": "model"
+    },
+    {
+      "from": "system",
+      "from_port": "value",
+      "to": "loop",
+      "to_port": "system"
+    },
+    {
+      "from": "task",
+      "from_port": "value",
+      "to": "loop",
+      "to_port": "prompt"
+    },
+    {
+      "from": "tool",
+      "from_port": "fn",
+      "to": "box",
+      "to_port": "tool_1"
+    },
+    {
+      "from": "box",
+      "from_port": "tools",
+      "to": "loop",
+      "to_port": "tools"
+    },
+    {
+      "from": "loop",
+      "from_port": "result",
+      "to": "out",
+      "to_port": "value"
+    }
+  ]
+}

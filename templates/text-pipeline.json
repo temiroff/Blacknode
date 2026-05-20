@@ -1,0 +1,119 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "Text Pipeline",
+  "saved_at": "2026-05-20T00:00:00",
+  "entrypoint": {
+    "node_id": "out",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Concatenate two strings and print",
+    "color": "#0891b2"
+  },
+  "node_meta": {
+    "a": {
+      "id": "a",
+      "type": "Text",
+      "params": {
+        "value": "Hello"
+      },
+      "pos": [
+        60,
+        60
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "b": {
+      "id": "b",
+      "type": "Text",
+      "params": {
+        "value": " World"
+      },
+      "pos": [
+        60,
+        240
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "concat": {
+      "id": "concat",
+      "type": "Concat",
+      "params": {},
+      "pos": [
+        360,
+        160
+      ],
+      "inputs": [
+        "a",
+        "b"
+      ],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {
+        "a": "Text",
+        "b": "Text"
+      },
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "out": {
+      "id": "out",
+      "type": "Output",
+      "params": {},
+      "pos": [
+        660,
+        130
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "a",
+      "from_port": "value",
+      "to": "concat",
+      "to_port": "a"
+    },
+    {
+      "from": "b",
+      "from_port": "value",
+      "to": "concat",
+      "to_port": "b"
+    },
+    {
+      "from": "concat",
+      "from_port": "value",
+      "to": "out",
+      "to_port": "value"
+    }
+  ]
+}

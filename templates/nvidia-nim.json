@@ -1,0 +1,155 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "NVIDIA NIM",
+  "saved_at": "2026-05-20T00:00:00",
+  "entrypoint": {
+    "node_id": "out",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Run a prompt through NVIDIA NIM via LLMAgent",
+    "color": "#76b900"
+  },
+  "node_meta": {
+    "model": {
+      "id": "model",
+      "type": "Model",
+      "params": {
+        "value": "nim:meta/llama-3.1-8b-instruct"
+      },
+      "pos": [
+        60,
+        80
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Model"
+      },
+      "input_defaults": {}
+    },
+    "system": {
+      "id": "system",
+      "type": "Text",
+      "params": {
+        "value": "You are a helpful assistant."
+      },
+      "pos": [
+        60,
+        230
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "prompt": {
+      "id": "prompt",
+      "type": "Text",
+      "params": {
+        "value": "Explain quantum computing briefly."
+      },
+      "pos": [
+        60,
+        390
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "agent": {
+      "id": "agent",
+      "type": "LLMAgent",
+      "params": {},
+      "pos": [
+        340,
+        220
+      ],
+      "inputs": [
+        "prompt",
+        "system",
+        "model",
+        "max_tokens",
+        "temperature"
+      ],
+      "outputs": [
+        "text"
+      ],
+      "input_types": {
+        "prompt": "Text",
+        "system": "Text",
+        "model": "Model",
+        "max_tokens": "Int",
+        "temperature": "Float"
+      },
+      "output_types": {
+        "text": "Text"
+      },
+      "input_defaults": {
+        "model": "claude-sonnet-4-6",
+        "max_tokens": 1024,
+        "temperature": 1.0
+      }
+    },
+    "out": {
+      "id": "out",
+      "type": "Output",
+      "params": {},
+      "pos": [
+        630,
+        200
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "model",
+      "from_port": "value",
+      "to": "agent",
+      "to_port": "model"
+    },
+    {
+      "from": "system",
+      "from_port": "value",
+      "to": "agent",
+      "to_port": "system"
+    },
+    {
+      "from": "prompt",
+      "from_port": "value",
+      "to": "agent",
+      "to_port": "prompt"
+    },
+    {
+      "from": "agent",
+      "from_port": "text",
+      "to": "out",
+      "to_port": "value"
+    }
+  ]
+}

@@ -170,7 +170,9 @@ Open the **Templates** tab in the left sidebar for one-click starter graphs:
 | Subnet Tool Call | Build a calculator inside SubnetAsTool and test it directly with ToolCall |
 | Subnet Tool Agent | Build a calculator inside SubnetAsTool and pass it to AgentLoop |
 
-Templates are auto-organized when loaded and framed with padding so the graph starts inside the visible canvas.
+Templates are loaded from tracked workflow JSON files in `templates/*.json`. They use the same portable workflow format as saved graphs, so they can be validated, exported to Python, shared, and copied into another checkout.
+
+Personal saves from the Workflows tab go to `workflows/*.json`, which is ignored by git until you choose to promote one into `templates/`.
 
 ### Workflow files
 
@@ -369,6 +371,8 @@ blacknode/
 │       ├── portColors.ts        ← type → hex color + compatibility rules
 │       ├── models.ts            ← model picker options per provider
 │       └── store.ts             ← Zustand state + server sync
+├── templates/                   ← tracked reusable workflow templates
+├── workflows/                   ← local saved workflows, ignored by git
 ├── python/blacknode/
 │   ├── graph.py                 ← lazy DAG evaluation engine
 │   ├── node.py                  ← @node decorator + registry

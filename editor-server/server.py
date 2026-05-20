@@ -22,6 +22,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 _SAVE_PATH      = os.path.join(os.path.dirname(__file__), "blacknode_graph.json")
 _WORKFLOWS_DIR  = os.path.join(os.path.dirname(__file__), "..", "workflows")
+_TEMPLATES_DIR  = os.path.join(os.path.dirname(__file__), "..", "templates")
 _save_timer: threading.Timer | None = None
 _SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool", "VisualAgentLoop"}
 _TOOLBOX_NODE_TYPES = {"ToolBox"}
@@ -1749,6 +1750,34 @@ def _workflow_path(slug: str) -> str:
         raise HTTPException(400, "Invalid workflow slug")
     return os.path.join(_WORKFLOWS_DIR, f"{slug}.json")
 
+
+def _template_path(slug: str) -> str:
+    if not re.fullmatch(r"[a-zA-Z0-9_-]{1,60}", slug):
+        raise HTTPException(400, "Invalid template slug")
+    return os.path.join(_TEMPLATES_DIR, f"{slug}.json")
+
+
+def _read_workflow_file(path: str) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise HTTPException(400, "Workflow file must contain a JSON object")
+    _ensure_workflow_header(data)
+    return data
+
+
+def _workflow_summary(slug: str, data: dict[str, Any]) -> dict[str, Any]:
+    metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+    return {
+        "slug": slug,
+        "name": data.get("name", slug),
+        "saved_at": data.get("saved_at", ""),
+        "description": metadata.get("description", ""),
+        "color": metadata.get("color", "#6366f1"),
+        "node_count": len(data.get("node_meta", {}) or {}),
+    }
+
+
 def _unique_workflow_slug(base_slug: str) -> str:
     slug = base_slug
     i = 2
@@ -1890,6 +1919,45 @@ def list_workflows():
         except Exception:
             pass
     return result
+
+
+@app.get("/templates")
+def list_templates():
+    if not os.path.isdir(_TEMPLATES_DIR):
+        return []
+    result = []
+    for fname in sorted(os.listdir(_TEMPLATES_DIR)):
+        if not fname.endswith(".json"):
+            continue
+        slug = fname[:-5]
+        try:
+            data = _read_workflow_file(_template_path(slug))
+            result.append(_workflow_summary(slug, data))
+        except Exception:
+            pass
+    return result
+
+
+@app.get("/templates/{slug}/validate")
+def validate_template(slug: str):
+    path = _template_path(slug)
+    if not os.path.exists(path):
+        raise HTTPException(404, f"Template '{slug}' not found")
+    return validate_bn_workflow(_read_workflow_file(path)).to_dict()
+
+
+@app.post("/templates/{slug}/load")
+def load_template(slug: str):
+    path = _template_path(slug)
+    if not os.path.exists(path):
+        raise HTTPException(404, f"Template '{slug}' not found")
+    data = _read_workflow_file(path)
+    report = validate_bn_workflow(data)
+    if not report.ok:
+        raise HTTPException(400, report.to_dict())
+    _restore_session(data.get("node_meta", {}), data.get("edges", []))
+    _save()
+    return get_graph()
 
 
 @app.get("/validate")

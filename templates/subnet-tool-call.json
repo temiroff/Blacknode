@@ -1,0 +1,217 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "Subnet Tool Call",
+  "saved_at": "2026-05-20T00:00:00",
+  "entrypoint": {
+    "node_id": "out",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Build a calculator inside SubnetAsTool and test it directly with ToolCall",
+    "color": "#0f766e"
+  },
+  "node_meta": {
+    "tool": {
+      "id": "tool",
+      "type": "SubnetAsTool",
+      "params": {
+        "name": "add_numbers",
+        "description": "Adds two numbers and returns the numeric result."
+      },
+      "pos": [
+        80,
+        120
+      ],
+      "inputs": [
+        "name",
+        "description"
+      ],
+      "outputs": [
+        "fn"
+      ],
+      "input_types": {
+        "name": "Text",
+        "description": "Text"
+      },
+      "output_types": {
+        "fn": "Fn"
+      },
+      "input_defaults": {
+        "name": "tool"
+      },
+      "subgraph": {
+        "node_meta": {
+          "calc_in": {
+            "id": "calc_in",
+            "type": "SubnetInput",
+            "params": {},
+            "pos": [
+              40,
+              120
+            ],
+            "inputs": [],
+            "outputs": [
+              "a",
+              "b"
+            ],
+            "input_types": {},
+            "output_types": {
+              "a": "Float",
+              "b": "Float"
+            },
+            "input_defaults": {}
+          },
+          "calc_add": {
+            "id": "calc_add",
+            "type": "Add",
+            "params": {},
+            "pos": [
+              260,
+              120
+            ],
+            "inputs": [
+              "a",
+              "b"
+            ],
+            "outputs": [
+              "value"
+            ],
+            "input_types": {
+              "a": "Float",
+              "b": "Float"
+            },
+            "output_types": {
+              "value": "Float"
+            },
+            "input_defaults": {}
+          },
+          "calc_out": {
+            "id": "calc_out",
+            "type": "SubnetOutput",
+            "params": {},
+            "pos": [
+              480,
+              120
+            ],
+            "inputs": [
+              "result"
+            ],
+            "outputs": [],
+            "input_types": {
+              "result": "Float"
+            },
+            "output_types": {},
+            "input_defaults": {}
+          }
+        },
+        "edges": [
+          {
+            "from": "calc_in",
+            "from_port": "a",
+            "to": "calc_add",
+            "to_port": "a"
+          },
+          {
+            "from": "calc_in",
+            "from_port": "b",
+            "to": "calc_add",
+            "to_port": "b"
+          },
+          {
+            "from": "calc_add",
+            "from_port": "value",
+            "to": "calc_out",
+            "to_port": "result"
+          }
+        ]
+      }
+    },
+    "args": {
+      "id": "args",
+      "type": "Dict",
+      "params": {
+        "value": {
+          "a": 17,
+          "b": 42
+        }
+      },
+      "pos": [
+        80,
+        300
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Dict"
+      },
+      "input_defaults": {}
+    },
+    "call": {
+      "id": "call",
+      "type": "ToolCall",
+      "params": {},
+      "pos": [
+        360,
+        220
+      ],
+      "inputs": [
+        "fn",
+        "args"
+      ],
+      "outputs": [
+        "result"
+      ],
+      "input_types": {
+        "fn": "Fn",
+        "args": "Dict"
+      },
+      "output_types": {
+        "result": "Any"
+      },
+      "input_defaults": {}
+    },
+    "out": {
+      "id": "out",
+      "type": "Output",
+      "params": {},
+      "pos": [
+        640,
+        210
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "tool",
+      "from_port": "fn",
+      "to": "call",
+      "to_port": "fn"
+    },
+    {
+      "from": "args",
+      "from_port": "value",
+      "to": "call",
+      "to_port": "args"
+    },
+    {
+      "from": "call",
+      "from_port": "result",
+      "to": "out",
+      "to_port": "value"
+    }
+  ]
+}

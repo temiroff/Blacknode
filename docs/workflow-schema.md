@@ -64,6 +64,29 @@ Optional node fields:
 
 Runtime-only fields such as `cookResult`, `cookError`, `cooking`, and `cookPort` are intentionally excluded.
 
+## Workflow Templates
+
+Reusable editor templates live in `templates/*.json` and use this same workflow format. Template metadata is stored in the optional `metadata` object:
+
+```json
+{
+  "metadata": {
+    "template": true,
+    "description": "Concatenate two strings and print",
+    "color": "#0891b2"
+  }
+}
+```
+
+Because templates are ordinary workflow files, they can be checked with:
+
+```powershell
+blacknode validate .\templates\text-pipeline.json
+blacknode export-python .\templates\text-pipeline.json --output .\workflow.py
+```
+
+The editor's Workflows tab saves personal files under `workflows/`, which is ignored by git. Copy a saved workflow JSON into `templates/` when it should become a shared starter template.
+
 ## Edges
 
 Each edge connects one output port to one input port:

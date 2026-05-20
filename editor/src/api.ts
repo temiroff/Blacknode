@@ -8,6 +8,15 @@ export type CookEvent =
   | { type: 'error'; node_id: string; port: string; error: string }
   | { type: 'done'; port: string; value?: unknown; error?: string }
 
+export interface TemplateMeta {
+  slug: string
+  name: string
+  description: string
+  color: string
+  saved_at: string
+  node_count: number
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -126,6 +135,11 @@ export const api = {
     req<{ slug: string; name: string; saved_at: string }>('POST', `/workflows/${encodeURIComponent(slug)}/duplicate`),
   deleteWorkflow: (slug: string) =>
     req('DELETE', `/workflows/${encodeURIComponent(slug)}`),
+
+  listTemplates: () =>
+    req<TemplateMeta[]>('GET', '/templates'),
+  loadTemplate: (slug: string) =>
+    req<{ nodes: any[]; edges: any[] }>('POST', `/templates/${encodeURIComponent(slug)}/load`),
 
   getSubgraph: (nodeId: string) =>
     req<{ node_meta: Record<string, any>; edges: any[] }>('GET', `/nodes/${nodeId}/subgraph`),

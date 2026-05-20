@@ -1,0 +1,303 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "Research Pipeline",
+  "saved_at": "2026-05-20T00:00:00",
+  "entrypoint": {
+    "node_id": "out_text",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Fetch a Wikipedia summary, summarize with NVIDIA NIM, write summary.txt, then read it back",
+    "color": "#0891b2"
+  },
+  "node_meta": {
+    "model": {
+      "id": "model",
+      "type": "Model",
+      "params": {
+        "value": "nim:meta/llama-3.1-8b-instruct"
+      },
+      "pos": [
+        60,
+        60
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Model"
+      },
+      "input_defaults": {}
+    },
+    "system": {
+      "id": "system",
+      "type": "Text",
+      "params": {
+        "value": "You are a technical writer. Summarise the text in 3 bullet points."
+      },
+      "pos": [
+        60,
+        210
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "url": {
+      "id": "url",
+      "type": "Text",
+      "params": {
+        "value": "https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles=Houdini_(software)&format=json&formatversion=2&origin=*"
+      },
+      "pos": [
+        60,
+        380
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "path": {
+      "id": "path",
+      "type": "Text",
+      "params": {
+        "value": "summary.txt"
+      },
+      "pos": [
+        60,
+        550
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "fetch": {
+      "id": "fetch",
+      "type": "HTTPGet",
+      "params": {},
+      "pos": [
+        360,
+        360
+      ],
+      "inputs": [
+        "url",
+        "headers",
+        "timeout"
+      ],
+      "outputs": [
+        "text",
+        "status"
+      ],
+      "input_types": {
+        "url": "Text",
+        "headers": "Dict",
+        "timeout": "Float"
+      },
+      "output_types": {
+        "text": "Text",
+        "status": "Int"
+      },
+      "input_defaults": {
+        "timeout": 20
+      }
+    },
+    "agent": {
+      "id": "agent",
+      "type": "LLMAgent",
+      "params": {},
+      "pos": [
+        650,
+        250
+      ],
+      "inputs": [
+        "prompt",
+        "system",
+        "model",
+        "max_tokens",
+        "temperature"
+      ],
+      "outputs": [
+        "text"
+      ],
+      "input_types": {
+        "prompt": "Text",
+        "system": "Text",
+        "model": "Model",
+        "max_tokens": "Int",
+        "temperature": "Float"
+      },
+      "output_types": {
+        "text": "Text"
+      },
+      "input_defaults": {
+        "model": "claude-sonnet-4-6",
+        "max_tokens": 1024,
+        "temperature": 1.0
+      }
+    },
+    "write": {
+      "id": "write",
+      "type": "FileWrite",
+      "params": {},
+      "pos": [
+        920,
+        310
+      ],
+      "inputs": [
+        "path",
+        "text",
+        "encoding"
+      ],
+      "outputs": [
+        "path"
+      ],
+      "input_types": {
+        "path": "Text",
+        "text": "Text",
+        "encoding": "Text"
+      },
+      "output_types": {
+        "path": "Text"
+      },
+      "input_defaults": {}
+    },
+    "read": {
+      "id": "read",
+      "type": "FileRead",
+      "params": {},
+      "pos": [
+        920,
+        500
+      ],
+      "inputs": [
+        "path",
+        "encoding"
+      ],
+      "outputs": [
+        "text"
+      ],
+      "input_types": {
+        "path": "Text",
+        "encoding": "Text"
+      },
+      "output_types": {
+        "text": "Text"
+      },
+      "input_defaults": {}
+    },
+    "out_path": {
+      "id": "out_path",
+      "type": "Output",
+      "params": {},
+      "pos": [
+        1210,
+        260
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_text": {
+      "id": "out_text",
+      "type": "Output",
+      "params": {},
+      "pos": [
+        1210,
+        500
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "model",
+      "from_port": "value",
+      "to": "agent",
+      "to_port": "model"
+    },
+    {
+      "from": "system",
+      "from_port": "value",
+      "to": "agent",
+      "to_port": "system"
+    },
+    {
+      "from": "url",
+      "from_port": "value",
+      "to": "fetch",
+      "to_port": "url"
+    },
+    {
+      "from": "fetch",
+      "from_port": "text",
+      "to": "agent",
+      "to_port": "prompt"
+    },
+    {
+      "from": "path",
+      "from_port": "value",
+      "to": "write",
+      "to_port": "path"
+    },
+    {
+      "from": "agent",
+      "from_port": "text",
+      "to": "write",
+      "to_port": "text"
+    },
+    {
+      "from": "write",
+      "from_port": "path",
+      "to": "read",
+      "to_port": "path"
+    },
+    {
+      "from": "write",
+      "from_port": "path",
+      "to": "out_path",
+      "to_port": "value"
+    },
+    {
+      "from": "read",
+      "from_port": "text",
+      "to": "out_text",
+      "to_port": "value"
+    }
+  ]
+}
