@@ -1956,9 +1956,9 @@ export const useStore = create<Store>((set, get) => ({
         data: {
           ...n.data,
           cooking: n.id === id,
-          cookError: n.id === id ? undefined : n.data.cookError,
-          cookResult: n.id === id ? undefined : n.data.cookResult,
-          cookPort: n.id === id ? port : n.data.cookPort,
+          cookError: undefined,
+          cookResult: undefined,
+          cookPort: n.id === id ? port : undefined,
         },
       })),
     }))

@@ -7,7 +7,7 @@ require_nim_api_key()
 
 g = bn.Graph()
 
-url      = g.node("Literal", value="https://en.wikipedia.org/wiki/Houdini_(software)")
+url      = g.node("Literal", value="https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles=Houdini_(software)&format=json&formatversion=2&origin=*")
 fetcher  = g.node("HTTPGet")
 summarise = g.node("LLMAgent",
                    system="You are a technical writer. Summarise the text in 3 bullet points.",

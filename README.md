@@ -14,6 +14,10 @@ A node-based framework for building AI agent pipelines, typed data flows, and re
 
 ![Blacknode dark theme](docs/images/blacknode-dark-theme.png)
 
+### Research pipeline
+
+![Blacknode research pipeline template](docs/images/blacknode-research-pipeline.png)
+
 ---
 
 ## Quick Start
@@ -112,7 +116,7 @@ Drag from an output handle (right side of a node) to an input handle (left side)
 
 ### Running a graph
 
-Click the **▶ Cook** button on any node (or on the **Output** node) to evaluate it. The graph evaluates lazily — only nodes whose inputs changed are re-run.
+Click the **▶ Cook** button on any node (or on the **Output** node) to evaluate it. Each Cook run starts fresh so file writes, HTTP calls, and model calls do not replay stale cached values.
 
 Results appear in the node's result area. Errors show in red with a full Python traceback.
 
@@ -136,6 +140,7 @@ Open the **Templates** tab in the left sidebar for one-click starter graphs:
 | LLM Chat | System prompt + user message → Anthropic / OpenAI |
 | NVIDIA NIM | Same pipeline routed to a free NVIDIA NIM model |
 | Text Pipeline | Concatenate two strings → Output |
+| Research Pipeline | HTTPGet → LLMAgent → FileWrite → FileRead, with outputs for saved path and file text |
 | Python Tool Agent | PythonFn → ToolBox → AgentLoop tool call |
 | Visual Tool Agent | PythonFn → ToolBox → VisualAgentLoop compatibility path |
 | Subnet Tool Call | Build a calculator inside SubnetAsTool and test it directly with ToolCall |
@@ -216,6 +221,12 @@ def FirstNWords(ctx: dict) -> dict:
 ```
 
 Press **Ctrl + Enter** (or click Run). The node appears in the **Custom** section of the palette immediately — no server restart needed.
+
+### File IO
+
+**FileWrite** returns the resolved full path on its `path` output, even when the input path is relative. For example, writing `summary.txt` from the editor server returns a path like `F:\PROJECTS\NVDIA\Blacknode\editor-server\summary.txt`.
+
+Wire that `path` output into **FileRead** to read the saved file back into the graph.
 
 ---
 
@@ -330,7 +341,7 @@ See [LICENSE](LICENSE) for the full license text.
 
 ## Roadmap
 
-- [x] Pure-Python graph engine with lazy evaluation and smart caching
+- [x] Pure-Python graph engine with per-run evaluation
 - [x] Multi-provider LLM support (Anthropic, OpenAI, Ollama, NVIDIA NIM, local)
 - [x] Typed ports with color-coded handles
 - [x] React Flow visual editor — palette, templates, live cook, inspector

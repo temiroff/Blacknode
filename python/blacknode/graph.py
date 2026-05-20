@@ -58,7 +58,8 @@ class Graph:
     """Pure-Python Blacknode graph.
 
     Nodes execute lazily — cooking a port pulls from all upstream nodes first.
-    Results are cached until a node (or any of its ancestors) is dirtied.
+    Each top-level cook starts fresh. Results are cached only within that
+    cook so shared upstream nodes do not execute multiple times.
     """
 
     def __init__(self):
@@ -104,6 +105,8 @@ class Graph:
 
     def cook(self, node_proxy: NodeProxy, port: str = "output") -> Any:
         """Pull-cook the requested port of a node."""
+        self._cache.clear()
+        self._dirty = set(self._nodes)
         return self._cook(node_proxy._id, port)
 
     def _cook(self, node_id: str, port: str) -> Any:

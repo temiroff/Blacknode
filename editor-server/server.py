@@ -931,6 +931,7 @@ def cook(req: CookReq):
     if req.node_id not in _session.graph._nodes:
         raise HTTPException(500, f"Node {req.node_id} missing from graph (try resetting)")
     try:
+        _begin_fresh_cook()
         proxy  = bn.NodeProxy(_session.graph, req.node_id,
                               _session.node_meta[req.node_id]["type"], {})
         result = _session.graph.cook(proxy, req.port)
@@ -985,6 +986,28 @@ def _node_cached_outputs(cache: dict[tuple, Any], node_id: str, fallback_port: s
         if nid == node_id
     }
     return outputs if len(outputs) > 1 else fallback_value
+
+
+def _clear_runtime_status_tree(meta_map: dict[str, dict]) -> None:
+    for meta in meta_map.values():
+        _clear_runtime_status(meta)
+        subgraph = meta.get("subgraph")
+        if isinstance(subgraph, dict):
+            inner_meta = subgraph.get("node_meta")
+            if isinstance(inner_meta, dict):
+                _clear_runtime_status_tree(inner_meta)
+
+
+def _begin_fresh_cook(clear_status: bool = True) -> None:
+    """Make every user-triggered cook execute from scratch.
+
+    The graph still uses its cache inside a single cook so one upstream node
+    can feed multiple downstream ports without running twice.
+    """
+    _session.graph._cache.clear()
+    _session.graph._dirty = set(_session.graph._nodes)
+    if clear_status:
+        _clear_runtime_status_tree(_session.node_meta)
 
 
 def _subgraph_output_node_id(subgraph: dict) -> str:
@@ -1357,6 +1380,7 @@ def _cook_trace(node_id: str, port: str):
 
 @app.post("/cook-stream")
 def cook_stream(req: CookReq):
+    _begin_fresh_cook()
     return StreamingResponse(_cook_trace(req.node_id, req.port), media_type="application/x-ndjson")
 
 
@@ -1610,6 +1634,7 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):
 
 @app.post("/nodes/{subnet_id}/cook-stream")
 def cook_subgraph_stream(subnet_id: str, req: CookReq):
+    _begin_fresh_cook()
     return StreamingResponse(_subgraph_cook_trace(subnet_id, req.node_id, req.port), media_type="application/x-ndjson")
 
 
