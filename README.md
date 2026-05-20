@@ -61,7 +61,7 @@ npm run dev
 
 Both must be running at the same time. The status indicator in the top bar turns green when the server is reachable.
 
-> **After any Python code change** you must restart the Python server (`Ctrl+C` → `python server.py`) for the new node types and port colors to take effect.
+> Built-in Python node changes are picked up by the backend reload when `server.py` is running. Frontend changes such as port colors are handled by Vite and may need a browser refresh.
 
 ---
 
@@ -95,19 +95,43 @@ Keys are saved per provider in your browser's `localStorage` and automatically s
 
 ### Connecting nodes
 
-Drag from an output handle (right side of a node) to an input handle (left side). Handles are color-coded by type — you can only connect matching types.
+Drag from an output handle (right side of a node) to an input handle (left side). Handles are color-coded by type, and compatible types can connect.
 
-| Handle color | Type |
-|---|---|
-| 🟡 Amber | Text |
-| 🟢 Green | Int / Float |
-| 🟢 Bright green | Model (AI model identifier) |
-| 🔵 Blue | Bool |
-| 🟠 Orange | List |
-| 🟣 Purple | Dict |
-| 🩷 Pink | Embedding |
-| 🔴 Red | Fn (callable) |
-| ⚫ Grey | Any |
+| Handle color | Hex | Type |
+|---|---:|---|
+| Amber | `#f59e0b` | Text |
+| Green | `#22c55e` | Int |
+| Cyan | `#06b6d4` | Float |
+| Emerald | `#34d399` | Number |
+| Fuchsia | `#e879f9` | Bool |
+| Orange | `#f97316` | List |
+| Purple | `#a855f7` | Dict |
+| Pink | `#ec4899` | Embedding |
+| Red | `#ef4444` | Fn (callable tool) |
+| NVIDIA green | `#76b900` | Model |
+| Grey | `#6b7280` | Any |
+
+Compatibility rules:
+
+- `Any` connects to any type.
+- `Int`, `Float`, and `Number` can connect to each other.
+- `Model` connects to `Model`, `Text`, or `Any`.
+- Other concrete types connect to the same type or `Any`.
+
+Node category/header colors:
+
+| Category | Hex | Nodes |
+|---|---:|---|
+| Values | `#6b7280` | Text, Float, Int, Bool, Dict |
+| AI | `#6366f1` | Model, LLMAgent, AgentLoop, VisualAgentLoop, agent-step nodes, EmbedText |
+| Tools | `#14b8a6` | PythonFn, SubnetAsTool, ToolBox, ToolCall |
+| PythonTools | `#0ea5e9` | web_search, fetch_url, calculator, current_time, regex_extract, json_lookup, text_stats |
+| Math | `#22c55e` | Add, Subtract, Multiply, Divide |
+| Flow | `#d97706` | Branch, Switch, Gate, Map, Filter, Reduce, ForEach |
+| IO | `#0891b2` | FileRead, FileWrite, HTTPGet, JSONParse, JSONDump |
+| Core | `#374151` | Literal, Print, Concat |
+| Output | `#8b5cf6` | Output |
+| Subnet | `#6366f1` | SubnetInput, SubnetOutput |
 
 ### Disconnecting lines
 
