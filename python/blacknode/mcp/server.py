@@ -99,6 +99,41 @@ def export_python(workflow: dict[str, Any]) -> dict[str, Any]:
     return tools.export_python_tool(workflow)
 
 
+@mcp.tool()
+def create_editor_workflow_tab(
+    name: str = "Untitled",
+    editor_url: str | None = None,
+) -> dict[str, Any]:
+    """Ask a running Blacknode editor UI to open a new unsaved workflow tab."""
+    return tools.create_editor_workflow_tab(name=name, editor_url=editor_url)
+
+
+@mcp.tool()
+def open_workflow_in_editor_tab(
+    workflow: dict[str, Any],
+    name: str | None = None,
+    editor_url: str | None = None,
+    organize: bool = True,
+) -> dict[str, Any]:
+    """Ask a running Blacknode editor UI to open and optionally organize a populated workflow tab."""
+    return tools.open_workflow_in_editor_tab(
+        workflow=workflow,
+        name=name,
+        editor_url=editor_url,
+        organize=organize,
+    )
+
+
+@mcp.tool()
+def cook_editor_node(
+    node_id: str = "out",
+    port: str = "value",
+    editor_url: str | None = None,
+) -> dict[str, Any]:
+    """Ask a running Blacknode editor UI to cook a node and update the canvas."""
+    return tools.cook_editor_node(node_id=node_id, port=port, editor_url=editor_url)
+
+
 def main() -> None:
     mcp.run()
 

@@ -149,6 +149,18 @@ class SaveWorkflowReq(BaseModel):
 class RenameWorkflowReq(BaseModel):
     name: str
 
+class NewWorkflowTabReq(BaseModel):
+    name: str = "Untitled"
+
+class OpenWorkflowTabReq(BaseModel):
+    name: str | None = None
+    workflow: dict[str, Any]
+    organize: bool = True
+
+class CookEditorNodeReq(BaseModel):
+    node_id: str
+    port: str = "value"
+
 class UpdateSubgraphReq(BaseModel):
     node_meta: dict[str, Any] = {}
     edges: list[dict[str, Any]] = []
@@ -166,6 +178,8 @@ _PROVIDER_ENV: dict[str, str] = {
 
 _KEYS_PATH = os.path.join(os.path.dirname(__file__), "api_keys.json")
 _api_keys: dict[str, str] = {}
+_editor_action_queue: list[dict[str, Any]] = []
+_editor_action_lock = threading.Lock()
 
 
 def _load_api_keys() -> None:
@@ -555,6 +569,19 @@ def _sync_dynamic_node_meta(meta: dict, edges: list[dict] | None = None) -> bool
         if meta.get("type") in _SUBGRAPH_NODE_TYPES:
             entry["subgraph"] = meta.get("subgraph", {"node_meta": {}, "edges": []})
     return changed
+
+
+def _enqueue_editor_action(action_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    action = {
+        "id": str(uuid.uuid4()),
+        "type": action_type,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "payload": payload or {},
+    }
+    with _editor_action_lock:
+        _editor_action_queue.append(action)
+        del _editor_action_queue[:-100]
+    return action
 
 
 _load()   # restore last session on startup
@@ -1537,6 +1564,64 @@ def delete_run(run_id: str):
 @app.delete("/runs")
 def clear_runs():
     return {"ok": True, "removed": _run_store.clear()}
+
+
+@app.get("/mcp/status")
+def mcp_status():
+    import importlib.util
+    import shutil
+    mcp_installed = importlib.util.find_spec("mcp") is not None
+    cli_path = shutil.which("blacknode")
+    return {
+        "mcp_installed": mcp_installed,
+        "blacknode_cli": cli_path,
+        "install_command": "pip install -e \".[mcp]\"",
+        "launch_command": "blacknode mcp",
+    }
+
+
+@app.post("/editor/actions/workflow-tab")
+def queue_new_workflow_tab(req: NewWorkflowTabReq):
+    name = req.name.strip() or "Untitled"
+    action = _enqueue_editor_action("new_workflow_tab", {"name": name})
+    return {"ok": True, "action": action}
+
+
+@app.post("/editor/actions/open-workflow-tab")
+def queue_open_workflow_tab(req: OpenWorkflowTabReq):
+    workflow = req.workflow
+    _ensure_workflow_header(workflow)
+    report = validate_bn_workflow(workflow)
+    if not report.ok:
+        raise HTTPException(400, report.to_dict())
+    name = (req.name or workflow.get("name") or "Untitled").strip() or "Untitled"
+    action = _enqueue_editor_action("open_workflow_tab", {
+        "name": name,
+        "workflow": workflow,
+        "organize": req.organize,
+    })
+    return {"ok": True, "action": action}
+
+
+@app.post("/editor/actions/cook-node")
+def queue_cook_node(req: CookEditorNodeReq):
+    node_id = req.node_id.strip()
+    port = req.port.strip() or "value"
+    if node_id not in _session.node_meta:
+        raise HTTPException(404, f"Node '{node_id}' not found")
+    action = _enqueue_editor_action("cook_node", {
+        "node_id": node_id,
+        "port": port,
+    })
+    return {"ok": True, "action": action}
+
+
+@app.get("/editor/actions")
+def consume_editor_actions():
+    with _editor_action_lock:
+        actions = list(_editor_action_queue)
+        _editor_action_queue.clear()
+    return {"actions": actions}
 
 
 def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import unittest
+from unittest.mock import patch
 
 from blacknode.mcp import tools as t
 
@@ -167,6 +169,113 @@ class ListTemplatesTests(unittest.TestCase):
         self.assertGreater(result["count"], 0)
         names = {entry["name"] for entry in result["templates"]}
         self.assertIn("Text Pipeline", names)
+
+
+class CreateEditorWorkflowTabTests(unittest.TestCase):
+    def test_posts_editor_action(self):
+        requests = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "ok": True,
+                    "action": {
+                        "id": "action-1",
+                        "type": "new_workflow_tab",
+                        "payload": {"name": "MCP Tab"},
+                    },
+                }).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            return FakeResponse()
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            result = t.create_editor_workflow_tab("MCP Tab", editor_url="http://editor")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["action"]["type"], "new_workflow_tab")
+        self.assertEqual(requests[0][0].full_url, "http://editor/editor/actions/workflow-tab")
+        self.assertEqual(json.loads(requests[0][0].data.decode("utf-8")), {"name": "MCP Tab"})
+        self.assertEqual(requests[0][1], 3)
+
+    def test_posts_populated_editor_tab_action(self):
+        workflow = t.create_workflow("Demo")
+        requests = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "ok": True,
+                    "action": {
+                        "id": "action-2",
+                        "type": "open_workflow_tab",
+                        "payload": {"name": "Demo"},
+                    },
+                }).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            return FakeResponse()
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            result = t.open_workflow_in_editor_tab(workflow, editor_url="http://editor")
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["validation"]["ok"])
+        self.assertEqual(result["action"]["type"], "open_workflow_tab")
+        self.assertEqual(requests[0][0].full_url, "http://editor/editor/actions/open-workflow-tab")
+        payload = json.loads(requests[0][0].data.decode("utf-8"))
+        self.assertEqual(payload["name"], "Demo")
+        self.assertEqual(payload["workflow"]["name"], "Demo")
+        self.assertTrue(payload["organize"])
+
+    def test_posts_cook_editor_node_action(self):
+        requests = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "ok": True,
+                    "action": {
+                        "id": "action-3",
+                        "type": "cook_node",
+                        "payload": {"node_id": "out", "port": "value"},
+                    },
+                }).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            return FakeResponse()
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            result = t.cook_editor_node(editor_url="http://editor")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["action"]["type"], "cook_node")
+        self.assertEqual(requests[0][0].full_url, "http://editor/editor/actions/cook-node")
+        self.assertEqual(
+            json.loads(requests[0][0].data.decode("utf-8")),
+            {"node_id": "out", "port": "value"},
+        )
 
 
 if __name__ == "__main__":

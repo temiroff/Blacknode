@@ -4,9 +4,46 @@ title Blacknode
 :: Banner (PowerShell script handles Unicode natively)
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0banner.ps1"
 
-:: Python deps
+:: Python deps for the editor server
 echo  Checking Python dependencies...
-pip install -r "%~dp0editor-server\requirements.txt" -q --disable-pip-version-check 2>nul
+pip install -r "%~dp0editor-server\requirements.txt" -q --disable-pip-version-check
+if errorlevel 1 (
+    echo.
+    echo  ERROR: pip install failed. Fix the error above, then re-run start.bat.
+    pause
+    exit /b 1
+)
+
+:: Install the blacknode package itself so the `blacknode` CLI is available
+:: (Claude Desktop's MCP config calls it by name). Only installs if missing.
+pip show blacknode >nul 2>&1
+if not errorlevel 1 goto :blacknode_installed
+echo  Installing blacknode package for the CLI...
+pushd "%~dp0"
+pip install -e . -q --disable-pip-version-check
+set "INSTALL_ERR=%errorlevel%"
+popd
+if not "%INSTALL_ERR%"=="0" (
+    echo.
+    echo  ERROR: could not install the blacknode package. Fix the error above and re-run.
+    pause
+    exit /b 1
+)
+:blacknode_installed
+
+:: Install frontend deps on first run (or whenever node_modules is missing)
+if not exist "%~dp0editor\node_modules" (
+    echo  Installing frontend dependencies ^(first run, this can take a minute^)...
+    pushd "%~dp0editor"
+    call npm install
+    popd
+    if errorlevel 1 (
+        echo.
+        echo  ERROR: npm install failed. Make sure Node.js 20.19+ or 22.12+ is installed.
+        pause
+        exit /b 1
+    )
+)
 echo  Done.
 echo.
 

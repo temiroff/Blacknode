@@ -20,6 +20,7 @@ import NodeSearch from './components/NodeSearch'
 import { portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
+import { api } from './api'
 
 const NODE_TYPES = {
   blacknode: BlackNode,
@@ -54,8 +55,8 @@ export default function App() {
     addNodeFromConnection, copySelection, pasteClipboard,
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
-    renameTab, saveActiveWorkflow,
-    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes,
+    openGraphAsTab, renameTab, saveActiveWorkflow,
+    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -136,6 +137,98 @@ export default function App() {
     const id = setInterval(checkServer, 5000)
     return () => clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (!serverOk) return
+    let cancelled = false
+    let running = false
+
+    const consumeActions = async () => {
+      if (running) return
+      running = true
+      try {
+        const { actions } = await api.consumeEditorActions()
+        for (const action of actions) {
+          if (cancelled) break
+          if (action.type === 'new_workflow_tab') {
+            const name = typeof action.payload?.name === 'string'
+              ? action.payload.name
+              : undefined
+            await newTab(name)
+            window.dispatchEvent(new CustomEvent('blacknode:notice', {
+              detail: {
+                kind: 'info',
+                title: 'MCP',
+                message: `Created workflow tab "${name?.trim() || 'Untitled'}".`,
+              },
+            }))
+          } else if (action.type === 'open_workflow_tab') {
+            const workflow = action.payload?.workflow
+            if (!workflow || typeof workflow !== 'object') continue
+            const record = workflow as Record<string, any>
+            const nodeMeta = record.node_meta && typeof record.node_meta === 'object'
+              ? record.node_meta as Record<string, any>
+              : {}
+            const edges = Array.isArray(record.edges) ? record.edges : []
+            const name = typeof action.payload?.name === 'string'
+              ? action.payload.name
+              : typeof record.name === 'string'
+                ? record.name
+                : 'Untitled'
+            await openGraphAsTab(name, {
+              nodes: Object.values(nodeMeta),
+              edges,
+            })
+            if (action.payload?.organize !== false) {
+              await organizeNodes()
+              window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
+                  rfInstance.current?.fitView({
+                    padding: 0.24,
+                    maxZoom: 1,
+                    duration: 320,
+                  })
+                })
+              })
+            }
+            window.dispatchEvent(new CustomEvent('blacknode:notice', {
+              detail: {
+                kind: 'info',
+                title: 'MCP',
+                message: `Opened workflow tab "${name.trim() || 'Untitled'}"${action.payload?.organize === false ? '' : ' and organized it'}.`,
+              },
+            }))
+          } else if (action.type === 'cook_node') {
+            const nodeId = typeof action.payload?.node_id === 'string'
+              ? action.payload.node_id
+              : ''
+            const port = typeof action.payload?.port === 'string'
+              ? action.payload.port
+              : 'value'
+            if (!nodeId) continue
+            await cookNode(nodeId, port)
+            window.dispatchEvent(new CustomEvent('blacknode:notice', {
+              detail: {
+                kind: 'info',
+                title: 'MCP',
+                message: `Cooked ${nodeId}.${port}.`,
+              },
+            }))
+          }
+        }
+      } catch {
+      } finally {
+        running = false
+      }
+    }
+
+    void consumeActions()
+    const id = setInterval(consumeActions, 1000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [newTab, openGraphAsTab, organizeNodes, cookNode, serverOk])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

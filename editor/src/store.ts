@@ -87,12 +87,13 @@ interface Store {
   removeCustomModel: (value: string) => Promise<void>
   checkServer: () => Promise<void>
 
-  newTab: () => Promise<void>
+  newTab: (name?: string) => Promise<void>
   insertTab: (tabId: string) => Promise<void>
   switchTab: (tabId: string) => Promise<void>
   closeTab: (tabId: string) => Promise<void>
   duplicateTab: (tabId: string) => Promise<void>
   openWorkflowAsTab: (slug: string, name: string) => Promise<void>
+  openGraphAsTab: (name: string, graph: GraphSnapshot) => Promise<void>
   renameTab: (tabId: string, name: string) => void
   saveActiveWorkflow: (name?: string) => Promise<{ name: string; slug: string }>
   insertSavedWorkflow: (slug: string) => Promise<void>
@@ -746,10 +747,11 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
-  newTab: async () => {
+  newTab: async (name) => {
     await get().saveActiveTabSnapshot()
     const id = makeTabId()
-    set(s => ({ tabs: [...s.tabs, { id, name: 'Untitled', slug: null, dirty: false, graph: blankGraph() }], activeTabId: id, undoHistory: [] }))
+    const tabName = cleanWorkflowName(name)
+    set(s => ({ tabs: [...s.tabs, { id, name: tabName, slug: null, dirty: false, graph: blankGraph() }], activeTabId: id, undoHistory: [] }))
     await api.reset()
     set({ nodes: [], edges: [], selectedId: null })
   },
@@ -853,6 +855,20 @@ export const useStore = create<Store>((set, get) => ({
     const id = makeTabId()
     const graph = await api.loadWorkflow(slug)
     set(s => ({ tabs: [...s.tabs, { id, name, slug, dirty: false, graph: cloneGraph(graph) }], activeTabId: id, selectedId: null, undoHistory: [] }))
+    await get().loadGraph()
+  },
+
+  openGraphAsTab: async (name, graph) => {
+    await get().saveActiveTabSnapshot()
+    const id = makeTabId()
+    const nextGraph = cloneGraph(graph)
+    set(s => ({
+      tabs: [...s.tabs, { id, name: cleanWorkflowName(name), slug: null, dirty: true, graph: nextGraph }],
+      activeTabId: id,
+      selectedId: null,
+      undoHistory: [],
+    }))
+    await api.setGraph(nextGraph.nodes, nextGraph.edges)
     await get().loadGraph()
   },
 

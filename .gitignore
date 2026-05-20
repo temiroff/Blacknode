@@ -21,6 +21,7 @@ node_modules/
 
 # Claude Code — local only, not for repo
 CLAUDE.md
+.claude/
 docs/todays-goal.md
 
 # Blacknode artifacts

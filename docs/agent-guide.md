@@ -15,6 +15,7 @@ The current stable pieces are:
 - CLI: `python -m blacknode.cli`
 - converted examples: `examples/converted_text_pipeline.py`, `examples/converted_nvidia_nim.py`
 - validation/runtime module: `python/blacknode/workflow.py`
+- MCP smoke prompts: `docs/mcp-test-prompts.md`
 
 ## File Rules
 
@@ -235,6 +236,19 @@ Visual Agent Loop:
 
 - use `VisualAgentLoop` when a graph should show the agent-loop internals
 - runtime behavior matches `AgentLoop`
+
+## MCP Editor Smoke Tests
+
+Use `docs/mcp-test-prompts.md` when verifying the MCP server from an agent
+client. The NVIDIA NIM prompt exercises the full live-editor path:
+
+- build workflow JSON through MCP tools
+- validate the graph
+- open it as a new organized editor tab
+- cook `out.value` in the running editor
+
+The live editor tools require `editor-server/server.py` to be running at
+`http://127.0.0.1:7777` or `BLACKNODE_EDITOR_URL` to point at the backend.
 
 ## Editing Checklist For Agents
 

@@ -42,6 +42,13 @@ export interface RunRecord extends RunSummary {
   value?: unknown
 }
 
+export interface EditorAction {
+  id: string
+  type: string
+  created_at: string
+  payload?: Record<string, unknown>
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -165,6 +172,11 @@ export const api = {
     req<TemplateMeta[]>('GET', '/templates'),
   loadTemplate: (slug: string) =>
     req<{ nodes: any[]; edges: any[] }>('POST', `/templates/${encodeURIComponent(slug)}/load`),
+
+  mcpStatus:  () =>
+    req<{ mcp_installed: boolean; blacknode_cli: string | null; install_command: string; launch_command: string }>('GET', '/mcp/status'),
+  consumeEditorActions: () =>
+    req<{ actions: EditorAction[] }>('GET', '/editor/actions'),
 
   listRuns:   (limit = 50) =>
     req<{ runs: RunSummary[] }>('GET', `/runs?limit=${limit}`),

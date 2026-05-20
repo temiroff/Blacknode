@@ -351,7 +351,10 @@ Blacknode ships an MCP server so AI agents (Claude Desktop, Cursor, any MCP
 client) can build, validate, and run Blacknode workflows through a typed tool
 interface — no raw JSON guessing.
 
-Install the MCP dependency once:
+The `mcp` Python package is part of `editor-server/requirements.txt`, so the
+normal first-time setup (or running `start.bat`) installs it for you. If you
+installed Blacknode as a package, the same dep is available as an optional
+extra:
 
 ```powershell
 pip install -e ".[mcp]"
@@ -392,10 +395,20 @@ Add an entry to `claude_desktop_config.json` (Settings → Developer → Edit Co
 | `validate_workflow` | Full schema + type validation |
 | `run_workflow` | Execute and return cooked value + event log |
 | `export_python` | Convert workflow to a runnable Python script |
+| `create_editor_workflow_tab` | Queue a new unsaved workflow tab in the running visual editor |
+| `open_workflow_in_editor_tab` | Queue a populated workflow as a new organized visual editor tab |
+| `cook_editor_node` | Queue a live editor node cook, defaulting to `out.value` |
 
 Every mutation tool returns a fresh validation report so agents get fast
 feedback when they build something invalid. API keys are read from
 `editor-server/api_keys.json` (same store the visual editor uses).
+By default, `open_workflow_in_editor_tab` also runs the editor's organize layout
+and fits the canvas. The live editor tools require the editor backend to be running at
+`http://127.0.0.1:7777` or a custom `BLACKNODE_EDITOR_URL`.
+
+Copy-paste prompts for validating MCP behavior, including an NVIDIA NIM editor
+demo that opens, organizes, and cooks a graph, are in
+[`docs/mcp-test-prompts.md`](docs/mcp-test-prompts.md).
 
 ---
 

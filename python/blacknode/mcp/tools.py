@@ -7,8 +7,11 @@ here means tests can exercise the tool surface without installing ``mcp``.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Mapping
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from ..node import _NODE_REGISTRY
 from ..workflow import (
@@ -216,7 +219,109 @@ def export_python_tool(workflow: Mapping[str, Any]) -> dict[str, Any]:
     return {"source": export_workflow_python(workflow)}
 
 
+def create_editor_workflow_tab(
+    name: str = "Untitled",
+    *,
+    editor_url: str | None = None,
+) -> dict[str, Any]:
+    """Queue a new workflow tab in a running Blacknode visual editor."""
+    base_url, result = _post_editor_action(
+        "/editor/actions/workflow-tab",
+        {"name": name or "Untitled"},
+        editor_url=editor_url,
+    )
+    return {
+        "ok": bool(result.get("ok", True)),
+        "editor_url": base_url,
+        "action": result.get("action", result),
+        "note": "The open Blacknode editor will create the tab on its next action poll.",
+    }
+
+
+def open_workflow_in_editor_tab(
+    workflow: Mapping[str, Any],
+    name: str | None = None,
+    *,
+    editor_url: str | None = None,
+    organize: bool = True,
+) -> dict[str, Any]:
+    """Queue a populated workflow tab in a running Blacknode visual editor."""
+    workflow_dict = _copy_workflow(workflow)
+    report = validate_workflow(workflow_dict).to_dict()
+    if not report.get("ok"):
+        raise ValueError(f"Workflow is invalid: {report}")
+
+    tab_name = name or str(workflow_dict.get("name") or "Untitled")
+    base_url, result = _post_editor_action(
+        "/editor/actions/open-workflow-tab",
+        {"name": tab_name, "workflow": workflow_dict, "organize": organize},
+        editor_url=editor_url,
+    )
+    return {
+        "ok": bool(result.get("ok", True)),
+        "editor_url": base_url,
+        "action": result.get("action", result),
+        "validation": report,
+        "note": "The open Blacknode editor will open the populated tab on its next action poll.",
+    }
+
+
+def cook_editor_node(
+    node_id: str = "out",
+    port: str = "value",
+    *,
+    editor_url: str | None = None,
+) -> dict[str, Any]:
+    """Queue a node cook in a running Blacknode visual editor."""
+    base_url, result = _post_editor_action(
+        "/editor/actions/cook-node",
+        {"node_id": node_id, "port": port},
+        editor_url=editor_url,
+    )
+    return {
+        "ok": bool(result.get("ok", True)),
+        "editor_url": base_url,
+        "action": result.get("action", result),
+        "note": "The open Blacknode editor will cook the node on its next action poll.",
+    }
+
+
 # ── Internals ─────────────────────────────────────────────────────────────────
+
+def _post_editor_action(
+    path: str,
+    payload_dict: Mapping[str, Any],
+    *,
+    editor_url: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    base_url = (editor_url or os.environ.get("BLACKNODE_EDITOR_URL") or "http://127.0.0.1:7777").rstrip("/")
+    payload = json.dumps(payload_dict).encode("utf-8")
+    req = urllib_request.Request(
+        f"{base_url}{path}",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib_request.urlopen(req, timeout=3) as res:
+            body = res.read().decode("utf-8")
+    except urllib_error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"Blacknode editor backend rejected the request: HTTP {exc.code} {detail}"
+        ) from exc
+    except (OSError, urllib_error.URLError) as exc:
+        raise RuntimeError(
+            f"Could not reach Blacknode editor backend at {base_url}. "
+            "Start the editor backend with: cd editor-server && python server.py"
+        ) from exc
+
+    try:
+        result = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Blacknode editor backend returned non-JSON: {body!r}") from exc
+    return base_url, result
 
 def _node_schema(name: str, fn: Any) -> dict[str, Any]:
     inputs = list(getattr(fn, "_bn_inputs", []))

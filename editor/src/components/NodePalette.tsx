@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useStore } from '../store'
 import { CATEGORIES } from '../categories'
 import { isPythonToolPreset, resolvePythonToolPreset } from '../pythonToolPresets'
+import McpPanel from './McpPanel'
 import RunsPanel from './RunsPanel'
 import ScriptEditor from './ScriptEditor'
 import TemplateGallery from './TemplateGallery'
@@ -9,7 +10,7 @@ import WorkflowManager from './WorkflowManager'
 
 const ALL_CATEGORISED = Object.values(CATEGORIES).flatMap(c => c.nodes)
 
-type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs'
+type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs' | 'mcp'
 
 const TOP_BAR_H = 44
 const RAIL_W = 78
@@ -52,6 +53,13 @@ const ICON_RUNS = (
     <path d="M9 5v4l2.5 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 )
+const ICON_MCP = (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <rect x="3" y="6" width="12" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.3"/>
+    <path d="M6 6V3.5M9 6V3.5M12 6V3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    <path d="M7 13v2M11 13v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+  </svg>
+)
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'nodes',     label: 'Nodes',     icon: ICON_NODES     },
@@ -59,6 +67,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'workflows', label: 'Workflows', icon: ICON_WORKFLOWS },
   { id: 'script',    label: 'Script',    icon: ICON_SCRIPT    },
   { id: 'runs',      label: 'Runs',      icon: ICON_RUNS      },
+  { id: 'mcp',       label: 'MCP',       icon: ICON_MCP       },
 ]
 
 export default function NodePalette() {
@@ -435,6 +444,9 @@ export default function NodePalette() {
 
             {/* ── RUNS ── */}
             {activeTab === 'runs' && <RunsPanel />}
+
+            {/* ── MCP ── */}
+            {activeTab === 'mcp' && <McpPanel />}
 
           </div>
         </div>
