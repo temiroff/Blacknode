@@ -12,6 +12,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import blacknode as bn
 from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
+from blacknode.workflow import validate_graph as validate_bn_graph
+from blacknode.workflow import validate_workflow as validate_bn_workflow
 
 app = FastAPI(title="Blacknode Editor Server")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -24,6 +26,8 @@ _save_timer: threading.Timer | None = None
 _SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool", "VisualAgentLoop"}
 _TOOLBOX_NODE_TYPES = {"ToolBox"}
 _DYNAMIC_PORT_TYPES = {*_SUBGRAPH_NODE_TYPES, "SubnetInput", "SubnetOutput", *_TOOLBOX_NODE_TYPES}
+_WORKFLOW_KIND = "blacknode.workflow"
+_WORKFLOW_SCHEMA_VERSION = 1
 
 
 def _save_now() -> None:
@@ -1700,6 +1704,43 @@ def reset():
 
 # ── Workflow persistence ──────────────────────────────────────────────────────
 
+def _portable_subgraph(subgraph: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "node_meta": _portable_node_meta(subgraph.get("node_meta", {})),
+        "edges": [dict(edge) for edge in subgraph.get("edges", [])],
+    }
+
+
+def _portable_node_meta(node_meta: dict[str, dict]) -> dict[str, dict]:
+    portable: dict[str, dict] = {}
+    for node_id, meta in node_meta.items():
+        clean = {
+            key: value
+            for key, value in meta.items()
+            if key not in _RUNTIME_STATUS_KEYS
+        }
+        if isinstance(clean.get("subgraph"), dict):
+            clean["subgraph"] = _portable_subgraph(clean["subgraph"])
+        portable[node_id] = clean
+    return portable
+
+
+def _workflow_payload(name: str) -> dict[str, Any]:
+    return {
+        "kind": _WORKFLOW_KIND,
+        "schema_version": _WORKFLOW_SCHEMA_VERSION,
+        "name": name,
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "node_meta": _portable_node_meta(_session.node_meta),
+        "edges": [dict(edge) for edge in _session.graph._edges],
+    }
+
+
+def _ensure_workflow_header(data: dict[str, Any]) -> None:
+    data.setdefault("kind", _WORKFLOW_KIND)
+    data.setdefault("schema_version", _WORKFLOW_SCHEMA_VERSION)
+
+
 def _slug(name: str) -> str:
     return re.sub(r'[^a-zA-Z0-9_-]', '_', name.strip())[:60] or "workflow"
 
@@ -1721,12 +1762,7 @@ def _save_workflow(name: str, previous_slug: str | None = None):
     os.makedirs(_WORKFLOWS_DIR, exist_ok=True)
     clean_name = name.strip() or "Untitled"
     slug = _slug(clean_name)
-    data = {
-        "name":      clean_name,
-        "saved_at":  datetime.now().isoformat(timespec="seconds"),
-        "node_meta": _session.node_meta,
-        "edges":     _session.graph._edges,
-    }
+    data = _workflow_payload(clean_name)
     with open(_workflow_path(slug), "w") as f:
         json.dump(data, f, indent=2)
     if previous_slug and previous_slug != slug:
@@ -1856,6 +1892,25 @@ def list_workflows():
     return result
 
 
+@app.get("/validate")
+def validate_current_workflow():
+    report = validate_bn_graph(
+        _portable_node_meta(_session.node_meta),
+        [dict(edge) for edge in _session.graph._edges],
+    )
+    return report.to_dict()
+
+
+@app.get("/workflows/{slug}/validate")
+def validate_saved_workflow(slug: str):
+    path = _workflow_path(slug)
+    if not os.path.exists(path):
+        raise HTTPException(404, f"Workflow '{slug}' not found")
+    with open(path) as f:
+        data = json.load(f)
+    return validate_bn_workflow(data).to_dict()
+
+
 @app.post("/workflows")
 def save_workflow(req: SaveWorkflowReq):
     return _save_workflow(req.name, req.previous_slug)
@@ -1878,6 +1933,7 @@ def rename_workflow(slug: str, req: RenameWorkflowReq):
         raise HTTPException(409, f"Workflow '{clean_name}' already exists")
     with open(path) as f:
         data = json.load(f)
+    _ensure_workflow_header(data)
     data["name"] = clean_name
     data["saved_at"] = datetime.now().isoformat(timespec="seconds")
     with open(next_path, "w") as f:
@@ -1894,6 +1950,7 @@ def duplicate_workflow(slug: str):
         raise HTTPException(404, f"Workflow '{slug}' not found")
     with open(path) as f:
         data = json.load(f)
+    _ensure_workflow_header(data)
     name = f"{data.get('name', slug)} copy"
     next_slug = _unique_workflow_slug(_slug(name))
     data["name"] = name

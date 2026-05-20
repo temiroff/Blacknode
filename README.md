@@ -172,6 +172,10 @@ Open the **Templates** tab in the left sidebar for one-click starter graphs:
 
 Templates are auto-organized when loaded and framed with padding so the graph starts inside the visible canvas.
 
+### Workflow files
+
+Saved workflows use a versioned JSON format with `kind: "blacknode.workflow"` and `schema_version: 1`. The canonical schema is documented in [docs/workflow-schema.md](docs/workflow-schema.md), with the machine-readable JSON Schema in [docs/workflow.schema.json](docs/workflow.schema.json).
+
 ### Tool workflows
 
 Tools live in the **Tools** category.

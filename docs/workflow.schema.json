@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blacknode.dev/schemas/workflow-v1.json",
+  "title": "Blacknode Workflow v1",
+  "description": "Portable Blacknode workflow document. This schema captures graph structure and editor metadata, but not API keys, runtime cook status, or run logs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schema_version", "name", "saved_at", "node_meta", "edges"],
+  "properties": {
+    "kind": {
+      "const": "blacknode.workflow"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "saved_at": {
+      "type": "string",
+      "description": "ISO 8601 timestamp written by the editor server."
+    },
+    "entrypoint": {
+      "$ref": "#/$defs/entrypoint"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/jsonValue"
+      }
+    },
+    "node_meta": {
+      "$ref": "#/$defs/nodeMap"
+    },
+    "edges": {
+      "$ref": "#/$defs/edgeList"
+    }
+  },
+  "$defs": {
+    "jsonValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
+      ]
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "entrypoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "port"],
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "port": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_meta", "edges"],
+      "properties": {
+        "node_meta": {
+          "$ref": "#/$defs/nodeMap"
+        },
+        "edges": {
+          "$ref": "#/$defs/edgeList"
+        }
+      }
+    },
+    "nodeMap": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "params",
+        "pos",
+        "inputs",
+        "outputs",
+        "input_types",
+        "output_types",
+        "input_defaults"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "type": {
+          "$ref": "#/$defs/identifier"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        "pos": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "number" },
+            { "type": "number" }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "uniqueItems": true
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "uniqueItems": true
+        },
+        "input_types": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "output_types": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "input_defaults": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        "multi_input_ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "uniqueItems": true
+        },
+        "subgraph": {
+          "$ref": "#/$defs/graph"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        }
+      }
+    },
+    "edgeList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "from_port", "to", "to_port"],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/identifier"
+        },
+        "from_port": {
+          "$ref": "#/$defs/identifier"
+        },
+        "to": {
+          "$ref": "#/$defs/identifier"
+        },
+        "to_port": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    }
+  }
+}

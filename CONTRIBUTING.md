@@ -31,4 +31,4 @@ npm run dev
 
 ## License
 
-By contributing you agree that your changes will be licensed under the project's [AGPL-3.0 license](LICENSE).
+By contributing you agree that your changes will be licensed under the project's [Apache License 2.0](LICENSE).
