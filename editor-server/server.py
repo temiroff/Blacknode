@@ -15,6 +15,8 @@ from blacknode.nodes import ai as ai_nodes
 from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
 
+from run_store import RunStore
+
 app = FastAPI(title="Blacknode Editor Server")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -23,6 +25,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 _SAVE_PATH      = os.path.join(os.path.dirname(__file__), "blacknode_graph.json")
 _WORKFLOWS_DIR  = os.path.join(os.path.dirname(__file__), "..", "workflows")
 _TEMPLATES_DIR  = os.path.join(os.path.dirname(__file__), "..", "templates")
+_RUNS_DIR       = os.path.join(os.path.dirname(__file__), "runs")
+_run_store      = RunStore(_RUNS_DIR)
 _save_timer: threading.Timer | None = None
 _SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool", "VisualAgentLoop"}
 _TOOLBOX_NODE_TYPES = {"ToolBox"}
@@ -935,14 +939,26 @@ def cook(req: CookReq):
         raise HTTPException(404, "Node not found")
     if req.node_id not in _session.graph._nodes:
         raise HTTPException(500, f"Node {req.node_id} missing from graph (try resetting)")
+    node_type = _session.node_meta[req.node_id]["type"]
+    run_id = _run_store.begin(node_id=req.node_id, port=req.port, node_type=node_type)
     try:
         _begin_fresh_cook()
-        proxy  = bn.NodeProxy(_session.graph, req.node_id,
-                              _session.node_meta[req.node_id]["type"], {})
+        _run_store.record_event(run_id, {"type": "start", "node_id": req.node_id, "port": req.port})
+        proxy  = bn.NodeProxy(_session.graph, req.node_id, node_type, {})
         result = _session.graph.cook(proxy, req.port)
-        return {"value": result, "port": req.port}
-    except Exception:
-        raise HTTPException(500, traceback.format_exc())
+        _run_store.record_event(run_id, {
+            "type": "success", "node_id": req.node_id, "port": req.port, "value": result,
+        })
+        _run_store.record_event(run_id, {"type": "done", "port": req.port, "value": result})
+        _run_store.finalize_success(run_id, value=result)
+        return {"value": result, "port": req.port, "run_id": run_id}
+    except Exception as exc:
+        trace = traceback.format_exc()
+        _run_store.record_event(run_id, {
+            "type": "error", "node_id": req.node_id, "port": req.port, "error": trace,
+        })
+        _run_store.finalize_error(run_id, error=str(exc))
+        raise HTTPException(500, trace)
 
 
 def _json_line(payload: dict) -> str:
@@ -1383,10 +1399,69 @@ def _cook_trace(node_id: str, port: str):
         yield _json_line({"type": "done", "port": port, "error": traceback.format_exc()})
 
 
+def _captured_cook_trace(node_id: str, port: str, run_id: str):
+    """Wrap _cook_trace so every emitted event is also persisted to the run store."""
+    final_value: Any = None
+    final_error: str | None = None
+    try:
+        for line in _cook_trace(node_id, port):
+            try:
+                event = json.loads(line)
+            except (ValueError, TypeError):
+                event = None
+            if isinstance(event, dict):
+                _run_store.record_event(run_id, event)
+                if event.get("type") == "done":
+                    if event.get("error"):
+                        final_error = event.get("error")
+                    elif "value" in event:
+                        final_value = event.get("value")
+                elif event.get("type") == "error" and final_error is None:
+                    final_error = event.get("error")
+            yield line
+    finally:
+        if final_error is not None:
+            _run_store.finalize_error(run_id, error=final_error)
+        else:
+            _run_store.finalize_success(run_id, value=final_value)
+
+
 @app.post("/cook-stream")
 def cook_stream(req: CookReq):
+    node_type = _session.node_meta.get(req.node_id, {}).get("type", "")
+    run_id = _run_store.begin(node_id=req.node_id, port=req.port, node_type=node_type)
     _begin_fresh_cook()
-    return StreamingResponse(_cook_trace(req.node_id, req.port), media_type="application/x-ndjson")
+    headers = {"X-Blacknode-Run-Id": run_id}
+    return StreamingResponse(
+        _captured_cook_trace(req.node_id, req.port, run_id),
+        media_type="application/x-ndjson",
+        headers=headers,
+    )
+
+
+@app.get("/runs")
+def list_runs(limit: int = 50):
+    return {"runs": _run_store.list_runs(limit=max(1, min(limit, 500)))}
+
+
+@app.get("/runs/{run_id}")
+def get_run(run_id: str):
+    record = _run_store.get_run(run_id)
+    if record is None:
+        raise HTTPException(404, "Run not found")
+    return record
+
+
+@app.delete("/runs/{run_id}")
+def delete_run(run_id: str):
+    if not _run_store.delete_run(run_id):
+        raise HTTPException(404, "Run not found")
+    return {"ok": True, "run_id": run_id}
+
+
+@app.delete("/runs")
+def clear_runs():
+    return {"ok": True, "removed": _run_store.clear()}
 
 
 def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):

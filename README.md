@@ -311,6 +311,36 @@ Wire that `path` output into **FileRead** to read the saved file back into the g
 
 ---
 
+## Run history
+
+Every cook from the editor (and every `/cook-stream` call) is captured as a
+JSON run record under `editor-server/runs/`. Each record has:
+
+- `run_id`, `started_at`, `finished_at`, `duration_ms`
+- `status` — `success`, `error`, or `running` for a crashed cook
+- `node_id`, `port`, `node_type` — the entrypoint that was cooked
+- `node_count`, `model_calls`, `tool_calls`, `cached_nodes` — counters
+- `events` — the full ndjson event log emitted during the cook
+- `value` (success) or `error` (failure)
+
+The store keeps the most recent 200 runs and prunes older finished runs on
+each new run. The directory is git-ignored.
+
+### Endpoints
+
+| Method + path | Purpose |
+|---|---|
+| `GET /runs?limit=50` | Recent run summaries (no event log), newest first |
+| `GET /runs/{run_id}` | Full record with the event log |
+| `DELETE /runs/{run_id}` | Remove one run |
+| `DELETE /runs` | Clear all runs |
+
+`POST /cook-stream` returns the run id in the `X-Blacknode-Run-Id` response
+header, and `POST /cook` returns it as a `run_id` field in the JSON body, so
+clients can link the live stream to the persisted record.
+
+---
+
 ## MCP server (for AI agents)
 
 Blacknode ships an MCP server so AI agents (Claude Desktop, Cursor, any MCP
