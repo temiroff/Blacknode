@@ -16,6 +16,11 @@ Use these prompts from Claude Desktop, Cursor, or any MCP client configured with
 The editor bridge prompts require the visual editor backend to be running at
 `http://127.0.0.1:7777` and the browser editor to be open.
 
+After adding the config, restart Claude Desktop and open **Customize →
+Connectors**. The **blacknode** local connector should list the MCP tools:
+
+![Blacknode MCP connector in Claude Desktop](images/blacknode-mcp-claude-connector.png)
+
 ## Smoke Test
 
 ```text
@@ -68,6 +73,10 @@ Expected tool sequence:
 6. `cook_editor_node`
 
 Expected result: the editor opens an organized workflow tab and the Output node displays a NVIDIA NIM-generated launch brief.
+
+Expected editor state:
+
+![Blacknode MCP NVIDIA NIM editor demo](images/blacknode-mcp-nim-editor-demo.png)
 
 ## Inspect And Save The Editor Graph
 

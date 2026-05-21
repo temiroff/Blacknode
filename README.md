@@ -18,6 +18,14 @@ A node-based framework for building AI agent pipelines, typed data flows, and re
 
 ![Blacknode research pipeline template](docs/images/blacknode-research-pipeline.png)
 
+### MCP NVIDIA NIM editor demo
+
+![Blacknode MCP NVIDIA NIM editor demo](docs/images/blacknode-mcp-nim-editor-demo.png)
+
+### Claude Desktop MCP connector
+
+![Blacknode MCP connector in Claude Desktop](docs/images/blacknode-mcp-claude-connector.png)
+
 ---
 
 ## Quick Start
@@ -381,6 +389,14 @@ Add an entry to `claude_desktop_config.json` (Settings → Developer → Edit Co
 }
 ```
 
+Restart Claude Desktop after saving. In Claude Desktop, open **Customize →
+Connectors** and select **blacknode**. It should appear under **Desktop** as a
+local connector and expose Blacknode MCP tools such as `list_nodes`,
+`get_node_schema`, `list_templates`, `create_workflow`, `run_workflow`,
+`run_template_in_editor`, `get_editor_graph`, and `save_editor_workflow`.
+
+![Blacknode MCP connector in Claude Desktop](docs/images/blacknode-mcp-claude-connector.png)
+
 ### Exposed tools
 
 | Tool | Purpose |
@@ -431,6 +447,11 @@ calling tools:
 Copy-paste prompts for validating MCP behavior, including an NVIDIA NIM editor
 demo that opens, organizes, and cooks a graph, are in
 [`docs/mcp-test-prompts.md`](docs/mcp-test-prompts.md).
+
+The NVIDIA NIM MCP demo opens as an organized editor tab and cooks through the
+same visual graph controls used by local workflows:
+
+![Blacknode MCP NVIDIA NIM editor demo](docs/images/blacknode-mcp-nim-editor-demo.png)
 
 ---
 
