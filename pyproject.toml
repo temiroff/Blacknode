@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "fastapi>=0.110",
     "pytest",
 ]
 mcp = [

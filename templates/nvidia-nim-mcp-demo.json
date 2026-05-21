@@ -1,0 +1,207 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "NVIDIA NIM MCP Demo",
+  "saved_at": "2026-05-20T00:00:00",
+  "entrypoint": {
+    "node_id": "out",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "MCP-oriented NVIDIA NIM launch brief workflow with visible prompt, system, model, token, and temperature controls.",
+    "color": "#76b900"
+  },
+  "node_meta": {
+    "prompt": {
+      "id": "prompt",
+      "type": "Text",
+      "params": {
+        "value": "Write a crisp launch brief for Blacknode: 4 bullets, one risk, one next action. Mention that it was assembled through MCP and powered by NVIDIA NIM."
+      },
+      "pos": [
+        80,
+        90
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "system": {
+      "id": "system",
+      "type": "Text",
+      "params": {
+        "value": "You are a concise product strategist. Keep the answer concrete, technical, and under 120 words."
+      },
+      "pos": [
+        80,
+        262
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "nim_model": {
+      "id": "nim_model",
+      "type": "Model",
+      "params": {
+        "value": "nim:meta/llama-3.1-8b-instruct"
+      },
+      "pos": [
+        80,
+        434
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Model"
+      },
+      "input_defaults": {}
+    },
+    "max_tokens": {
+      "id": "max_tokens",
+      "type": "Int",
+      "params": {
+        "value": 350
+      },
+      "pos": [
+        80,
+        766
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Int"
+      },
+      "input_defaults": {}
+    },
+    "temperature": {
+      "id": "temperature",
+      "type": "Float",
+      "params": {
+        "value": 0.35
+      },
+      "pos": [
+        80,
+        910
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Float"
+      },
+      "input_defaults": {}
+    },
+    "brief_agent": {
+      "id": "brief_agent",
+      "type": "LLMAgent",
+      "params": {},
+      "pos": [
+        470,
+        473
+      ],
+      "inputs": [
+        "prompt",
+        "system",
+        "model",
+        "max_tokens",
+        "temperature"
+      ],
+      "outputs": [
+        "text"
+      ],
+      "input_types": {
+        "prompt": "Text",
+        "system": "Text",
+        "model": "Model",
+        "max_tokens": "Int",
+        "temperature": "Float"
+      },
+      "output_types": {
+        "text": "Text"
+      },
+      "input_defaults": {
+        "model": "claude-sonnet-4-6",
+        "max_tokens": 1024,
+        "temperature": 1.0
+      }
+    },
+    "out": {
+      "id": "out",
+      "type": "Output",
+      "params": {},
+      "pos": [
+        750,
+        446
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "prompt",
+      "from_port": "value",
+      "to": "brief_agent",
+      "to_port": "prompt"
+    },
+    {
+      "from": "system",
+      "from_port": "value",
+      "to": "brief_agent",
+      "to_port": "system"
+    },
+    {
+      "from": "nim_model",
+      "from_port": "value",
+      "to": "brief_agent",
+      "to_port": "model"
+    },
+    {
+      "from": "max_tokens",
+      "from_port": "value",
+      "to": "brief_agent",
+      "to_port": "max_tokens"
+    },
+    {
+      "from": "temperature",
+      "from_port": "value",
+      "to": "brief_agent",
+      "to_port": "temperature"
+    },
+    {
+      "from": "brief_agent",
+      "from_port": "text",
+      "to": "out",
+      "to_port": "value"
+    }
+  ]
+}

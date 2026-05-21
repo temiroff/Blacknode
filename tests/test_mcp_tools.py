@@ -342,6 +342,98 @@ class CreateEditorWorkflowTabTests(unittest.TestCase):
             {"name": "MCP Saved Graph", "previous_slug": None},
         )
 
+    def test_lists_saved_workflows(self):
+        requests = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps([{"slug": "demo", "name": "Demo", "saved_at": ""}]).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            return FakeResponse()
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            result = t.list_saved_workflows(editor_url="http://editor")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["workflows"][0]["slug"], "demo")
+        self.assertEqual(requests[0][0].full_url, "http://editor/workflows")
+
+    def test_posts_load_saved_workflow_action(self):
+        requests = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "ok": True,
+                    "action": {
+                        "id": "action-4",
+                        "type": "load_saved_workflow_tab",
+                        "payload": {"slug": "demo", "organize": True},
+                    },
+                }).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            return FakeResponse()
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            result = t.load_saved_workflow_in_editor("demo", editor_url="http://editor")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["action"]["type"], "load_saved_workflow_tab")
+        self.assertEqual(requests[0][0].full_url, "http://editor/editor/actions/load-saved-workflow-tab")
+        self.assertEqual(
+            json.loads(requests[0][0].data.decode("utf-8")),
+            {"slug": "demo", "name": None, "organize": True},
+        )
+
+    def test_posts_editor_management_actions(self):
+        requests = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "ok": True,
+                    "action": {"id": "action", "type": "queued", "payload": {}},
+                }).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            return FakeResponse()
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            self.assertTrue(t.organize_editor_graph(editor_url="http://editor")["ok"])
+            self.assertTrue(t.rename_editor_tab("Renamed", editor_url="http://editor")["ok"])
+            self.assertTrue(t.close_editor_tab(editor_url="http://editor")["ok"])
+
+        self.assertEqual([req.full_url for req, _ in requests], [
+            "http://editor/editor/actions/organize-graph",
+            "http://editor/editor/actions/rename-tab",
+            "http://editor/editor/actions/close-tab",
+        ])
+        self.assertEqual(json.loads(requests[1][0].data.decode("utf-8")), {"name": "Renamed"})
+
 
 if __name__ == "__main__":
     unittest.main()

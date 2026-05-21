@@ -74,6 +74,30 @@ Expected tool sequence:
 
 Expected result: the tool returns a workflow slug such as `MCP_Saved_Graph`, and the saved JSON appears under `workflows/`.
 
+## Saved Workflow Round Trip
+
+```text
+Using the blacknode MCP tools, list saved workflows, load the saved workflow with slug "MCP_Saved_Graph" into the running editor as a new organized tab, rename the active tab to "Round Trip Check", organize the current graph, then close the active tab.
+```
+
+Expected tool sequence:
+
+1. `list_saved_workflows`
+2. `load_saved_workflow_in_editor`
+3. `rename_editor_tab`
+4. `organize_editor_graph`
+5. `close_editor_tab`
+
+Expected result: the saved workflow opens in the editor, is organized and renamed, then the active tab closes.
+
+## Tracked NVIDIA NIM Template
+
+```text
+Using the blacknode MCP tools, load templates/nvidia-nim-mcp-demo.json, validate it, open it as an organized editor tab, and cook out.value.
+```
+
+Expected result: the tracked NVIDIA NIM MCP demo template validates, opens in the editor, and cooks the Output node.
+
 ## Direct Local Verification
 
 From the repo root:

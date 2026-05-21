@@ -24,6 +24,11 @@ const TOOLS: { name: string; desc: string }[] = [
   { name: 'cook_editor_node', desc: 'Cook a node in the running editor UI and update the canvas' },
   { name: 'get_editor_graph', desc: 'Inspect the graph currently loaded in the editor backend' },
   { name: 'save_editor_workflow', desc: 'Save the currently loaded editor graph to workflows/' },
+  { name: 'list_saved_workflows', desc: 'List saved workflows from the editor backend' },
+  { name: 'load_saved_workflow_in_editor', desc: 'Open a saved workflow by slug in the editor UI' },
+  { name: 'organize_editor_graph', desc: 'Organize and fit the currently open editor graph' },
+  { name: 'rename_editor_tab', desc: 'Rename the active editor workflow tab' },
+  { name: 'close_editor_tab', desc: 'Close the active editor workflow tab' },
 ]
 
 const STARTER_PROMPTS: { title: string; body: string }[] = [

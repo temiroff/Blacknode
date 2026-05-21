@@ -154,6 +154,46 @@ def save_editor_workflow(
     )
 
 
+@mcp.tool()
+def list_saved_workflows(editor_url: str | None = None) -> dict[str, Any]:
+    """List workflows saved by a running Blacknode editor backend."""
+    return tools.list_saved_workflows(editor_url=editor_url)
+
+
+@mcp.tool()
+def load_saved_workflow_in_editor(
+    slug: str,
+    name: str | None = None,
+    editor_url: str | None = None,
+    organize: bool = True,
+) -> dict[str, Any]:
+    """Ask a running Blacknode editor UI to open a saved workflow tab."""
+    return tools.load_saved_workflow_in_editor(
+        slug=slug,
+        name=name,
+        editor_url=editor_url,
+        organize=organize,
+    )
+
+
+@mcp.tool()
+def organize_editor_graph(editor_url: str | None = None) -> dict[str, Any]:
+    """Ask a running Blacknode editor UI to organize and fit the current graph."""
+    return tools.organize_editor_graph(editor_url=editor_url)
+
+
+@mcp.tool()
+def rename_editor_tab(name: str, editor_url: str | None = None) -> dict[str, Any]:
+    """Ask a running Blacknode editor UI to rename its active workflow tab."""
+    return tools.rename_editor_tab(name=name, editor_url=editor_url)
+
+
+@mcp.tool()
+def close_editor_tab(editor_url: str | None = None) -> dict[str, Any]:
+    """Ask a running Blacknode editor UI to close its active workflow tab."""
+    return tools.close_editor_tab(editor_url=editor_url)
+
+
 def main() -> None:
     mcp.run()
 

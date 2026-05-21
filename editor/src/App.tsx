@@ -55,7 +55,7 @@ export default function App() {
     addNodeFromConnection, copySelection, pasteClipboard,
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
-    openGraphAsTab, renameTab, saveActiveWorkflow,
+    openGraphAsTab, openWorkflowAsTab, renameTab, saveActiveWorkflow,
     diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode,
   } = useStore()
 
@@ -214,6 +214,73 @@ export default function App() {
                 message: `Cooked ${nodeId}.${port}.`,
               },
             }))
+          } else if (action.type === 'load_saved_workflow_tab') {
+            const slug = typeof action.payload?.slug === 'string'
+              ? action.payload.slug
+              : ''
+            if (!slug) continue
+            const name = typeof action.payload?.name === 'string'
+              ? action.payload.name
+              : slug
+            await openWorkflowAsTab(slug, name)
+            if (action.payload?.organize !== false) {
+              await organizeNodes()
+              window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
+                  rfInstance.current?.fitView({
+                    padding: 0.24,
+                    maxZoom: 1,
+                    duration: 320,
+                  })
+                })
+              })
+            }
+            window.dispatchEvent(new CustomEvent('blacknode:notice', {
+              detail: {
+                kind: 'info',
+                title: 'MCP',
+                message: `Loaded saved workflow "${name.trim() || slug}".`,
+              },
+            }))
+          } else if (action.type === 'organize_graph') {
+            await organizeNodes()
+            window.requestAnimationFrame(() => {
+              window.requestAnimationFrame(() => {
+                rfInstance.current?.fitView({
+                  padding: 0.24,
+                  maxZoom: 1,
+                  duration: 320,
+                })
+              })
+            })
+            window.dispatchEvent(new CustomEvent('blacknode:notice', {
+              detail: {
+                kind: 'info',
+                title: 'MCP',
+                message: 'Organized current graph.',
+              },
+            }))
+          } else if (action.type === 'rename_tab') {
+            const name = typeof action.payload?.name === 'string'
+              ? action.payload.name
+              : 'Untitled'
+            renameTab(activeTabId, name)
+            window.dispatchEvent(new CustomEvent('blacknode:notice', {
+              detail: {
+                kind: 'info',
+                title: 'MCP',
+                message: `Renamed active tab to "${name.trim() || 'Untitled'}".`,
+              },
+            }))
+          } else if (action.type === 'close_tab') {
+            await closeTab(activeTabId)
+            window.dispatchEvent(new CustomEvent('blacknode:notice', {
+              detail: {
+                kind: 'info',
+                title: 'MCP',
+                message: 'Closed active workflow tab.',
+              },
+            }))
           }
         }
       } catch {
@@ -228,7 +295,17 @@ export default function App() {
       cancelled = true
       clearInterval(id)
     }
-  }, [newTab, openGraphAsTab, organizeNodes, cookNode, serverOk])
+  }, [
+    activeTabId,
+    closeTab,
+    cookNode,
+    newTab,
+    openGraphAsTab,
+    openWorkflowAsTab,
+    organizeNodes,
+    renameTab,
+    serverOk,
+  ])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

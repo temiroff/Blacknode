@@ -326,6 +326,89 @@ def save_editor_workflow(
     }
 
 
+def list_saved_workflows(*, editor_url: str | None = None) -> dict[str, Any]:
+    """List workflows saved by a running Blacknode editor backend."""
+    base_url, workflows = _editor_request_json("GET", "/workflows", editor_url=editor_url)
+    if not isinstance(workflows, list):
+        raise RuntimeError(f"Blacknode editor backend returned unexpected workflows payload: {workflows!r}")
+    return {
+        "ok": True,
+        "editor_url": base_url,
+        "workflows": workflows,
+        "count": len(workflows),
+    }
+
+
+def load_saved_workflow_in_editor(
+    slug: str,
+    name: str | None = None,
+    *,
+    editor_url: str | None = None,
+    organize: bool = True,
+) -> dict[str, Any]:
+    """Queue a saved workflow to open as a new tab in a running Blacknode editor."""
+    base_url, result = _post_editor_action(
+        "/editor/actions/load-saved-workflow-tab",
+        {"slug": slug, "name": name, "organize": organize},
+        editor_url=editor_url,
+    )
+    return {
+        "ok": bool(result.get("ok", True)),
+        "editor_url": base_url,
+        "action": result.get("action", result),
+        "note": "The open Blacknode editor will load the saved workflow on its next action poll.",
+    }
+
+
+def organize_editor_graph(*, editor_url: str | None = None) -> dict[str, Any]:
+    """Queue the running Blacknode editor to organize and fit the current graph."""
+    base_url, result = _post_editor_action(
+        "/editor/actions/organize-graph",
+        {},
+        editor_url=editor_url,
+    )
+    return {
+        "ok": bool(result.get("ok", True)),
+        "editor_url": base_url,
+        "action": result.get("action", result),
+        "note": "The open Blacknode editor will organize the current graph on its next action poll.",
+    }
+
+
+def rename_editor_tab(
+    name: str,
+    *,
+    editor_url: str | None = None,
+) -> dict[str, Any]:
+    """Queue the running Blacknode editor to rename its active workflow tab."""
+    base_url, result = _post_editor_action(
+        "/editor/actions/rename-tab",
+        {"name": name},
+        editor_url=editor_url,
+    )
+    return {
+        "ok": bool(result.get("ok", True)),
+        "editor_url": base_url,
+        "action": result.get("action", result),
+        "note": "The open Blacknode editor will rename the active tab on its next action poll.",
+    }
+
+
+def close_editor_tab(*, editor_url: str | None = None) -> dict[str, Any]:
+    """Queue the running Blacknode editor to close its active workflow tab."""
+    base_url, result = _post_editor_action(
+        "/editor/actions/close-tab",
+        {},
+        editor_url=editor_url,
+    )
+    return {
+        "ok": bool(result.get("ok", True)),
+        "editor_url": base_url,
+        "action": result.get("action", result),
+        "note": "The open Blacknode editor will close the active tab on its next action poll.",
+    }
+
+
 # ── Internals ─────────────────────────────────────────────────────────────────
 
 def _post_editor_action(

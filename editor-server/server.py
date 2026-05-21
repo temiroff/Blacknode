@@ -161,6 +161,14 @@ class CookEditorNodeReq(BaseModel):
     node_id: str
     port: str = "value"
 
+class LoadSavedWorkflowTabReq(BaseModel):
+    slug: str
+    name: str | None = None
+    organize: bool = True
+
+class RenameEditorTabReq(BaseModel):
+    name: str
+
 class UpdateSubgraphReq(BaseModel):
     node_meta: dict[str, Any] = {}
     edges: list[dict[str, Any]] = []
@@ -1613,6 +1621,42 @@ def queue_cook_node(req: CookEditorNodeReq):
         "node_id": node_id,
         "port": port,
     })
+    return {"ok": True, "action": action}
+
+
+@app.post("/editor/actions/load-saved-workflow-tab")
+def queue_load_saved_workflow_tab(req: LoadSavedWorkflowTabReq):
+    slug = req.slug.strip()
+    path = _workflow_path(slug)
+    if not os.path.exists(path):
+        raise HTTPException(404, f"Workflow '{slug}' not found")
+    with open(path) as f:
+        data = json.load(f)
+    name = (req.name or data.get("name") or slug).strip() or slug
+    action = _enqueue_editor_action("load_saved_workflow_tab", {
+        "slug": slug,
+        "name": name,
+        "organize": req.organize,
+    })
+    return {"ok": True, "action": action}
+
+
+@app.post("/editor/actions/organize-graph")
+def queue_organize_graph():
+    action = _enqueue_editor_action("organize_graph")
+    return {"ok": True, "action": action}
+
+
+@app.post("/editor/actions/rename-tab")
+def queue_rename_tab(req: RenameEditorTabReq):
+    name = req.name.strip() or "Untitled"
+    action = _enqueue_editor_action("rename_tab", {"name": name})
+    return {"ok": True, "action": action}
+
+
+@app.post("/editor/actions/close-tab")
+def queue_close_tab():
+    action = _enqueue_editor_action("close_tab")
     return {"ok": True, "action": action}
 
 

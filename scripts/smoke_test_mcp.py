@@ -108,6 +108,8 @@ def main() -> int:
             "export_python", "create_editor_workflow_tab",
             "open_workflow_in_editor_tab", "cook_editor_node",
             "get_editor_graph", "save_editor_workflow",
+            "list_saved_workflows", "load_saved_workflow_in_editor",
+            "organize_editor_graph", "rename_editor_tab", "close_editor_tab",
         }
         missing = expected - set(names)
         if missing:

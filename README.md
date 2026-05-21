@@ -400,6 +400,11 @@ Add an entry to `claude_desktop_config.json` (Settings → Developer → Edit Co
 | `cook_editor_node` | Queue a live editor node cook, defaulting to `out.value` |
 | `get_editor_graph` | Inspect the graph currently loaded in the editor backend |
 | `save_editor_workflow` | Save the currently loaded editor graph to `workflows/` |
+| `list_saved_workflows` | List saved workflows from the editor backend |
+| `load_saved_workflow_in_editor` | Open a saved workflow by slug in the editor UI |
+| `organize_editor_graph` | Organize and fit the currently open editor graph |
+| `rename_editor_tab` | Rename the active editor workflow tab |
+| `close_editor_tab` | Close the active editor workflow tab |
 
 Every mutation tool returns a fresh validation report so agents get fast
 feedback when they build something invalid. API keys are read from
