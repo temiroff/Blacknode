@@ -1,6 +1,53 @@
 # Blacknode
 
-A node-based framework for building AI agent pipelines, typed data flows, and reusable Python tools - scriptable in Python, visual in the browser.
+[![CI](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml/badge.svg)](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml)
+
+Blacknode is a local-first visual workflow builder for AI agents. Build typed node graphs by hand, or let an MCP-connected agent create, validate, run, inspect, save, and export workflows as Python.
+
+**Status:** public preview. The core workflow format, editor, CLI, templates, MCP tools, and tests are usable, but APIs and graph internals may still change before a stable release.
+
+## Why it exists
+
+Most agent workflows are either code you cannot see as a system, or visual graphs that are hard to automate. Blacknode is meant to sit in the middle:
+
+- Visual editor for inspecting, cooking, saving, and debugging graphs.
+- Python runtime and CLI for running workflows outside the browser.
+- MCP server so AI agents can assemble workflows through typed tools instead of guessing JSON.
+- Portable workflow JSON plus Python export for versioning and handoff.
+- Local-first API-key handling for OpenAI, Anthropic, NVIDIA NIM, and Ollama-style local models.
+
+## Try first
+
+No API key required:
+
+```powershell
+pip install -e .
+python -m blacknode.cli validate templates\text-pipeline.json
+python -m blacknode.cli export-python templates\subnet-tool-call.json --output subnet_tool_call.py
+python subnet_tool_call.py
+```
+
+Visual editor:
+
+```bat
+start.bat
+```
+
+Agent/MCP demo:
+
+```powershell
+pip install -e ".[mcp]"
+blacknode mcp
+```
+
+Then use the copy-paste prompts in [docs/mcp-test-prompts.md](docs/mcp-test-prompts.md), or follow the shorter public-preview path in [docs/quickstart-mcp.md](docs/quickstart-mcp.md).
+
+## Public preview materials
+
+- [MCP quickstart](docs/quickstart-mcp.md)
+- [Demo script](docs/demo-script.md)
+- [Public preview checklist](docs/public-preview-checklist.md)
+- [v0.1.0 preview release notes draft](docs/release-v0.1.0-preview.md)
 
 ---
 
@@ -34,12 +81,14 @@ A node-based framework for building AI agent pipelines, typed data flows, and re
 
 | Tool | Version | Download |
 |---|---|---|
-| Python | 3.10 + | https://python.org |
+| Python | 3.11+ | https://python.org |
 | Node.js | 20.19+ or 22.12+ | https://nodejs.org |
 
 ### First-time setup (run once)
 
 ```bat
+pip install -e ".[mcp]"
+
 cd editor-server
 pip install -r requirements.txt
 
@@ -393,7 +442,8 @@ Restart Claude Desktop after saving. In Claude Desktop, open **Customize →
 Connectors** and select **blacknode**. It should appear under **Desktop** as a
 local connector and expose Blacknode MCP tools such as `list_nodes`,
 `get_node_schema`, `list_templates`, `create_workflow`, `run_workflow`,
-`run_template_in_editor`, `get_editor_graph`, and `save_editor_workflow`.
+`run_template_in_editor`, `get_editor_graph`, `save_workflow`,
+`list_recent_runs`, and `save_editor_workflow`.
 
 ![Blacknode MCP connector in Claude Desktop](docs/images/blacknode-mcp-claude-connector.png)
 
@@ -405,6 +455,7 @@ local connector and expose Blacknode MCP tools such as `list_nodes`,
 | `get_node_schema` | Detailed ports + defaults for one node type |
 | `list_templates` | Shipped templates in `templates/*.json` |
 | `load_workflow` | Read a workflow JSON file |
+| `save_workflow` | Validate and write a workflow JSON file |
 | `create_workflow` | Empty workflow scaffold with an Output node |
 | `add_node` | Add a node; rejects unknown types and subnet types |
 | `connect_nodes` | Add an edge; rejects incompatible port types |
@@ -419,6 +470,8 @@ local connector and expose Blacknode MCP tools such as `list_nodes`,
 | `save_editor_workflow` | Save the currently loaded editor graph to `workflows/` |
 | `list_saved_workflows` | List saved workflows from the editor backend |
 | `load_saved_workflow_in_editor` | Open a saved workflow by slug in the editor UI |
+| `list_recent_runs` | List recent editor run summaries |
+| `get_run` | Inspect a full run record with events |
 | `organize_editor_graph` | Organize and fit the currently open editor graph |
 | `rename_editor_tab` | Rename the active editor workflow tab |
 | `close_editor_tab` | Close the active editor workflow tab |
@@ -443,6 +496,7 @@ calling tools:
 | `blacknode://templates` | Tracked templates from `templates/*.json` |
 | `blacknode://workflows` | Saved workflows from the running editor backend |
 | `blacknode://editor/graph` | Current graph loaded in the running editor backend |
+| `blacknode://runs` | Recent run summaries from the running editor backend |
 
 Copy-paste prompts for validating MCP behavior, including an NVIDIA NIM editor
 demo that opens, organizes, and cooks a graph, are in
@@ -584,6 +638,9 @@ See [LICENSE](LICENSE) for the full license text.
 - [x] VisualAgentLoop compatibility node and visible agent-step primitives
 - [x] Collapsible/resizable side panels and auto-organized templates
 - [x] MCP server for AI-agent-driven workflow building
+- [x] Persistent run history with event timeline and result/error inspection
+- [x] GitHub Actions CI for Python, editor, and Rust checks
 - [ ] Rust core via maturin (milestone 2)
+- [ ] Public preview demo video/GIF
 - [ ] Tauri desktop wrapper (milestone 3)
 - [ ] `.bn` binary graph file format
