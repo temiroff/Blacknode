@@ -1,10 +1,10 @@
-use petgraph::stable_graph::{StableDiGraph, NodeIndex};
-use petgraph::algo::is_cyclic_directed;
-use petgraph::visit::EdgeRef;
-use std::collections::HashMap;
+use crate::{BlacknodeError, Node, NodeId};
 use blacknode_types::Value;
 use dashmap::DashMap;
-use crate::{Node, NodeId, BlacknodeError};
+use petgraph::algo::is_cyclic_directed;
+use petgraph::stable_graph::{NodeIndex, StableDiGraph};
+use petgraph::visit::EdgeRef;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Edge {
@@ -43,18 +43,28 @@ impl Graph {
 
     pub fn connect(
         &mut self,
-        from: NodeId, from_port: &str,
-        to: NodeId,   to_port: &str,
+        from: NodeId,
+        from_port: &str,
+        to: NodeId,
+        to_port: &str,
     ) -> Result<(), BlacknodeError> {
-        let &fi = self.idx_map.get(&from)
+        let &fi = self
+            .idx_map
+            .get(&from)
             .ok_or_else(|| BlacknodeError::NodeNotFound(from.to_string()))?;
-        let &ti = self.idx_map.get(&to)
+        let &ti = self
+            .idx_map
+            .get(&to)
             .ok_or_else(|| BlacknodeError::NodeNotFound(to.to_string()))?;
 
-        self.dag.add_edge(fi, ti, Edge {
-            from_port: from_port.to_string(),
-            to_port: to_port.to_string(),
-        });
+        self.dag.add_edge(
+            fi,
+            ti,
+            Edge {
+                from_port: from_port.to_string(),
+                to_port: to_port.to_string(),
+            },
+        );
 
         if is_cyclic_directed(&self.dag) {
             // roll back the edge we just added
@@ -69,7 +79,9 @@ impl Graph {
     }
 
     pub fn set_param(&mut self, node: NodeId, key: &str, val: Value) -> Result<(), BlacknodeError> {
-        let n = self.nodes.get_mut(&node)
+        let n = self
+            .nodes
+            .get_mut(&node)
             .ok_or_else(|| BlacknodeError::NodeNotFound(node.to_string()))?;
         n.meta_mut().params.insert(key.to_string(), val);
         self.propagate_dirty(node);
@@ -91,10 +103,13 @@ impl Graph {
         }
 
         // pull inputs from upstream nodes
-        let idx = self.idx_map.get(&node_id)
+        let idx = self
+            .idx_map
+            .get(&node_id)
             .ok_or_else(|| BlacknodeError::NodeNotFound(node_id.to_string()))?;
 
-        let incoming: Vec<(NodeIndex, Edge)> = self.dag
+        let incoming: Vec<(NodeIndex, Edge)> = self
+            .dag
             .edges_directed(*idx, petgraph::Direction::Incoming)
             .map(|e| (e.source(), e.weight().clone()))
             .collect();
@@ -108,7 +123,9 @@ impl Graph {
         }
 
         // fill remaining from params
-        let node = self.nodes.get(&node_id)
+        let node = self
+            .nodes
+            .get(&node_id)
             .ok_or_else(|| BlacknodeError::NodeNotFound(node_id.to_string()))?;
         for (k, v) in &node.meta().params {
             inputs.entry(k.clone()).or_insert_with(|| v.clone());
@@ -124,7 +141,8 @@ impl Graph {
         }
         self.dirty.insert(node_id, false);
 
-        outputs.get(port)
+        outputs
+            .get(port)
             .cloned()
             .ok_or_else(|| BlacknodeError::PortNotFound(port.to_string()))
     }
@@ -135,7 +153,8 @@ impl Graph {
         }
         self.dirty.insert(id, true);
         if let Some(&idx) = self.idx_map.get(&id) {
-            let downstream: Vec<_> = self.dag
+            let downstream: Vec<_> = self
+                .dag
                 .neighbors_directed(idx, petgraph::Direction::Outgoing)
                 .collect();
             for ni in downstream {
@@ -156,5 +175,7 @@ impl Graph {
 }
 
 impl Default for Graph {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }

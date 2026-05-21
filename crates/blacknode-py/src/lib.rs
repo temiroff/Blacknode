@@ -1,8 +1,8 @@
+use blacknode_core::{Graph as RsGraph, NodeId, NodeMeta, Port};
+use blacknode_types::Value;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 use pyo3::IntoPyObjectExt;
-use blacknode_core::{Graph as RsGraph, NodeMeta, NodeId, Port};
-use blacknode_types::Value;
 use std::collections::HashMap;
 
 // ── Value conversion ──────────────────────────────────────────────────────────
@@ -67,8 +67,12 @@ struct PyNodeShim {
 }
 
 impl blacknode_core::Node for PyNodeShim {
-    fn meta(&self) -> &NodeMeta { &self.meta }
-    fn meta_mut(&mut self) -> &mut NodeMeta { &mut self.meta }
+    fn meta(&self) -> &NodeMeta {
+        &self.meta
+    }
+    fn meta_mut(&mut self) -> &mut NodeMeta {
+        &mut self.meta
+    }
 
     fn cook(&self, inputs: HashMap<String, Value>) -> anyhow::Result<HashMap<String, Value>> {
         Python::attach(|py| -> PyResult<HashMap<String, Value>> {
@@ -103,7 +107,9 @@ struct PyGraph {
 impl PyGraph {
     #[new]
     fn new() -> Self {
-        Self { inner: RsGraph::new() }
+        Self {
+            inner: RsGraph::new(),
+        }
     }
 
     fn add_node(
@@ -117,7 +123,7 @@ impl PyGraph {
         for (name, dir, hint) in ports {
             let port = match dir.as_str() {
                 "output" => Port::output(name, hint),
-                _        => Port::input(name, hint),
+                _ => Port::input(name, hint),
             };
             meta.ports.push(port);
         }
@@ -135,19 +141,30 @@ impl PyGraph {
 
     fn connect(
         &mut self,
-        from_id: &str, from_port: &str,
-        to_id: &str,   to_port: &str,
+        from_id: &str,
+        from_port: &str,
+        to_id: &str,
+        to_port: &str,
     ) -> PyResult<()> {
-        let from: NodeId = from_id.parse().map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e}")))?;
-        let to:   NodeId = to_id.parse().map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e}")))?;
-        self.inner.connect(from, from_port, to, to_port)
+        let from: NodeId = from_id
+            .parse()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e}")))?;
+        let to: NodeId = to_id
+            .parse()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e}")))?;
+        self.inner
+            .connect(from, from_port, to, to_port)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e}")))?;
         Ok(())
     }
 
     fn cook(&self, py: Python<'_>, node_id: &str, port: &str) -> PyResult<Py<PyAny>> {
-        let id: NodeId = node_id.parse().map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e}")))?;
-        let val = self.inner.cook(id, port)
+        let id: NodeId = node_id
+            .parse()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e}")))?;
+        let val = self
+            .inner
+            .cook(id, port)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e}")))?;
         value_to_py(py, &val)
     }

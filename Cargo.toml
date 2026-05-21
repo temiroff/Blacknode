@@ -4,6 +4,7 @@ members = [
     "crates/blacknode-core",
     "crates/blacknode-runtime",
     "crates/blacknode-py",
+    "crates/blacknode-cli",
 ]
 resolver = "2"
 

@@ -1,4 +1,4 @@
-use blacknode_core::{Graph, NodeId, BlacknodeError};
+use blacknode_core::{BlacknodeError, Graph, NodeId};
 use blacknode_types::Value;
 use std::collections::HashMap;
 

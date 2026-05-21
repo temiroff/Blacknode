@@ -1,8 +1,8 @@
+use crate::port::Port;
+use blacknode_types::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
-use blacknode_types::Value;
-use crate::port::Port;
 
 pub type NodeId = Uuid;
 

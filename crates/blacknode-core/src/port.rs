@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use blacknode_types::Value;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PortId(pub String);

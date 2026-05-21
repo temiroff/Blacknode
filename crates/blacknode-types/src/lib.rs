@@ -52,23 +52,37 @@ impl Value {
 }
 
 impl From<String> for Value {
-    fn from(s: String) -> Self { Value::Text(s) }
+    fn from(s: String) -> Self {
+        Value::Text(s)
+    }
 }
 impl From<&str> for Value {
-    fn from(s: &str) -> Self { Value::Text(s.to_string()) }
+    fn from(s: &str) -> Self {
+        Value::Text(s.to_string())
+    }
 }
 impl From<f64> for Value {
-    fn from(f: f64) -> Self { Value::Float(f) }
+    fn from(f: f64) -> Self {
+        Value::Float(f)
+    }
 }
 impl From<i64> for Value {
-    fn from(i: i64) -> Self { Value::Int(i) }
+    fn from(i: i64) -> Self {
+        Value::Int(i)
+    }
 }
 impl From<bool> for Value {
-    fn from(b: bool) -> Self { Value::Bool(b) }
+    fn from(b: bool) -> Self {
+        Value::Bool(b)
+    }
 }
 impl From<Vec<Value>> for Value {
-    fn from(v: Vec<Value>) -> Self { Value::List(v) }
+    fn from(v: Vec<Value>) -> Self {
+        Value::List(v)
+    }
 }
 impl From<HashMap<String, Value>> for Value {
-    fn from(m: HashMap<String, Value>) -> Self { Value::Map(m) }
+    fn from(m: HashMap<String, Value>) -> Self {
+        Value::Map(m)
+    }
 }

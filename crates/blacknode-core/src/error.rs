@@ -9,7 +9,11 @@ pub enum BlacknodeError {
     PortNotFound(String),
 
     #[error("type mismatch on port '{port}': expected {expected}, got {got}")]
-    TypeMismatch { port: String, expected: String, got: String },
+    TypeMismatch {
+        port: String,
+        expected: String,
+        got: String,
+    },
 
     #[error("cycle detected in graph")]
     CycleDetected,

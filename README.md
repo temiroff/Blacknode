@@ -51,6 +51,7 @@ Then use the copy-paste prompts in [docs/mcp-test-prompts.md](docs/mcp-test-prom
 ## Public preview materials
 
 - [MCP quickstart](docs/quickstart-mcp.md)
+- [NVIDIA NIM demo](docs/nvidia-nim-demo.md)
 - [Demo script](docs/demo-script.md)
 - [Public preview checklist](docs/public-preview-checklist.md)
 - [v0.1.0 preview release notes draft](docs/release-v0.1.0-preview.md)
@@ -257,6 +258,18 @@ python subnet_tool_call.py
 LLM templates also export, but running them calls model providers and requires saved or environment API keys.
 
 Checked-in converted examples live at `examples/converted_text_pipeline.py` and `examples/converted_nvidia_nim.py`. The NIM example requires a NVIDIA API key when run outside tests.
+
+### Experimental Rust no-server CLI
+
+The Python runtime is still the canonical runtime. For quick local checks without starting the editor or web server, the experimental Rust CLI can validate, inspect, and run simple deterministic workflows:
+
+```powershell
+cargo run -p blacknode-cli -- validate templates\text-pipeline.json
+cargo run -p blacknode-cli -- inspect templates\nvidia-nim-mcp-demo.json
+cargo run -p blacknode-cli -- run-pure templates\text-pipeline.json
+```
+
+`run-pure` is intentionally limited to pure local nodes such as text, values, concat, math, and output nodes. LLM, Python, file, HTTP, subnet, and agent workflows still run through the Python runtime.
 
 ### Workflow files
 
@@ -620,7 +633,7 @@ blacknode/
 │       ├── values.py            ← Text, Float, Int, Bool, Model
 │       ├── flow.py              ← Branch, Gate, Map, Filter, Reduce
 │       └── io.py                ← FileRead, FileWrite, HTTPGet, JSONParse
-└── crates/                      ← Rust core (future milestone)
+└── crates/                      ← experimental Rust crates and no-server CLI
 ```
 
 ---
@@ -646,7 +659,8 @@ See [LICENSE](LICENSE) for the full license text.
 - [x] MCP server for AI-agent-driven workflow building
 - [x] Persistent run history with event timeline and result/error inspection
 - [x] GitHub Actions CI for Python, editor, and Rust checks
+- [x] Experimental Rust no-server CLI for workflow inspect and pure-node runs
+- [x] Public preview demo video
 - [ ] Rust core via maturin (milestone 2)
-- [ ] Public preview demo video/GIF
 - [ ] Tauri desktop wrapper (milestone 3)
 - [ ] `.bn` binary graph file format
