@@ -85,10 +85,17 @@ From a repo checkout:
 
 ```powershell
 $env:PYTHONPATH="python"
+python -m blacknode.cli doctor
+python -m blacknode.cli demo
 python -m blacknode.cli validate templates\text-pipeline.json
 ```
 
 Expected success:
+
+```text
+Blacknode demo OK
+Result: Hello World
+```
 
 ```json
 {

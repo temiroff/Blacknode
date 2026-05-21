@@ -11,10 +11,10 @@ This checklist is for a soft launch, not paid advertising. The goal is to get us
 - [x] CI workflow for Python tests, editor build, and Rust check
 - [x] MCP smoke test script
 - [x] No API keys or local run artifacts tracked
-- [ ] GitHub release `v0.1.0-preview`
-- [ ] GitHub repository topics added
-- [ ] Short demo video or GIF linked from README
-- [ ] Issues enabled with a clear feedback request
+- [x] GitHub release `v0.1.0-preview`
+- [x] GitHub repository topics added
+- [x] Short demo video linked from README
+- [x] Issues enabled with a clear feedback request
 
 Suggested topics:
 
@@ -26,9 +26,10 @@ node-editor
 python
 nvidia-nim
 llm
-local-first
 react-flow
 visual-programming
+ai-tools
+agent-workflows
 ```
 
 ## Product Readiness
@@ -39,9 +40,9 @@ visual-programming
 - [x] NVIDIA NIM template demo
 - [x] Run history and event timeline
 - [x] Python export
-- [ ] Fresh-clone test on a second machine
+- [x] Fresh-clone test on a second machine
 - [ ] First-run troubleshooting notes tested by someone else
-- [ ] Known limitations documented in the release notes
+- [x] Known limitations documented in the release notes
 
 ## Soft Launch Channels
 

@@ -8,9 +8,10 @@ Blacknode is a visual workflow builder for AI agents. Build typed node graphs by
 
 ## Demo
 
-[Watch the Blacknode MCP + NVIDIA NIM preview demo](https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2)
-
-[Watch the Run workflow live replay demo](https://github.com/user-attachments/assets/16a0d311-f237-4d6f-9fec-c303fc3e41d0)
+| Demo | What it shows |
+|---|---|
+| [MCP + NVIDIA NIM preview](https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2) | MCP opens and cooks a visual NVIDIA NIM workflow in the editor. |
+| [Run workflow live replay](https://github.com/user-attachments/assets/16a0d311-f237-4d6f-9fec-c303fc3e41d0) | Top-bar Run button executes the visible graph with live node highlights. |
 
 ![Blacknode MCP NVIDIA NIM editor demo](docs/images/blacknode-mcp-nim-editor-demo.png)
 
@@ -31,9 +32,8 @@ No API key required:
 
 ```powershell
 pip install -e .
-python -m blacknode.cli validate templates\text-pipeline.json
-python -m blacknode.cli export-python templates\subnet-tool-call.json --output subnet_tool_call.py
-python subnet_tool_call.py
+blacknode doctor
+blacknode demo
 ```
 
 Visual editor:
@@ -286,8 +286,12 @@ Installed as a package, Blacknode exposes a workflow CLI:
 blacknode validate .\workflows\my-workflow.json
 blacknode run .\workflows\my-workflow.json --output .\result.json
 blacknode export-python .\workflows\my-workflow.json --output .\workflow.py
+blacknode demo
+blacknode doctor
 blacknode mcp
 ```
+
+`blacknode demo` runs the built-in no-key text workflow and prints a short success summary. `blacknode doctor` checks the local core runtime, demo template, Node/npm/editor dependencies, MCP extra, and whether the editor server is already running.
 
 `blacknode run` writes a JSON result containing the cooked value plus a structured `events` run log with node timings, errors, model calls, and tool calls:
 

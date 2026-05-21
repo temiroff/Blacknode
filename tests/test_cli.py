@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from blacknode.cli import main
+from blacknode.cli import _node_version_ok, main
 from blacknode.providers import registry
 from blacknode.providers.base import CompletionResponse
 from blacknode.workflow import WorkflowRunError, run_workflow
@@ -158,6 +158,35 @@ class CliTests(unittest.TestCase):
             with contextlib.redirect_stdout(stdout):
                 runpy.run_path(str(script_path), run_name="__main__")
             self.assertEqual(stdout.getvalue().strip(), "hello")
+
+    def test_demo_runs_default_no_key_workflow(self):
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            code = main(["demo"])
+
+        self.assertEqual(code, 0)
+        output = stdout.getvalue()
+        self.assertIn("Blacknode demo OK", output)
+        self.assertIn("Result: Hello World", output)
+
+    def test_doctor_passes_required_core_checks(self):
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            code = main(["doctor"])
+
+        self.assertEqual(code, 0)
+        output = stdout.getvalue()
+        self.assertIn("Blacknode doctor", output)
+        self.assertIn("Required checks passed.", output)
+
+    def test_doctor_node_version_matches_editor_requirement(self):
+        self.assertFalse(_node_version_ok("v20.18.0"))
+        self.assertTrue(_node_version_ok("v20.19.0"))
+        self.assertFalse(_node_version_ok("v22.11.0"))
+        self.assertTrue(_node_version_ok("v22.12.0"))
+        self.assertTrue(_node_version_ok("v23.6.0"))
 
 
 def _valid_workflow() -> dict:
