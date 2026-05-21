@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from blacknode.mcp import tools as t
@@ -161,6 +163,41 @@ class ValidateAndExportTests(unittest.TestCase):
         result = t.run_workflow_tool(wf)
         self.assertFalse(result.get("ok"))
         self.assertIn("error", result)
+
+
+class SaveWorkflowTests(unittest.TestCase):
+    def test_saves_valid_workflow_to_disk(self):
+        wf = t.create_workflow("Saved")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "saved.json"
+            result = t.save_workflow_tool(wf, str(path))
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["path"], str(path))
+            self.assertTrue(result["validation"]["ok"])
+            self.assertGreater(result["bytes"], 0)
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(loaded["name"], "Saved")
+
+    def test_save_rejects_invalid_workflow(self):
+        wf = t.create_workflow()
+        wf["node_meta"] = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "invalid.json"
+            with self.assertRaises(ValueError):
+                t.save_workflow_tool(wf, str(path))
+            self.assertFalse(path.exists())
+
+    def test_save_requires_overwrite_for_existing_file(self):
+        wf = t.create_workflow()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "saved.json"
+            t.save_workflow_tool(wf, str(path))
+            with self.assertRaises(FileExistsError):
+                t.save_workflow_tool(wf, str(path))
+
+            result = t.save_workflow_tool(wf, str(path), overwrite=True)
+            self.assertTrue(result["ok"])
 
 
 class ListTemplatesTests(unittest.TestCase):
@@ -463,6 +500,75 @@ class CreateEditorWorkflowTabTests(unittest.TestCase):
             json.loads(requests[0][0].data.decode("utf-8")),
             {"slug": "demo", "name": None, "organize": True},
         )
+
+    def test_lists_recent_runs(self):
+        requests = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "runs": [
+                        {
+                            "run_id": "run-2",
+                            "status": "success",
+                            "node_id": "out",
+                            "port": "value",
+                        },
+                        {
+                            "run_id": "run-1",
+                            "status": "error",
+                            "node_id": "agent",
+                            "port": "text",
+                        },
+                    ],
+                }).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            return FakeResponse()
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            result = t.list_recent_runs(limit=2, editor_url="http://editor")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(result["runs"][0]["run_id"], "run-2")
+        self.assertEqual(requests[0][0].full_url, "http://editor/runs?limit=2")
+
+    def test_gets_run_record_with_events(self):
+        requests = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "run_id": "run-1",
+                    "status": "success",
+                    "events": [{"type": "start"}, {"type": "done"}],
+                }).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            return FakeResponse()
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            result = t.get_run("run-1", editor_url="http://editor")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["run"]["run_id"], "run-1")
+        self.assertEqual(result["run"]["events"][1]["type"], "done")
+        self.assertEqual(requests[0][0].full_url, "http://editor/runs/run-1")
 
     def test_posts_editor_management_actions(self):
         requests = []

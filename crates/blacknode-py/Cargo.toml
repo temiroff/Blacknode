@@ -11,5 +11,6 @@ crate-type = ["cdylib"]
 [dependencies]
 blacknode-core  = { path = "../blacknode-core" }
 blacknode-types = { path = "../blacknode-types" }
+anyhow          = { workspace = true }
 pyo3            = { workspace = true }
 uuid            = { workspace = true }

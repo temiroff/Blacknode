@@ -73,6 +73,16 @@ def editor_graph_resource() -> str:
     return _safe_editor_resource("blacknode://editor/graph", tools.get_editor_graph)
 
 
+@mcp.resource(
+    "blacknode://runs",
+    mime_type="application/json",
+    description="Recent run summaries from the running Blacknode editor backend.",
+)
+def runs_resource() -> str:
+    """Recent editor run summaries as JSON."""
+    return _safe_editor_resource("blacknode://runs", tools.list_recent_runs)
+
+
 @mcp.tool()
 def list_nodes() -> dict[str, Any]:
     """List every Blacknode node type with category and port schema."""
@@ -95,6 +105,22 @@ def list_templates() -> dict[str, Any]:
 def load_workflow(path: str) -> dict[str, Any]:
     """Load a workflow JSON file from disk and return its dict form."""
     return tools.load_workflow_tool(path)
+
+
+@mcp.tool()
+def save_workflow(
+    workflow: dict[str, Any],
+    path: str,
+    validate: bool = True,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Validate and save a workflow JSON file to disk."""
+    return tools.save_workflow_tool(
+        workflow,
+        path,
+        validate=validate,
+        overwrite=overwrite,
+    )
 
 
 @mcp.tool()
@@ -232,6 +258,18 @@ def save_editor_workflow(
 def list_saved_workflows(editor_url: str | None = None) -> dict[str, Any]:
     """List workflows saved by a running Blacknode editor backend."""
     return tools.list_saved_workflows(editor_url=editor_url)
+
+
+@mcp.tool()
+def list_recent_runs(limit: int = 20, editor_url: str | None = None) -> dict[str, Any]:
+    """List recent run summaries from a running Blacknode editor backend."""
+    return tools.list_recent_runs(limit=limit, editor_url=editor_url)
+
+
+@mcp.tool()
+def get_run(run_id: str, editor_url: str | None = None) -> dict[str, Any]:
+    """Return a full run record, including events, from a running editor backend."""
+    return tools.get_run(run_id=run_id, editor_url=editor_url)
 
 
 @mcp.tool()

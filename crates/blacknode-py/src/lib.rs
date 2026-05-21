@@ -1,12 +1,13 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
-use blacknode_core::{Graph as RsGraph, NodeMeta, NodeId, Port, PortDir};
+use pyo3::types::{PyBytes, PyDict, PyList};
+use pyo3::IntoPyObjectExt;
+use blacknode_core::{Graph as RsGraph, NodeMeta, NodeId, Port};
 use blacknode_types::Value;
 use std::collections::HashMap;
 
 // ── Value conversion ──────────────────────────────────────────────────────────
 
-fn py_to_value(obj: &PyAny) -> PyResult<Value> {
+fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<Value> {
     if obj.is_none() {
         return Ok(Value::Null);
     }
@@ -22,39 +23,39 @@ fn py_to_value(obj: &PyAny) -> PyResult<Value> {
     if let Ok(s) = obj.extract::<String>() {
         return Ok(Value::Text(s));
     }
-    if let Ok(list) = obj.downcast::<PyList>() {
-        let v: PyResult<Vec<Value>> = list.iter().map(py_to_value).collect();
+    if let Ok(list) = obj.cast::<PyList>() {
+        let v: PyResult<Vec<Value>> = list.iter().map(|item| py_to_value(&item)).collect();
         return Ok(Value::List(v?));
     }
-    if let Ok(dict) = obj.downcast::<PyDict>() {
+    if let Ok(dict) = obj.cast::<PyDict>() {
         let mut m = HashMap::new();
         for (k, v) in dict.iter() {
-            m.insert(k.extract::<String>()?, py_to_value(v)?);
+            m.insert(k.extract::<String>()?, py_to_value(&v)?);
         }
         return Ok(Value::Map(m));
     }
-    Ok(Value::Text(obj.str()?.to_string()))
+    Ok(Value::Text(obj.str()?.to_str()?.to_string()))
 }
 
-fn value_to_py(py: Python<'_>, val: &Value) -> PyResult<PyObject> {
+fn value_to_py(py: Python<'_>, val: &Value) -> PyResult<Py<PyAny>> {
     match val {
         Value::Null => Ok(py.None()),
-        Value::Bool(b) => Ok(b.into_py(py)),
-        Value::Int(i) => Ok(i.into_py(py)),
-        Value::Float(f) => Ok(f.into_py(py)),
-        Value::Text(s) => Ok(s.into_py(py)),
+        Value::Bool(b) => b.into_py_any(py),
+        Value::Int(i) => i.into_py_any(py),
+        Value::Float(f) => f.into_py_any(py),
+        Value::Text(s) => s.into_py_any(py),
         Value::List(l) => {
-            let items: PyResult<Vec<PyObject>> = l.iter().map(|v| value_to_py(py, v)).collect();
-            Ok(PyList::new(py, items?).into())
+            let items: PyResult<Vec<Py<PyAny>>> = l.iter().map(|v| value_to_py(py, v)).collect();
+            Ok(PyList::new(py, items?)?.into_any().unbind())
         }
         Value::Map(m) => {
             let dict = PyDict::new(py);
             for (k, v) in m {
                 dict.set_item(k, value_to_py(py, v)?)?;
             }
-            Ok(dict.into())
+            Ok(dict.into_any().unbind())
         }
-        Value::Bytes(b) => Ok(b.clone().into_py(py)),
+        Value::Bytes(b) => Ok(PyBytes::new(py, b).into_any().unbind()),
     }
 }
 
@@ -62,7 +63,7 @@ fn value_to_py(py: Python<'_>, val: &Value) -> PyResult<PyObject> {
 
 struct PyNodeShim {
     meta: NodeMeta,
-    cook_fn: PyObject,
+    cook_fn: Py<PyAny>,
 }
 
 impl blacknode_core::Node for PyNodeShim {
@@ -70,20 +71,20 @@ impl blacknode_core::Node for PyNodeShim {
     fn meta_mut(&mut self) -> &mut NodeMeta { &mut self.meta }
 
     fn cook(&self, inputs: HashMap<String, Value>) -> anyhow::Result<HashMap<String, Value>> {
-        Python::with_gil(|py| {
+        Python::attach(|py| -> PyResult<HashMap<String, Value>> {
             let ctx = PyDict::new(py);
             for (k, v) in &inputs {
                 ctx.set_item(k, value_to_py(py, v)?)?;
             }
-            let result = self.cook_fn.call1(py, (ctx,))?;
+            let result = self.cook_fn.bind(py).call1((ctx,))?;
 
             let mut outputs = HashMap::new();
-            if let Ok(dict) = result.downcast::<PyDict>(py) {
+            if let Ok(dict) = result.cast::<PyDict>() {
                 for (k, v) in dict.iter() {
-                    outputs.insert(k.extract::<String>()?, py_to_value(v)?);
+                    outputs.insert(k.extract::<String>()?, py_to_value(&v)?);
                 }
             } else {
-                outputs.insert("output".to_string(), py_to_value(result.as_ref(py))?);
+                outputs.insert("output".to_string(), py_to_value(&result)?);
             }
             Ok(outputs)
         })
@@ -108,9 +109,9 @@ impl PyGraph {
     fn add_node(
         &mut self,
         type_name: &str,
-        cook_fn: PyObject,
+        cook_fn: Py<PyAny>,
         ports: Vec<(String, String, String)>, // (name, dir, type_hint)
-        params: Option<&PyDict>,
+        params: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<String> {
         let mut meta = NodeMeta::new(type_name);
         for (name, dir, hint) in ports {
@@ -123,7 +124,7 @@ impl PyGraph {
         if let Some(p) = params {
             for (k, v) in p.iter() {
                 let key = k.extract::<String>()?;
-                let val = py_to_value(v)?;
+                let val = py_to_value(&v)?;
                 meta.params.insert(key, val);
             }
         }
@@ -144,7 +145,7 @@ impl PyGraph {
         Ok(())
     }
 
-    fn cook(&self, py: Python<'_>, node_id: &str, port: &str) -> PyResult<PyObject> {
+    fn cook(&self, py: Python<'_>, node_id: &str, port: &str) -> PyResult<Py<PyAny>> {
         let id: NodeId = node_id.parse().map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e}")))?;
         let val = self.inner.cook(id, port)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e}")))?;
@@ -155,7 +156,7 @@ impl PyGraph {
 // ── Module ────────────────────────────────────────────────────────────────────
 
 #[pymodule]
-fn blacknode_rs(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn blacknode_rs(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGraph>()?;
     Ok(())
 }

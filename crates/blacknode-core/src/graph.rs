@@ -1,5 +1,6 @@
 use petgraph::stable_graph::{StableDiGraph, NodeIndex};
 use petgraph::algo::is_cyclic_directed;
+use petgraph::visit::EdgeRef;
 use std::collections::HashMap;
 use blacknode_types::Value;
 use dashmap::DashMap;

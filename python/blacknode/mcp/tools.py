@@ -99,6 +99,34 @@ def load_workflow_tool(path: str) -> dict[str, Any]:
     return load_workflow(Path(path))
 
 
+def save_workflow_tool(
+    workflow: Mapping[str, Any],
+    path: str,
+    *,
+    validate: bool = True,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Validate and save a workflow JSON file to disk."""
+    workflow_dict = _copy_workflow(workflow)
+    report = validate_workflow(workflow_dict).to_dict() if validate else None
+    if report is not None and not report.get("ok"):
+        raise ValueError(f"Workflow is invalid: {report}")
+
+    target = Path(path).expanduser()
+    if target.exists() and not overwrite:
+        raise FileExistsError(f"Workflow file already exists: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    body = json.dumps(workflow_dict, indent=2) + "\n"
+    target.write_text(body, encoding="utf-8")
+    return {
+        "ok": True,
+        "path": str(target),
+        "bytes": len(body.encode("utf-8")),
+        "validation": report,
+    }
+
+
 def create_workflow(name: str = "Untitled", description: str = "") -> dict[str, Any]:
     """Build an empty workflow that already contains an Output node."""
     out_id = "out"
@@ -391,6 +419,44 @@ def list_saved_workflows(*, editor_url: str | None = None) -> dict[str, Any]:
         "editor_url": base_url,
         "workflows": workflows,
         "count": len(workflows),
+    }
+
+
+def list_recent_runs(
+    limit: int = 20,
+    *,
+    editor_url: str | None = None,
+) -> dict[str, Any]:
+    """List recent run summaries from a running Blacknode editor backend."""
+    clean_limit = max(1, min(int(limit), 500))
+    base_url, result = _editor_request_json("GET", f"/runs?limit={clean_limit}", editor_url=editor_url)
+    if not isinstance(result, Mapping) or not isinstance(result.get("runs"), list):
+        raise RuntimeError(f"Blacknode editor backend returned unexpected runs payload: {result!r}")
+    runs = result["runs"]
+    return {
+        "ok": True,
+        "editor_url": base_url,
+        "runs": runs,
+        "count": len(runs),
+    }
+
+
+def get_run(
+    run_id: str,
+    *,
+    editor_url: str | None = None,
+) -> dict[str, Any]:
+    """Return a full run record, including events, from a running editor backend."""
+    clean_run_id = run_id.strip()
+    if not clean_run_id:
+        raise ValueError("Run id must be a non-empty string")
+    base_url, result = _editor_request_json("GET", f"/runs/{clean_run_id}", editor_url=editor_url)
+    if not isinstance(result, Mapping):
+        raise RuntimeError(f"Blacknode editor backend returned unexpected run payload: {result!r}")
+    return {
+        "ok": True,
+        "editor_url": base_url,
+        "run": dict(result),
     }
 
 
