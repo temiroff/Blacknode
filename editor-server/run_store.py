@@ -96,9 +96,9 @@ class RunStore:
         return self._finalize(run_id, status="error", error=error)
 
     def list_runs(self, *, limit: int = 50) -> list[dict[str, Any]]:
-        records = self._read_all_records()
-        records.sort(key=lambda r: r.get("started_at", ""), reverse=True)
-        return [self._summary_dict(r) for r in records[:limit]]
+        records = self._read_all_records_with_mtime()
+        records.sort(key=lambda item: (item[0].get("started_at", ""), item[1]), reverse=True)
+        return [self._summary_dict(record) for record, _mtime_ns in records[:limit]]
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         path = self._path_for(run_id)
@@ -223,9 +223,16 @@ class RunStore:
 
     def _read_all_records(self) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
+        for record, _mtime_ns in self._read_all_records_with_mtime():
+            records.append(record)
+        return records
+
+    def _read_all_records_with_mtime(self) -> list[tuple[dict[str, Any], int]]:
+        records: list[tuple[dict[str, Any], int]] = []
         for path in self.root.glob(_RUN_FILE_GLOB):
             try:
-                records.append(json.loads(path.read_text(encoding="utf-8")))
+                stat = path.stat()
+                records.append((json.loads(path.read_text(encoding="utf-8")), stat.st_mtime_ns))
             except (OSError, json.JSONDecodeError):
                 continue
         return records
