@@ -246,6 +246,7 @@ client. The NVIDIA NIM prompt exercises the full live-editor path:
 - validate the graph
 - open it as a new organized editor tab
 - cook `out.value` in the running editor
+- inspect and save the currently loaded editor graph
 
 The live editor tools require `editor-server/server.py` to be running at
 `http://127.0.0.1:7777` or `BLACKNODE_EDITOR_URL` to point at the backend.

@@ -134,6 +134,26 @@ def cook_editor_node(
     return tools.cook_editor_node(node_id=node_id, port=port, editor_url=editor_url)
 
 
+@mcp.tool()
+def get_editor_graph(editor_url: str | None = None) -> dict[str, Any]:
+    """Return the graph currently loaded in a running Blacknode editor backend."""
+    return tools.get_editor_graph(editor_url=editor_url)
+
+
+@mcp.tool()
+def save_editor_workflow(
+    name: str = "Untitled",
+    previous_slug: str | None = None,
+    editor_url: str | None = None,
+) -> dict[str, Any]:
+    """Save the graph currently loaded in a running Blacknode editor backend."""
+    return tools.save_editor_workflow(
+        name=name,
+        previous_slug=previous_slug,
+        editor_url=editor_url,
+    )
+
+
 def main() -> None:
     mcp.run()
 

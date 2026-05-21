@@ -107,6 +107,7 @@ def main() -> int:
             "connect_nodes", "validate_workflow", "run_workflow",
             "export_python", "create_editor_workflow_tab",
             "open_workflow_in_editor_tab", "cook_editor_node",
+            "get_editor_graph", "save_editor_workflow",
         }
         missing = expected - set(names)
         if missing:

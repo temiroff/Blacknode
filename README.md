@@ -398,6 +398,8 @@ Add an entry to `claude_desktop_config.json` (Settings → Developer → Edit Co
 | `create_editor_workflow_tab` | Queue a new unsaved workflow tab in the running visual editor |
 | `open_workflow_in_editor_tab` | Queue a populated workflow as a new organized visual editor tab |
 | `cook_editor_node` | Queue a live editor node cook, defaulting to `out.value` |
+| `get_editor_graph` | Inspect the graph currently loaded in the editor backend |
+| `save_editor_workflow` | Save the currently loaded editor graph to `workflows/` |
 
 Every mutation tool returns a fresh validation report so agents get fast
 feedback when they build something invalid. API keys are read from

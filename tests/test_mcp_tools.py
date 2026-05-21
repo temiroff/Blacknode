@@ -277,6 +277,71 @@ class CreateEditorWorkflowTabTests(unittest.TestCase):
             {"node_id": "out", "port": "value"},
         )
 
+    def test_gets_editor_graph(self):
+        requests = []
+
+        class FakeResponse:
+            def __init__(self, body: dict):
+                self.body = body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps(self.body).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            if req.full_url.endswith("/graph"):
+                return FakeResponse({
+                    "nodes": [{"id": "out", "type": "Output"}],
+                    "edges": [],
+                })
+            return FakeResponse({"ok": True, "errors": [], "warnings": []})
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            result = t.get_editor_graph(editor_url="http://editor")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["node_count"], 1)
+        self.assertEqual(result["edge_count"], 0)
+        self.assertTrue(result["validation"]["ok"])
+        self.assertEqual([req.full_url for req, _ in requests], [
+            "http://editor/graph",
+            "http://editor/validate",
+        ])
+
+    def test_saves_editor_workflow(self):
+        requests = []
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({"ok": True, "slug": "MCP_Saved_Graph"}).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            return FakeResponse()
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            result = t.save_editor_workflow("MCP Saved Graph", editor_url="http://editor")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["slug"], "MCP_Saved_Graph")
+        self.assertEqual(requests[0][0].full_url, "http://editor/workflows")
+        self.assertEqual(
+            json.loads(requests[0][0].data.decode("utf-8")),
+            {"name": "MCP Saved Graph", "previous_slug": None},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

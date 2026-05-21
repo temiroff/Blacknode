@@ -61,6 +61,19 @@ Expected tool sequence:
 
 Expected result: the editor opens an organized workflow tab and the Output node displays a NVIDIA NIM-generated launch brief.
 
+## Inspect And Save The Editor Graph
+
+```text
+Using the blacknode MCP tools, inspect the graph currently loaded in the running Blacknode editor. Tell me the node count, edge count, whether validation is OK, then save it as "MCP Saved Graph".
+```
+
+Expected tool sequence:
+
+1. `get_editor_graph`
+2. `save_editor_workflow`
+
+Expected result: the tool returns a workflow slug such as `MCP_Saved_Graph`, and the saved JSON appears under `workflows/`.
+
 ## Direct Local Verification
 
 From the repo root:
@@ -69,4 +82,3 @@ From the repo root:
 python scripts\smoke_test_mcp.py
 python -m pytest tests\test_mcp_tools.py
 ```
-

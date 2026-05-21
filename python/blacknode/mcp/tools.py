@@ -286,6 +286,46 @@ def cook_editor_node(
     }
 
 
+def get_editor_graph(*, editor_url: str | None = None) -> dict[str, Any]:
+    """Return the graph currently loaded in a running Blacknode editor backend."""
+    base_url, graph = _editor_request_json("GET", "/graph", editor_url=editor_url)
+    _, validation = _editor_request_json("GET", "/validate", editor_url=editor_url)
+    nodes = graph.get("nodes", []) if isinstance(graph, Mapping) else []
+    edges = graph.get("edges", []) if isinstance(graph, Mapping) else []
+    return {
+        "ok": True,
+        "editor_url": base_url,
+        "graph": graph,
+        "node_count": len(nodes) if isinstance(nodes, list) else 0,
+        "edge_count": len(edges) if isinstance(edges, list) else 0,
+        "validation": validation,
+    }
+
+
+def save_editor_workflow(
+    name: str = "Untitled",
+    previous_slug: str | None = None,
+    *,
+    editor_url: str | None = None,
+) -> dict[str, Any]:
+    """Save the graph currently loaded in a running Blacknode editor backend."""
+    clean_name = name.strip() or "Untitled"
+    base_url, result = _editor_request_json(
+        "POST",
+        "/workflows",
+        {"name": clean_name, "previous_slug": previous_slug},
+        editor_url=editor_url,
+    )
+    return {
+        "ok": bool(result.get("ok", True)),
+        "editor_url": base_url,
+        "name": clean_name,
+        "slug": result.get("slug"),
+        "result": result,
+        "note": "Saved the graph currently loaded in the Blacknode editor backend.",
+    }
+
+
 # ── Internals ─────────────────────────────────────────────────────────────────
 
 def _post_editor_action(
@@ -294,13 +334,23 @@ def _post_editor_action(
     *,
     editor_url: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
+    return _editor_request_json("POST", path, payload_dict, editor_url=editor_url)
+
+
+def _editor_request_json(
+    method: str,
+    path: str,
+    payload_dict: Mapping[str, Any] | None = None,
+    *,
+    editor_url: str | None = None,
+) -> tuple[str, dict[str, Any]]:
     base_url = (editor_url or os.environ.get("BLACKNODE_EDITOR_URL") or "http://127.0.0.1:7777").rstrip("/")
-    payload = json.dumps(payload_dict).encode("utf-8")
+    payload = json.dumps(payload_dict).encode("utf-8") if payload_dict is not None else None
     req = urllib_request.Request(
         f"{base_url}{path}",
         data=payload,
         headers={"Content-Type": "application/json"},
-        method="POST",
+        method=method,
     )
 
     try:

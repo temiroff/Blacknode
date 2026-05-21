@@ -22,6 +22,8 @@ const TOOLS: { name: string; desc: string }[] = [
   { name: 'create_editor_workflow_tab', desc: 'Open a new unsaved tab in the running editor UI' },
   { name: 'open_workflow_in_editor_tab', desc: 'Open a populated workflow as a new organized editor tab' },
   { name: 'cook_editor_node', desc: 'Cook a node in the running editor UI and update the canvas' },
+  { name: 'get_editor_graph', desc: 'Inspect the graph currently loaded in the editor backend' },
+  { name: 'save_editor_workflow', desc: 'Save the currently loaded editor graph to workflows/' },
 ]
 
 const STARTER_PROMPTS: { title: string; body: string }[] = [
