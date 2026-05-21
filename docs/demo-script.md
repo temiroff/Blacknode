@@ -23,6 +23,7 @@ Blacknode is a visual workflow builder for AI agents: an MCP-connected agent can
 4. Cook the Output node.
    - Show the result in the Output node.
    - Open the Runs tab and show model/tool events, status, timing, and payload preview.
+   - Press Replay and step through the run so the graph highlights each executed node.
 
 5. Show portability.
    - Use MCP or CLI to export the workflow as Python.
@@ -55,7 +56,7 @@ Expected outputs:
 ## What To Emphasize
 
 - Agent-controllable: MCP tools build real workflows, not screenshots.
-- Inspectable: visual graph plus run timeline.
+- Inspectable: visual graph plus run timeline and replay.
 - Portable: workflow JSON and Python export.
 - Local execution: editor, runtime, keys, and run history stay on your machine by default.
 - Practical: templates cover chat, NVIDIA NIM, research, Python tools, and subnets.

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { api, type RunRecord, type RunStatus, type RunSummary } from '../api'
+import { useStore } from '../store'
 
 const REFRESH_INTERVAL_MS = 4000
 const PREVIEW_LIMIT = 9000
@@ -54,6 +55,7 @@ export default function RunsPanel() {
   const handleDelete = async (runId: string) => {
     try {
       await api.deleteRun(runId)
+      if (useStore.getState().runReplay.runId === runId) useStore.getState().clearRunReplay()
       setRuns(prev => prev.filter(r => r.run_id !== runId))
       if (activeRunId === runId) setActiveRunId(null)
     } catch (err) {
@@ -66,6 +68,7 @@ export default function RunsPanel() {
     if (!window.confirm(`Delete all ${runs.length} runs?`)) return
     try {
       await api.clearRuns()
+      useStore.getState().clearRunReplay()
       setRuns([])
       setActiveRunId(null)
     } catch (err) {
@@ -228,6 +231,13 @@ function RunBadges({ run }: { run: RunSummary }) {
 function RunDetail({ runId, runStatus, onDelete }: { runId: string; runStatus: RunStatus; onDelete: () => void }) {
   const [record, setRecord] = useState<RunRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [cursor, setCursor] = useState(-1)
+  const [playing, setPlaying] = useState(false)
+  const [speedMs, setSpeedMs] = useState(650)
+  const replay = useStore(s => s.runReplay)
+  const applyRunReplay = useStore(s => s.applyRunReplay)
+  const clearRunReplay = useStore(s => s.clearRunReplay)
+  const selectNode = useStore(s => s.selectNode)
 
   useEffect(() => {
     let cancelled = false
@@ -257,6 +267,42 @@ function RunDetail({ runId, runStatus, onDelete }: { runId: string; runStatus: R
     }
   }, [runId, runStatus])
 
+  useEffect(() => {
+    return () => {
+      const state = useStore.getState()
+      if (state.runReplay.runId === runId) state.clearRunReplay()
+    }
+  }, [runId])
+
+  useEffect(() => {
+    if (!record) return
+    const last = record.events.length - 1
+    if (last < 0) {
+      setCursor(-1)
+      setPlaying(false)
+      return
+    }
+    if (cursor > last) setCursor(last)
+  }, [record, cursor])
+
+  useEffect(() => {
+    if (!record || cursor < 0 || record.events.length === 0) return
+    applyRunReplay(record, cursor, playing)
+  }, [record, cursor, playing, applyRunReplay])
+
+  useEffect(() => {
+    if (!record || !playing || cursor < 0) return
+    const last = record.events.length - 1
+    if (cursor >= last) {
+      setPlaying(false)
+      return
+    }
+    const id = window.setTimeout(() => {
+      setCursor(prev => Math.min(prev + 1, last))
+    }, speedMs)
+    return () => window.clearTimeout(id)
+  }, [record, cursor, playing, speedMs])
+
   if (error) {
     return <div className="bn-run-detail"><div className="bn-runs-error is-inline">{error}</div></div>
   }
@@ -265,6 +311,35 @@ function RunDetail({ runId, runStatus, onDelete }: { runId: string; runStatus: R
   }
 
   const eventStats = buildEventStats(record.events)
+  const replayActive = replay.runId === record.run_id && cursor >= 0
+  const currentEvent = replayActive ? record.events[cursor] : undefined
+  const currentNodeId = stringValue(currentEvent?.node_id) || (currentEvent?.type === 'done' ? record.node_id : '')
+  const lastEventIndex = record.events.length - 1
+  const startReplay = () => {
+    if (record.events.length === 0) return
+    setCursor(0)
+    setPlaying(true)
+  }
+  const clearReplay = () => {
+    setPlaying(false)
+    setCursor(-1)
+    clearRunReplay()
+  }
+  const stepReplay = (delta: number) => {
+    if (record.events.length === 0) return
+    setPlaying(false)
+    setCursor(prev => {
+      const base = prev < 0 ? (delta > 0 ? -1 : 0) : prev
+      return Math.min(Math.max(base + delta, 0), lastEventIndex)
+    })
+  }
+  const jumpReplay = (index: number) => {
+    setPlaying(false)
+    setCursor(index)
+    const event = record.events[index]
+    const nodeId = stringValue(event?.node_id) || (event?.type === 'done' ? record.node_id : '')
+    if (nodeId) selectNode(nodeId)
+  }
 
   return (
     <div className="bn-run-detail">
@@ -312,7 +387,33 @@ function RunDetail({ runId, runStatus, onDelete }: { runId: string; runStatus: R
         <span>{eventStats.errors} errors</span>
       </div>
 
-      <EventTimeline events={record.events} />
+      <ReplayControls
+        eventCount={record.events.length}
+        cursor={cursor}
+        playing={playing}
+        speedMs={speedMs}
+        currentNodeId={currentNodeId}
+        currentEventType={currentEvent?.type}
+        onStart={startReplay}
+        onPlayPause={() => setPlaying(prev => !prev)}
+        onStepBack={() => stepReplay(-1)}
+        onStepForward={() => stepReplay(1)}
+        onJumpEnd={() => {
+          if (lastEventIndex >= 0) {
+            setPlaying(false)
+            setCursor(lastEventIndex)
+          }
+        }}
+        onScrub={jumpReplay}
+        onClear={clearReplay}
+        onSpeedChange={setSpeedMs}
+      />
+
+      <EventTimeline
+        events={record.events}
+        activeIndex={replayActive ? cursor : -1}
+        onSelectEvent={jumpReplay}
+      />
     </div>
   )
 }
@@ -326,7 +427,93 @@ function Fact({ label, value }: { label: string; value: string }) {
   )
 }
 
-function EventTimeline({ events }: { events: RunRecord['events'] }) {
+function ReplayControls({
+  eventCount,
+  cursor,
+  playing,
+  speedMs,
+  currentNodeId,
+  currentEventType,
+  onStart,
+  onPlayPause,
+  onStepBack,
+  onStepForward,
+  onJumpEnd,
+  onScrub,
+  onClear,
+  onSpeedChange,
+}: {
+  eventCount: number
+  cursor: number
+  playing: boolean
+  speedMs: number
+  currentNodeId: string
+  currentEventType?: string
+  onStart: () => void
+  onPlayPause: () => void
+  onStepBack: () => void
+  onStepForward: () => void
+  onJumpEnd: () => void
+  onScrub: (index: number) => void
+  onClear: () => void
+  onSpeedChange: (speedMs: number) => void
+}) {
+  const active = cursor >= 0
+  const stepLabel = active ? `${cursor + 1}/${eventCount}` : `0/${eventCount}`
+  const currentLabel = active
+    ? [currentEventType ?? 'event', currentNodeId ? shortId(currentNodeId) : 'graph'].filter(Boolean).join(' / ')
+    : 'idle'
+
+  return (
+    <div className="bn-replay-panel">
+      <div className="bn-replay-head">
+        <div>
+          <div className="bn-replay-title">Replay</div>
+          <div className="bn-replay-subtitle" title={currentLabel}>{currentLabel}</div>
+        </div>
+        <div className="bn-replay-count">{stepLabel}</div>
+      </div>
+
+      <div className="bn-replay-scrub">
+        <input
+          type="range"
+          min={0}
+          max={Math.max(eventCount - 1, 0)}
+          value={active ? cursor : 0}
+          disabled={eventCount === 0}
+          onChange={e => {
+            const next = Number(e.target.value)
+            if (Number.isFinite(next)) onScrub(next)
+          }}
+        />
+      </div>
+
+      <div className="bn-replay-actions">
+        <button type="button" onClick={onStart} disabled={eventCount === 0}>Replay</button>
+        <button type="button" onClick={onPlayPause} disabled={!active}>{playing ? 'Pause' : 'Play'}</button>
+        <button type="button" onClick={onStepBack} disabled={!active || cursor <= 0}>Prev</button>
+        <button type="button" onClick={onStepForward} disabled={eventCount === 0 || cursor >= eventCount - 1}>Next</button>
+        <button type="button" onClick={onJumpEnd} disabled={eventCount === 0}>End</button>
+        <select value={speedMs} onChange={e => onSpeedChange(Number(e.target.value))} title="Replay speed">
+          <option value={1100}>Slow</option>
+          <option value={650}>Normal</option>
+          <option value={280}>Fast</option>
+        </select>
+        <button type="button" onClick={onClear} disabled={!active}>Clear</button>
+      </div>
+    </div>
+  )
+}
+
+function EventTimeline({
+  events,
+  activeIndex,
+  onSelectEvent,
+}: {
+  events: RunRecord['events']
+  activeIndex: number
+  onSelectEvent: (index: number) => void
+}) {
   const timeline = useMemo(() => buildTimeline(events), [events])
 
   if (!timeline.length) {
@@ -336,13 +523,18 @@ function EventTimeline({ events }: { events: RunRecord['events'] }) {
   return (
     <div className="bn-event-timeline" aria-label="Run event timeline">
       {timeline.map(item => (
-        <EventRow key={item.index} item={item} />
+        <EventRow
+          key={item.index}
+          item={item}
+          active={item.index === activeIndex}
+          onSelect={() => onSelectEvent(item.index)}
+        />
       ))}
     </div>
   )
 }
 
-function EventRow({ item }: { item: TimelineItem }) {
+function EventRow({ item, active, onSelect }: { item: TimelineItem; active: boolean; onSelect: () => void }) {
   const event = item.event
   const type = event.type as string
   const style = eventStyle(type, event)
@@ -355,7 +547,19 @@ function EventRow({ item }: { item: TimelineItem }) {
   const payload = eventPayload(event)
 
   return (
-    <div className="bn-event-row" style={{ '--event-color': style.color } as CSSProperties}>
+    <div
+      className={`bn-event-row${active ? ' is-active' : ''}`}
+      style={{ '--event-color': style.color } as CSSProperties}
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect()
+        }
+      }}
+    >
       <div className="bn-event-time">
         <span>{item.offset}</span>
         {item.gap && <small>{item.gap}</small>}
@@ -565,6 +769,9 @@ function eventPayload(event: RunEvent): unknown | undefined {
 
 function eventTime(event: RunEvent | undefined): number | null {
   if (!event?.ts) return null
+  if (typeof event.ts === 'number') {
+    return event.ts < 1_000_000_000_000 ? event.ts * 1000 : event.ts
+  }
   const parsed = new Date(event.ts).getTime()
   return Number.isNaN(parsed) ? null : parsed
 }

@@ -3,8 +3,8 @@ import {
   Node, Edge, addEdge, applyNodeChanges, applyEdgeChanges,
   NodeChange, EdgeChange, Connection,
 } from 'reactflow'
-import { api, type CookEvent } from './api'
-import { BnNodeDef, BnNodeMeta, ConnectionDraft, SubnetFrame } from './types'
+import { api, type CookEvent, type RunRecord } from './api'
+import { BnNodeDef, BnNodeMeta, ConnectionDraft, NodeCookState, SubnetFrame } from './types'
 import { VALUE_NODE_TYPES } from './categories'
 import { portsCompatible, portColor } from './portColors'
 import { organizeFlowNodes } from './graphLayout'
@@ -27,12 +27,7 @@ interface GraphSnapshot {
   edges: any[]
 }
 
-export interface NodeData extends BnNodeMeta {
-  cookResult?: unknown
-  cookError?: string
-  cooking?: boolean
-  cookPort?: string
-}
+export interface NodeData extends BnNodeMeta, NodeCookState {}
 
 export interface GraphClipboard {
   nodes: Node<NodeData>[]
@@ -48,6 +43,16 @@ export interface CookLogEntry {
   port?: string
   cached?: boolean
   ts: number
+}
+
+export interface RunReplayState {
+  runId: string | null
+  cursor: number
+  total: number
+  playing: boolean
+  currentNodeId?: string
+  currentEventType?: string
+  message?: string
 }
 
 interface UndoSnapshot {
@@ -77,6 +82,7 @@ interface Store {
   undoHistory: UndoSnapshot[]
   cookLog: CookLogEntry[]
   cookActive: boolean
+  runReplay: RunReplayState
 
   loadNodeTypes: () => Promise<void>
   loadGraph: () => Promise<void>
@@ -148,6 +154,8 @@ interface Store {
   ) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
   cookNode: (id: string, port?: string) => Promise<void>
+  applyRunReplay: (record: RunRecord, cursor: number, playing: boolean) => void
+  clearRunReplay: () => void
   selectNode: (id: string | null) => void
   undoGraph: () => Promise<void>
   reset: () => Promise<void>
@@ -238,8 +246,45 @@ function cloneDeep<T>(value: T): T {
 }
 
 function stripRuntimeNodeData(data: NodeData): BnNodeMeta {
-  const { cookResult: _cookResult, cookError: _cookError, cooking: _cooking, cookPort: _cookPort, ...meta } = data
+  const {
+    cookResult: _cookResult,
+    cookError: _cookError,
+    cooking: _cooking,
+    cookPort: _cookPort,
+    replayRunId: _replayRunId,
+    replayStatus: _replayStatus,
+    replayFocused: _replayFocused,
+    replayLabel: _replayLabel,
+    replayPort: _replayPort,
+    replayDurationMs: _replayDurationMs,
+    replayResult: _replayResult,
+    replayError: _replayError,
+    replayStep: _replayStep,
+    replayTotal: _replayTotal,
+    replayModelCalls: _replayModelCalls,
+    replayToolCalls: _replayToolCalls,
+    ...meta
+  } = data
   return meta
+}
+
+function clearReplayData(data: NodeData): NodeData {
+  const {
+    replayRunId: _replayRunId,
+    replayStatus: _replayStatus,
+    replayFocused: _replayFocused,
+    replayLabel: _replayLabel,
+    replayPort: _replayPort,
+    replayDurationMs: _replayDurationMs,
+    replayResult: _replayResult,
+    replayError: _replayError,
+    replayStep: _replayStep,
+    replayTotal: _replayTotal,
+    replayModelCalls: _replayModelCalls,
+    replayToolCalls: _replayToolCalls,
+    ...rest
+  } = data
+  return rest
 }
 
 function flowEdgesToBackend(edges: Edge[]): any[] {
@@ -377,6 +422,134 @@ function cookEventLogEntry(event: CookEvent, nodes: Node<NodeData>[]): CookLogEn
 
 function appendCookLog(log: CookLogEntry[], entry: CookLogEntry): CookLogEntry[] {
   return [...log, entry].slice(-80)
+}
+
+const EMPTY_REPLAY: RunReplayState = {
+  runId: null,
+  cursor: -1,
+  total: 0,
+  playing: false,
+}
+
+type ReplayEvent = RunRecord['events'][number]
+
+type ReplayNodePatch = Pick<
+  NodeData,
+  | 'replayRunId'
+  | 'replayStatus'
+  | 'replayFocused'
+  | 'replayLabel'
+  | 'replayPort'
+  | 'replayDurationMs'
+  | 'replayResult'
+  | 'replayError'
+  | 'replayStep'
+  | 'replayTotal'
+  | 'replayModelCalls'
+  | 'replayToolCalls'
+>
+
+function buildReplayPatches(record: RunRecord, cursor: number): Map<string, ReplayNodePatch> {
+  const patches = new Map<string, ReplayNodePatch>()
+  const events = record.events
+  const maxIndex = Math.min(Math.max(cursor, 0), events.length - 1)
+  const current = events[maxIndex]
+  const currentNodeId = eventNodeId(current) || (current?.type === 'done' ? record.node_id : '')
+  const startTimes = new Map<string, number>()
+
+  for (let index = 0; index <= maxIndex; index += 1) {
+    const event = events[index]
+    const nodeId = eventNodeId(event) || (event.type === 'done' ? record.node_id : '')
+    if (!nodeId) continue
+
+    const port = eventPort(event) || (event.type === 'done' ? record.port : undefined)
+    const key = `${nodeId}.${port ?? ''}`
+    const ts = replayEventTime(event)
+    if (event.type === 'start' && ts != null) startTimes.set(key, ts)
+
+    const previous = patches.get(nodeId)
+    const next: ReplayNodePatch = {
+      ...previous,
+      replayRunId: record.run_id,
+      replayFocused: nodeId === currentNodeId,
+      replayPort: port,
+      replayStep: index + 1,
+      replayTotal: events.length,
+      replayModelCalls: previous?.replayModelCalls ?? 0,
+      replayToolCalls: previous?.replayToolCalls ?? 0,
+    }
+
+    if (event.type === 'start') {
+      next.replayStatus = 'running'
+      next.replayLabel = port ? `running ${port}` : 'running'
+      next.replayError = undefined
+    } else if (event.type === 'success') {
+      const cached = Boolean(event.cached)
+      next.replayStatus = cached ? 'cached' : 'success'
+      next.replayDurationMs = eventDurationMs(event, startTimes.get(key))
+      next.replayResult = event.value ?? outputValueForPort(event.outputs, port)
+      next.replayError = undefined
+      next.replayLabel = cached ? 'cache hit' : 'finished'
+    } else if (event.type === 'error') {
+      next.replayStatus = 'error'
+      next.replayDurationMs = eventDurationMs(event, startTimes.get(key))
+      next.replayError = stringValue(event.error)
+      next.replayLabel = 'error'
+    } else if (event.type === 'model_call') {
+      next.replayStatus = 'model'
+      next.replayModelCalls = (next.replayModelCalls ?? 0) + 1
+      next.replayLabel = [stringValue(event.provider), stringValue(event.model)].filter(Boolean).join(' / ') || 'model call'
+    } else if (event.type === 'tool_call') {
+      next.replayStatus = 'tool'
+      next.replayToolCalls = (next.replayToolCalls ?? 0) + 1
+      next.replayLabel = stringValue(event.name) || 'tool call'
+    } else if (event.type === 'done') {
+      next.replayStatus = event.error ? 'error' : 'done'
+      next.replayResult = event.value
+      next.replayError = stringValue(event.error)
+      next.replayLabel = event.error ? 'run failed' : 'run done'
+    }
+
+    patches.set(nodeId, next)
+  }
+
+  return patches
+}
+
+function eventNodeId(event: ReplayEvent | undefined): string {
+  return stringValue(event?.node_id)
+}
+
+function eventPort(event: ReplayEvent | undefined): string | undefined {
+  return stringValue(event?.port) || undefined
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function outputValueForPort(outputs: unknown, port: string | undefined): unknown {
+  if (!port || !outputs || typeof outputs !== 'object' || Array.isArray(outputs)) return undefined
+  return (outputs as Record<string, unknown>)[port]
+}
+
+function eventDurationMs(event: ReplayEvent, startedAt: number | undefined): number | undefined {
+  if (typeof event.duration_ms === 'number') return event.duration_ms
+  if (startedAt == null) return undefined
+  const finishedAt = replayEventTime(event)
+  return finishedAt == null ? undefined : Math.max(0, finishedAt - startedAt)
+}
+
+function replayEventTime(event: ReplayEvent | undefined): number | null {
+  if (!event?.ts) return null
+  if (typeof event.ts === 'number') {
+    return event.ts < 1_000_000_000_000 ? event.ts * 1000 : event.ts
+  }
+  if (typeof event.ts === 'string') {
+    const parsed = new Date(event.ts).getTime()
+    return Number.isNaN(parsed) ? null : parsed
+  }
+  return null
 }
 
 function graphSnapshotFromState(s: Store): GraphSnapshot {
@@ -674,6 +847,7 @@ export const useStore = create<Store>((set, get) => ({
   undoHistory: [],
   cookLog: [],
   cookActive: false,
+  runReplay: EMPTY_REPLAY,
   subnetStack: [],
 
   checkServer: async () => {
@@ -1985,6 +2159,7 @@ export const useStore = create<Store>((set, get) => ({
 
     set(s => ({
       cookActive: true,
+      runReplay: EMPTY_REPLAY,
       cookLog: [{
         id: `${Date.now()}-${id}-queued`,
         kind: 'start',
@@ -1997,7 +2172,7 @@ export const useStore = create<Store>((set, get) => ({
       nodes: s.nodes.map(n => ({
         ...n,
         data: {
-          ...n.data,
+          ...clearReplayData(n.data),
           cooking: n.id === id,
           cookError: undefined,
           cookResult: undefined,
@@ -2029,6 +2204,49 @@ export const useStore = create<Store>((set, get) => ({
         ),
       }))
     }
+  },
+
+  applyRunReplay: (record, cursor, playing) => {
+    const total = record.events.length
+    const nextCursor = total > 0 ? Math.min(Math.max(cursor, 0), total - 1) : -1
+    const currentEvent = nextCursor >= 0 ? record.events[nextCursor] : undefined
+    const currentNodeId = eventNodeId(currentEvent) || (currentEvent?.type === 'done' ? record.node_id : undefined)
+    const patches = nextCursor >= 0 ? buildReplayPatches(record, nextCursor) : new Map<string, ReplayNodePatch>()
+    const status = currentEvent?.type ? String(currentEvent.type) : undefined
+    const message = currentEvent
+      ? [status, currentNodeId ? nodeRunLabel(get().nodes, currentNodeId) : '', eventPort(currentEvent) ?? record.port]
+          .filter(Boolean)
+          .join(' / ')
+      : undefined
+
+    set(s => ({
+      runReplay: {
+        runId: record.run_id,
+        cursor: nextCursor,
+        total,
+        playing,
+        currentNodeId,
+        currentEventType: status,
+        message,
+      },
+      nodes: s.nodes.map(node => ({
+        ...node,
+        data: {
+          ...clearReplayData(node.data),
+          ...patches.get(node.id),
+        },
+      })),
+    }))
+  },
+
+  clearRunReplay: () => {
+    set(s => ({
+      runReplay: EMPTY_REPLAY,
+      nodes: s.nodes.map(node => ({
+        ...node,
+        data: clearReplayData(node.data),
+      })),
+    }))
   },
 
   selectNode: (id) => set({ selectedId: id }),

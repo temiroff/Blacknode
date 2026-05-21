@@ -38,7 +38,7 @@ export interface RunSummary {
 }
 
 export interface RunRecord extends RunSummary {
-  events: Array<Record<string, unknown> & { type: string; ts?: string }>
+  events: Array<Record<string, unknown> & { type: string; ts?: string | number }>
   value?: unknown
 }
 

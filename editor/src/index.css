@@ -547,6 +547,94 @@ body {
   font-size: 9px;
 }
 
+.bn-replay-panel {
+  margin: 10px 0;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.bn-replay-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bn-replay-title {
+  color: var(--tx1);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.bn-replay-subtitle,
+.bn-replay-count {
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-replay-subtitle {
+  max-width: 210px;
+  margin-top: 2px;
+}
+
+.bn-replay-count {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.bn-replay-scrub {
+  margin: 8px 0 7px;
+}
+
+.bn-replay-scrub input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.bn-replay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.bn-replay-actions button,
+.bn-replay-actions select {
+  min-height: 24px;
+  background: transparent;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  color: var(--tx2);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  padding: 3px 7px;
+}
+
+.bn-replay-actions select {
+  background: var(--panel);
+  max-width: 86px;
+}
+
+.bn-replay-actions button:hover:not(:disabled),
+.bn-replay-actions select:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+  color: var(--tx1);
+}
+
+.bn-replay-actions button:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
 .bn-event-timeline {
   display: flex;
   flex-direction: column;
@@ -558,6 +646,27 @@ body {
   display: grid;
   grid-template-columns: 43px 13px minmax(0, 1fr);
   gap: 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  outline: none;
+}
+
+.bn-event-row:hover {
+  background: var(--hover);
+}
+
+.bn-event-row.is-active {
+  background: color-mix(in srgb, var(--event-color) 11%, transparent);
+  box-shadow: inset 2px 0 0 var(--event-color);
+}
+
+.bn-event-row:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .bn-event-time {

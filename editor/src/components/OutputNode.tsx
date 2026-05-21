@@ -42,8 +42,9 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
     return () => el.removeEventListener('wheel', stop)
   }, [])
 
-  const { cooking, cookResult, cookError } = data
-  const hasResult = cookResult !== undefined || !!cookError
+  const { cooking, cookResult, cookError, replayResult, replayError, replayStatus } = data
+  const replayHasResult = replayResult !== undefined || !!replayError
+  const hasResult = cookResult !== undefined || !!cookError || replayHasResult
 
   const displayText = cooking
     ? null
@@ -51,7 +52,12 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
     ? cookError
     : cookResult !== undefined
     ? (typeof cookResult === 'object' ? JSON.stringify(cookResult, null, 2) : String(cookResult))
+    : replayError
+    ? replayError
+    : replayResult !== undefined
+    ? (typeof replayResult === 'object' ? JSON.stringify(replayResult, null, 2) : String(replayResult))
     : null
+  const isReplayValue = !cooking && cookResult === undefined && !cookError && replayHasResult
 
   return (
     <NodeFrame
@@ -160,17 +166,31 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
         )}
 
         {!cooking && hasResult && (
-          <pre style={{
-            margin: 0,
-            color: cookError ? 'var(--err)' : 'var(--tx1)',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 12,
-            lineHeight: 1.65,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-          }}>
-            {displayText}
-          </pre>
+          <>
+            {isReplayValue && (
+              <div style={{
+                marginBottom: 7,
+                color: replayError ? 'var(--err)' : replayStatus === 'done' ? 'var(--ok)' : 'var(--tx3)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+              }}>
+                replay preview
+              </div>
+            )}
+            <pre style={{
+              margin: 0,
+              color: cookError || replayError ? 'var(--err)' : 'var(--tx1)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 12,
+              lineHeight: 1.65,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}>
+              {displayText}
+            </pre>
+          </>
         )}
       </div>
     </NodeFrame>

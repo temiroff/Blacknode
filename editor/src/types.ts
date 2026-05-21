@@ -29,6 +29,18 @@ export interface NodeCookState {
   cookError?: string
   cooking?: boolean
   cookPort?: string
+  replayRunId?: string
+  replayStatus?: 'running' | 'success' | 'error' | 'cached' | 'model' | 'tool' | 'done'
+  replayFocused?: boolean
+  replayLabel?: string
+  replayPort?: string
+  replayDurationMs?: number
+  replayResult?: unknown
+  replayError?: string
+  replayStep?: number
+  replayTotal?: number
+  replayModelCalls?: number
+  replayToolCalls?: number
 }
 
 export interface BnNodeDef {

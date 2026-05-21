@@ -19,6 +19,7 @@ Most agent workflows are either code you cannot see as a system, or visual graph
 - Visual editor for inspecting, cooking, saving, and debugging graphs.
 - Python runtime and CLI for running workflows outside the browser.
 - MCP server so AI agents can assemble workflows through typed tools instead of guessing JSON.
+- Run Replay for stepping through saved executions directly on the graph.
 - Portable workflow JSON plus Python export for versioning and handoff.
 - Local API-key handling for OpenAI, Anthropic, NVIDIA NIM, and Ollama-style local models.
 
@@ -404,7 +405,9 @@ each new run. The directory is git-ignored.
 
 The editor's left sidebar has a **Runs** tab that lists recent runs with a
 status badge, duration, and node/model/tool counters. Click a row to expand
-its event timeline and result value or error.
+its event timeline, replay controls, and result value or error. Replay can
+step, play, scrub, and clear a saved execution while highlighting the active
+nodes on the canvas.
 
 ### Endpoints
 
@@ -658,6 +661,7 @@ See [LICENSE](LICENSE) for the full license text.
 - [x] Collapsible/resizable side panels and auto-organized templates
 - [x] MCP server for AI-agent-driven workflow building
 - [x] Persistent run history with event timeline and result/error inspection
+- [x] Visual Run Replay with node highlights and event scrubbing
 - [x] GitHub Actions CI for Python, editor, and Rust checks
 - [x] Experimental Rust no-server CLI for workflow inspect and pure-node runs
 - [x] Public preview demo video
