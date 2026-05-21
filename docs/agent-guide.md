@@ -240,7 +240,14 @@ Visual Agent Loop:
 ## MCP Editor Smoke Tests
 
 Use `docs/mcp-test-prompts.md` when verifying the MCP server from an agent
-client. The NVIDIA NIM prompt exercises the full live-editor path:
+client. MCP exposes read-only resources for quick context:
+
+- `blacknode://nodes`
+- `blacknode://templates`
+- `blacknode://workflows`
+- `blacknode://editor/graph`
+
+The NVIDIA NIM prompts exercise the full live-editor path:
 
 - build workflow JSON through MCP tools
 - validate the graph
@@ -249,6 +256,12 @@ client. The NVIDIA NIM prompt exercises the full live-editor path:
 - inspect and save the currently loaded editor graph
 - list and reopen saved workflows by slug
 - organize, rename, and close live editor tabs
+
+For tracked templates, prefer `run_template_in_editor` when the task is simply
+"open this template, organize it, and optionally cook it." Use the lower-level
+`load_workflow`, `validate_workflow`, `open_workflow_in_editor_tab`, and
+`cook_editor_node` calls when the agent needs to inspect or modify the graph
+before opening it.
 
 The live editor tools require `editor-server/server.py` to be running at
 `http://127.0.0.1:7777` or `BLACKNODE_EDITOR_URL` to point at the backend.

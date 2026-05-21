@@ -170,6 +170,11 @@ class ListTemplatesTests(unittest.TestCase):
         names = {entry["name"] for entry in result["templates"]}
         self.assertIn("Text Pipeline", names)
 
+    def test_loads_template_workflow_by_slug(self):
+        workflow = t.load_template_workflow("nvidia-nim-mcp-demo")
+        self.assertEqual(workflow["name"], "NVIDIA NIM MCP Demo")
+        self.assertTrue(t.validate_workflow_tool(workflow)["ok"])
+
 
 class CreateEditorWorkflowTabTests(unittest.TestCase):
     def test_posts_editor_action(self):
@@ -274,6 +279,63 @@ class CreateEditorWorkflowTabTests(unittest.TestCase):
         self.assertEqual(requests[0][0].full_url, "http://editor/editor/actions/cook-node")
         self.assertEqual(
             json.loads(requests[0][0].data.decode("utf-8")),
+            {"node_id": "out", "port": "value"},
+        )
+
+    def test_runs_template_in_editor_and_cooks_output(self):
+        requests = []
+
+        class FakeResponse:
+            def __init__(self, action_type: str):
+                self.action_type = action_type
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "ok": True,
+                    "action": {
+                        "id": self.action_type,
+                        "type": self.action_type,
+                        "payload": {},
+                    },
+                }).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            if req.full_url.endswith("/editor/actions/open-workflow-tab"):
+                return FakeResponse("open_workflow_tab")
+            if req.full_url.endswith("/editor/actions/cook-node"):
+                return FakeResponse("cook_node")
+            raise AssertionError(f"Unexpected URL: {req.full_url}")
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            result = t.run_template_in_editor(
+                "nvidia-nim-mcp-demo",
+                name="NIM Test",
+                editor_url="http://editor",
+                cook=True,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["template"]["name"], "NVIDIA NIM MCP Demo")
+        self.assertTrue(result["validation"]["ok"])
+        self.assertEqual(result["open"]["action"]["type"], "open_workflow_tab")
+        self.assertEqual(result["cook"]["action"]["type"], "cook_node")
+        self.assertEqual([req.full_url for req, _ in requests], [
+            "http://editor/editor/actions/open-workflow-tab",
+            "http://editor/editor/actions/cook-node",
+        ])
+        open_payload = json.loads(requests[0][0].data.decode("utf-8"))
+        self.assertEqual(open_payload["name"], "NIM Test")
+        self.assertTrue(open_payload["organize"])
+        self.assertEqual(open_payload["workflow"]["name"], "NVIDIA NIM MCP Demo")
+        self.assertEqual(
+            json.loads(requests[1][0].data.decode("utf-8")),
             {"node_id": "out", "port": "value"},
         )
 

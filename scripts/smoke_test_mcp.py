@@ -110,20 +110,65 @@ def main() -> int:
             "get_editor_graph", "save_editor_workflow",
             "list_saved_workflows", "load_saved_workflow_in_editor",
             "organize_editor_graph", "rename_editor_tab", "close_editor_tab",
+            "run_template_in_editor",
         }
         missing = expected - set(names)
         if missing:
             print(f"[smoke] FAIL: missing expected tools: {sorted(missing)}")
             return 1
 
-        # 4. call list_nodes
+        # 4. resources/list
+        send(proc, {"jsonrpc": "2.0", "id": 3, "method": "resources/list"})
+        resources_resp = recv(stdout_q, expect_id=3)
+        if "error" in resources_resp:
+            print(f"[smoke] FAIL: resources/list returned error: {resources_resp['error']}")
+            return 1
+        resources = resources_resp.get("result", {}).get("resources", [])
+        uris = sorted(r["uri"] for r in resources)
+        print(f"[smoke] resources/list returned {len(resources)} resources: {', '.join(uris)}")
+        expected_resources = {
+            "blacknode://nodes",
+            "blacknode://templates",
+            "blacknode://workflows",
+            "blacknode://editor/graph",
+        }
+        missing_resources = expected_resources - set(uris)
+        if missing_resources:
+            print(f"[smoke] FAIL: missing expected resources: {sorted(missing_resources)}")
+            return 1
+
+        # 5. read a static resource
         send(proc, {
             "jsonrpc": "2.0",
-            "id": 3,
+            "id": 4,
+            "method": "resources/read",
+            "params": {"uri": "blacknode://templates"},
+        })
+        resource_read_resp = recv(stdout_q, expect_id=4)
+        if "error" in resource_read_resp:
+            print(f"[smoke] FAIL: resources/read returned error: {resource_read_resp['error']}")
+            return 1
+        contents = resource_read_resp.get("result", {}).get("contents", [])
+        template_body = None
+        for item in contents:
+            if item.get("text"):
+                try:
+                    template_body = json.loads(item["text"])
+                    break
+                except json.JSONDecodeError:
+                    continue
+        if not template_body or template_body.get("count", 0) < 1:
+            print(f"[smoke] FAIL: templates resource returned no parseable templates: {contents}")
+            return 1
+
+        # 6. call list_nodes
+        send(proc, {
+            "jsonrpc": "2.0",
+            "id": 5,
             "method": "tools/call",
             "params": {"name": "list_nodes", "arguments": {}},
         })
-        call_resp = recv(stdout_q, expect_id=3)
+        call_resp = recv(stdout_q, expect_id=5)
         if "error" in call_resp:
             print(f"[smoke] FAIL: list_nodes call returned error: {call_resp['error']}")
             return 1

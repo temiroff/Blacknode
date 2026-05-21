@@ -24,6 +24,14 @@ Using the blacknode MCP tools, list the available node types, show the schema fo
 
 Expected result: the workflow validates, `run_workflow` returns `Hello World`, and `export_python` returns a runnable script.
 
+## Resource Smoke Test
+
+```text
+Using the blacknode MCP resources, read blacknode://nodes and blacknode://templates. Tell me how many nodes and templates are available, then name one NVIDIA-related template if present.
+```
+
+Expected result: the client reads `blacknode://nodes` and `blacknode://templates` without needing a tool call.
+
 ## Open A Blank Editor Tab
 
 ```text
@@ -97,6 +105,16 @@ Using the blacknode MCP tools, load templates/nvidia-nim-mcp-demo.json, validate
 ```
 
 Expected result: the tracked NVIDIA NIM MCP demo template validates, opens in the editor, and cooks the Output node.
+
+## One-Call NVIDIA NIM Template
+
+```text
+Using the blacknode MCP tools, run the template nvidia-nim-mcp-demo in the running editor as an organized tab named "NVIDIA NIM MCP Demo", then cook out.value.
+```
+
+Expected tool call: `run_template_in_editor` with `template` set to `nvidia-nim-mcp-demo`, `name` set to `NVIDIA NIM MCP Demo`, `organize` set to `true`, and `cook` set to `true`.
+
+Expected result: the editor opens the tracked template, keeps the graph organized on screen, and cooks the Output node.
 
 ## Direct Local Verification
 

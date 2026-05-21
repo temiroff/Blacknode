@@ -21,6 +21,7 @@ const TOOLS: { name: string; desc: string }[] = [
   { name: 'export_python',    desc: 'Convert workflow to a runnable Python script' },
   { name: 'create_editor_workflow_tab', desc: 'Open a new unsaved tab in the running editor UI' },
   { name: 'open_workflow_in_editor_tab', desc: 'Open a populated workflow as a new organized editor tab' },
+  { name: 'run_template_in_editor', desc: 'Open a tracked template in the editor and optionally cook it' },
   { name: 'cook_editor_node', desc: 'Cook a node in the running editor UI and update the canvas' },
   { name: 'get_editor_graph', desc: 'Inspect the graph currently loaded in the editor backend' },
   { name: 'save_editor_workflow', desc: 'Save the currently loaded editor graph to workflows/' },
@@ -29,6 +30,13 @@ const TOOLS: { name: string; desc: string }[] = [
   { name: 'organize_editor_graph', desc: 'Organize and fit the currently open editor graph' },
   { name: 'rename_editor_tab', desc: 'Rename the active editor workflow tab' },
   { name: 'close_editor_tab', desc: 'Close the active editor workflow tab' },
+]
+
+const RESOURCES: { uri: string; desc: string }[] = [
+  { uri: 'blacknode://nodes', desc: 'Registered node schemas grouped by category' },
+  { uri: 'blacknode://templates', desc: 'Tracked templates from templates/*.json' },
+  { uri: 'blacknode://workflows', desc: 'Saved workflows from the running editor backend' },
+  { uri: 'blacknode://editor/graph', desc: 'Current graph loaded in the running editor backend' },
 ]
 
 const STARTER_PROMPTS: { title: string; body: string }[] = [
@@ -43,6 +51,10 @@ const STARTER_PROMPTS: { title: string; body: string }[] = [
   {
     title: 'Explain a saved workflow',
     body: 'Load the workflow at templates/research-pipeline.json. List its nodes and edges, then export it as a Python script and explain what it does step by step.',
+  },
+  {
+    title: 'NVIDIA template in editor',
+    body: 'Using the blacknode MCP tools, run the template nvidia-nim-mcp-demo in the running editor as an organized tab named "NVIDIA NIM MCP Demo", then cook out.value.',
   },
 ]
 
@@ -148,6 +160,25 @@ export default function McpPanel() {
                 {tool.name}
               </span>
               <span style={{ color: 'var(--tx3)' }}>{tool.desc}</span>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Exposed resources">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {RESOURCES.map(resource => (
+            <div key={resource.uri} style={{
+              display: 'grid',
+              gridTemplateColumns: '170px 1fr',
+              gap: 8,
+              fontSize: 11,
+              lineHeight: 1.4,
+            }}>
+              <span style={{ color: 'var(--tx1)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                {resource.uri}
+              </span>
+              <span style={{ color: 'var(--tx3)' }}>{resource.desc}</span>
             </div>
           ))}
         </div>

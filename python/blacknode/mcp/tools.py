@@ -88,6 +88,12 @@ def list_templates() -> dict[str, Any]:
     return {"templates": items, "count": len(items)}
 
 
+def load_template_workflow(template: str) -> dict[str, Any]:
+    """Load a shipped template workflow by slug, relative path, or absolute path."""
+    _path, workflow = _load_template_workflow(template)
+    return workflow
+
+
 def load_workflow_tool(path: str) -> dict[str, Any]:
     """Read a workflow JSON file and return its canonical dict form."""
     return load_workflow(Path(path))
@@ -266,6 +272,55 @@ def open_workflow_in_editor_tab(
     }
 
 
+def run_template_in_editor(
+    template: str,
+    name: str | None = None,
+    *,
+    editor_url: str | None = None,
+    organize: bool = True,
+    cook: bool = False,
+    cook_node_id: str = "out",
+    cook_port: str = "value",
+) -> dict[str, Any]:
+    """Load a template, open it in the running editor, and optionally cook it."""
+    path, workflow = _load_template_workflow(template)
+    report = validate_workflow(workflow).to_dict()
+    if not report.get("ok"):
+        raise ValueError(f"Template workflow is invalid: {report}")
+
+    open_result = open_workflow_in_editor_tab(
+        workflow=workflow,
+        name=name or str(workflow.get("name") or path.stem),
+        editor_url=editor_url,
+        organize=organize,
+    )
+    result: dict[str, Any] = {
+        "ok": bool(open_result.get("ok")),
+        "template": {
+            "name": workflow.get("name") or path.stem,
+            "path": str(path),
+        },
+        "editor_url": open_result.get("editor_url"),
+        "validation": report,
+        "open": open_result,
+        "cook": None,
+        "note": "The open Blacknode editor will load the template on its next action poll.",
+    }
+    if cook:
+        cook_result = cook_editor_node(
+            node_id=cook_node_id,
+            port=cook_port,
+            editor_url=editor_url,
+        )
+        result["cook"] = cook_result
+        result["ok"] = bool(result["ok"] and cook_result.get("ok"))
+        result["note"] = (
+            "The open Blacknode editor will load the template, then cook the requested node "
+            "on subsequent action polls."
+        )
+    return result
+
+
 def cook_editor_node(
     node_id: str = "out",
     port: str = "value",
@@ -426,7 +481,7 @@ def _editor_request_json(
     payload_dict: Mapping[str, Any] | None = None,
     *,
     editor_url: str | None = None,
-) -> tuple[str, dict[str, Any]]:
+) -> tuple[str, Any]:
     base_url = (editor_url or os.environ.get("BLACKNODE_EDITOR_URL") or "http://127.0.0.1:7777").rstrip("/")
     payload = json.dumps(payload_dict).encode("utf-8") if payload_dict is not None else None
     req = urllib_request.Request(
@@ -455,6 +510,43 @@ def _editor_request_json(
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Blacknode editor backend returned non-JSON: {body!r}") from exc
     return base_url, result
+
+
+def _load_template_workflow(template: str) -> tuple[Path, dict[str, Any]]:
+    path = _resolve_template_path(template)
+    return path, load_workflow(path)
+
+
+def _resolve_template_path(template: str) -> Path:
+    clean = template.strip()
+    if not clean:
+        raise ValueError("Template must be a slug or path")
+
+    raw = Path(clean)
+    candidates: list[Path] = []
+    if raw.is_absolute():
+        candidates.append(raw)
+        if raw.suffix.lower() != ".json":
+            candidates.append(raw.with_suffix(".json"))
+    else:
+        candidates.append(_REPO_ROOT / raw)
+        candidates.append(_TEMPLATES_DIR / raw)
+        if raw.suffix.lower() != ".json":
+            candidates.append((_REPO_ROOT / raw).with_suffix(".json"))
+            candidates.append((_TEMPLATES_DIR / raw).with_suffix(".json"))
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists() and candidate.is_file():
+            return candidate.resolve()
+
+    searched = ", ".join(str(path) for path in candidates)
+    raise FileNotFoundError(f"Template '{template}' not found. Searched: {searched}")
+
 
 def _node_schema(name: str, fn: Any) -> dict[str, Any]:
     inputs = list(getattr(fn, "_bn_inputs", []))

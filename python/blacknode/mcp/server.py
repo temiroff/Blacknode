@@ -6,6 +6,7 @@ Claude Desktop or Cursor at the same command. The tools call into
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 try:
@@ -19,6 +20,57 @@ except ImportError as exc:  # pragma: no cover - import guidance
 from . import tools
 
 mcp = FastMCP("blacknode")
+
+
+def _json_resource(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, indent=2, sort_keys=True)
+
+
+def _safe_editor_resource(name: str, payload_fn: Any) -> str:
+    try:
+        return _json_resource(payload_fn())
+    except Exception as exc:  # pragma: no cover - depends on live editor state
+        return _json_resource({"ok": False, "resource": name, "error": str(exc)})
+
+
+@mcp.resource(
+    "blacknode://nodes",
+    mime_type="application/json",
+    description="Registered Blacknode node types grouped by category with port schemas.",
+)
+def nodes_resource() -> str:
+    """Registered node schemas as JSON."""
+    return _json_resource(tools.list_nodes())
+
+
+@mcp.resource(
+    "blacknode://templates",
+    mime_type="application/json",
+    description="Tracked workflow templates available from templates/*.json.",
+)
+def templates_resource() -> str:
+    """Tracked workflow templates as JSON."""
+    return _json_resource(tools.list_templates())
+
+
+@mcp.resource(
+    "blacknode://workflows",
+    mime_type="application/json",
+    description="Saved editor workflows from the running Blacknode editor backend.",
+)
+def workflows_resource() -> str:
+    """Saved editor workflows as JSON."""
+    return _safe_editor_resource("blacknode://workflows", tools.list_saved_workflows)
+
+
+@mcp.resource(
+    "blacknode://editor/graph",
+    mime_type="application/json",
+    description="Current graph loaded in the running Blacknode editor backend.",
+)
+def editor_graph_resource() -> str:
+    """Current editor graph as JSON."""
+    return _safe_editor_resource("blacknode://editor/graph", tools.get_editor_graph)
 
 
 @mcp.tool()
@@ -121,6 +173,28 @@ def open_workflow_in_editor_tab(
         name=name,
         editor_url=editor_url,
         organize=organize,
+    )
+
+
+@mcp.tool()
+def run_template_in_editor(
+    template: str,
+    name: str | None = None,
+    editor_url: str | None = None,
+    organize: bool = True,
+    cook: bool = False,
+    cook_node_id: str = "out",
+    cook_port: str = "value",
+) -> dict[str, Any]:
+    """Open a tracked template in the editor and optionally cook a node."""
+    return tools.run_template_in_editor(
+        template=template,
+        name=name,
+        editor_url=editor_url,
+        organize=organize,
+        cook=cook,
+        cook_node_id=cook_node_id,
+        cook_port=cook_port,
     )
 
 
