@@ -8,7 +8,7 @@ Blacknode v0.1.0 Preview - visual AI workflows with MCP control
 
 ## Summary
 
-Blacknode is a local-first visual workflow builder for AI agents. This preview includes a React node editor, Python runtime, portable workflow JSON, CLI execution, Python export, reusable templates, run history, and an MCP server so agents can create and operate workflows through typed tools.
+Blacknode is a visual workflow builder for AI agents. This preview includes a React node editor, Python runtime, portable workflow JSON, CLI execution, Python export, reusable templates, run history, and an MCP server so agents can create and operate workflows through typed tools.
 
 ## Highlights
 

@@ -61,7 +61,7 @@ Do not buy ads for this stage. The project needs feedback, not traffic volume.
 Short version:
 
 ```text
-I built Blacknode, a local-first visual workflow builder for AI agents. It has a React node editor, Python runtime, workflow JSON, Python export, and an MCP server so agents can build and run graphs through typed tools.
+I built Blacknode, a visual workflow builder for AI agents. It has a React node editor, Python runtime, workflow JSON, Python export, and an MCP server so agents can build and run graphs through typed tools.
 ```
 
 Longer version:
@@ -87,4 +87,3 @@ Ask users concrete questions:
 - Product Hunt launch guide: https://www.producthunt.com/launch/
 - GitHub release docs: https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository
 - GitHub topics docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/classifying-your-repository-with-topics
-

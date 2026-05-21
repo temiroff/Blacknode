@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml/badge.svg)](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml)
 
-Blacknode is a local-first visual workflow builder for AI agents. Build typed node graphs by hand, or let an MCP-connected agent create, validate, run, inspect, save, and export workflows as Python.
+Blacknode is a visual workflow builder for AI agents. Build typed node graphs by hand, or let an MCP-connected agent create, validate, run, inspect, save, and export workflows as Python.
 
 **Status:** public preview. The core workflow format, editor, CLI, templates, MCP tools, and tests are usable, but APIs and graph internals may still change before a stable release.
 
@@ -20,7 +20,7 @@ Most agent workflows are either code you cannot see as a system, or visual graph
 - Python runtime and CLI for running workflows outside the browser.
 - MCP server so AI agents can assemble workflows through typed tools instead of guessing JSON.
 - Portable workflow JSON plus Python export for versioning and handoff.
-- Local-first API-key handling for OpenAI, Anthropic, NVIDIA NIM, and Ollama-style local models.
+- Local API-key handling for OpenAI, Anthropic, NVIDIA NIM, and Ollama-style local models.
 
 ## Try first
 

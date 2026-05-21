@@ -4,7 +4,7 @@ Use this as the recording or live-demo path for a public preview. Keep the demo 
 
 ## One-Sentence Positioning
 
-Blacknode is a local-first visual workflow builder that AI agents can control through MCP: an agent can create a graph, validate it, run it, inspect the run history, save it, and export it as Python.
+Blacknode is a visual workflow builder for AI agents: an MCP-connected agent can create a graph, validate it, run it, inspect the run history, save it, and export it as Python.
 
 ## 90-Second Demo
 
@@ -57,7 +57,7 @@ Expected outputs:
 - Agent-controllable: MCP tools build real workflows, not screenshots.
 - Inspectable: visual graph plus run timeline.
 - Portable: workflow JSON and Python export.
-- Local-first: editor, runtime, keys, and run history are local by default.
+- Local execution: editor, runtime, keys, and run history stay on your machine by default.
 - Practical: templates cover chat, NVIDIA NIM, research, Python tools, and subnets.
 
 ## What Not To Claim Yet
