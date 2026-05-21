@@ -407,7 +407,8 @@ The editor's left sidebar has a **Runs** tab that lists recent runs with a
 status badge, duration, and node/model/tool counters. Click a row to expand
 its event timeline, replay controls, and result value or error. Replay can
 step, play, scrub, and clear a saved execution while highlighting the active
-nodes on the canvas.
+nodes on the canvas. The top-bar **Run** button cooks the current visible
+network and streams the same highlights during the first run.
 
 ### Endpoints
 

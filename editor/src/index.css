@@ -137,6 +137,25 @@ body {
   transform: translateY(1px);
 }
 
+.bn-top-run-button {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
+  font-weight: 700;
+  min-width: 64px;
+}
+
+.bn-top-run-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ok) 86%, #000);
+  border-color: var(--ok);
+  color: #fff;
+}
+
+.bn-top-run-button:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
 .bn-workflow-row:hover {
   background: var(--hover) !important;
   border-color: var(--accent) !important;

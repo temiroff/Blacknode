@@ -2097,7 +2097,41 @@ export const useStore = create<Store>((set, get) => ({
   cookNode: async (id, port = 'output') => {
     const stack = get().subnetStack
     const activeSubnetId = stack.length > 0 ? stack[stack.length - 1].subnetId : null
+    const startNode = get().nodes.find(n => n.id === id)
+    const liveRunId = `live-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const liveStartedAt = new Date().toISOString()
+    const liveEvents: RunRecord['events'] = []
+    let liveReplayDelay = 0
+    const queueLiveReplay = (event: CookEvent) => {
+      const stamped = { ...event, ts: new Date().toISOString() }
+      liveEvents.push(stamped)
+      const eventIndex = liveEvents.length - 1
+      const record: RunRecord = {
+        run_id: liveRunId,
+        started_at: liveStartedAt,
+        finished_at: stamped.type === 'done' ? stamped.ts as string : null,
+        duration_ms: null,
+        status: stamped.type === 'done' ? (stamped.error ? 'error' : 'success') : 'running',
+        node_id: id,
+        port,
+        node_type: startNode?.data.type ?? '',
+        node_count: new Set(liveEvents.map(e => stringValue(e.node_id)).filter(Boolean)).size,
+        model_calls: liveEvents.filter(e => e.type === 'model_call').length,
+        tool_calls: liveEvents.filter(e => e.type === 'tool_call').length,
+        cached_nodes: liveEvents.filter(e => e.type === 'success' && Boolean(e.cached)).length,
+        events: liveEvents.slice(),
+        value: stamped.type === 'done' ? stamped.value : undefined,
+        error: stamped.type === 'done' && stamped.error ? stringValue(stamped.error) : undefined,
+      }
+      const delay = liveReplayDelay
+      liveReplayDelay += 170
+      window.setTimeout(() => {
+        if (get().runReplay.runId !== liveRunId) return
+        get().applyRunReplay(record, eventIndex, stamped.type !== 'done')
+      }, delay)
+    }
     const applyCookEvent = (event: CookEvent) => {
+      queueLiveReplay(event)
       if (event.type === 'done') {
         set(s => ({
           cookActive: false,
@@ -2159,7 +2193,15 @@ export const useStore = create<Store>((set, get) => ({
 
     set(s => ({
       cookActive: true,
-      runReplay: EMPTY_REPLAY,
+      runReplay: {
+        runId: liveRunId,
+        cursor: -1,
+        total: 0,
+        playing: true,
+        currentNodeId: id,
+        currentEventType: 'queued',
+        message: `Queued ${nodeRunLabel(s.nodes, id)}.${port}`,
+      },
       cookLog: [{
         id: `${Date.now()}-${id}-queued`,
         kind: 'start',

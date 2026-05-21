@@ -538,6 +538,22 @@ export default function App() {
     fitCurrentCanvas(320)
   }, [fitCurrentCanvas, organizeNodes])
 
+  const handleRunGraph = useCallback(async () => {
+    const target = inferGraphRunTarget(nodes)
+    if (!target) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'warning',
+          title: 'Run',
+          message: 'No runnable output found in the current graph.',
+        },
+      }))
+      return
+    }
+    fitCurrentCanvas(220)
+    await cookNode(target.id, target.port)
+  }, [cookNode, fitCurrentCanvas, nodes])
+
   const runTabMenuAction = useCallback((action: () => void | Promise<void>) => {
     setTabMenu(null)
     void action()
@@ -579,6 +595,15 @@ export default function App() {
           <div style={{ flex: 1 }} />
 
           <span style={{ color: 'var(--tx3)', fontSize: 12 }}>right-click to add</span>
+
+          <button
+            className="bn-top-button bn-top-run-button"
+            onClick={() => void handleRunGraph()}
+            disabled={!serverOk || cookActive || nodes.length === 0}
+            title="Run current graph"
+          >
+            {cookActive ? 'Running...' : 'Run'}
+          </button>
 
           <button
             className="bn-top-button"
@@ -1010,6 +1035,30 @@ function findToolBoxAtScreenPoint(nodes: any[], point: { x: number; y: number })
     }
   }
   return null
+}
+
+function inferGraphRunTarget(nodes: any[]): { id: string; port: string } | null {
+  const outputNodes = nodes
+    .filter(node => node.data?.type === 'Output')
+    .sort((a, b) => (b.position?.x ?? 0) - (a.position?.x ?? 0))
+  const output = outputNodes[0]
+  if (output) return { id: output.id, port: 'value' }
+
+  const subnetOutput = nodes.find(node => {
+    const inputs = node.data?.inputs
+    return node.data?.type === 'SubnetOutput' && Array.isArray(inputs) && inputs.length > 0
+  })
+  if (subnetOutput) return { id: subnetOutput.id, port: subnetOutput.data.inputs[0] }
+
+  const rightmostRunnable = nodes
+    .filter(node => Array.isArray(node.data?.outputs) && node.data.outputs.length > 0)
+    .sort((a, b) => (b.position?.x ?? 0) - (a.position?.x ?? 0))[0]
+  if (!rightmostRunnable) return null
+
+  return {
+    id: rightmostRunnable.id,
+    port: rightmostRunnable.data.outputs[0],
+  }
 }
 
 function CookStatusPanel({
