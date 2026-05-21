@@ -10,6 +10,8 @@ Blacknode is a visual workflow builder for AI agents. Build typed node graphs by
 
 [Watch the Blacknode MCP + NVIDIA NIM preview demo](https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2)
 
+[Watch the Run workflow live replay demo](https://github.com/user-attachments/assets/16a0d311-f237-4d6f-9fec-c303fc3e41d0)
+
 ![Blacknode MCP NVIDIA NIM editor demo](docs/images/blacknode-mcp-nim-editor-demo.png)
 
 ## Why it exists
