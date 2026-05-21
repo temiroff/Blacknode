@@ -6,6 +6,12 @@ Blacknode is a local-first visual workflow builder for AI agents. Build typed no
 
 **Status:** public preview. The core workflow format, editor, CLI, templates, MCP tools, and tests are usable, but APIs and graph internals may still change before a stable release.
 
+## Demo
+
+[Watch the Blacknode MCP + NVIDIA NIM preview demo](https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2)
+
+![Blacknode MCP NVIDIA NIM editor demo](docs/images/blacknode-mcp-nim-editor-demo.png)
+
 ## Why it exists
 
 Most agent workflows are either code you cannot see as a system, or visual graphs that are hard to automate. Blacknode is meant to sit in the middle:

@@ -26,7 +26,7 @@ docs/todays-goal.md
 
 # Blacknode artifacts
 *.bn.cache
-docs/demo.mp4
+docs/*.mp4
 editor-server/blacknode_graph.json
 editor-server/api_keys.json
 editor-server/custom_models.json
