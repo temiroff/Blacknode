@@ -2,18 +2,48 @@
 
 [![CI](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml/badge.svg)](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml)
 
-Blacknode is a visual workflow builder for AI agents. Build typed node graphs by hand, or let an MCP-connected agent create, validate, run, inspect, save, and export workflows as Python.
+**A visual workflow builder where AI agents can build the graph with you.**
+
+Connect Blacknode to Claude Desktop or any MCP client and watch an agent
+assemble, validate, run, and debug typed node graphs in a live editor. No
+JSON guessing. No fragile graph prompts. When you want code, export the
+workflow as readable Python.
+
+![MCP + NVIDIA NIM demo](docs/images/blacknode-mcp-nim-editor-demo.png)
+
+▶ **[60-second demo](https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2)** — Claude opens, organizes, and cooks an NVIDIA NIM graph through MCP.
+
+```bash
+pip install -e ".[mcp]"
+./start.sh           # macOS/Linux visual editor
+# Windows: start.bat
+# MCP command for your client: blacknode mcp
+```
+
+Point your MCP client at `blacknode` and ask it to build a workflow like:
+
+> Build me a research pipeline that fetches a URL, summarizes it with Claude, and saves the result to disk.
+
+Blacknode gives the agent typed tools to create the graph, connect ports,
+validate the workflow, run it, and inspect the result.
 
 **Status:** public preview. The core workflow format, editor, CLI, templates, MCP tools, and tests are usable, but APIs and graph internals may still change before a stable release.
 
-## Demo
+## Why this is different
+
+- **MCP-first, not bolted on.** Typed tools let an agent add nodes, connect ports, validate, cook, and inspect runs. Validation reports help the agent self-correct.
+- **Live editor control.** The agent drives the running editor, so you can watch the workflow take shape.
+- **Typed ports with compatibility rules.** Text, Int, Float, Bool, List, Dict, Embedding, Fn, and Model ports are color-coded and checked before connection.
+- **Python export.** Graphs can be exported to readable Python for inspection, versioning, and extension.
+- **Run replay.** Every cook creates an event log you can scrub through, with node highlights on the canvas.
+- **Flexible model routing.** Anthropic, OpenAI, NVIDIA NIM, and Ollama-style models route from the model string, with keys kept on your machine.
+
+## Demos
 
 | Demo | What it shows |
 |---|---|
 | [MCP + NVIDIA NIM preview](https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2) | MCP opens and cooks a visual NVIDIA NIM workflow in the editor. |
 | [Run workflow live replay](https://github.com/user-attachments/assets/16a0d311-f237-4d6f-9fec-c303fc3e41d0) | Top-bar Run button executes the visible graph with live node highlights. |
-
-![Blacknode MCP NVIDIA NIM editor demo](docs/images/blacknode-mcp-nim-editor-demo.png)
 
 ## Why it exists
 
@@ -38,8 +68,9 @@ blacknode demo
 
 Visual editor:
 
-```bat
-start.bat
+```bash
+./start.sh
+# Windows: start.bat
 ```
 
 Agent/MCP demo:
@@ -111,6 +142,15 @@ npm install
 **Windows — double-click `start.bat`** (at the repo root).
 
 It opens two terminal windows (Python server + Vite dev server) and then launches the browser at `http://localhost:3000` automatically.
+
+**macOS/Linux — run `./start.sh`** from the repo root:
+
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+It installs missing local dependencies, starts the Python server and Vite dev server, opens the browser when possible, and stops both servers when you press **Ctrl+C**.
 
 **Manual start (any OS):**
 
@@ -438,9 +478,9 @@ client) can build, validate, and run Blacknode workflows through a typed tool
 interface — no raw JSON guessing.
 
 The `mcp` Python package is part of `editor-server/requirements.txt`, so the
-normal first-time setup (or running `start.bat`) installs it for you. If you
-installed Blacknode as a package, the same dep is available as an optional
-extra:
+normal first-time setup (or running `start.bat` / `start.sh`) installs it for
+you. If you installed Blacknode as a package, the same dep is available as an
+optional extra:
 
 ```powershell
 pip install -e ".[mcp]"
@@ -607,6 +647,7 @@ def MyNode(ctx: dict) -> dict:
 ```
 blacknode/
 ├── start.bat                    ← double-click to launch everything
+├── start.sh                     ← macOS/Linux launcher
 ├── docs/
 │   ├── agent-guide.md           ← workflow instructions for agents
 │   └── workflow-schema.md       ← portable workflow format

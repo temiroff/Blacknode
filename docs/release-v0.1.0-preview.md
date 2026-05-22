@@ -69,7 +69,7 @@ Expected status:
 ## Known Limitations
 
 - Public preview: graph APIs and workflow internals may change.
-- Windows has the smoothest launch path through `start.bat`; macOS/Linux users should use the manual two-terminal start.
+- Windows has the smoothest launch path through `start.bat`; macOS/Linux users can use `start.sh` or the manual two-terminal start.
 - Arbitrary Python tool execution is a developer feature and should not be treated as a hardened sandbox.
 - NVIDIA NIM, OpenAI, and Anthropic demos require provider credentials.
 - Rust crates are present as a future runtime direction, but the packaged Python runtime is currently canonical.
