@@ -27,7 +27,12 @@ Point your MCP client at `blacknode` and ask it to build a workflow like:
 Blacknode gives the agent typed tools to create the graph, connect ports,
 validate the workflow, run it, and inspect the result.
 
-**Status:** public preview. The core workflow format, editor, CLI, templates, MCP tools, and tests are usable, but APIs and graph internals may still change before a stable release.
+Blacknode ships with a visual editor, workflow runtime, CLI, templates, MCP
+server, Python export, Docker Compose deployment, and NVIDIA NIM workflows.
+
+**First time here?** Follow the [beginner walkthrough](docs/walkthrough.md) for
+exact commands, buttons to press, expected results, NVIDIA steps, MCP setup, and
+Docker Compose.
 
 ## Why this is different
 
@@ -76,6 +81,9 @@ Most agent workflows are either opaque code paths or visual graphs that are hard
 - Local API-key handling for OpenAI, Anthropic, NVIDIA NIM, and Ollama-style local models.
 
 ## Try First: Run, Check, See Result
+
+For the click-by-click version, start with the
+[beginner walkthrough](docs/walkthrough.md). The short path is:
 
 ### 1. Prove the local runtime
 
@@ -127,6 +135,7 @@ or follow [docs/quickstart-mcp.md](docs/quickstart-mcp.md).
 
 ## Guides
 
+- [Beginner walkthrough](docs/walkthrough.md)
 - [MCP quickstart](docs/quickstart-mcp.md)
 - [NVIDIA NIM demo](docs/nvidia-nim-demo.md)
 - [NVIDIA Mission Control](docs/nvidia-mission-control.md)
@@ -359,9 +368,11 @@ LLM templates also export, but running them calls model providers and requires s
 
 Checked-in converted examples live at `examples/converted_text_pipeline.py` and `examples/converted_nvidia_nim.py`. The NIM example requires a NVIDIA API key when run outside tests.
 
-### Experimental Rust no-server CLI
+### Rust no-server CLI
 
-The Python runtime is still the canonical runtime. For quick local checks without starting the editor or web server, the experimental Rust CLI can validate, inspect, and run simple deterministic workflows:
+The Python runtime is the canonical runtime. For quick local checks without
+starting the editor or web server, the Rust CLI can validate, inspect, and run
+simple deterministic workflows:
 
 ```powershell
 cargo run -p blacknode-cli -- validate templates\text-pipeline.json
@@ -756,7 +767,7 @@ blacknode/
 │       ├── values.py            ← Text, Float, Int, Bool, Model
 │       ├── flow.py              ← Branch, Gate, Map, Filter, Reduce
 │       └── io.py                ← FileRead, FileWrite, HTTPGet, JSONParse
-└── crates/                      ← experimental Rust crates and no-server CLI
+└── crates/                      ← Rust crates and no-server CLI
 ```
 
 ---

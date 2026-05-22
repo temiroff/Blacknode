@@ -71,7 +71,7 @@ python -m blacknode.cli validate templates\text-pipeline.json
 python -m blacknode.cli run templates\text-pipeline.json
 ```
 
-Or use the experimental Rust no-server path:
+Or use the Rust no-server path:
 
 ```powershell
 cargo run -p blacknode-cli -- run-pure templates\text-pipeline.json
