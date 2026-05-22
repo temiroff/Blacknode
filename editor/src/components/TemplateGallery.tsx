@@ -3,7 +3,7 @@ import { api, type TemplateMeta } from '../api'
 import { useStore } from '../store'
 
 export default function TemplateGallery() {
-  const { loadGraph, loadNodeTypes } = useStore()
+  const { loadGraph, loadNodeTypes, organizeNodes } = useStore()
   const [templates, setTemplates] = useState<TemplateMeta[]>([])
   const [loading, setLoading] = useState<string | null>(null)
   const [loaded, setLoaded] = useState<string | null>(null)
@@ -30,6 +30,7 @@ export default function TemplateGallery() {
       await api.loadTemplate(template.slug)
       await loadGraph()
       await loadNodeTypes()
+      await organizeNodes()
       window.dispatchEvent(new Event('blacknode:fit-view'))
       setLoaded(template.slug)
     } catch (err) {
