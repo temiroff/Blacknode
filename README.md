@@ -9,15 +9,29 @@ other MCP clients assemble, validate, run, debug, and export typed visual
 workflows. Agents get a structured tool surface instead of guessing JSON, and
 users get a live graph they can inspect.
 
-<p align="center">
-  <a href="docs/images/blacknode-light-theme.png"><img src="docs/images/blacknode-light-theme.png" alt="Blacknode visual editor light theme" width="360"></a>
-  <a href="docs/images/blacknode-launcher.png"><img src="docs/images/blacknode-launcher.png" alt="Blacknode launcher terminal" width="360"></a>
-</p>
+<table>
+  <tr>
+    <td><a href="docs/images/blacknode-light-theme.png"><img src="docs/images/blacknode-light-theme.png" alt="Blacknode visual editor light theme" width="420"></a></td>
+    <td><a href="docs/images/blacknode-launcher.png"><img src="docs/images/blacknode-launcher.png" alt="Blacknode launcher terminal" width="420"></a></td>
+  </tr>
+  <tr>
+    <td><a href="docs/images/blacknode-mcp-nim-editor-demo.png"><img src="docs/images/blacknode-mcp-nim-editor-demo.png" alt="MCP NVIDIA NIM workflow in the editor" width="420"></a></td>
+    <td><a href="docs/images/blacknode-research-pipeline.png"><img src="docs/images/blacknode-research-pipeline.png" alt="Research pipeline workflow" width="420"></a></td>
+  </tr>
+</table>
 
-<p align="center">
-  <video src="docs/Demo1.mp4" controls width="360"></video>
-  <video src="docs/Demo2.mp4" controls width="360"></video>
-</p>
+<table>
+  <tr>
+    <td>
+      <video src="https://raw.githubusercontent.com/temiroff/Blacknode/master/docs/Demo1.mp4" controls width="420"></video>
+      <br><a href="docs/Demo1.mp4">Demo 1</a>
+    </td>
+    <td>
+      <video src="https://raw.githubusercontent.com/temiroff/Blacknode/master/docs/Demo2.mp4" controls width="420"></video>
+      <br><a href="docs/Demo2.mp4">Demo 2</a>
+    </td>
+  </tr>
+</table>
 
 ## Start Here
 
