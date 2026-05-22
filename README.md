@@ -147,7 +147,7 @@ chmod +x start.sh
 ./start.sh
 ```
 
-It installs missing local dependencies, starts the Python server and Vite dev server, opens the browser when possible, and stops both servers when you press **Ctrl+C**.
+It installs missing local dependencies, starts the Python server and Vite dev server, restarts an old Blacknode editor on port 3000 if needed, opens the browser when possible, and stops both servers when you press **Ctrl+C**.
 
 **Manual start (any OS):**
 

@@ -26,7 +26,7 @@ chmod +x start.sh
 ./start.sh
 ```
 
-These launchers install local dependencies if needed, start the FastAPI backend at `http://127.0.0.1:7777`, start the Vite editor at `http://localhost:3000`, and open the browser. On Windows, `start.bat` keeps one launcher window open, restarts an old Blacknode editor on port 3000 if needed, and writes service logs to `.local-logs/`.
+These launchers install local dependencies if needed, start the FastAPI backend at `http://127.0.0.1:7777`, restart an old Blacknode editor on port 3000 if needed, start the Vite editor at `http://localhost:3000`, and open the browser. On Windows, `start.bat` keeps one launcher window open and writes service logs to `.local-logs/`.
 
 Manual start:
 
