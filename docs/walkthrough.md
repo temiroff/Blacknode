@@ -420,6 +420,14 @@ Expected result:
 
 Use this for the self-hosted demo path.
 
+Windows:
+
+```powershell
+.\docker-up.ps1
+```
+
+macOS/Linux:
+
 ```bash
 docker compose up --build
 ```
@@ -454,8 +462,8 @@ cp .env.example .env
 
 Edit `.env`, set `NVIDIA_API_KEY`, then run:
 
-```bash
-docker compose up --build
+```powershell
+.\docker-up.ps1
 ```
 
 ## 17. Create a Custom Node
@@ -610,6 +618,6 @@ Use this as the demo checklist:
 | Local NIM command generation | **NVIDIA Local NIM Launch** template |
 | Agent-controlled workflow building | `blacknode mcp` |
 | AI-Q / NeMo MCP HTTP path | `blacknode mcp --transport streamable-http ...` |
-| Docker deployment | `docker compose up --build` |
+| Docker deployment | `.\docker-up.ps1` on Windows, `docker compose up --build` elsewhere |
 | Custom nodes | **Script** tab |
 | Tool workflows | Python Tool Agent and Subnet Tool templates |

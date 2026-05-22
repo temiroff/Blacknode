@@ -1,6 +1,6 @@
 import type { BnNodeDef, BnNodeMeta } from './types'
 
-const BASE = 'http://127.0.0.1:7777'
+const BASE = (import.meta.env.VITE_BLACKNODE_API_BASE ?? '/api').replace(/\/$/, '')
 
 export type CookEvent =
   | { type: 'start'; node_id: string; port: string; node_type?: string }

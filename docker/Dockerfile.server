@@ -15,7 +15,7 @@ COPY templates ./templates
 COPY editor-server ./editor-server
 
 RUN python -m pip install --upgrade pip \
-    && python -m pip install -e ".[mcp,dev]" \
+    && python -m pip install -e ".[mcp]" \
     && python -m pip install -r editor-server/requirements.txt
 
 EXPOSE 7777 9901

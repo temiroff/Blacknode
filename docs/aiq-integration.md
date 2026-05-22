@@ -41,6 +41,14 @@ http://127.0.0.1:9901/mcp
 
 For Docker Compose:
 
+Windows:
+
+```powershell
+.\docker-up.ps1
+```
+
+macOS/Linux:
+
 ```bash
 docker compose up --build
 ```
@@ -76,8 +84,8 @@ NVIDIA templates.
 
 1. Start Blacknode:
 
-   ```bash
-   docker compose up --build
+   ```powershell
+   .\docker-up.ps1
    ```
 
 2. Start AI-Q or another harness with access to the Blacknode skill and MCP

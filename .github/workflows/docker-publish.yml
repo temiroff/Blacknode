@@ -1,0 +1,61 @@
+name: Docker Publish
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Publish GHCR images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push images
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          server_image="ghcr.io/${owner}/blacknode-server"
+          editor_image="ghcr.io/${owner}/blacknode-editor"
+          short_sha="${GITHUB_SHA::12}"
+          tags=("${short_sha}")
+
+          if [[ "${GITHUB_REF_TYPE}" == "branch" ]]; then
+            tags+=("latest")
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tags+=("${GITHUB_REF_NAME}")
+            tags+=("${GITHUB_REF_NAME#v}")
+          fi
+
+          server_args=()
+          editor_args=()
+          for tag in "${tags[@]}"; do
+            server_args+=("-t" "${server_image}:${tag}")
+            editor_args+=("-t" "${editor_image}:${tag}")
+          done
+
+          docker build -f docker/Dockerfile.server "${server_args[@]}" .
+          docker build -f docker/Dockerfile.editor "${editor_args[@]}" .
+
+          for tag in "${tags[@]}"; do
+            docker push "${server_image}:${tag}"
+            docker push "${editor_image}:${tag}"
+          done

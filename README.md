@@ -83,6 +83,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | [NVIDIA Mission Control](docs/nvidia-mission-control.md) | NVIDIA nodes, templates, local readiness, local NIM launch, and benchmark flow. |
 | [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) | Positioning Blacknode beside AI-Q and using streamable HTTP MCP. |
 | [Docker Compose](docs/docker-compose.md) | Running the editor, backend, and HTTP MCP server as a self-hosted stack. |
+| [Docker Publishing](docs/docker-publish.md) | Publishing prebuilt server/editor images to GHCR and running without local builds. |
 
 ### Workflow Reference
 

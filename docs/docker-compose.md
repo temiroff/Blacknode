@@ -1,7 +1,8 @@
 # Docker Compose
 
 Blacknode includes a Docker Compose path for local, cloud VM, and on-prem demos.
-It starts three services:
+It starts three services. Local development can build from source, while
+published deployments can use prebuilt GHCR images.
 
 | Service | Port | Purpose |
 |---|---:|---|
@@ -12,6 +13,15 @@ It starts three services:
 ## Run, Check, See Result
 
 ### 1. Start everything
+
+On Windows, use the helper so Docker Desktop/engine problems get a clear
+actionable message:
+
+```powershell
+.\docker-up.ps1
+```
+
+On Linux, macOS, or after confirming `docker info` works:
 
 ```bash
 docker compose up --build
@@ -49,8 +59,8 @@ Copy-Item .env.example .env
 
 Then edit `.env` and start the stack:
 
-```bash
-docker compose up --build
+```powershell
+.\docker-up.ps1
 ```
 
 Local state mounted from the checkout:
@@ -61,3 +71,13 @@ Local state mounted from the checkout:
 This Compose stack is the local and self-hosted evaluation path for the visual
 editor, backend, persisted run history, saved workflows, and streamable HTTP MCP
 endpoint.
+
+## Run Published Images
+
+After the images are published, use:
+
+```powershell
+docker compose -f docker-compose.published.yml up
+```
+
+See [Docker Publishing](docker-publish.md) for GHCR publishing and image tags.
