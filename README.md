@@ -10,10 +10,13 @@ workflows. Agents get a structured tool surface instead of guessing JSON, and
 users get a live graph they can inspect.
 
 <p align="center">
-  <a href="docs/images/blacknode-mcp-nim-editor-demo.png"><img src="docs/images/blacknode-mcp-nim-editor-demo.png" alt="MCP NVIDIA NIM editor demo" width="180"></a>
-  <a href="docs/images/blacknode-research-pipeline.png"><img src="docs/images/blacknode-research-pipeline.png" alt="Research pipeline workflow" width="180"></a>
-  <a href="docs/images/blacknode-mcp-claude-connector.png"><img src="docs/images/blacknode-mcp-claude-connector.png" alt="Claude Desktop MCP connector" width="180"></a>
-  <a href="docs/images/blacknode-dark-theme.png"><img src="docs/images/blacknode-dark-theme.png" alt="Blacknode dark theme" width="180"></a>
+  <a href="docs/images/blacknode-light-theme.png"><img src="docs/images/blacknode-light-theme.png" alt="Blacknode visual editor light theme" width="360"></a>
+  <a href="docs/images/blacknode-launcher.png"><img src="docs/images/blacknode-launcher.png" alt="Blacknode launcher terminal" width="360"></a>
+</p>
+
+<p align="center">
+  <video src="docs/Demo1.mp4" controls width="360"></video>
+  <video src="docs/Demo2.mp4" controls width="360"></video>
 </p>
 
 ## Start Here
