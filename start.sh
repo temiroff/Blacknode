@@ -258,6 +258,7 @@ echo "  Opening browser..."
 open_browser
 echo
 echo "  Logs: .local-logs/server.out.log and .local-logs/editor.out.log"
+echo "  Press Ctrl+C to stop."
 
 while true; do
   if ! process_running "$BACKEND_PID"; then

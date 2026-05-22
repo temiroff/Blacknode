@@ -297,6 +297,7 @@ try {
     Open-Browser
     Write-Host ""
     Write-Step "Logs: .local-logs\server.out.log and .local-logs\editor.out.log"
+    Write-Step "Press Ctrl+C to stop."
     Write-Host ""
 
     while ($true) {
