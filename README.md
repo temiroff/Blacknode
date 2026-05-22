@@ -9,6 +9,13 @@ other MCP clients assemble, validate, run, debug, and export typed visual
 workflows. Agents get a structured tool surface instead of guessing JSON, and
 users get a live graph they can inspect.
 
+<p align="center">
+  <a href="docs/images/blacknode-mcp-nim-editor-demo.png"><img src="docs/images/blacknode-mcp-nim-editor-demo.png" alt="MCP NVIDIA NIM editor demo" width="180"></a>
+  <a href="docs/images/blacknode-research-pipeline.png"><img src="docs/images/blacknode-research-pipeline.png" alt="Research pipeline workflow" width="180"></a>
+  <a href="docs/images/blacknode-mcp-claude-connector.png"><img src="docs/images/blacknode-mcp-claude-connector.png" alt="Claude Desktop MCP connector" width="180"></a>
+  <a href="docs/images/blacknode-dark-theme.png"><img src="docs/images/blacknode-dark-theme.png" alt="Blacknode dark theme" width="180"></a>
+</p>
+
 ## Start Here
 
 **New users should begin with the [Beginner Walkthrough](docs/walkthrough.md).**
