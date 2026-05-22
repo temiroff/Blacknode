@@ -72,6 +72,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | Guide | Use it for |
 |---|---|
 | [Beginner Walkthrough](docs/walkthrough.md) | Step-by-step setup, editor use, CLI checks, NVIDIA workflows, MCP, Docker, and troubleshooting. |
+| [Presentation Checklist](docs/presentation-checklist.md) | Fast demo order with actions, expected proof, and feature checkpoints. |
 | [MCP Quickstart](docs/quickstart-mcp.md) | Connecting Blacknode to an MCP client. |
 | [MCP Test Prompts](docs/mcp-test-prompts.md) | Copy-paste prompts for proving agent workflow control. |
 
