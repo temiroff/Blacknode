@@ -968,8 +968,25 @@ export const useStore = create<Store>((set, get) => ({
 
   closeTab: async (tabId) => {
     const { tabs, activeTabId } = get()
-    if (tabs.length <= 1) return
     const idx = tabs.findIndex(t => t.id === tabId)
+    if (idx < 0) return
+    if (tabs.length <= 1) {
+      const tab = tabs[idx]
+      await api.reset()
+      set({
+        tabs: [{ ...tab, name: 'Untitled', slug: null, dirty: false, graph: blankGraph() }],
+        activeTabId: tab.id,
+        nodes: [],
+        edges: [],
+        selectedId: null,
+        subnetStack: [],
+        undoHistory: [],
+        cookLog: [],
+        cookActive: false,
+        runReplay: EMPTY_REPLAY,
+      })
+      return
+    }
     const newTabs = tabs.filter(t => t.id !== tabId)
     if (tabId === activeTabId) {
       const next = newTabs[Math.max(0, idx - 1)]

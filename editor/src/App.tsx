@@ -48,7 +48,7 @@ interface NoticeState {
 
 interface PendingCloseState {
   tabId: string
-  name: string
+  draftName: string
 }
 
 export default function App() {
@@ -75,6 +75,9 @@ export default function App() {
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [pendingClose, setPendingClose] = useState<PendingCloseState | null>(null)
   const [closeSaving, setCloseSaving] = useState(false)
+  const updatePendingCloseName = useCallback((draftName: string) => {
+    setPendingClose(current => current ? { ...current, draftName } : current)
+  }, [])
   const saveOkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const graphClipboard = useRef<GraphClipboard | null>(null)
@@ -561,10 +564,10 @@ export default function App() {
   const requestCloseTab = useCallback((tabId: string) => {
     setTabMenu(null)
     const tab = tabs.find(item => item.id === tabId)
-    if (!tab || tabs.length <= 1) return
+    if (!tab) return
     if (tab.dirty) {
-      const name = (editingTabId === tabId ? tabDraft : tab.name).trim() || 'Untitled'
-      setPendingClose({ tabId, name })
+      const draftName = (editingTabId === tabId ? tabDraft : tab.name).trim() || 'Untitled'
+      setPendingClose({ tabId, draftName })
       return
     }
     void closeTabNow(tabId)
@@ -584,6 +587,7 @@ export default function App() {
 
   const savePendingClose = useCallback(async () => {
     if (!pendingClose || closeSaving) return
+    if (!pendingClose.draftName.trim()) return
     const tab = tabs.find(item => item.id === pendingClose.tabId)
     if (!tab) {
       setPendingClose(null)
@@ -591,7 +595,7 @@ export default function App() {
     }
     setCloseSaving(true)
     try {
-      const name = pendingClose.name.trim() || 'Untitled'
+      const name = pendingClose.draftName.trim() || 'Untitled'
       if (editingTabId === tab.id) {
         renameTab(tab.id, name)
         setEditingTabId(null)
@@ -802,28 +806,35 @@ export default function App() {
                 ) : (
                   <span>{tab.name}</span>
                 )}
-                {(tab.dirty || !tab.slug) && !editing && (
-                  <span style={{ color: 'var(--tx3)', fontSize: 14, lineHeight: 1 }}>•</span>
-                )}
-                {tabs.length > 1 && (
-                  <button
-                    onClick={e => { e.stopPropagation(); requestCloseTab(tab.id) }}
+                {!editing && (
+                  <span
+                    title={tab.dirty || !tab.slug ? 'Unsaved changes' : 'Saved'}
                     style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'inherit',
-                      cursor: 'pointer',
-                      fontSize: 13,
+                      color: tab.dirty || !tab.slug ? '#b86b68' : '#6f9b78',
+                      fontSize: 14,
                       lineHeight: 1,
-                      padding: '0 2px',
-                      opacity: 0.5,
                     }}
-                    onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                    onMouseLeave={e => (e.currentTarget.style.opacity = '0.5')}
                   >
-                    ×
-                  </button>
+                    •
+                  </span>
                 )}
+                <button
+                  onClick={e => { e.stopPropagation(); requestCloseTab(tab.id) }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    lineHeight: 1,
+                    padding: '0 2px',
+                    opacity: 0.5,
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = '0.5')}
+                >
+                  ×
+                </button>
               </div>
             )
           })}
@@ -895,8 +906,7 @@ export default function App() {
             <button className="bn-menu-item" style={menuItemStyle()} onClick={() => runTabMenuAction(() => duplicateTab(menuTab.id))}>Duplicate</button>
             <button
               className="bn-menu-item"
-              style={menuItemStyle(tabs.length <= 1, 'var(--err)')}
-              disabled={tabs.length <= 1}
+              style={menuItemStyle(false, 'var(--err)')}
               onClick={() => runTabMenuAction(() => requestCloseTab(menuTab.id))}
             >
               Close
@@ -932,11 +942,44 @@ export default function App() {
               }}
             >
               <div id="close-workflow-title" style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>
-                Save changes?
+                Save changes to "{pendingClose.draftName}"?
               </div>
-              <div style={{ color: 'var(--tx2)', fontSize: 13, lineHeight: 1.45, marginBottom: 18 }}>
-                Workflow "{pendingClose.name}" has unsaved changes. Save it before closing?
+              <div style={{ color: 'var(--tx2)', fontSize: 13, lineHeight: 1.45, marginBottom: 10 }}>
+                Name it before saving, or close without saving.
               </div>
+              <label
+                htmlFor="close-workflow-name"
+                style={{ display: 'block', color: 'var(--tx3)', fontSize: 11, marginBottom: 6 }}
+              >
+                Workflow name
+              </label>
+              <input
+                id="close-workflow-name"
+                autoFocus
+                aria-label="Workflow name"
+                value={pendingClose.draftName}
+                onChange={e => updatePendingCloseName(e.target.value)}
+                onFocus={e => e.currentTarget.select()}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    void savePendingClose()
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  background: 'var(--lift)',
+                  border: '1px solid var(--line2)',
+                  borderRadius: 6,
+                  color: 'var(--tx1)',
+                  fontFamily: 'var(--font-ui)',
+                  fontSize: 13,
+                  padding: '8px 10px',
+                  marginBottom: 18,
+                  outline: 'none',
+                }}
+              />
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                 <button
                   className="bn-top-button"
@@ -955,13 +998,13 @@ export default function App() {
                 </button>
                 <button
                   className="bn-top-button"
-                  disabled={closeSaving}
+                  disabled={closeSaving || !pendingClose.draftName.trim()}
                   onClick={() => void savePendingClose()}
                   style={{
                     background: 'var(--accent)',
                     borderColor: 'var(--accent)',
                     color: '#fff',
-                    opacity: closeSaving ? 0.65 : 1,
+                    opacity: closeSaving || !pendingClose.draftName.trim() ? 0.65 : 1,
                   }}
                 >
                   {closeSaving ? 'Saving...' : 'Save'}
