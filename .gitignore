@@ -23,6 +23,7 @@ node_modules/
 CLAUDE.md
 .claude/
 .local-notes/
+.local-logs/
 docs/todays-goal.md
 
 # Blacknode artifacts

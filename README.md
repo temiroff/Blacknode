@@ -141,7 +141,7 @@ npm install
 
 **Windows — double-click `start.bat`** (at the repo root).
 
-It opens two terminal windows (Python server + Vite dev server) and then launches the browser at `http://localhost:3000` automatically.
+It opens one launcher window, starts the Python server and Vite dev server in the background, writes logs to `.local-logs/`, and launches the browser at `http://localhost:3000` automatically. Press **Ctrl+C** in the launcher to stop both services.
 
 **macOS/Linux — run `./start.sh`** from the repo root:
 
@@ -647,6 +647,7 @@ def MyNode(ctx: dict) -> dict:
 ```
 blacknode/
 ├── start.bat                    ← double-click to launch everything
+├── start.ps1                    ← Windows one-window launcher
 ├── start.sh                     ← macOS/Linux launcher
 ├── docs/
 │   ├── agent-guide.md           ← workflow instructions for agents
