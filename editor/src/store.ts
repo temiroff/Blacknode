@@ -2230,13 +2230,18 @@ export const useStore = create<Store>((set, get) => ({
       }],
       nodes: s.nodes.map(n => ({
         ...n,
-        data: {
-          ...clearReplayData(n.data),
-          cooking: n.id === id,
-          cookError: undefined,
-          cookResult: undefined,
-          cookPort: n.id === id ? port : undefined,
-        },
+        data: n.id === id
+          ? {
+              ...clearReplayData(n.data),
+              cooking: true,
+              cookError: undefined,
+              cookResult: undefined,
+              cookPort: port,
+            }
+          : {
+              ...clearReplayData(n.data),
+              cooking: false,
+            },
       })),
     }))
 
