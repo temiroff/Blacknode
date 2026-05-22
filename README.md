@@ -140,6 +140,10 @@ npm install
 
 It opens one launcher window, starts the Python server and Vite dev server in the background, writes logs to `.local-logs/`, and launches the browser at `http://localhost:3000` automatically. If an old Blacknode editor is already running on port 3000, the launcher restarts it instead of failing. Press **Ctrl+C** in the launcher to stop both services.
 
+Seeing `Stopping existing visual editor on port 3000...` is normal. It means
+the launcher found an old Blacknode Vite server and restarted it so the editor
+stays on `http://localhost:3000`.
+
 **macOS/Linux — run `./start.sh`** from the repo root:
 
 ```bash
