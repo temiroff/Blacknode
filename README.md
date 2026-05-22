@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml/badge.svg)](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml)
 
-**A visual workflow builder where AI agents can build the graph with you.**
+**The visual workflow builder where AI agents build the workflow.**
 
 Connect Blacknode to Claude Desktop or any MCP client and watch an agent
 assemble, validate, run, and debug typed node graphs in a live editor. No
