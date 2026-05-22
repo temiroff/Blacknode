@@ -23,12 +23,10 @@ users get a live graph they can inspect.
 <table>
   <tr>
     <td>
-      <video src="https://raw.githubusercontent.com/temiroff/Blacknode/master/docs/Demo1.mp4" controls width="420"></video>
-      <br><a href="docs/Demo1.mp4">Demo 1</a>
+      <video src="https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2" controls width="420"></video>
     </td>
     <td>
-      <video src="https://raw.githubusercontent.com/temiroff/Blacknode/master/docs/Demo2.mp4" controls width="420"></video>
-      <br><a href="docs/Demo2.mp4">Demo 2</a>
+      <video src="https://github.com/user-attachments/assets/16a0d311-f237-4d6f-9fec-c303fc3e41d0" controls width="420"></video>
     </td>
   </tr>
 </table>
