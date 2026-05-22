@@ -138,7 +138,7 @@ print_banner() {
   local reset=""
 
   if [[ -t 1 ]]; then
-    cyan=$'\033[36m'
+    cyan=$'\033[38;2;83;221;226m'
     reset=$'\033[0m'
   fi
 
