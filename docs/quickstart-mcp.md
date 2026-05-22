@@ -32,6 +32,10 @@ If you see `Stopping existing visual editor on port 3000...`, the launcher
 found an old Blacknode Vite server and restarted it so the editor stays on
 `http://localhost:3000`.
 
+If the same checkout is used from Windows and WSL/Linux/macOS, the launchers
+check Vite's native dependency for the current OS and run `npm install` when
+that dependency needs repair.
+
 Manual start:
 
 ```powershell

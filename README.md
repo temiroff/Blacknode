@@ -146,6 +146,10 @@ stays on `http://localhost:3000`.
 
 ![Blacknode launcher terminal](docs/images/blacknode-launcher.png)
 
+If the same checkout is used from Windows and WSL/Linux/macOS, the launchers
+check Vite's native dependency for the current OS and run `npm install` when
+that dependency needs repair.
+
 **macOS/Linux — run `./start.sh`** from the repo root:
 
 ```bash

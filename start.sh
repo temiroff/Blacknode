@@ -2,6 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_DIR="$ROOT_DIR/.local-logs"
+SERVER_OUT="$LOG_DIR/server.out.log"
+SERVER_ERR="$LOG_DIR/server.err.log"
+EDITOR_OUT="$LOG_DIR/editor.out.log"
+EDITOR_ERR="$LOG_DIR/editor.err.log"
 PYTHON_BIN="${PYTHON:-python3}"
 BACKEND_PID=""
 FRONTEND_PID=""
@@ -23,6 +28,31 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
+process_running() {
+  local pid="$1"
+  [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1
+}
+
+assert_process_running() {
+  local pid="$1"
+  local name="$2"
+  local error_log="$3"
+
+  if process_running "$pid"; then
+    return 0
+  fi
+
+  echo
+  echo "  ERROR: $name stopped during startup."
+  if [[ -f "$error_log" ]]; then
+    echo
+    echo "  Last log lines:"
+    tail -n 30 "$error_log" | sed 's/^/  /'
+  fi
+  wait "$pid" >/dev/null 2>&1 || true
+  exit 1
+}
+
 cleanup() {
   if [[ -n "$FRONTEND_PID" ]]; then
     kill "$FRONTEND_PID" >/dev/null 2>&1 || true
@@ -37,6 +67,8 @@ open_browser() {
     xdg-open "$EDITOR_URL" >/dev/null 2>&1 &
   elif command -v open >/dev/null 2>&1; then
     open "$EDITOR_URL" >/dev/null 2>&1 &
+  elif command -v cmd.exe >/dev/null 2>&1; then
+    cmd.exe /c start "" "$EDITOR_URL" >/dev/null 2>&1 &
   else
     echo "Open $EDITOR_URL in your browser."
   fi
@@ -152,9 +184,25 @@ print_banner() {
   printf '\n'
 }
 
+ensure_frontend_dependencies() {
+  local editor_dir="$ROOT_DIR/editor"
+
+  if [[ ! -d "$editor_dir/node_modules" ]]; then
+    echo "  Installing frontend dependencies (first run, this can take a minute)..."
+    (cd "$editor_dir" && npm install)
+    return
+  fi
+
+  if ! (cd "$editor_dir" && node -e "import('vite').then(() => {}).catch(() => process.exit(1))" >/dev/null 2>&1); then
+    echo "  Repairing frontend dependencies for this OS..."
+    (cd "$editor_dir" && npm install)
+  fi
+}
+
 trap cleanup EXIT INT TERM
 
 cd "$ROOT_DIR"
+mkdir -p "$LOG_DIR"
 
 print_banner
 echo "  Checking Python dependencies..."
@@ -165,10 +213,7 @@ if ! "$PYTHON_BIN" -c "import importlib.metadata; importlib.metadata.version('bl
   "$PYTHON_BIN" -m pip install -e "$ROOT_DIR" -q --disable-pip-version-check
 fi
 
-if [[ ! -d "$ROOT_DIR/editor/node_modules" ]]; then
-  echo "  Installing frontend dependencies (first run, this can take a minute)..."
-  (cd "$ROOT_DIR/editor" && npm install)
-fi
+ensure_frontend_dependencies
 
 echo "  Done."
 echo
@@ -180,10 +225,12 @@ wait_port_free "$BACKEND_PORT" || {
 }
 
 echo "  [1/2] Starting Python server  (http://127.0.0.1:$BACKEND_PORT)"
-(cd "$ROOT_DIR/editor-server" && "$PYTHON_BIN" server.py) &
+rm -f "$SERVER_OUT" "$SERVER_ERR"
+(cd "$ROOT_DIR/editor-server" && "$PYTHON_BIN" server.py) >"$SERVER_OUT" 2>"$SERVER_ERR" &
 BACKEND_PID=$!
 
 sleep 3
+assert_process_running "$BACKEND_PID" "Python server" "$SERVER_ERR"
 
 if port_in_use "$FRONTEND_PORT"; then
   if ! wait_blacknode_editor_ready; then
@@ -200,22 +247,24 @@ if port_in_use "$FRONTEND_PORT"; then
 fi
 
 echo "  [2/2] Starting visual editor  ($EDITOR_URL)"
-(cd "$ROOT_DIR/editor" && npm run dev -- --strictPort) &
+rm -f "$EDITOR_OUT" "$EDITOR_ERR"
+(cd "$ROOT_DIR/editor" && npm run dev -- --strictPort) >"$EDITOR_OUT" 2>"$EDITOR_ERR" &
 FRONTEND_PID=$!
 
 sleep 5
+assert_process_running "$FRONTEND_PID" "Visual editor" "$EDITOR_ERR"
 echo
 echo "  Opening browser..."
 open_browser
 echo
-echo "  Both processes are running. Press Ctrl+C to stop them."
+echo "  Logs: .local-logs/server.out.log and .local-logs/editor.out.log"
 
 while true; do
-  if ! kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
+  if ! process_running "$BACKEND_PID"; then
     wait "$BACKEND_PID"
     exit $?
   fi
-  if ! kill -0 "$FRONTEND_PID" >/dev/null 2>&1; then
+  if ! process_running "$FRONTEND_PID"; then
     wait "$FRONTEND_PID"
     exit $?
   fi

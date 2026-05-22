@@ -133,6 +133,31 @@ function Write-PortBusyError {
     Write-Host "  Close that app or free port $Port, then run start.bat again."
 }
 
+function Test-FrontendDependencies {
+    Push-Location (Join-Path $Root "editor")
+    try {
+        & node -e "import('vite').then(() => {}).catch(() => process.exit(1))" > $null 2>&1
+        return $LASTEXITCODE -eq 0
+    } finally {
+        Pop-Location
+    }
+}
+
+function Install-FrontendDependencies {
+    param([string] $Message)
+
+    Write-Step $Message
+    Push-Location (Join-Path $Root "editor")
+    try {
+        & $Npm install
+        if ($LASTEXITCODE -ne 0) {
+            throw "Frontend dependency install failed."
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
 function Start-HiddenProcess {
     param(
         [string] $FilePath,
@@ -221,16 +246,9 @@ try {
 
     $NodeModules = Join-Path $Root "editor\node_modules"
     if (-not (Test-Path -LiteralPath $NodeModules)) {
-        Write-Step "Installing frontend dependencies (first run, this can take a minute)..."
-        Push-Location (Join-Path $Root "editor")
-        try {
-            & $Npm install
-            if ($LASTEXITCODE -ne 0) {
-                throw "Frontend dependency install failed."
-            }
-        } finally {
-            Pop-Location
-        }
+        Install-FrontendDependencies -Message "Installing frontend dependencies (first run, this can take a minute)..."
+    } elseif (-not (Test-FrontendDependencies)) {
+        Install-FrontendDependencies -Message "Repairing frontend dependencies for this OS..."
     }
 
     Write-Step "Done."
