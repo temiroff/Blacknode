@@ -144,8 +144,6 @@ Seeing `Stopping existing visual editor on port 3000...` is normal. It means
 the launcher found an old Blacknode Vite server and restarted it so the editor
 stays on `http://localhost:3000`.
 
-![Blacknode launcher terminal](docs/images/blacknode-launcher.svg)
-
 **macOS/Linux — run `./start.sh`** from the repo root:
 
 ```bash
