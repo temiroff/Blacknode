@@ -33,6 +33,7 @@ _TOOLBOX_NODE_TYPES = {"ToolBox"}
 _DYNAMIC_PORT_TYPES = {*_SUBGRAPH_NODE_TYPES, "SubnetInput", "SubnetOutput", *_TOOLBOX_NODE_TYPES}
 _WORKFLOW_KIND = "blacknode.workflow"
 _WORKFLOW_SCHEMA_VERSION = 1
+_SECRET_FIELD_RE = re.compile(r"(api[_-]?key|token|secret|password|credential)", re.I)
 
 
 def _save_now() -> None:
@@ -975,7 +976,8 @@ def cook(req: CookReq):
     if req.node_id not in _session.graph._nodes:
         raise HTTPException(500, f"Node {req.node_id} missing from graph (try resetting)")
     node_type = _session.node_meta[req.node_id]["type"]
-    run_id = _run_store.begin(node_id=req.node_id, port=req.port, node_type=node_type)
+    workflow = _run_workflow_snapshot(req.node_id, req.port)
+    run_id = _run_store.begin(node_id=req.node_id, port=req.port, node_type=node_type, workflow=workflow)
     try:
         _begin_fresh_cook()
         _run_store.record_event(run_id, {"type": "start", "node_id": req.node_id, "port": req.port})
@@ -1539,7 +1541,8 @@ def _captured_cook_trace(node_id: str, port: str, run_id: str):
 @app.post("/cook-stream")
 def cook_stream(req: CookReq):
     node_type = _session.node_meta.get(req.node_id, {}).get("type", "")
-    run_id = _run_store.begin(node_id=req.node_id, port=req.port, node_type=node_type)
+    workflow = _run_workflow_snapshot(req.node_id, req.port)
+    run_id = _run_store.begin(node_id=req.node_id, port=req.port, node_type=node_type, workflow=workflow)
     _begin_fresh_cook()
     headers = {"X-Blacknode-Run-Id": run_id}
     return StreamingResponse(
@@ -2017,8 +2020,13 @@ def _portable_node_meta(node_meta: dict[str, dict]) -> dict[str, dict]:
     return portable
 
 
-def _workflow_payload(name: str) -> dict[str, Any]:
-    return {
+def _workflow_payload(
+    name: str,
+    *,
+    entrypoint: dict[str, str] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "kind": _WORKFLOW_KIND,
         "schema_version": _WORKFLOW_SCHEMA_VERSION,
         "name": name,
@@ -2026,6 +2034,34 @@ def _workflow_payload(name: str) -> dict[str, Any]:
         "node_meta": _portable_node_meta(_session.node_meta),
         "edges": [dict(edge) for edge in _session.graph._edges],
     }
+    if entrypoint is not None:
+        payload["entrypoint"] = dict(entrypoint)
+    if metadata is not None:
+        payload["metadata"] = dict(metadata)
+    return payload
+
+
+def _redact_run_snapshot_secrets(value: Any, key: str = "") -> Any:
+    if isinstance(value, dict):
+        return {
+            item_key: _redact_run_snapshot_secrets(item_value, str(item_key))
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_run_snapshot_secrets(item) for item in value]
+    if key and _SECRET_FIELD_RE.search(key) and value not in (None, ""):
+        return "[redacted]"
+    return value
+
+
+def _run_workflow_snapshot(node_id: str, port: str) -> dict[str, Any]:
+    node_type = _session.node_meta.get(node_id, {}).get("type", "Graph")
+    workflow = _workflow_payload(
+        f"Run: {node_type}.{port}",
+        entrypoint={"node_id": node_id, "port": port},
+        metadata={"source": "run_history"},
+    )
+    return _redact_run_snapshot_secrets(workflow)
 
 
 def _ensure_workflow_header(data: dict[str, Any]) -> None:

@@ -81,6 +81,23 @@ class RunStoreLifecycleTests(unittest.TestCase):
         self.assertIn("events", record)
         self.assertEqual(record["events"][0]["type"], "start")
 
+    def test_run_can_store_workflow_snapshot(self):
+        workflow = {
+            "kind": "blacknode.workflow",
+            "schema_version": 1,
+            "name": "Snapshot",
+            "node_meta": {"out": {"id": "out", "type": "Output"}},
+            "edges": [],
+            "entrypoint": {"node_id": "out", "port": "value"},
+        }
+        run_id = self.store.begin(node_id="out", port="value", node_type="Output", workflow=workflow)
+        self.store.finalize_success(run_id)
+
+        record = self.store.get_run(run_id)
+        self.assertEqual(record["workflow"]["name"], "Snapshot")
+        self.assertEqual(record["workflow"]["entrypoint"], {"node_id": "out", "port": "value"})
+        self.assertTrue(self.store.list_runs()[0]["has_workflow"])
+
     def test_delete_run_removes_file(self):
         run_id = self.store.begin(node_id="out", port="value", node_type="Output")
         self.store.finalize_success(run_id)

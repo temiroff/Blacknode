@@ -237,6 +237,7 @@ function RunDetail({ runId, runStatus, onDelete }: { runId: string; runStatus: R
   const replay = useStore(s => s.runReplay)
   const applyRunReplay = useStore(s => s.applyRunReplay)
   const clearRunReplay = useStore(s => s.clearRunReplay)
+  const openGraphAsTab = useStore(s => s.openGraphAsTab)
   const selectNode = useStore(s => s.selectNode)
 
   useEffect(() => {
@@ -340,6 +341,21 @@ function RunDetail({ runId, runStatus, onDelete }: { runId: string; runStatus: R
     const nodeId = stringValue(event?.node_id) || (event?.type === 'done' ? record.node_id : '')
     if (nodeId) selectNode(nodeId)
   }
+  const openWorkflow = async () => {
+    if (!record.workflow) return
+    try {
+      await openGraphAsTab(
+        record.workflow.name || `Run ${shortId(record.run_id)}`,
+        {
+          nodes: Object.values(record.workflow.node_meta ?? {}),
+          edges: record.workflow.edges ?? [],
+        },
+      )
+      clearReplay()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   return (
     <div className="bn-run-detail">
@@ -348,7 +364,17 @@ function RunDetail({ runId, runStatus, onDelete }: { runId: string; runStatus: R
           <div className="bn-run-detail-title">{STATUS_TEXT[record.status]} run</div>
           <div className="bn-run-id" title={record.run_id}>{record.run_id}</div>
         </div>
-        <button onClick={onDelete} style={miniButton}>Delete</button>
+        <div className="bn-run-detail-actions">
+          <button
+            onClick={() => void openWorkflow()}
+            disabled={!record.workflow}
+            style={miniButton}
+            title={record.workflow ? 'Open the workflow snapshot captured for this run' : 'This older run has no workflow snapshot'}
+          >
+            Open workflow
+          </button>
+          <button onClick={onDelete} style={miniButton}>Delete</button>
+        </div>
       </div>
 
       <div className="bn-run-facts">

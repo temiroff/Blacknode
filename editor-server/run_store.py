@@ -51,6 +51,7 @@ class _RunBuffer:
     model_calls: int = 0
     tool_calls: int = 0
     cached_nodes: int = 0
+    workflow: dict[str, Any] | None = None
     _seen_nodes: set[str] = field(default_factory=set)
 
 
@@ -64,7 +65,14 @@ class RunStore:
 
     # ── Public API ─────────────────────────────────────────────────────────
 
-    def begin(self, *, node_id: str, port: str, node_type: str) -> str:
+    def begin(
+        self,
+        *,
+        node_id: str,
+        port: str,
+        node_type: str,
+        workflow: dict[str, Any] | None = None,
+    ) -> str:
         run_id = str(uuid.uuid4())
         buf = _RunBuffer(
             run_id=run_id,
@@ -73,6 +81,7 @@ class RunStore:
             node_type=node_type,
             started_at=_iso_now(),
             started_perf=time.perf_counter(),
+            workflow=workflow,
         )
         with self._lock:
             self._pending[run_id] = buf
@@ -176,9 +185,12 @@ class RunStore:
             record["value"] = buf.value
         if include_events:
             record["events"] = list(buf.events)
+            if buf.workflow is not None:
+                record["workflow"] = buf.workflow
         return record
 
     def _summary_dict(self, record: dict[str, Any]) -> dict[str, Any]:
+        record = {**record, "has_workflow": bool(record.get("workflow"))}
         keys = (
             "run_id",
             "started_at",
@@ -192,6 +204,7 @@ class RunStore:
             "model_calls",
             "tool_calls",
             "cached_nodes",
+            "has_workflow",
             "error",
         )
         return {key: record.get(key) for key in keys if key in record}

@@ -207,6 +207,13 @@ body {
   opacity: .45;
 }
 
+.bn-run-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .bn-runs-analytics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

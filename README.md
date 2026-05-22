@@ -441,6 +441,7 @@ JSON run record under `editor-server/runs/`. Each record has:
 - `node_id`, `port`, `node_type` — the entrypoint that was cooked
 - `node_count`, `model_calls`, `tool_calls`, `cached_nodes` — counters
 - `events` — the full ndjson event log emitted during the cook
+- `workflow` — a redacted workflow snapshot captured at run start
 - `value` (success) or `error` (failure)
 
 The store keeps the most recent 200 runs and prunes older finished runs on
@@ -452,6 +453,10 @@ its event timeline, replay controls, and result value or error. Replay can
 step, play, scrub, and clear a saved execution while highlighting the active
 nodes on the canvas. The top-bar **Run** button cooks the current visible
 network and streams the same highlights during the first run.
+
+When a run has a workflow snapshot, its detail view includes **Open workflow**.
+Use it to restore that graph in a new tab and rerun or inspect it even if the
+original workflow is no longer open.
 
 ### Endpoints
 

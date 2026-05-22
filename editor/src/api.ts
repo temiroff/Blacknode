@@ -34,11 +34,24 @@ export interface RunSummary {
   model_calls: number
   tool_calls: number
   cached_nodes: number
+  has_workflow?: boolean
   error?: string
+}
+
+export interface WorkflowSnapshot {
+  kind?: string
+  schema_version?: number
+  name?: string
+  saved_at?: string
+  entrypoint?: { node_id: string; port: string }
+  metadata?: Record<string, unknown>
+  node_meta?: Record<string, BnNodeMeta>
+  edges?: Array<Record<string, unknown>>
 }
 
 export interface RunRecord extends RunSummary {
   events: Array<Record<string, unknown> & { type: string; ts?: string | number }>
+  workflow?: WorkflowSnapshot
   value?: unknown
 }
 

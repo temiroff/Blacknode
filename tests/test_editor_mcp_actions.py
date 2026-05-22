@@ -60,3 +60,24 @@ def test_editor_management_actions_queue():
     ]
     assert actions[1]["payload"] == {"name": "Renamed"}
 
+
+def test_run_snapshot_secret_redaction():
+    data = {
+        "node_meta": {
+            "model": {
+                "params": {
+                    "api_key": "sk-test",
+                    "token": "token-test",
+                    "nested": [{"password": "pw-test", "value": "visible"}],
+                }
+            }
+        }
+    }
+
+    redacted = server._redact_run_snapshot_secrets(data)
+
+    params = redacted["node_meta"]["model"]["params"]
+    assert params["api_key"] == "[redacted]"
+    assert params["token"] == "[redacted]"
+    assert params["nested"][0]["password"] == "[redacted]"
+    assert params["nested"][0]["value"] == "visible"
