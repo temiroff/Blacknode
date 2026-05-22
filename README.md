@@ -31,7 +31,7 @@ validate the workflow, run it, and inspect the result.
 
 ## Why this is different
 
-- **Visual layer for agent stacks.** Agent harnesses are good at chat, code, and research. They are bad at visual workflow construction. Blacknode gives them a typed visual editor through MCP.
+- **Visual layer for agent stacks.** Blacknode gives agent harnesses a typed visual workflow editor through MCP.
 - **MCP-first, not bolted on.** Typed tools let an agent add nodes, connect ports, validate, cook, and inspect runs. Validation reports help the agent self-correct.
 - **Live editor control.** The agent drives the running editor, so you can watch the workflow take shape.
 - **Typed ports with compatibility rules.** Text, Int, Float, Bool, List, Dict, Embedding, Fn, and Model ports are color-coded and checked before connection.
@@ -39,11 +39,13 @@ validate the workflow, run it, and inspect the result.
 - **Run replay.** Every cook creates an event log you can scrub through, with node highlights on the canvas.
 - **Flexible model routing.** Anthropic, OpenAI, NVIDIA NIM, and Ollama-style models route from the model string, with keys kept on your machine.
 
-## NVIDIA AI-Q fit
+## NVIDIA Agent Stack
 
-Blacknode is not a deep research agent and does not compete with NVIDIA AI-Q.
-AI-Q researches and reasons over enterprise data. Blacknode turns agent intent
-into typed, visible, runnable workflows. Together, the positioning is simple:
+Blacknode complements NVIDIA AI-Q and NeMo Agent Toolkit by giving agent
+harnesses a visual workflow surface. AI-Q can research and reason over
+enterprise data; Blacknode turns agent intent into typed, visible, runnable
+workflows through MCP.
+
 **Blacknode is the visual workflow editor for the NVIDIA agent stack.**
 
 For AI-Q and NeMo Agent Toolkit MCP clients, Blacknode can serve MCP over
