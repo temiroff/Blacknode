@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -184,12 +185,14 @@ def _doctor() -> int:
     add("Editor server", server_ok, "http://127.0.0.1:7777" if server_ok else "not running", required=False)
 
     print("Blacknode doctor")
+    use_color = _terminal_color_enabled()
     for label, ok, detail, required in checks:
-        status = "OK" if ok else ("FAIL" if required else "WARN")
-        print(f"[{status}] {label}: {detail}")
+        status = _doctor_status(ok, required, color=use_color)
+        print(f"{status} {label}: {detail}")
 
     required_ok = all(ok for _label, ok, _detail, required in checks if required)
-    print("Required checks passed." if required_ok else "Required checks failed.")
+    summary = "Required checks passed." if required_ok else "Required checks failed."
+    print(_color_text(summary, "green" if required_ok else "red", enabled=use_color))
     return 0 if required_ok else 1
 
 
@@ -250,6 +253,36 @@ def _node_version_ok(version: str) -> bool:
     except (ValueError, IndexError):
         return False
     return major > 22 or (major == 22 and minor >= 12) or (major == 20 and minor >= 19)
+
+
+def _doctor_status(ok: bool, required: bool, *, color: bool | None = None) -> str:
+    enabled = _terminal_color_enabled() if color is None else color
+    if ok:
+        return _color_text("[OK]", "green", enabled=enabled)
+    if required:
+        return _color_text("[NOT OK]", "red", enabled=enabled)
+    return _color_text("[WARN]", "yellow", enabled=enabled)
+
+
+def _terminal_color_enabled() -> bool:
+    if os.environ.get("NO_COLOR") is not None:
+        return False
+    force_color = os.environ.get("FORCE_COLOR")
+    if force_color is not None:
+        return force_color not in {"", "0", "false", "False"}
+    return bool(getattr(sys.stdout, "isatty", lambda: False)())
+
+
+def _color_text(text: str, color: str, *, enabled: bool) -> str:
+    if not enabled:
+        return text
+    codes = {
+        "green": "32",
+        "yellow": "33",
+        "red": "31",
+    }
+    code = codes[color]
+    return f"\033[{code}m{text}\033[0m"
 
 
 def _url_ok(url: str) -> bool:

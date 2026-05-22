@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from blacknode.cli import _node_version_ok, main
+from blacknode.cli import _doctor_status, _node_version_ok, main
 from blacknode.providers import registry
 from blacknode.providers.base import CompletionResponse
 from blacknode.workflow import WorkflowRunError, run_workflow
@@ -187,6 +187,14 @@ class CliTests(unittest.TestCase):
         self.assertFalse(_node_version_ok("v22.11.0"))
         self.assertTrue(_node_version_ok("v22.12.0"))
         self.assertTrue(_node_version_ok("v23.6.0"))
+
+    def test_doctor_status_labels_and_colors(self):
+        self.assertEqual(_doctor_status(True, True, color=False), "[OK]")
+        self.assertEqual(_doctor_status(False, True, color=False), "[NOT OK]")
+        self.assertEqual(_doctor_status(False, False, color=False), "[WARN]")
+        self.assertIn("\033[32m", _doctor_status(True, True, color=True))
+        self.assertIn("\033[31m", _doctor_status(False, True, color=True))
+        self.assertIn("\033[33m", _doctor_status(False, False, color=True))
 
     def test_mcp_forwards_streamable_http_options(self):
         with patch("blacknode.mcp.main") as run_mcp:
