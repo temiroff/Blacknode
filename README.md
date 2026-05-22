@@ -82,13 +82,10 @@ blacknode mcp
 
 Then use the copy-paste prompts in [docs/mcp-test-prompts.md](docs/mcp-test-prompts.md), or follow the shorter public-preview path in [docs/quickstart-mcp.md](docs/quickstart-mcp.md).
 
-## Public preview materials
+## Guides
 
 - [MCP quickstart](docs/quickstart-mcp.md)
 - [NVIDIA NIM demo](docs/nvidia-nim-demo.md)
-- [Demo script](docs/demo-script.md)
-- [Public preview checklist](docs/public-preview-checklist.md)
-- [v0.1.0 preview release notes draft](docs/release-v0.1.0-preview.md)
 
 ---
 
@@ -694,26 +691,3 @@ blacknode/
 
 Blacknode is licensed under the Apache License 2.0.
 See [LICENSE](LICENSE) for the full license text.
-
----
-
-## Roadmap
-
-- [x] Pure-Python graph engine with per-run evaluation
-- [x] Multi-provider LLM support (Anthropic, OpenAI, Ollama, NVIDIA NIM, local)
-- [x] Typed ports with color-coded handles
-- [x] React Flow visual editor — palette, templates, live cook, inspector
-- [x] Model picker node with per-provider API key storage
-- [x] Live custom node scripting (Script tab)
-- [x] PythonFn, SubnetAsTool, ToolBox, and ToolCall tool workflows
-- [x] VisualAgentLoop compatibility node and visible agent-step primitives
-- [x] Collapsible/resizable side panels and auto-organized templates
-- [x] MCP server for AI-agent-driven workflow building
-- [x] Persistent run history with event timeline and result/error inspection
-- [x] Visual Run Replay with node highlights and event scrubbing
-- [x] GitHub Actions CI for Python, editor, and Rust checks
-- [x] Experimental Rust no-server CLI for workflow inspect and pure-node runs
-- [x] Public preview demo video
-- [ ] Rust core via maturin (milestone 2)
-- [ ] Tauri desktop wrapper (milestone 3)
-- [ ] `.bn` binary graph file format

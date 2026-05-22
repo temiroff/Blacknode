@@ -25,6 +25,10 @@ CLAUDE.md
 .local-notes/
 .local-logs/
 docs/todays-goal.md
+docs/public-preview-checklist.md
+docs/future-ideas.md
+docs/demo-script.md
+docs/release-v0.1.0-preview.md
 
 # Blacknode artifacts
 *.bn.cache
