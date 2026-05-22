@@ -101,7 +101,8 @@ NVIDIA templates.
 
 4. The harness performs research through AI-Q.
 
-5. The harness uses Blacknode MCP tools to open `nvidia-ai-mission-control` or
+5. The harness uses Blacknode MCP tools to open
+   `nvidia-video-intelligence-mission-control`, `nvidia-ai-mission-control`, or
    build a custom graph from the research result.
 
 6. Blacknode shows the visual workflow, validation report, and run replay.

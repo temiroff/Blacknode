@@ -1,0 +1,302 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "NVIDIA Video Intelligence Mission Control",
+  "saved_at": "2026-05-22T00:00:00",
+  "entrypoint": {
+    "node_id": "out_report",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Plan a video intelligence workflow across Cosmos or VLM NIM, NeMo Retriever, NIM/Nemotron QA, local NIM deployment, and run replay.",
+    "color": "#76b900"
+  },
+  "node_meta": {
+    "goal": {
+      "id": "goal",
+      "type": "Text",
+      "params": {
+        "value": "Build a video intelligence workflow over this folder of videos. Use NVIDIA models where possible, summarize events, index the content, answer questions, and show the visual execution trace."
+      },
+      "pos": [60, 60],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": { "value": "Text" },
+      "input_defaults": {}
+    },
+    "folder": {
+      "id": "folder",
+      "type": "Text",
+      "params": { "value": "videos" },
+      "pos": [60, 250],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": { "value": "Text" },
+      "input_defaults": {}
+    },
+    "extensions": {
+      "id": "extensions",
+      "type": "Text",
+      "params": { "value": ".mp4,.mov,.mkv,.avi,.webm" },
+      "pos": [60, 420],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": { "value": "Text" },
+      "input_defaults": {}
+    },
+    "query": {
+      "id": "query",
+      "type": "Text",
+      "params": { "value": "Find key events, anomalies, entities, timestamps, and visual evidence across the video set." },
+      "pos": [60, 610],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": { "value": "Text" },
+      "input_defaults": {}
+    },
+    "question": {
+      "id": "question",
+      "type": "Text",
+      "params": { "value": "What happened in the videos, which moments matter most, and what evidence supports the answer?" },
+      "pos": [60, 790],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": { "value": "Text" },
+      "input_defaults": {}
+    },
+    "mode": {
+      "id": "mode",
+      "type": "Text",
+      "params": { "value": "hybrid" },
+      "pos": [60, 980],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": { "value": "Text" },
+      "input_defaults": {}
+    },
+    "model": {
+      "id": "model",
+      "type": "Model",
+      "params": { "value": "nim:nvidia/llama-3.3-nemotron-super-49b-v1.5" },
+      "pos": [60, 1160],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": { "value": "Model" },
+      "input_defaults": {}
+    },
+    "image": {
+      "id": "image",
+      "type": "Text",
+      "params": { "value": "nvcr.io/nim/meta/llama-3.1-8b-instruct:latest" },
+      "pos": [60, 1350],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": { "value": "Text" },
+      "input_defaults": {}
+    },
+    "port": {
+      "id": "port",
+      "type": "Int",
+      "params": { "value": 8000 },
+      "pos": [60, 1520],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": { "value": "Int" },
+      "input_defaults": {}
+    },
+    "video_input": {
+      "id": "video_input",
+      "type": "VideoFolderInput",
+      "params": {},
+      "pos": [390, 280],
+      "inputs": ["folder", "extensions"],
+      "outputs": ["manifest", "files", "summary"],
+      "input_types": { "folder": "Text", "extensions": "Text" },
+      "output_types": { "manifest": "Dict", "files": "List", "summary": "Text" },
+      "input_defaults": { "folder": "videos", "extensions": ".mp4,.mov,.mkv,.avi,.webm" }
+    },
+    "launcher": {
+      "id": "launcher",
+      "type": "NIMDockerCommand",
+      "params": { "container_name": "blacknode-video-nim" },
+      "pos": [390, 1280],
+      "inputs": ["image", "container_name", "port", "cache_dir", "ngc_api_key_env"],
+      "outputs": ["powershell", "bash", "endpoint_url", "notes"],
+      "input_types": {
+        "image": "Text",
+        "container_name": "Text",
+        "port": "Int",
+        "cache_dir": "Text",
+        "ngc_api_key_env": "Text"
+      },
+      "output_types": {
+        "powershell": "Text",
+        "bash": "Text",
+        "endpoint_url": "Text",
+        "notes": "Text"
+      },
+      "input_defaults": { "port": 8000, "ngc_api_key_env": "NGC_API_KEY" }
+    },
+    "deployment": {
+      "id": "deployment",
+      "type": "NVIDIADeploymentChoice",
+      "params": {},
+      "pos": [710, 1120],
+      "inputs": ["mode", "endpoint_url", "local_endpoint_url", "model"],
+      "outputs": ["route", "endpoint_url", "stack", "requirements", "blueprint"],
+      "input_types": {
+        "mode": "Text",
+        "endpoint_url": "Text",
+        "local_endpoint_url": "Text",
+        "model": "Model"
+      },
+      "output_types": {
+        "route": "Text",
+        "endpoint_url": "Text",
+        "stack": "List",
+        "requirements": "List",
+        "blueprint": "Dict"
+      },
+      "input_defaults": {
+        "mode": "hosted",
+        "endpoint_url": "https://integrate.api.nvidia.com/v1",
+        "local_endpoint_url": "http://127.0.0.1:8000/v1",
+        "model": "nim:nvidia/llama-3.3-nemotron-super-49b-v1.5"
+      }
+    },
+    "video_plan": {
+      "id": "video_plan",
+      "type": "NVIDIAVideoSummaryPlan",
+      "params": {},
+      "pos": [710, 230],
+      "inputs": ["manifest", "goal", "deployment"],
+      "outputs": ["plan", "cosmos_path", "vlm_path", "blueprint"],
+      "input_types": { "manifest": "Dict", "goal": "Text", "deployment": "Dict" },
+      "output_types": { "plan": "Text", "cosmos_path": "Text", "vlm_path": "Text", "blueprint": "Dict" },
+      "input_defaults": {}
+    },
+    "retriever": {
+      "id": "retriever",
+      "type": "NVIDIARetrieverIndexPlan",
+      "params": {},
+      "pos": [1040, 430],
+      "inputs": ["manifest", "video_plan", "query"],
+      "outputs": ["index_plan", "retriever_stack", "blueprint"],
+      "input_types": { "manifest": "Dict", "video_plan": "Text", "query": "Text" },
+      "output_types": { "index_plan": "Text", "retriever_stack": "List", "blueprint": "Dict" },
+      "input_defaults": {}
+    },
+    "qa": {
+      "id": "qa",
+      "type": "NVIDIAQuestionAnswerPlan",
+      "params": {},
+      "pos": [1360, 640],
+      "inputs": ["question", "index_plan", "model", "deployment"],
+      "outputs": ["answer_plan", "prompt", "blueprint"],
+      "input_types": { "question": "Text", "index_plan": "Text", "model": "Model", "deployment": "Dict" },
+      "output_types": { "answer_plan": "Text", "prompt": "Text", "blueprint": "Dict" },
+      "input_defaults": { "model": "nim:nvidia/llama-3.3-nemotron-super-49b-v1.5" }
+    },
+    "report": {
+      "id": "report",
+      "type": "NVIDIAMissionReport",
+      "params": {},
+      "pos": [1700, 520],
+      "inputs": ["goal", "folder_summary", "video_plan", "retriever_plan", "qa_plan", "deployment_route"],
+      "outputs": ["report", "checklist", "blueprint"],
+      "input_types": {
+        "goal": "Text",
+        "folder_summary": "Text",
+        "video_plan": "Text",
+        "retriever_plan": "Text",
+        "qa_plan": "Text",
+        "deployment_route": "Text"
+      },
+      "output_types": { "report": "Text", "checklist": "List", "blueprint": "Dict" },
+      "input_defaults": {}
+    },
+    "out_report": {
+      "id": "out_report",
+      "type": "Output",
+      "params": { "label": "Mission Report" },
+      "pos": [2040, 480],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": { "value": "Any" },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_deployment": {
+      "id": "out_deployment",
+      "type": "Output",
+      "params": { "label": "Deployment" },
+      "pos": [2040, 720],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": { "value": "Any" },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_launch": {
+      "id": "out_launch",
+      "type": "Output",
+      "params": { "label": "Local NIM Command" },
+      "pos": [710, 1460],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": { "value": "Any" },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_prompt": {
+      "id": "out_prompt",
+      "type": "Output",
+      "params": { "label": "QA Prompt" },
+      "pos": [1700, 900],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": { "value": "Any" },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    { "from": "folder", "from_port": "value", "to": "video_input", "to_port": "folder" },
+    { "from": "extensions", "from_port": "value", "to": "video_input", "to_port": "extensions" },
+    { "from": "image", "from_port": "value", "to": "launcher", "to_port": "image" },
+    { "from": "port", "from_port": "value", "to": "launcher", "to_port": "port" },
+    { "from": "mode", "from_port": "value", "to": "deployment", "to_port": "mode" },
+    { "from": "launcher", "from_port": "endpoint_url", "to": "deployment", "to_port": "local_endpoint_url" },
+    { "from": "model", "from_port": "value", "to": "deployment", "to_port": "model" },
+    { "from": "video_input", "from_port": "manifest", "to": "video_plan", "to_port": "manifest" },
+    { "from": "goal", "from_port": "value", "to": "video_plan", "to_port": "goal" },
+    { "from": "deployment", "from_port": "blueprint", "to": "video_plan", "to_port": "deployment" },
+    { "from": "video_input", "from_port": "manifest", "to": "retriever", "to_port": "manifest" },
+    { "from": "video_plan", "from_port": "plan", "to": "retriever", "to_port": "video_plan" },
+    { "from": "query", "from_port": "value", "to": "retriever", "to_port": "query" },
+    { "from": "question", "from_port": "value", "to": "qa", "to_port": "question" },
+    { "from": "retriever", "from_port": "index_plan", "to": "qa", "to_port": "index_plan" },
+    { "from": "model", "from_port": "value", "to": "qa", "to_port": "model" },
+    { "from": "deployment", "from_port": "blueprint", "to": "qa", "to_port": "deployment" },
+    { "from": "goal", "from_port": "value", "to": "report", "to_port": "goal" },
+    { "from": "video_input", "from_port": "summary", "to": "report", "to_port": "folder_summary" },
+    { "from": "video_plan", "from_port": "plan", "to": "report", "to_port": "video_plan" },
+    { "from": "retriever", "from_port": "index_plan", "to": "report", "to_port": "retriever_plan" },
+    { "from": "qa", "from_port": "answer_plan", "to": "report", "to_port": "qa_plan" },
+    { "from": "deployment", "from_port": "route", "to": "report", "to_port": "deployment_route" },
+    { "from": "report", "from_port": "report", "to": "out_report", "to_port": "value" },
+    { "from": "deployment", "from_port": "route", "to": "out_deployment", "to_port": "value" },
+    { "from": "launcher", "from_port": "powershell", "to": "out_launch", "to_port": "value" },
+    { "from": "qa", "from_port": "prompt", "to": "out_prompt", "to_port": "value" }
+  ]
+}

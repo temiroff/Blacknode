@@ -271,6 +271,7 @@ Windows:
 
 ```powershell
 blacknode run templates\nvidia-ai-mission-control.json
+blacknode run templates\nvidia-video-intelligence-mission-control.json
 blacknode run templates\nvidia-local-nim-launch.json
 ```
 
@@ -278,6 +279,7 @@ macOS/Linux:
 
 ```bash
 blacknode run templates/nvidia-ai-mission-control.json
+blacknode run templates/nvidia-video-intelligence-mission-control.json
 blacknode run templates/nvidia-local-nim-launch.json
 ```
 
@@ -285,12 +287,15 @@ Expected result:
 
 - **NVIDIA AI Mission Control** returns a workflow plan and local readiness
   information.
+- **NVIDIA Video Intelligence Mission Control** returns a video workflow plan
+  for folder input, Cosmos/VLM understanding, NeMo Retriever indexing,
+  NIM/Nemotron QA, deployment routing, and final report output.
 - **NVIDIA Local NIM Launch** returns a Docker command and endpoint path.
 
 In the editor:
 
 1. Open **Templates**.
-2. Click **NVIDIA AI Mission Control**.
+2. Click **NVIDIA Video Intelligence Mission Control** or **NVIDIA AI Mission Control**.
 3. Click **Cook** on the Output node.
 4. Open **Runs** and inspect the recorded execution.
 
@@ -615,6 +620,7 @@ Use this as the demo checklist:
 | Python export | `blacknode export-python` |
 | API keys and provider routing | **Model** node |
 | NVIDIA NIM workflows | NVIDIA templates |
+| NVIDIA video mission control | **NVIDIA Video Intelligence Mission Control** template |
 | Local NIM command generation | **NVIDIA Local NIM Launch** template |
 | Agent-controlled workflow building | `blacknode mcp` |
 | AI-Q / NeMo MCP HTTP path | `blacknode mcp --transport streamable-http ...` |

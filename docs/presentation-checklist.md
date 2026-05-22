@@ -34,13 +34,14 @@ Blacknode is the visual workflow editor for the NVIDIA agent stack.
 | 6 | Build Text -> Text -> Concat -> Output by hand | Typed handles connect and validate visually. |
 | 7 | Open **Runs** after cooking | Run history, event timeline, replay, result, errors. |
 | 8 | Save in **Workflows** | Workflow becomes a reusable JSON artifact. |
-| 9 | Open **NVIDIA AI Mission Control** | No-key NVIDIA workflow plan and readiness surface. |
-| 10 | Open **NVIDIA Local NIM Launch** | Docker command and local endpoint wiring. |
-| 11 | Open **NVIDIA NIM** with `NVIDIA_API_KEY` | Hosted NIM model result and model-call run events. |
-| 12 | Open **NVIDIA NIM Benchmark** | Text, latency, metrics, and raw samples. |
-| 13 | Run `blacknode mcp` | Agent can list nodes, inspect schemas, build, validate, run, export. |
-| 14 | Run streamable HTTP MCP | AI-Q, NeMo Agent Toolkit, and HTTP MCP clients can connect. |
-| 15 | Run Docker Compose | Self-hosted editor, backend, run store, and HTTP MCP endpoint. |
+| 9 | Open **NVIDIA Video Intelligence Mission Control** | No-key video stack plan: input, Cosmos/VLM, NeMo Retriever, NIM/Nemotron QA, deployment, report. |
+| 10 | Open **NVIDIA AI Mission Control** | No-key NVIDIA workflow plan and readiness surface. |
+| 11 | Open **NVIDIA Local NIM Launch** | Docker command and local endpoint wiring. |
+| 12 | Open **NVIDIA NIM** with `NVIDIA_API_KEY` | Hosted NIM model result and model-call run events. |
+| 13 | Open **NVIDIA NIM Benchmark** | Text, latency, metrics, and raw samples. |
+| 14 | Run `blacknode mcp` | Agent can list nodes, inspect schemas, build, validate, run, export. |
+| 15 | Run streamable HTTP MCP | AI-Q, NeMo Agent Toolkit, and HTTP MCP clients can connect. |
+| 16 | Run Docker Compose | Self-hosted editor, backend, run store, and HTTP MCP endpoint. |
 
 ## Terminal Checks
 
@@ -151,6 +152,7 @@ Windows:
 
 ```powershell
 blacknode run templates\nvidia-ai-mission-control.json
+blacknode run templates\nvidia-video-intelligence-mission-control.json
 blacknode run templates\nvidia-local-nim-launch.json
 ```
 
@@ -158,12 +160,15 @@ macOS/Linux:
 
 ```bash
 blacknode run templates/nvidia-ai-mission-control.json
+blacknode run templates/nvidia-video-intelligence-mission-control.json
 blacknode run templates/nvidia-local-nim-launch.json
 ```
 
 Expected:
 
 - Mission Control returns an NVIDIA stack plan.
+- Video Intelligence Mission Control returns the folder input, Cosmos/VLM,
+  NeMo Retriever, NIM/Nemotron QA, deployment, and report plan.
 - Local NIM Launch returns Docker command text and endpoint output.
 
 ### Hosted NIM

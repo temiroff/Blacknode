@@ -11,7 +11,10 @@ export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
   ] },
   NVIDIA:   { color: '#76b900', nodes: [
     'NVIDIASystemCheck', 'NVIDIABlueprintPlan', 'NIMDockerCommand',
-    'NIMHealthCheck', 'NIMAgent', 'NIMBenchmark',
+    'NIMHealthCheck', 'NIMAgent', 'NIMBenchmark', 'VideoFolderInput',
+    'NVIDIADeploymentChoice', 'NVIDIAVideoSummaryPlan',
+    'NVIDIARetrieverIndexPlan', 'NVIDIAQuestionAnswerPlan',
+    'NVIDIAMissionReport',
   ] },
   Tools:    { color: '#14b8a6', nodes: ['PythonFn', 'SubnetAsTool', 'ToolBox', 'ToolCall'] },
   PythonTools: { color: '#0ea5e9', nodes: PYTHON_TOOL_TYPES },

@@ -80,6 +80,7 @@ or type error, inspect `get_node_schema` and fix the graph instead of guessing.
 For an NVIDIA demo, prefer these templates first:
 
 - `nvidia-ai-mission-control`
+- `nvidia-video-intelligence-mission-control`
 - `nvidia-local-nim-launch`
 - `nvidia-nim-benchmark`
 - `nvidia-nim-mcp-demo`

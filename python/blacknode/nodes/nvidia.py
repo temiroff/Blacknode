@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import time
@@ -16,6 +17,7 @@ from blacknode.providers.openai_provider import OpenAIProvider
 HOSTED_NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_NIM_MODEL = "meta/llama-3.1-8b-instruct"
 DEFAULT_NIM_IMAGE = "nvcr.io/nim/meta/llama-3.1-8b-instruct:latest"
+DEFAULT_NEMOTRON_MODEL = "nim:nvidia/llama-3.3-nemotron-super-49b-v1.5"
 
 
 def _clean_model(model: Any) -> str:
@@ -44,6 +46,25 @@ def _float_value(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _split_csv(value: Any, default: list[str]) -> list[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return default
+    items = [item.strip() for item in raw.split(",") if item.strip()]
+    return items or default
+
+
+def _manifest_files(manifest: Any) -> list[dict[str, Any]]:
+    if not isinstance(manifest, dict):
+        return []
+    files = manifest.get("files")
+    return [item for item in files if isinstance(item, dict)] if isinstance(files, list) else []
+
+
+def _dict_value(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _run_check(args: list[str], timeout: float = 2.0) -> tuple[bool, str]:
@@ -98,6 +119,277 @@ def nvidia_system_check(ctx: dict) -> dict:
         "docker": docker_ok,
         "details": details,
     }
+
+
+@node(
+    inputs=["folder:Text=videos", "extensions:Text=.mp4,.mov,.mkv,.avi,.webm"],
+    outputs=["manifest:Dict", "files:List", "summary:Text"],
+    name="VideoFolderInput",
+)
+def video_folder_input(ctx: dict) -> dict:
+    """Describe a local video folder for a visual NVIDIA planning workflow."""
+    folder = str(ctx.get("folder") or "videos").strip()
+    extensions = [ext.lower() if ext.startswith(".") else f".{ext.lower()}" for ext in _split_csv(
+        ctx.get("extensions"),
+        [".mp4", ".mov", ".mkv", ".avi", ".webm"],
+    )]
+    path = Path(folder).expanduser()
+    exists = path.exists()
+    is_dir = path.is_dir()
+    file_rows: list[dict[str, Any]] = []
+
+    if exists and is_dir:
+        for candidate in sorted(path.rglob("*")):
+            if len(file_rows) >= 200:
+                break
+            if candidate.is_file() and candidate.suffix.lower() in extensions:
+                try:
+                    size = candidate.stat().st_size
+                except OSError:
+                    size = 0
+                file_rows.append({
+                    "path": str(candidate),
+                    "name": candidate.name,
+                    "extension": candidate.suffix.lower(),
+                    "bytes": size,
+                })
+
+    status = "ready" if file_rows else "folder not found" if not exists else "no matching videos"
+    summary = (
+        f"Video folder: {folder}; status: {status}; "
+        f"files: {len(file_rows)}; extensions: {', '.join(extensions)}"
+    )
+    manifest = {
+        "folder": folder,
+        "exists": exists,
+        "is_dir": is_dir,
+        "extensions": extensions,
+        "files": file_rows,
+        "file_count": len(file_rows),
+        "status": status,
+    }
+    return {"manifest": manifest, "files": file_rows, "summary": summary}
+
+
+@node(
+    inputs=[
+        "mode:Text=hosted",
+        "endpoint_url:Text=https://integrate.api.nvidia.com/v1",
+        "local_endpoint_url:Text=http://127.0.0.1:8000/v1",
+        f"model:Model={DEFAULT_NEMOTRON_MODEL}",
+    ],
+    outputs=["route:Text", "endpoint_url:Text", "stack:List", "requirements:List", "blueprint:Dict"],
+    name="NVIDIADeploymentChoice",
+)
+def nvidia_deployment_choice(ctx: dict) -> dict:
+    """Select a hosted, local, or hybrid NVIDIA NIM deployment route."""
+    mode = str(ctx.get("mode") or "hosted").strip().lower()
+    hosted_endpoint = _base_url(ctx.get("endpoint_url"))
+    local_endpoint = _base_url(ctx.get("local_endpoint_url") or "http://127.0.0.1:8000/v1")
+    model = str(ctx.get("model") or DEFAULT_NEMOTRON_MODEL).strip()
+
+    if mode.startswith("local"):
+        route = "Local NIM"
+        endpoint = local_endpoint
+        stack = ["local NIM container", "NVIDIA Container Toolkit", "NGC image", model]
+        requirements = ["Docker", "NVIDIA GPU and driver", "NVIDIA Container Toolkit", "NGC_API_KEY"]
+    elif mode.startswith("hybrid"):
+        route = "Hybrid hosted/local NIM"
+        endpoint = hosted_endpoint
+        stack = ["hosted NIM fallback", "local NIM endpoint", "OpenAI-compatible routing", model]
+        requirements = ["NVIDIA_API_KEY", "optional local NIM container", "health check before routing"]
+    else:
+        route = "Hosted NIM"
+        endpoint = hosted_endpoint
+        stack = ["NVIDIA hosted NIM", "OpenAI-compatible endpoint", model]
+        requirements = ["NVIDIA_API_KEY"]
+
+    blueprint = {
+        "route": route,
+        "mode": mode,
+        "endpoint_url": endpoint,
+        "model": model,
+        "stack": stack,
+        "requirements": requirements,
+    }
+    route_text = (
+        f"{route}\nEndpoint: {endpoint}\nModel: {model}\n"
+        f"Requirements: {', '.join(requirements)}"
+    )
+    return {
+        "route": route_text,
+        "endpoint_url": endpoint,
+        "stack": stack,
+        "requirements": requirements,
+        "blueprint": blueprint,
+    }
+
+
+@node(
+    inputs=["manifest:Dict", "goal:Text", "deployment:Dict"],
+    outputs=["plan:Text", "cosmos_path:Text", "vlm_path:Text", "blueprint:Dict"],
+    name="NVIDIAVideoSummaryPlan",
+)
+def nvidia_video_summary_plan(ctx: dict) -> dict:
+    """Plan the video understanding stage for Cosmos or VLM NIM services."""
+    manifest = _dict_value(ctx.get("manifest"))
+    files = _manifest_files(manifest)
+    goal = str(ctx.get("goal") or "Summarize video events and prepare them for retrieval.").strip()
+    deployment = _dict_value(ctx.get("deployment"))
+    route = str(deployment.get("route") or "Hosted NIM")
+    file_count = len(files)
+    cosmos_path = "Cosmos video/world model path: segment videos, create video-text embeddings, attach timestamps."
+    vlm_path = "VLM NIM path: sample frames or clips, caption events, emit timestamped scene summaries."
+    steps = [
+        "1. Read the video folder manifest and split each file into searchable time ranges.",
+        "2. Use Cosmos-style video embeddings or a vision-language NIM path for event descriptions.",
+        "3. Attach file, timestamp, caption, and confidence metadata to each segment.",
+        "4. Send segment summaries to the retriever stage for indexing and reranking.",
+    ]
+    plan = (
+        "NVIDIA video understanding plan\n"
+        f"Goal: {goal}\n"
+        f"Files discovered: {file_count}\n"
+        f"Deployment route: {route}\n"
+        + "\n".join(steps)
+    )
+    blueprint = {
+        "goal": goal,
+        "file_count": file_count,
+        "folder": manifest.get("folder"),
+        "deployment_route": route,
+        "cosmos_path": cosmos_path,
+        "vlm_path": vlm_path,
+        "steps": steps,
+    }
+    return {"plan": plan, "cosmos_path": cosmos_path, "vlm_path": vlm_path, "blueprint": blueprint}
+
+
+@node(
+    inputs=["manifest:Dict", "video_plan:Text", "query:Text"],
+    outputs=["index_plan:Text", "retriever_stack:List", "blueprint:Dict"],
+    name="NVIDIARetrieverIndexPlan",
+)
+def nvidia_retriever_index_plan(ctx: dict) -> dict:
+    """Plan a NeMo Retriever-style index and rerank stage for video segments."""
+    manifest = _dict_value(ctx.get("manifest"))
+    files = _manifest_files(manifest)
+    query = str(ctx.get("query") or "What important events happened in these videos?").strip()
+    stack = [
+        "NeMo Retriever embedding path",
+        "metadata-aware vector index",
+        "reranking NIM",
+        "timestamp and source-file filters",
+    ]
+    steps = [
+        "1. Convert timestamped video summaries into retrievable chunks.",
+        "2. Store file, timestamp, event labels, and generated captions as metadata.",
+        "3. Use retriever embeddings for recall and reranking for answer quality.",
+        "4. Return top segments to the NIM LLM question-answer stage.",
+    ]
+    index_plan = (
+        "NVIDIA retrieval plan\n"
+        f"Query: {query}\n"
+        f"Video files: {len(files)}\n"
+        f"Stack: {', '.join(stack)}\n"
+        + "\n".join(steps)
+    )
+    blueprint = {
+        "query": query,
+        "file_count": len(files),
+        "retriever_stack": stack,
+        "steps": steps,
+        "video_plan": str(ctx.get("video_plan") or ""),
+    }
+    return {"index_plan": index_plan, "retriever_stack": stack, "blueprint": blueprint}
+
+
+@node(
+    inputs=[
+        "question:Text",
+        "index_plan:Text",
+        f"model:Model={DEFAULT_NEMOTRON_MODEL}",
+        "deployment:Dict",
+    ],
+    outputs=["answer_plan:Text", "prompt:Text", "blueprint:Dict"],
+    name="NVIDIAQuestionAnswerPlan",
+)
+def nvidia_question_answer_plan(ctx: dict) -> dict:
+    """Plan a NIM/Nemotron question-answer step over retrieved video segments."""
+    question = str(ctx.get("question") or "What happened in the video set?").strip()
+    model = str(ctx.get("model") or DEFAULT_NEMOTRON_MODEL).strip()
+    deployment = _dict_value(ctx.get("deployment"))
+    route = str(deployment.get("route") or "Hosted NIM")
+    endpoint = str(deployment.get("endpoint_url") or HOSTED_NIM_BASE_URL)
+    prompt = (
+        "Use the retrieved video segments as evidence. Answer the question, cite "
+        "file names and timestamps when available, and separate observed events "
+        "from inferred conclusions.\n\n"
+        f"Question: {question}"
+    )
+    answer_plan = (
+        "NVIDIA NIM/Nemotron question-answer plan\n"
+        f"Route: {route}\nEndpoint: {endpoint}\nModel: {model}\n"
+        "Inputs: top retrieved video segments, captions, timestamps, and source metadata.\n"
+        "Outputs: answer, cited evidence, uncertainty notes, and follow-up queries."
+    )
+    blueprint = {
+        "question": question,
+        "model": model,
+        "route": route,
+        "endpoint_url": endpoint,
+        "prompt": prompt,
+        "index_plan": str(ctx.get("index_plan") or ""),
+    }
+    return {"answer_plan": answer_plan, "prompt": prompt, "blueprint": blueprint}
+
+
+@node(
+    inputs=[
+        "goal:Text",
+        "folder_summary:Text",
+        "video_plan:Text",
+        "retriever_plan:Text",
+        "qa_plan:Text",
+        "deployment_route:Text",
+    ],
+    outputs=["report:Text", "checklist:List", "blueprint:Dict"],
+    name="NVIDIAMissionReport",
+)
+def nvidia_mission_report(ctx: dict) -> dict:
+    """Assemble the visual NVIDIA AI mission-control report."""
+    goal = str(ctx.get("goal") or "").strip()
+    folder_summary = str(ctx.get("folder_summary") or "").strip()
+    video_plan = str(ctx.get("video_plan") or "").strip()
+    retriever_plan = str(ctx.get("retriever_plan") or "").strip()
+    qa_plan = str(ctx.get("qa_plan") or "").strip()
+    deployment_route = str(ctx.get("deployment_route") or "").strip()
+    checklist = [
+        "Video input manifest prepared",
+        "Cosmos or VLM NIM understanding path selected",
+        "NeMo Retriever index plan prepared",
+        "NIM/Nemotron question-answer path prepared",
+        "Hosted/local deployment route visible",
+        "Run replay captures each cooked node",
+        "Workflow can export to Python",
+    ]
+    report = "\n\n".join([
+        "Blacknode NVIDIA AI Mission Control",
+        f"Goal:\n{goal}",
+        f"Input:\n{folder_summary}",
+        f"Deployment:\n{deployment_route}",
+        f"Video understanding:\n{video_plan}",
+        f"Retrieval:\n{retriever_plan}",
+        f"Question answering:\n{qa_plan}",
+        "Checklist:\n- " + "\n- ".join(checklist),
+    ])
+    blueprint = {
+        "goal": goal,
+        "folder_summary": folder_summary,
+        "deployment_route": deployment_route,
+        "checklist": checklist,
+    }
+    return {"report": report, "checklist": checklist, "blueprint": blueprint}
 
 
 @node(
@@ -305,6 +597,7 @@ def nvidia_blueprint_plan(ctx: dict) -> dict:
         "technologies": technologies,
         "recommended_templates": [
             "nvidia-ai-mission-control",
+            "nvidia-video-intelligence-mission-control",
             "nvidia-local-nim-launch",
             "nvidia-nim-benchmark",
         ],
