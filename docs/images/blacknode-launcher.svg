@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="560" viewBox="0 0 1120 560" role="img" aria-labelledby="title desc">
+  <title id="title">Blacknode launcher terminal</title>
+  <desc id="desc">A terminal window showing the Blacknode launcher starting the Python server and visual editor.</desc>
+  <rect width="1120" height="560" rx="12" fill="#0b0d0e"/>
+  <rect width="1120" height="42" rx="12" fill="#2c2c2c"/>
+  <rect y="30" width="1120" height="24" fill="#2c2c2c"/>
+  <rect x="14" y="8" width="222" height="34" rx="8" fill="#111315"/>
+  <text x="38" y="30" fill="#f0f0f0" font-family="Consolas, Monaco, monospace" font-size="14" font-weight="700">Blacknode</text>
+  <text x="214" y="30" fill="#d7d7d7" font-family="Consolas, Monaco, monospace" font-size="18">x</text>
+  <text x="260" y="29" fill="#d7d7d7" font-family="Consolas, Monaco, monospace" font-size="24">+</text>
+
+  <g font-family="Consolas, Monaco, monospace">
+    <text x="32" y="96" fill="#58dce6" font-size="58" font-weight="800" letter-spacing="2">BLACKNODE</text>
+    <text x="32" y="148" fill="#cfcfcf" font-size="17">Checking Python dependencies...</text>
+    <text x="32" y="170" fill="#cfcfcf" font-size="17">Done.</text>
+
+    <text x="32" y="218" fill="#d7d7d7" font-size="17">[1/2] Starting Python server  (http://127.0.0.1:7777)</text>
+    <text x="32" y="242" fill="#d7d7d7" font-size="17">Stopping existing visual editor on port 3000...</text>
+    <text x="32" y="266" fill="#d7d7d7" font-size="17">[2/2] Starting visual editor  (http://localhost:3000)</text>
+
+    <text x="32" y="316" fill="#d7d7d7" font-size="17">Opening browser...</text>
+    <text x="32" y="366" fill="#d7d7d7" font-size="17">Logs: .local-logs\server.out.log and .local-logs\editor.out.log</text>
+  </g>
+</svg>
