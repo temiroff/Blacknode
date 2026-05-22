@@ -138,7 +138,7 @@ npm install
 
 **Windows — double-click `start.bat`** (at the repo root).
 
-It opens one launcher window, starts the Python server and Vite dev server in the background, writes logs to `.local-logs/`, and launches the browser at `http://localhost:3000` automatically. Press **Ctrl+C** in the launcher to stop both services.
+It opens one launcher window, starts the Python server and Vite dev server in the background, writes logs to `.local-logs/`, and launches the browser at `http://localhost:3000` automatically. If an old Blacknode editor is already running on port 3000, the launcher restarts it instead of failing. Press **Ctrl+C** in the launcher to stop both services.
 
 **macOS/Linux — run `./start.sh`** from the repo root:
 

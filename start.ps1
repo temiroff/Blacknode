@@ -9,6 +9,9 @@ $EditorErr = Join-Path $LogDir "editor.err.log"
 
 $BackendProcess = $null
 $FrontendProcess = $null
+$BackendPort = 7777
+$FrontendPort = 3000
+$EditorUrl = "http://localhost:$FrontendPort"
 
 function Write-Step {
     param([string] $Message)
@@ -48,7 +51,7 @@ function Stop-PortListener {
     param([int] $Port)
 
     try {
-        $Listeners = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+        $Listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
         $ProcessIds = $Listeners | Select-Object -ExpandProperty OwningProcess -Unique
         foreach ($ProcessId in $ProcessIds) {
             if ($ProcessId -and $ProcessId -ne $PID) {
@@ -58,6 +61,76 @@ function Stop-PortListener {
     } catch {
         # Port cleanup is best-effort; the server will report a clear error if the port is still busy.
     }
+}
+
+function Get-PortProcessIds {
+    param([int] $Port)
+
+    try {
+        @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty OwningProcess -Unique)
+    } catch {
+        @()
+    }
+}
+
+function Test-PortInUse {
+    param([int] $Port)
+
+    return @(Get-PortProcessIds -Port $Port).Count -gt 0
+}
+
+function Test-BlacknodeEditorReady {
+    try {
+        $Response = Invoke-WebRequest -Uri $EditorUrl -UseBasicParsing -TimeoutSec 2
+        return $Response.StatusCode -ge 200 -and $Response.Content -match "<title>Blacknode</title>"
+    } catch {
+        return $false
+    }
+}
+
+function Wait-BlacknodeEditorReady {
+    param([int] $TimeoutSeconds = 5)
+
+    $Deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $Deadline) {
+        if (Test-BlacknodeEditorReady) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 500
+    }
+
+    return $false
+}
+
+function Wait-PortFree {
+    param(
+        [int] $Port,
+        [int] $TimeoutSeconds = 5
+    )
+
+    $Deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $Deadline) {
+        if (-not (Test-PortInUse -Port $Port)) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 500
+    }
+
+    return -not (Test-PortInUse -Port $Port)
+}
+
+function Write-PortBusyError {
+    param([int] $Port)
+
+    Write-Host ""
+    Write-Host "  ERROR: Port $Port is already in use by another app."
+    $ProcessIds = Get-PortProcessIds -Port $Port
+    if (@($ProcessIds).Count -gt 0) {
+        Write-Host ""
+        Write-Host "  Listening process id(s): $(@($ProcessIds) -join ', ')"
+    }
+    Write-Host "  Close that app or free port $Port, then run start.bat again."
 }
 
 function Start-HiddenProcess {
@@ -104,7 +177,7 @@ function Assert-ProcessRunning {
 }
 
 function Open-Browser {
-    Start-Process "http://localhost:3000"
+    Start-Process $EditorUrl
 }
 
 function Stop-Services {
@@ -163,9 +236,9 @@ try {
     Write-Step "Done."
     Write-Host ""
 
-    Stop-PortListener -Port 7777
+    Stop-PortListener -Port $BackendPort
 
-    Write-Step "[1/2] Starting Python server  (http://127.0.0.1:7777)"
+    Write-Step "[1/2] Starting Python server  (http://127.0.0.1:$BackendPort)"
     $script:BackendProcess = Start-HiddenProcess `
         -FilePath $Python `
         -Arguments @("server.py") `
@@ -176,7 +249,21 @@ try {
     Start-Sleep -Seconds 3
     Assert-ProcessRunning -Process $script:BackendProcess -Name "Python server" -ErrorLog $ServerErr
 
-    Write-Step "[2/2] Starting visual editor  (http://localhost:3000)"
+    if (Test-PortInUse -Port $FrontendPort) {
+        if (-not (Wait-BlacknodeEditorReady)) {
+            Write-PortBusyError -Port $FrontendPort
+            throw "Visual editor port is busy."
+        }
+
+        Write-Step "Stopping existing visual editor on port $FrontendPort..."
+        Stop-PortListener -Port $FrontendPort
+        if (-not (Wait-PortFree -Port $FrontendPort)) {
+            Write-PortBusyError -Port $FrontendPort
+            throw "Visual editor port is busy."
+        }
+    }
+
+    Write-Step "[2/2] Starting visual editor  ($EditorUrl)"
     $script:FrontendProcess = Start-HiddenProcess `
         -FilePath $Npm `
         -Arguments @("run", "dev", "--", "--strictPort") `
