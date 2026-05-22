@@ -223,6 +223,12 @@ class CliTests(unittest.TestCase):
             allowed_hosts=["localhost:*", "blacknode-mcp:*"],
         )
 
+    def test_mcp_ctrl_c_exits_without_traceback(self):
+        with patch("blacknode.mcp.main", side_effect=KeyboardInterrupt):
+            code = main(["mcp", "--transport", "streamable-http"])
+
+        self.assertEqual(code, 130)
+
 
 def _valid_workflow() -> dict:
     return workflow(

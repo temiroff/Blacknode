@@ -199,13 +199,16 @@ def _doctor() -> int:
 def _mcp(args: argparse.Namespace | None = None) -> int:
     from .mcp import main as run_mcp
 
-    run_mcp(
-        transport=getattr(args, "transport", "stdio"),
-        host=getattr(args, "host", None),
-        port=getattr(args, "port", None),
-        path=getattr(args, "path", None),
-        allowed_hosts=getattr(args, "allowed_hosts", None),
-    )
+    try:
+        run_mcp(
+            transport=getattr(args, "transport", "stdio"),
+            host=getattr(args, "host", None),
+            port=getattr(args, "port", None),
+            path=getattr(args, "path", None),
+            allowed_hosts=getattr(args, "allowed_hosts", None),
+        )
+    except KeyboardInterrupt:
+        return 130
     return 0
 
 
