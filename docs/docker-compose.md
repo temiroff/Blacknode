@@ -9,23 +9,32 @@ It starts three services:
 | `editor-server` | `7777` | FastAPI backend, workflow store, run store, cook API. |
 | `blacknode-mcp` | `9901` | Streamable HTTP MCP server at `/mcp`. |
 
-Start everything:
+## Run, Check, See Result
+
+### 1. Start everything
 
 ```bash
 docker compose up --build
 ```
 
-Open:
+### 2. Open the editor
 
 ```text
 http://127.0.0.1:3000
 ```
 
-MCP endpoint:
+Load a template, click **Cook** on an Output node, and inspect the **Runs** tab.
+
+### 3. Check the MCP endpoint
 
 ```text
 http://127.0.0.1:9901/mcp
 ```
+
+MCP clients connect to that endpoint with `streamable-http`. A browser GET can
+show a protocol response instead of a page; use an MCP client to list tools.
+
+### 4. Add NVIDIA credentials
 
 To use hosted NVIDIA NIM, create a local `.env` from the example and set
 `NVIDIA_API_KEY`:
@@ -49,6 +58,6 @@ Local state mounted from the checkout:
 - `workflows/`
 - `editor-server/runs/`
 
-This is a deployment baseline for demos and self-hosted evaluation. It is not
-yet an enterprise-hardened production package with auth, RBAC, secret-store
-integration, or execution sandboxing.
+This Compose stack is the local and self-hosted evaluation path for the visual
+editor, backend, persisted run history, saved workflows, and streamable HTTP MCP
+endpoint.

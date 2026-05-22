@@ -12,7 +12,7 @@ The NVIDIA node category includes:
 |---|---|
 | `NVIDIASystemCheck` | Checks local `nvidia-smi`, Docker, `NVIDIA_API_KEY`, and `NGC_API_KEY` visibility without changing the system. |
 | `NVIDIABlueprintPlan` | Maps a goal to an NVIDIA-oriented workflow plan using NIM, NeMo Retriever, Cosmos, Triton, TensorRT-LLM, RAPIDS, or speech services where relevant. |
-| `NIMDockerCommand` | Generates PowerShell and Bash commands for launching a local NIM container. It does not start Docker by itself. |
+| `NIMDockerCommand` | Generates PowerShell and Bash commands for launching a local NIM container, plus the endpoint URL to wire into the workflow. |
 | `NIMHealthCheck` | Checks a hosted or local OpenAI-compatible NIM `/models` endpoint. |
 | `NIMAgent` | Calls hosted or local NVIDIA NIM through an OpenAI-compatible endpoint. |
 | `NIMBenchmark` | Runs repeated NIM calls and returns text, average latency, min/max latency, and raw samples. |
@@ -29,28 +29,38 @@ The NVIDIA node category includes:
 
 ## Quick Demo Path
 
-No key required:
+### 1. Run no-key checks
 
 ```powershell
 python -m blacknode.cli run templates\nvidia-ai-mission-control.json
 python -m blacknode.cli run templates\nvidia-local-nim-launch.json
 ```
 
-Hosted NIM:
+Expected result:
 
-```powershell
-$env:NVIDIA_API_KEY="..."
-python -m blacknode.cli run templates\nvidia-nim-benchmark.json
-```
+- Mission Control returns an NVIDIA stack plan.
+- Local NIM Launch returns PowerShell and Bash Docker commands plus
+  `http://127.0.0.1:8000/v1`.
 
-Visual editor:
+### 2. Open the visual workflow
 
 ```powershell
 start.bat
 ```
 
 Then open the **Templates** tab and load **NVIDIA AI Mission Control** or
-**NVIDIA Local NIM Launch**.
+**NVIDIA Local NIM Launch**. Cook the Output nodes to see the plan, launch
+command, endpoint, and run-history events.
+
+### 3. Run hosted NIM
+
+```powershell
+$env:NVIDIA_API_KEY="..."
+python -m blacknode.cli run templates\nvidia-nim-benchmark.json
+```
+
+Expected result: the benchmark returns generated text, average latency, min/max
+latency, and raw latency samples.
 
 ## Hosted NIM vs Local NIM
 
@@ -62,10 +72,8 @@ generate the container command, start it in a terminal, then point
 `NIMHealthCheck`, `NIMAgent`, or `NIMBenchmark` at the local endpoint such as
 `http://127.0.0.1:8000/v1`.
 
-## Honest Boundary
+## Implemented Surface
 
-Blacknode now exposes NVIDIA-oriented workflow nodes, hosted/local NIM calls,
-local readiness checks, benchmark metrics, and local NIM launch commands. It
-does not yet provide a hardened sandbox, authenticated enterprise deployment,
-automatic Docker lifecycle management, TensorRT-LLM graph compilation, Triton
-model repository management, or NVIDIA AI Enterprise policy integration.
+Blacknode exposes NVIDIA-oriented workflow nodes, hosted/local NIM calls, local
+readiness checks, benchmark metrics, local NIM launch commands, templates,
+run-history visibility, and Python export.

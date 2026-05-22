@@ -12,6 +12,7 @@ $FrontendProcess = $null
 $BackendPort = 7777
 $FrontendPort = 3000
 $EditorUrl = "http://localhost:$FrontendPort"
+$EditorProbeUrls = @("http://127.0.0.1:$FrontendPort", "http://localhost:$FrontendPort")
 
 function Write-Step {
     param([string] $Message)
@@ -81,12 +82,38 @@ function Test-PortInUse {
 }
 
 function Test-BlacknodeEditorReady {
-    try {
-        $Response = Invoke-WebRequest -Uri $EditorUrl -UseBasicParsing -TimeoutSec 2
-        return $Response.StatusCode -ge 200 -and $Response.Content -match "<title>Blacknode</title>"
-    } catch {
-        return $false
+    foreach ($Url in $EditorProbeUrls) {
+        try {
+            $Response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2
+            if ($Response.StatusCode -ge 200 -and $Response.Content -match "<title>Blacknode</title>") {
+                return $true
+            }
+        } catch {
+            # Try the next loopback spelling before deciding the editor is not ours.
+        }
     }
+
+    return $false
+}
+
+function Test-BlacknodeEditorProcessOnPort {
+    param([int] $Port)
+
+    $EditorDir = (Join-Path $Root "editor").Replace("\", "/").ToLowerInvariant()
+    foreach ($ProcessId in @(Get-PortProcessIds -Port $Port)) {
+        try {
+            $ProcessInfo = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction Stop
+            $CommandLine = [string] $ProcessInfo.CommandLine
+            $Normalized = $CommandLine.Replace("\", "/").ToLowerInvariant()
+            if ($Normalized.Contains($EditorDir) -and $Normalized.Contains("vite")) {
+                return $true
+            }
+        } catch {
+            # If process inspection fails, keep the conservative port-busy behavior.
+        }
+    }
+
+    return $false
 }
 
 function Wait-BlacknodeEditorReady {
@@ -202,6 +229,12 @@ function Assert-ProcessRunning {
 }
 
 function Open-Browser {
+    if ($env:BLACKNODE_NO_BROWSER -eq "1") {
+        Write-Step "Browser launch skipped (BLACKNODE_NO_BROWSER=1)."
+        return
+    }
+
+    Write-Step "Opening browser..."
     Start-Process $EditorUrl
 }
 
@@ -268,7 +301,8 @@ try {
     Assert-ProcessRunning -Process $script:BackendProcess -Name "Python server" -ErrorLog $ServerErr
 
     if (Test-PortInUse -Port $FrontendPort) {
-        if (-not (Wait-BlacknodeEditorReady)) {
+        $ExistingBlacknodeEditor = (Wait-BlacknodeEditorReady) -or (Test-BlacknodeEditorProcessOnPort -Port $FrontendPort)
+        if (-not $ExistingBlacknodeEditor) {
             Write-PortBusyError -Port $FrontendPort
             throw "Visual editor port is busy."
         }
@@ -292,8 +326,6 @@ try {
     Start-Sleep -Seconds 5
     Assert-ProcessRunning -Process $script:FrontendProcess -Name "Visual editor" -ErrorLog $EditorErr
 
-    Write-Host ""
-    Write-Step "Opening browser..."
     Open-Browser
     Write-Host ""
     Write-Step "Logs: .local-logs\server.out.log and .local-logs\editor.out.log"

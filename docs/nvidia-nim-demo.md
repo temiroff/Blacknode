@@ -62,9 +62,9 @@ Expected result:
 - The Runs tab records the execution.
 - If a NIM key is configured, the LLM node returns a launch brief.
 
-## No-Key Backup
+## No-Key Smoke Test
 
-If credentials or network access are not available, use the deterministic text template:
+Use the deterministic text template to verify the local workflow runtime:
 
 ```powershell
 python -m blacknode.cli validate templates\text-pipeline.json
@@ -77,6 +77,7 @@ Or use the experimental Rust no-server path:
 cargo run -p blacknode-cli -- run-pure templates\text-pipeline.json
 ```
 
-## Honest Status
+## Demo Coverage
 
-This demo proves the workflow, MCP, editor, provider routing, and run-history path. It does not claim production GPU orchestration, CUDA acceleration, TensorRT integration, NVIDIA Enterprise support, or a hardened sandbox.
+This demo covers the workflow format, MCP tools, visual editor, NVIDIA NIM
+provider routing, run history, and Python export path.

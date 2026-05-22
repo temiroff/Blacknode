@@ -66,7 +66,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md).
 
 ## Why it exists
 
-Most agent workflows are either code you cannot see as a system, or visual graphs that are hard to automate. Blacknode is meant to sit in the middle:
+Most agent workflows are either opaque code paths or visual graphs that are hard to automate. Blacknode sits in the middle:
 
 - Visual editor for inspecting, cooking, saving, and debugging graphs.
 - Python runtime and CLI for running workflows outside the browser.
@@ -75,9 +75,9 @@ Most agent workflows are either code you cannot see as a system, or visual graph
 - Portable workflow JSON plus Python export for versioning and handoff.
 - Local API-key handling for OpenAI, Anthropic, NVIDIA NIM, and Ollama-style local models.
 
-## Try first
+## Try First: Run, Check, See Result
 
-No API key required:
+### 1. Prove the local runtime
 
 ```powershell
 pip install -e .
@@ -85,21 +85,45 @@ blacknode doctor
 blacknode demo
 ```
 
-Visual editor:
+You should see `Required checks passed.` from `doctor` and `Blacknode demo OK`
+with `Result: Hello World` from `demo`.
+
+### 2. Open the visual editor
 
 ```bash
 ./start.sh
 # Windows: start.bat
 ```
 
-Agent/MCP demo:
+Open `http://localhost:3000`, load a template from the **Templates** tab, then
+click **Cook** on an Output node. The result appears on the node and the run is
+saved in the **Runs** tab.
+
+### 3. Verify NVIDIA workflows without an API key
+
+```powershell
+python -m blacknode.cli run templates\nvidia-ai-mission-control.json
+python -m blacknode.cli run templates\nvidia-local-nim-launch.json
+```
+
+You should see an NVIDIA workflow plan from Mission Control and a local NIM
+Docker command plus endpoint from Local NIM Launch.
+
+### 4. Connect an agent through MCP
 
 ```powershell
 pip install -e ".[mcp]"
 blacknode mcp
 ```
 
-Then use the copy-paste prompts in [docs/mcp-test-prompts.md](docs/mcp-test-prompts.md), or follow the shorter public-preview path in [docs/quickstart-mcp.md](docs/quickstart-mcp.md).
+For AI-Q or NeMo Agent Toolkit MCP clients:
+
+```powershell
+blacknode mcp --transport streamable-http --host 127.0.0.1 --port 9901 --path /mcp
+```
+
+Then use the copy-paste prompts in [docs/mcp-test-prompts.md](docs/mcp-test-prompts.md),
+or follow [docs/quickstart-mcp.md](docs/quickstart-mcp.md).
 
 ## Guides
 

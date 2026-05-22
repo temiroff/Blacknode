@@ -23,7 +23,7 @@ Use this skill for:
 - Exporting a workflow to readable Python.
 - Creating NVIDIA NIM, local NIM, RAG, tool-agent, or research-pipeline demos.
 
-Do not use this skill only to answer ordinary prose questions. Use it when the
+Use the ordinary answer path for prose-only questions. Use this skill when the
 workflow artifact, editor state, run trace, or exported Python matters.
 
 ## Available Surfaces
@@ -97,14 +97,16 @@ Use local NIM when the user wants an on-prem or workstation story:
 3. Start the generated Docker command in a terminal.
 4. Point `NIMHealthCheck`, `NIMAgent`, or `NIMBenchmark` at the local endpoint.
 
-Do not start Docker containers automatically unless the user explicitly asks.
+Keep local NIM container startup explicit: generate the command, show the
+endpoint, and run it only when the user asks for container startup.
 
 ## File Rules
 
 - Shared templates live in `templates/*.json`.
 - Local user saves live in `workflows/*.json`.
 - Run records live under `editor-server/runs/`.
-- Do not commit API keys, run logs, editor session state, or scratch exports.
+- Keep API keys, run logs, editor session state, and scratch exports out of
+  commits.
 - Workflow JSON must keep `kind: "blacknode.workflow"` and `schema_version: 1`.
 
 ## Verification

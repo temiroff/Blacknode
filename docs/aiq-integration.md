@@ -7,8 +7,8 @@ export path.
 
 Positioning:
 
-> Agent harnesses are good at chat, code, and research. They are bad at visual
-> workflow construction. Blacknode gives them a typed visual editor through MCP.
+> Agent harnesses can research, code, and reason. Blacknode gives them a typed
+> visual workflow editor through MCP.
 
 ## Why This Fits AI-Q
 
@@ -100,20 +100,12 @@ NVIDIA templates.
 
 7. Export the workflow to Python as the handoff artifact.
 
-## Implementation Boundary
+## Included Integration Surface
 
 Current Blacknode integration:
 
 - MCP over stdio and streamable HTTP.
 - Repo-local `SKILL.md` for agent harnesses.
 - NVIDIA-oriented workflow templates and nodes.
-- Docker Compose for editor, backend, and streamable HTTP MCP services.
-
-Still future work:
-
-- Authenticated multi-user deployment.
-- Enterprise secret store integration.
-- Hardened Python/tool sandbox.
-- Automatic Docker lifecycle management for local NIM.
-- Native AI-Q workflow config generation.
-- Triton/TensorRT-LLM deployment management.
+- Docker Compose for editor, backend, persisted run history, saved workflows,
+  and streamable HTTP MCP services.
