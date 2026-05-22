@@ -46,6 +46,11 @@ interface NoticeState {
   message: string
 }
 
+interface PendingCloseState {
+  tabId: string
+  name: string
+}
+
 export default function App() {
   const {
     nodes, edges, nodeTypes, nodeDefs, serverOk, cookLog, cookActive,
@@ -68,6 +73,8 @@ export default function App() {
   const [saveOk, setSaveOk] = useState(false)
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tabId: string } | null>(null)
   const [notice, setNotice] = useState<NoticeState | null>(null)
+  const [pendingClose, setPendingClose] = useState<PendingCloseState | null>(null)
+  const [closeSaving, setCloseSaving] = useState(false)
   const saveOkTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const graphClipboard = useRef<GraphClipboard | null>(null)
@@ -85,6 +92,7 @@ export default function App() {
   const activeTab = tabs.find(tab => tab.id === activeTabId)
   const needsSave = Boolean(activeTab && (activeTab.dirty || !activeTab.slug))
   const menuTab = tabMenu ? tabs.find(tab => tab.id === tabMenu.tabId) : null
+  const pendingCloseTab = pendingClose ? tabs.find(tab => tab.id === pendingClose.tabId) : null
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
@@ -126,6 +134,15 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [tabMenu])
+
+  useEffect(() => {
+    if (!pendingClose || closeSaving) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPendingClose(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [closeSaving, pendingClose])
 
   useEffect(() => {
     checkServer().then(() => {
@@ -533,6 +550,72 @@ export default function App() {
     }
   }, [activeTab, activeTabId, editingTabId, renameTab, saveActiveWorkflow, tabDraft])
 
+  const closeTabNow = useCallback(async (tabId: string) => {
+    if (editingTabId === tabId) {
+      setEditingTabId(null)
+      setTabDraft('')
+    }
+    await closeTab(tabId)
+  }, [closeTab, editingTabId])
+
+  const requestCloseTab = useCallback((tabId: string) => {
+    setTabMenu(null)
+    const tab = tabs.find(item => item.id === tabId)
+    if (!tab || tabs.length <= 1) return
+    if (tab.dirty) {
+      const name = (editingTabId === tabId ? tabDraft : tab.name).trim() || 'Untitled'
+      setPendingClose({ tabId, name })
+      return
+    }
+    void closeTabNow(tabId)
+  }, [closeTabNow, editingTabId, tabDraft, tabs])
+
+  const cancelPendingClose = useCallback(() => {
+    if (closeSaving) return
+    setPendingClose(null)
+  }, [closeSaving])
+
+  const discardPendingClose = useCallback(async () => {
+    if (!pendingClose || closeSaving) return
+    const tabId = pendingClose.tabId
+    setPendingClose(null)
+    await closeTabNow(tabId)
+  }, [closeSaving, closeTabNow, pendingClose])
+
+  const savePendingClose = useCallback(async () => {
+    if (!pendingClose || closeSaving) return
+    const tab = tabs.find(item => item.id === pendingClose.tabId)
+    if (!tab) {
+      setPendingClose(null)
+      return
+    }
+    setCloseSaving(true)
+    try {
+      const name = pendingClose.name.trim() || 'Untitled'
+      if (editingTabId === tab.id) {
+        renameTab(tab.id, name)
+        setEditingTabId(null)
+        setTabDraft('')
+      }
+      if (tab.id !== activeTabId) {
+        await switchTab(tab.id)
+      }
+      await saveActiveWorkflow(name)
+      setPendingClose(null)
+      await closeTab(tab.id)
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: 'Save failed',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
+    } finally {
+      setCloseSaving(false)
+    }
+  }, [activeTabId, closeSaving, closeTab, editingTabId, pendingClose, renameTab, saveActiveWorkflow, switchTab, tabs])
+
   const handleOrganize = useCallback(async () => {
     await organizeNodes()
     fitCurrentCanvas(320)
@@ -724,7 +807,7 @@ export default function App() {
                 )}
                 {tabs.length > 1 && (
                   <button
-                    onClick={e => { e.stopPropagation(); void closeTab(tab.id) }}
+                    onClick={e => { e.stopPropagation(); requestCloseTab(tab.id) }}
                     style={{
                       background: 'transparent',
                       border: 'none',
@@ -814,10 +897,77 @@ export default function App() {
               className="bn-menu-item"
               style={menuItemStyle(tabs.length <= 1, 'var(--err)')}
               disabled={tabs.length <= 1}
-              onClick={() => runTabMenuAction(() => closeTab(menuTab.id))}
+              onClick={() => runTabMenuAction(() => requestCloseTab(menuTab.id))}
             >
-              Delete
+              Close
             </button>
+          </div>
+        )}
+
+        {pendingClose && pendingCloseTab && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="close-workflow-title"
+            onMouseDown={e => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 80,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(0,0,0,.42)',
+            }}
+          >
+            <div
+              style={{
+                width: 'min(420px, calc(100vw - 32px))',
+                background: 'var(--panel)',
+                border: '1px solid var(--line2)',
+                borderRadius: 8,
+                boxShadow: '0 18px 48px rgba(0,0,0,.35)',
+                padding: 18,
+                color: 'var(--tx1)',
+              }}
+            >
+              <div id="close-workflow-title" style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>
+                Save changes?
+              </div>
+              <div style={{ color: 'var(--tx2)', fontSize: 13, lineHeight: 1.45, marginBottom: 18 }}>
+                Workflow "{pendingClose.name}" has unsaved changes. Save it before closing?
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button
+                  className="bn-top-button"
+                  disabled={closeSaving}
+                  onClick={cancelPendingClose}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="bn-top-button"
+                  disabled={closeSaving}
+                  onClick={() => void discardPendingClose()}
+                  style={{ borderColor: 'var(--err)', color: 'var(--err)' }}
+                >
+                  Don't Save
+                </button>
+                <button
+                  className="bn-top-button"
+                  disabled={closeSaving}
+                  onClick={() => void savePendingClose()}
+                  style={{
+                    background: 'var(--accent)',
+                    borderColor: 'var(--accent)',
+                    color: '#fff',
+                    opacity: closeSaving ? 0.65 : 1,
+                  }}
+                >
+                  {closeSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
