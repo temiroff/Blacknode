@@ -191,7 +191,6 @@ try {
     Write-Step "Opening browser..."
     Open-Browser
     Write-Host ""
-    Write-Step "Running in one launcher window. Press Ctrl+C to stop."
     Write-Step "Logs: .local-logs\server.out.log and .local-logs\editor.out.log"
     Write-Host ""
 
