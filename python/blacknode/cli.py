@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         return _doctor()
     if args.command == "mcp":
-        return _mcp()
+        return _mcp(args)
     parser.print_help()
     return 2
 
@@ -54,7 +54,22 @@ def _parser() -> argparse.ArgumentParser:
 
     subcommands.add_parser("doctor", help="check the local Blacknode development environment")
 
-    subcommands.add_parser("mcp", help="run the Blacknode MCP server over stdio")
+    mcp = subcommands.add_parser("mcp", help="run the Blacknode MCP server")
+    mcp.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "streamable-http"],
+        default="stdio",
+        help="MCP transport to serve; stdio keeps existing desktop-client behavior",
+    )
+    mcp.add_argument("--host", default=None, help="HTTP bind host for sse or streamable-http")
+    mcp.add_argument("--port", type=int, default=None, help="HTTP bind port for sse or streamable-http")
+    mcp.add_argument("--path", default=None, help="HTTP mount path, default /mcp for streamable-http")
+    mcp.add_argument(
+        "--allowed-host",
+        action="append",
+        dest="allowed_hosts",
+        help="Allowed Host header pattern for HTTP transport; may be repeated",
+    )
 
     return parser
 
@@ -178,10 +193,16 @@ def _doctor() -> int:
     return 0 if required_ok else 1
 
 
-def _mcp() -> int:
+def _mcp(args: argparse.Namespace | None = None) -> int:
     from .mcp import main as run_mcp
 
-    run_mcp()
+    run_mcp(
+        transport=getattr(args, "transport", "stdio"),
+        host=getattr(args, "host", None),
+        port=getattr(args, "port", None),
+        path=getattr(args, "path", None),
+        allowed_hosts=getattr(args, "allowed_hosts", None),
+    )
     return 0
 
 

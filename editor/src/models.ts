@@ -78,8 +78,9 @@ export const MODEL_GROUPS: ModelGroup[] = [
     provider: 'NVIDIA NIM',
     color: '#76b900',
     models: [
-      { label: 'llama-3.1-8b',        value: 'nim:meta/llama-3.1-8b-instruct' },
-      { label: 'nemotron-super-49b',   value: 'nim:nvidia/llama-3.3-nemotron-super-49b-v1' },
+      { label: 'llama-3.1-8b',          value: 'nim:meta/llama-3.1-8b-instruct' },
+      { label: 'nemotron-nano-8b',      value: 'nim:nvidia/llama-3.1-nemotron-nano-8b-v1' },
+      { label: 'nemotron-super-49b',    value: 'nim:nvidia/llama-3.3-nemotron-super-49b-v1.5' },
     ],
   },
   {

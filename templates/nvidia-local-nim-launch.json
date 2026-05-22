@@ -1,0 +1,229 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "NVIDIA Local NIM Launch",
+  "saved_at": "2026-05-22T00:00:00",
+  "entrypoint": {
+    "node_id": "out_powershell",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "No-key helper that checks the workstation and generates local NVIDIA NIM Docker commands.",
+    "color": "#76b900"
+  },
+  "node_meta": {
+    "system_check": {
+      "id": "system_check",
+      "type": "NVIDIASystemCheck",
+      "params": {},
+      "pos": [80, 80],
+      "inputs": [],
+      "outputs": ["summary", "has_gpu", "gpu_count", "docker", "details"],
+      "input_types": {},
+      "output_types": {
+        "summary": "Text",
+        "has_gpu": "Bool",
+        "gpu_count": "Int",
+        "docker": "Bool",
+        "details": "Dict"
+      },
+      "input_defaults": {}
+    },
+    "image": {
+      "id": "image",
+      "type": "Text",
+      "params": {
+        "value": "nvcr.io/nim/meta/llama-3.1-8b-instruct:latest"
+      },
+      "pos": [80, 310],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "container_name": {
+      "id": "container_name",
+      "type": "Text",
+      "params": {
+        "value": "blacknode-nim"
+      },
+      "pos": [80, 480],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "port": {
+      "id": "port",
+      "type": "Int",
+      "params": {
+        "value": 8000
+      },
+      "pos": [80, 650],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Int"
+      },
+      "input_defaults": {}
+    },
+    "cache_dir": {
+      "id": "cache_dir",
+      "type": "Text",
+      "params": {
+        "value": ".cache/nim"
+      },
+      "pos": [80, 810],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "launcher": {
+      "id": "launcher",
+      "type": "NIMDockerCommand",
+      "params": {},
+      "pos": [430, 410],
+      "inputs": ["image", "container_name", "port", "cache_dir", "ngc_api_key_env"],
+      "outputs": ["powershell", "bash", "endpoint_url", "notes"],
+      "input_types": {
+        "image": "Text",
+        "container_name": "Text",
+        "port": "Int",
+        "cache_dir": "Text",
+        "ngc_api_key_env": "Text"
+      },
+      "output_types": {
+        "powershell": "Text",
+        "bash": "Text",
+        "endpoint_url": "Text",
+        "notes": "Text"
+      },
+      "input_defaults": {
+        "port": 8000,
+        "ngc_api_key_env": "NGC_API_KEY"
+      }
+    },
+    "out_system": {
+      "id": "out_system",
+      "type": "Output",
+      "params": {
+        "label": "System Check"
+      },
+      "pos": [780, 80],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_powershell": {
+      "id": "out_powershell",
+      "type": "Output",
+      "params": {
+        "label": "PowerShell Launch"
+      },
+      "pos": [780, 340],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_bash": {
+      "id": "out_bash",
+      "type": "Output",
+      "params": {
+        "label": "Bash Launch"
+      },
+      "pos": [780, 520],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_endpoint": {
+      "id": "out_endpoint",
+      "type": "Output",
+      "params": {
+        "label": "Local Endpoint"
+      },
+      "pos": [780, 700],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "system_check",
+      "from_port": "summary",
+      "to": "out_system",
+      "to_port": "value"
+    },
+    {
+      "from": "image",
+      "from_port": "value",
+      "to": "launcher",
+      "to_port": "image"
+    },
+    {
+      "from": "container_name",
+      "from_port": "value",
+      "to": "launcher",
+      "to_port": "container_name"
+    },
+    {
+      "from": "port",
+      "from_port": "value",
+      "to": "launcher",
+      "to_port": "port"
+    },
+    {
+      "from": "cache_dir",
+      "from_port": "value",
+      "to": "launcher",
+      "to_port": "cache_dir"
+    },
+    {
+      "from": "launcher",
+      "from_port": "powershell",
+      "to": "out_powershell",
+      "to_port": "value"
+    },
+    {
+      "from": "launcher",
+      "from_port": "bash",
+      "to": "out_bash",
+      "to_port": "value"
+    },
+    {
+      "from": "launcher",
+      "from_port": "endpoint_url",
+      "to": "out_endpoint",
+      "to_port": "value"
+    }
+  ]
+}

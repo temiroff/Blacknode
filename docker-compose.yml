@@ -1,0 +1,71 @@
+services:
+  editor-server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    command:
+      - python
+      - -m
+      - uvicorn
+      - server:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "7777"
+      - --app-dir
+      - editor-server
+    ports:
+      - "7777:7777"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BLACKNODE_EDITOR_URL: http://editor-server:7777
+    volumes:
+      - ./workflows:/app/workflows
+      - ./editor-server/runs:/app/editor-server/runs
+
+  editor:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.editor
+    ports:
+      - "3000:3000"
+    depends_on:
+      - editor-server
+
+  blacknode-mcp:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    command:
+      - blacknode
+      - mcp
+      - --transport
+      - streamable-http
+      - --host
+      - 0.0.0.0
+      - --port
+      - "9901"
+      - --path
+      - /mcp
+      - --allowed-host
+      - "localhost:*"
+      - --allowed-host
+      - "127.0.0.1:*"
+      - --allowed-host
+      - "blacknode-mcp:*"
+      - --allowed-host
+      - "host.docker.internal:*"
+    ports:
+      - "9901:9901"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BLACKNODE_EDITOR_URL: http://editor-server:7777
+    volumes:
+      - ./workflows:/app/workflows
+      - ./editor-server/runs:/app/editor-server/runs
+    depends_on:
+      - editor-server

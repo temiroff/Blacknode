@@ -7,10 +7,10 @@ functions as FastMCP tools and is what gets launched by ``blacknode mcp``.
 from __future__ import annotations
 
 
-def main() -> None:
+def main(**kwargs) -> None:
     from .server import main as _main
 
-    _main()
+    _main(**kwargs)
 
 
 __all__ = ["main"]

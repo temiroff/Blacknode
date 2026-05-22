@@ -31,7 +31,7 @@ start.bat
 For a manual two-terminal path:
 
 ```powershell
-python editor-server/app.py
+python editor-server/server.py
 ```
 
 ```powershell

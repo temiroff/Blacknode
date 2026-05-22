@@ -1,0 +1,227 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "NVIDIA AI Mission Control",
+  "saved_at": "2026-05-22T00:00:00",
+  "entrypoint": {
+    "node_id": "out_plan",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Plan an NVIDIA-backed AI workflow, inspect local readiness, and prepare a NIM endpoint path.",
+    "color": "#76b900"
+  },
+  "node_meta": {
+    "goal": {
+      "id": "goal",
+      "type": "Text",
+      "params": {
+        "value": "Build a video intelligence workflow: ingest videos, summarize key events, index the content for retrieval, answer questions, and benchmark the NVIDIA model path."
+      },
+      "pos": [80, 90],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "planner": {
+      "id": "planner",
+      "type": "NVIDIABlueprintPlan",
+      "params": {},
+      "pos": [430, 90],
+      "inputs": ["goal"],
+      "outputs": ["plan", "technologies", "blueprint"],
+      "input_types": {
+        "goal": "Text"
+      },
+      "output_types": {
+        "plan": "Text",
+        "technologies": "List",
+        "blueprint": "Dict"
+      },
+      "input_defaults": {}
+    },
+    "system_check": {
+      "id": "system_check",
+      "type": "NVIDIASystemCheck",
+      "params": {},
+      "pos": [430, 360],
+      "inputs": [],
+      "outputs": ["summary", "has_gpu", "gpu_count", "docker", "details"],
+      "input_types": {},
+      "output_types": {
+        "summary": "Text",
+        "has_gpu": "Bool",
+        "gpu_count": "Int",
+        "docker": "Bool",
+        "details": "Dict"
+      },
+      "input_defaults": {}
+    },
+    "image": {
+      "id": "image",
+      "type": "Text",
+      "params": {
+        "value": "nvcr.io/nim/meta/llama-3.1-8b-instruct:latest"
+      },
+      "pos": [80, 430],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "port": {
+      "id": "port",
+      "type": "Int",
+      "params": {
+        "value": 8000
+      },
+      "pos": [80, 600],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Int"
+      },
+      "input_defaults": {}
+    },
+    "launcher": {
+      "id": "launcher",
+      "type": "NIMDockerCommand",
+      "params": {
+        "container_name": "blacknode-nim"
+      },
+      "pos": [430, 610],
+      "inputs": ["image", "container_name", "port", "cache_dir", "ngc_api_key_env"],
+      "outputs": ["powershell", "bash", "endpoint_url", "notes"],
+      "input_types": {
+        "image": "Text",
+        "container_name": "Text",
+        "port": "Int",
+        "cache_dir": "Text",
+        "ngc_api_key_env": "Text"
+      },
+      "output_types": {
+        "powershell": "Text",
+        "bash": "Text",
+        "endpoint_url": "Text",
+        "notes": "Text"
+      },
+      "input_defaults": {
+        "port": 8000,
+        "ngc_api_key_env": "NGC_API_KEY"
+      }
+    },
+    "out_plan": {
+      "id": "out_plan",
+      "type": "Output",
+      "params": {
+        "label": "NVIDIA Plan"
+      },
+      "pos": [800, 70],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_stack": {
+      "id": "out_stack",
+      "type": "Output",
+      "params": {
+        "label": "Stack"
+      },
+      "pos": [800, 250],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_system": {
+      "id": "out_system",
+      "type": "Output",
+      "params": {
+        "label": "System"
+      },
+      "pos": [800, 430],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_endpoint": {
+      "id": "out_endpoint",
+      "type": "Output",
+      "params": {
+        "label": "Endpoint"
+      },
+      "pos": [800, 650],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "goal",
+      "from_port": "value",
+      "to": "planner",
+      "to_port": "goal"
+    },
+    {
+      "from": "planner",
+      "from_port": "plan",
+      "to": "out_plan",
+      "to_port": "value"
+    },
+    {
+      "from": "planner",
+      "from_port": "technologies",
+      "to": "out_stack",
+      "to_port": "value"
+    },
+    {
+      "from": "system_check",
+      "from_port": "summary",
+      "to": "out_system",
+      "to_port": "value"
+    },
+    {
+      "from": "image",
+      "from_port": "value",
+      "to": "launcher",
+      "to_port": "image"
+    },
+    {
+      "from": "port",
+      "from_port": "value",
+      "to": "launcher",
+      "to_port": "port"
+    },
+    {
+      "from": "launcher",
+      "from_port": "endpoint_url",
+      "to": "out_endpoint",
+      "to_port": "value"
+    }
+  ]
+}

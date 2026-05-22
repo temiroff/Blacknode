@@ -31,12 +31,29 @@ validate the workflow, run it, and inspect the result.
 
 ## Why this is different
 
+- **Visual layer for agent stacks.** Agent harnesses are good at chat, code, and research. They are bad at visual workflow construction. Blacknode gives them a typed visual editor through MCP.
 - **MCP-first, not bolted on.** Typed tools let an agent add nodes, connect ports, validate, cook, and inspect runs. Validation reports help the agent self-correct.
 - **Live editor control.** The agent drives the running editor, so you can watch the workflow take shape.
 - **Typed ports with compatibility rules.** Text, Int, Float, Bool, List, Dict, Embedding, Fn, and Model ports are color-coded and checked before connection.
 - **Python export.** Graphs can be exported to readable Python for inspection, versioning, and extension.
 - **Run replay.** Every cook creates an event log you can scrub through, with node highlights on the canvas.
 - **Flexible model routing.** Anthropic, OpenAI, NVIDIA NIM, and Ollama-style models route from the model string, with keys kept on your machine.
+
+## NVIDIA AI-Q fit
+
+Blacknode is not a deep research agent and does not compete with NVIDIA AI-Q.
+AI-Q researches and reasons over enterprise data. Blacknode turns agent intent
+into typed, visible, runnable workflows. Together, the positioning is simple:
+**Blacknode is the visual workflow editor for the NVIDIA agent stack.**
+
+For AI-Q and NeMo Agent Toolkit MCP clients, Blacknode can serve MCP over
+streamable HTTP:
+
+```bash
+blacknode mcp --transport streamable-http --host 127.0.0.1 --port 9901 --path /mcp
+```
+
+See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md).
 
 ## Demos
 
@@ -86,6 +103,9 @@ Then use the copy-paste prompts in [docs/mcp-test-prompts.md](docs/mcp-test-prom
 
 - [MCP quickstart](docs/quickstart-mcp.md)
 - [NVIDIA NIM demo](docs/nvidia-nim-demo.md)
+- [NVIDIA Mission Control](docs/nvidia-mission-control.md)
+- [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md)
+- [Docker Compose](docs/docker-compose.md)
 
 ---
 
@@ -238,6 +258,7 @@ Node category/header colors:
 |---|---:|---|
 | ![Values](docs/images/swatches/swatch-6b7280.svg) Values | `#6b7280` | Text, Float, Int, Bool, Dict |
 | ![AI](docs/images/swatches/swatch-6366f1.svg) AI | `#6366f1` | Model, LLMAgent, AgentLoop, VisualAgentLoop, agent-step nodes, EmbedText |
+| ![NVIDIA green](docs/images/swatches/swatch-76b900.svg) NVIDIA | `#76b900` | NVIDIASystemCheck, NVIDIABlueprintPlan, NIMDockerCommand, NIMHealthCheck, NIMAgent, NIMBenchmark |
 | ![Tools](docs/images/swatches/swatch-14b8a6.svg) Tools | `#14b8a6` | PythonFn, SubnetAsTool, ToolBox, ToolCall |
 | ![PythonTools](docs/images/swatches/swatch-0ea5e9.svg) PythonTools | `#0ea5e9` | web_search, fetch_url, calculator, current_time, regex_extract, json_lookup, text_stats |
 | ![Math](docs/images/swatches/swatch-22c55e.svg) Math | `#22c55e` | Add, Subtract, Multiply, Divide |
@@ -277,6 +298,9 @@ Open the **Templates** tab in the left sidebar for one-click starter graphs:
 |---|---|
 | LLM Chat | System prompt + user message → Anthropic / OpenAI |
 | NVIDIA NIM | Same pipeline routed to a free NVIDIA NIM model |
+| NVIDIA AI Mission Control | Plan an NVIDIA-backed AI workflow, inspect local readiness, and prepare a NIM endpoint path |
+| NVIDIA Local NIM Launch | Generate local NIM Docker commands and endpoint wiring without requiring an API key |
+| NVIDIA NIM Benchmark | Benchmark hosted or local NIM latency and return text, metrics, and raw samples |
 | Text Pipeline | Concatenate two strings → Output |
 | Research Pipeline | HTTPGet → LLMAgent → FileWrite → FileRead, with outputs for saved path and file text |
 | Python Tool Agent | PythonFn → ToolBox → AgentLoop tool call |
@@ -503,6 +527,15 @@ Launch the server over stdio:
 ```powershell
 blacknode mcp
 ```
+
+Launch the same tool surface over streamable HTTP for MCP clients such as
+NVIDIA AI-Q or NeMo Agent Toolkit workflows:
+
+```powershell
+blacknode mcp --transport streamable-http --host 127.0.0.1 --port 9901 --path /mcp
+```
+
+The HTTP MCP endpoint is `http://127.0.0.1:9901/mcp`.
 
 ### Claude Desktop config
 

@@ -73,6 +73,19 @@ Add this to your MCP client config:
 
 Restart the MCP client after saving the config.
 
+For MCP clients that require streamable HTTP, including NVIDIA AI-Q or NeMo
+Agent Toolkit workflows, start the same tool surface over HTTP:
+
+```powershell
+blacknode mcp --transport streamable-http --host 127.0.0.1 --port 9901 --path /mcp
+```
+
+Endpoint:
+
+```text
+http://127.0.0.1:9901/mcp
+```
+
 ## No-API-Key Smoke Prompt
 
 Use this first. It proves the agent can inspect schemas, build a graph, validate it, run it, and export Python without external services.

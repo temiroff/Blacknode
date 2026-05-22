@@ -1,7 +1,8 @@
 """FastMCP server exposing the Blacknode workflow toolkit to MCP clients.
 
-Launch with ``blacknode mcp`` (stdio transport) and point an MCP client such as
-Claude Desktop or Cursor at the same command. The tools call into
+Launch with ``blacknode mcp`` for stdio transport, or with
+``blacknode mcp --transport streamable-http`` for HTTP MCP clients such as
+NVIDIA AI-Q/NeMo Agent Toolkit workflows. The tools call into
 ``blacknode.mcp.tools`` so behavior matches the unit-tested surface.
 """
 from __future__ import annotations
@@ -306,8 +307,28 @@ def close_editor_tab(editor_url: str | None = None) -> dict[str, Any]:
     return tools.close_editor_tab(editor_url=editor_url)
 
 
-def main() -> None:
-    mcp.run()
+def main(
+    *,
+    transport: str = "stdio",
+    host: str | None = None,
+    port: int | None = None,
+    path: str | None = None,
+    allowed_hosts: list[str] | None = None,
+) -> None:
+    if transport not in {"stdio", "sse", "streamable-http"}:
+        raise ValueError("transport must be one of: stdio, sse, streamable-http")
+    if host:
+        mcp.settings.host = host
+    if port is not None:
+        mcp.settings.port = int(port)
+    if path:
+        if transport == "streamable-http":
+            mcp.settings.streamable_http_path = path
+        elif transport == "sse":
+            mcp.settings.sse_path = path
+    if allowed_hosts and mcp.settings.transport_security is not None:
+        mcp.settings.transport_security.allowed_hosts = allowed_hosts
+    mcp.run(transport=transport)
 
 
 if __name__ == "__main__":

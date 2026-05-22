@@ -1,0 +1,238 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "NVIDIA NIM Benchmark",
+  "saved_at": "2026-05-22T00:00:00",
+  "entrypoint": {
+    "node_id": "out_metrics",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Benchmark a hosted or local NVIDIA NIM endpoint and expose text, latency, and metrics.",
+    "color": "#76b900"
+  },
+  "node_meta": {
+    "prompt": {
+      "id": "prompt",
+      "type": "Text",
+      "params": {
+        "value": "In 80 words, explain why a visual MCP workflow builder is useful for NVIDIA NIM deployment demos."
+      },
+      "pos": [80, 90],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "system": {
+      "id": "system",
+      "type": "Text",
+      "params": {
+        "value": "You are a concise NVIDIA platform engineer. Be concrete and technical."
+      },
+      "pos": [80, 260],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "model": {
+      "id": "model",
+      "type": "Model",
+      "params": {
+        "value": "nim:meta/llama-3.1-8b-instruct"
+      },
+      "pos": [80, 430],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Model"
+      },
+      "input_defaults": {}
+    },
+    "endpoint": {
+      "id": "endpoint",
+      "type": "Text",
+      "params": {
+        "value": "https://integrate.api.nvidia.com/v1"
+      },
+      "pos": [80, 600],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "repetitions": {
+      "id": "repetitions",
+      "type": "Int",
+      "params": {
+        "value": 3
+      },
+      "pos": [80, 770],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Int"
+      },
+      "input_defaults": {}
+    },
+    "max_tokens": {
+      "id": "max_tokens",
+      "type": "Int",
+      "params": {
+        "value": 256
+      },
+      "pos": [80, 940],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Int"
+      },
+      "input_defaults": {}
+    },
+    "benchmark": {
+      "id": "benchmark",
+      "type": "NIMBenchmark",
+      "params": {},
+      "pos": [470, 430],
+      "inputs": ["prompt", "system", "model", "endpoint_url", "api_key", "repetitions", "max_tokens", "temperature"],
+      "outputs": ["text", "metrics", "latency_ms"],
+      "input_types": {
+        "prompt": "Text",
+        "system": "Text",
+        "model": "Model",
+        "endpoint_url": "Text",
+        "api_key": "Text",
+        "repetitions": "Int",
+        "max_tokens": "Int",
+        "temperature": "Float"
+      },
+      "output_types": {
+        "text": "Text",
+        "metrics": "Dict",
+        "latency_ms": "Float"
+      },
+      "input_defaults": {
+        "model": "nim:meta/llama-3.1-8b-instruct",
+        "endpoint_url": "https://integrate.api.nvidia.com/v1",
+        "repetitions": 3,
+        "max_tokens": 512,
+        "temperature": 0.2
+      }
+    },
+    "out_text": {
+      "id": "out_text",
+      "type": "Output",
+      "params": {
+        "label": "NIM Text"
+      },
+      "pos": [840, 300],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_metrics": {
+      "id": "out_metrics",
+      "type": "Output",
+      "params": {
+        "label": "Metrics"
+      },
+      "pos": [840, 500],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_latency": {
+      "id": "out_latency",
+      "type": "Output",
+      "params": {
+        "label": "Latency"
+      },
+      "pos": [840, 700],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "prompt",
+      "from_port": "value",
+      "to": "benchmark",
+      "to_port": "prompt"
+    },
+    {
+      "from": "system",
+      "from_port": "value",
+      "to": "benchmark",
+      "to_port": "system"
+    },
+    {
+      "from": "model",
+      "from_port": "value",
+      "to": "benchmark",
+      "to_port": "model"
+    },
+    {
+      "from": "endpoint",
+      "from_port": "value",
+      "to": "benchmark",
+      "to_port": "endpoint_url"
+    },
+    {
+      "from": "repetitions",
+      "from_port": "value",
+      "to": "benchmark",
+      "to_port": "repetitions"
+    },
+    {
+      "from": "max_tokens",
+      "from_port": "value",
+      "to": "benchmark",
+      "to_port": "max_tokens"
+    },
+    {
+      "from": "benchmark",
+      "from_port": "text",
+      "to": "out_text",
+      "to_port": "value"
+    },
+    {
+      "from": "benchmark",
+      "from_port": "metrics",
+      "to": "out_metrics",
+      "to_port": "value"
+    },
+    {
+      "from": "benchmark",
+      "from_port": "latency_ms",
+      "to": "out_latency",
+      "to_port": "value"
+    }
+  ]
+}

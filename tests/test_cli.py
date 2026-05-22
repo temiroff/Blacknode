@@ -188,6 +188,33 @@ class CliTests(unittest.TestCase):
         self.assertTrue(_node_version_ok("v22.12.0"))
         self.assertTrue(_node_version_ok("v23.6.0"))
 
+    def test_mcp_forwards_streamable_http_options(self):
+        with patch("blacknode.mcp.main") as run_mcp:
+            code = main([
+                "mcp",
+                "--transport",
+                "streamable-http",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "9901",
+                "--path",
+                "/mcp",
+                "--allowed-host",
+                "localhost:*",
+                "--allowed-host",
+                "blacknode-mcp:*",
+            ])
+
+        self.assertEqual(code, 0)
+        run_mcp.assert_called_once_with(
+            transport="streamable-http",
+            host="0.0.0.0",
+            port=9901,
+            path="/mcp",
+            allowed_hosts=["localhost:*", "blacknode-mcp:*"],
+        )
+
 
 def _valid_workflow() -> dict:
     return workflow(

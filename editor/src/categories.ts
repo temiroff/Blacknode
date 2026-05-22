@@ -9,6 +9,10 @@ export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
     'AgentIteration', 'AgentAppendMessages', 'AgentStopCheck', 'AgentFinalAnswer',
     'EmbedText',
   ] },
+  NVIDIA:   { color: '#76b900', nodes: [
+    'NVIDIASystemCheck', 'NVIDIABlueprintPlan', 'NIMDockerCommand',
+    'NIMHealthCheck', 'NIMAgent', 'NIMBenchmark',
+  ] },
   Tools:    { color: '#14b8a6', nodes: ['PythonFn', 'SubnetAsTool', 'ToolBox', 'ToolCall'] },
   PythonTools: { color: '#0ea5e9', nodes: PYTHON_TOOL_TYPES },
   Math:     { color: '#22c55e', nodes: ['Add', 'Subtract', 'Multiply', 'Divide'] },
