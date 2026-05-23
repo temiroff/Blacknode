@@ -24,6 +24,11 @@ _TARGETS: tuple[FrameworkExportTarget, ...] = (
         "Readable Blacknode Graph script.",
     ),
     FrameworkExportTarget(
+        "python-class",
+        "Python Class",
+        "Class-based Blacknode workflow script.",
+    ),
+    FrameworkExportTarget(
         "langgraph",
         "LangGraph",
         "LangGraph StateGraph with START, END, nodes, and edges.",
@@ -62,6 +67,8 @@ def export_workflow(data: Mapping[str, Any], target_id: str) -> dict[str, Any]:
     warnings: list[str] = []
     if target.id == "python":
         code = export_workflow_python(data)
+    elif target.id == "python-class":
+        code = export_workflow_python(data, style="class")
     elif target.id == "langgraph":
         code, warnings = export_langgraph_workflow(data)
     else:

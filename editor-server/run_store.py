@@ -118,6 +118,13 @@ class RunStore:
         except (OSError, json.JSONDecodeError):
             return None
 
+    def snapshot(self, run_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            buf = self._pending.get(run_id)
+            if buf is not None:
+                return self._summary(buf, include_events=True)
+        return self.get_run(run_id)
+
     def delete_run(self, run_id: str) -> bool:
         path = self._path_for(run_id)
         if not path.exists():

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import keyword
+import pprint
 import time
 import traceback
 import uuid
@@ -280,46 +282,191 @@ def run_workflow_logged(data: Mapping[str, Any]) -> dict[str, Any]:
     return run_workflow(data)
 
 
-def export_workflow_python(data: Mapping[str, Any]) -> str:
+def export_workflow_python(data: Mapping[str, Any], *, style: str = "flat") -> str:
     report = validate_workflow(data)
     if not report.ok:
         raise WorkflowRunError(json.dumps(report.to_dict(), indent=2))
+    if style not in {"flat", "class"}:
+        raise ValueError("Python export style must be 'flat' or 'class'.")
 
     node_id, port = infer_entrypoint(data)
     node_meta = data.get("node_meta") or {}
     edges = data.get("edges") or []
-    names = _python_node_names(node_meta.keys())
+    names = _python_node_names_from_meta(node_meta)
+    workflow_payload = _export_workflow_payload(data)
     lines = [
         "from __future__ import annotations",
         "",
         "import blacknode as bn",
+        "from blacknode.live_sync import run_graph_live",
         "",
         "",
-        "g = bn.Graph()",
+        "def _bind_node_id(graph: bn.Graph, node: bn.NodeProxy, node_id: str) -> bn.NodeProxy:",
+        "    generated_id = node._id",
+        "    node._id = node_id",
+        "    node._params = graph._nodes[generated_id]['params']",
+        "    graph._nodes[node_id] = graph._nodes.pop(generated_id)",
+        "    graph._dirty.discard(generated_id)",
+        "    graph._dirty.add(node_id)",
+        "    return node",
+        "",
+        "",
+        f"_WORKFLOW = {_pretty_literal(workflow_payload)}",
         "",
     ]
 
-    for original_id, meta in node_meta.items():
-        var_name = names[str(original_id)]
-        params = dict(meta.get("params", {}))
-        lines.append(f"{var_name} = g.node({meta['type']!r}, **{params!r})")
-        lines.append(f"_generated_id = {var_name}._id")
-        lines.append(f"{var_name}._id = {str(original_id)!r}")
-        lines.append(f"{var_name}._params = g._nodes[_generated_id]['params']")
-        lines.append(f"g._nodes[{str(original_id)!r}] = g._nodes.pop(_generated_id)")
-        lines.append(f"g._dirty.discard(_generated_id)")
-        lines.append(f"g._dirty.add({str(original_id)!r})")
-        subgraph = meta.get("subgraph")
-        if isinstance(subgraph, Mapping):
-            lines.append(f"g._nodes[{str(original_id)!r}]['subgraph'] = {_literal(_runtime_subgraph(subgraph))}")
-        lines.append("")
-
-    lines.append(f"g._edges = {_literal([dict(edge) for edge in edges])}")
-    lines.append("")
-    lines.append(f"result = g._cook({node_id!r}, {port!r})")
-    lines.append("print(result)")
+    if style == "class":
+        lines.extend(_export_workflow_python_class(node_meta, edges, names, node_id, port))
+    else:
+        lines.extend(_export_workflow_python_flat(node_meta, edges, names, node_id, port))
     lines.append("")
     return "\n".join(lines)
+
+
+def _export_workflow_python_flat(
+    node_meta: Mapping[str, Any],
+    edges: list[dict[str, Any]],
+    names: Mapping[str, str],
+    node_id: str,
+    port: str,
+) -> list[str]:
+    lines = [
+        "g = bn.Graph()",
+        "",
+    ]
+    for index, (original_id, meta) in enumerate(node_meta.items(), start=1):
+        lines.extend(_node_binding_lines(
+            graph_expr="g",
+            target_expr=names[str(original_id)],
+            original_id=str(original_id),
+            meta=meta,
+            step=index,
+            indent="",
+        ))
+    lines.extend(_edge_lines(edges, names, indent=""))
+    lines.extend([
+        f"result = run_graph_live(g, {node_id!r}, {port!r}, workflow=_WORKFLOW)",
+        "print(result)",
+    ])
+    return lines
+
+
+def _export_workflow_python_class(
+    node_meta: Mapping[str, Any],
+    edges: list[dict[str, Any]],
+    names: Mapping[str, str],
+    node_id: str,
+    port: str,
+) -> list[str]:
+    lines = [
+        "class BlacknodeWorkflow:",
+        "    def __init__(self) -> None:",
+        "        self.graph = bn.Graph()",
+        "",
+    ]
+    for index, (original_id, meta) in enumerate(node_meta.items(), start=1):
+        lines.extend(_node_binding_lines(
+            graph_expr="self.graph",
+            target_expr=f"self.{names[str(original_id)]}",
+            original_id=str(original_id),
+            meta=meta,
+            step=index,
+            indent="        ",
+        ))
+    lines.extend(_edge_lines(edges, {key: f"self.{value}" for key, value in names.items()}, indent="        "))
+    lines.extend([
+        "    def run(self):",
+        f"        return run_graph_live(self.graph, {node_id!r}, {port!r}, workflow=_WORKFLOW)",
+        "",
+        "",
+        "if __name__ == \"__main__\":",
+        "    workflow = BlacknodeWorkflow()",
+        "    print(workflow.run())",
+    ])
+    return lines
+
+
+def _node_binding_lines(
+    *,
+    graph_expr: str,
+    target_expr: str,
+    original_id: str,
+    meta: Mapping[str, Any],
+    step: int,
+    indent: str,
+) -> list[str]:
+    params = dict(meta.get("params", {}))
+    call = _format_node_call(graph_expr, str(meta["type"]), params)
+    label = _node_label(original_id, meta).replace("\n", " ").strip()
+    lines = [
+        f"{indent}# Step {step}: {label}",
+        f"{indent}{target_expr} = _bind_node_id({graph_expr}, {call}, {original_id!r})",
+    ]
+    subgraph = meta.get("subgraph")
+    if isinstance(subgraph, Mapping):
+        lines.append(f"{indent}{graph_expr}._nodes[{original_id!r}]['subgraph'] = {_literal(_runtime_subgraph(subgraph))}")
+    lines.append("")
+    return lines
+
+
+def _edge_lines(edges: list[dict[str, Any]], names: Mapping[str, str], *, indent: str) -> list[str]:
+    lines: list[str] = []
+    if edges:
+        lines.append(f"{indent}# Wire node outputs into inputs.")
+    for edge in edges:
+        from_name = names[str(edge["from"])]
+        to_name = names[str(edge["to"])]
+        lines.append(
+            f"{indent}{from_name}.out({str(edge['from_port'])!r}) >> "
+            f"{to_name}.inp({str(edge['to_port'])!r})"
+        )
+    if lines:
+        lines.append("")
+    return lines
+
+
+def _format_node_call(graph_expr: str, type_name: str, params: Mapping[str, Any]) -> str:
+    if not params:
+        return f"{graph_expr}.node({type_name!r})"
+    keyword_parts: list[str] = []
+    splat: dict[str, Any] = {}
+    for key, value in params.items():
+        if _is_python_kwarg(key):
+            keyword_parts.append(f"{key}={_literal(value)}")
+        else:
+            splat[str(key)] = value
+    args = [repr(type_name)]
+    args.extend(keyword_parts)
+    if splat:
+        args.append(f"**{_literal(splat)}")
+    return f"{graph_expr}.node({', '.join(args)})"
+
+
+def _export_workflow_payload(data: Mapping[str, Any]) -> dict[str, Any]:
+    node_id, port = infer_entrypoint(data)
+    payload: dict[str, Any] = {
+        "kind": WORKFLOW_KIND,
+        "schema_version": WORKFLOW_SCHEMA_VERSION,
+        "name": str(data.get("name") or "Blacknode Workflow"),
+        "node_meta": {
+            str(node_id): dict(meta)
+            for node_id, meta in (data.get("node_meta") or {}).items()
+            if isinstance(meta, Mapping)
+        },
+        "edges": [
+            dict(edge)
+            for edge in (data.get("edges") or [])
+            if isinstance(edge, Mapping)
+        ],
+        "entrypoint": {"node_id": node_id, "port": port},
+    }
+    saved_at = data.get("saved_at")
+    if saved_at:
+        payload["saved_at"] = saved_at
+    metadata = data.get("metadata")
+    if isinstance(metadata, Mapping):
+        payload["metadata"] = dict(metadata)
+    return payload
 
 
 def _cook_logged(graph, node_id: str, port: str, logger: RunLogger) -> Any:
@@ -707,9 +854,25 @@ def _runtime_subgraph(subgraph: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _python_node_names_from_meta(node_meta: Mapping[str, Any]) -> dict[str, str]:
+    names: dict[str, str] = {}
+    used: set[str] = {"bn", "g", "graph", "result", "run_graph_live", "workflow", "_WORKFLOW", "_bind_node_id"}
+    for fallback_index, (node_id, meta) in enumerate(node_meta.items(), start=1):
+        label = _node_label(str(node_id), meta if isinstance(meta, Mapping) else {})
+        base = _python_identifier(label) or f"node_{fallback_index}"
+        name = base
+        suffix = 2
+        while name in used:
+            name = f"{base}_{suffix}"
+            suffix += 1
+        names[str(node_id)] = name
+        used.add(name)
+    return names
+
+
 def _python_node_names(node_ids) -> dict[str, str]:
     names: dict[str, str] = {}
-    used: set[str] = set()
+    used: set[str] = {"bn", "g", "graph", "result", "run_graph_live", "workflow", "_WORKFLOW", "_bind_node_id"}
     for fallback_index, node_id in enumerate(node_ids, start=1):
         base = _python_identifier(str(node_id)) or f"node_{fallback_index}"
         name = base
@@ -729,10 +892,31 @@ def _python_identifier(value: str) -> str:
         return ""
     if name[0].isdigit():
         name = f"node_{name}"
-    if name in {"False", "None", "True"}:
+    if name in {"False", "None", "True"} or keyword.iskeyword(name):
         name = f"{name.lower()}_node"
     return name
 
 
+def _node_label(node_id: str, meta: Mapping[str, Any]) -> str:
+    params = meta.get("params", {}) if isinstance(meta, Mapping) else {}
+    if isinstance(params, Mapping):
+        for key in ("label", "name", "title"):
+            value = params.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    type_name = meta.get("type") if isinstance(meta, Mapping) else None
+    if isinstance(type_name, str) and type_name.strip():
+        return type_name.strip()
+    return node_id
+
+
+def _is_python_kwarg(value: Any) -> bool:
+    return isinstance(value, str) and value.isidentifier() and not keyword.iskeyword(value)
+
+
 def _literal(value: Any) -> str:
     return repr(value)
+
+
+def _pretty_literal(value: Any) -> str:
+    return pprint.pformat(value, width=100, sort_dicts=False)

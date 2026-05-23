@@ -103,6 +103,7 @@ Windows:
 blacknode validate templates\text-pipeline.json
 blacknode run templates\text-pipeline.json
 blacknode export-python templates\text-pipeline.json --output workflow.py
+blacknode import-python workflow.py --output imported.workflow.json
 python workflow.py
 ```
 
@@ -112,6 +113,7 @@ macOS/Linux:
 blacknode validate templates/text-pipeline.json
 blacknode run templates/text-pipeline.json
 blacknode export-python templates/text-pipeline.json --output workflow.py
+blacknode import-python workflow.py --output imported.workflow.json
 python workflow.py
 ```
 
@@ -119,6 +121,7 @@ Expected result:
 
 - `validate` returns `"ok": true`.
 - `run` returns a JSON result with `"value": "Hello World"`.
+- `import-python` recreates workflow JSON from the exported Python file.
 - `python workflow.py` prints `Hello World`.
 
 ## 5. Start the Visual Editor

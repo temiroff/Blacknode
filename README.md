@@ -9,8 +9,9 @@ export typed visual workflows. Agents get a structured control surface through
 MCP, HTTP, and WebSocket APIs instead of guessing JSON, and users get a live
 graph with run replay they can inspect.
 
-Workflows export to plain Python, LangGraph, CrewAI, AutoGen, and OpenAI Swarm,
-with NVIDIA NIM and AI-Q/NeMo Agent Toolkit workflow paths built in.
+Workflows export to plain Python, class-based Python, LangGraph, CrewAI,
+AutoGen, and OpenAI Swarm, with NVIDIA NIM and AI-Q/NeMo Agent Toolkit
+workflow paths built in.
 
 <table>
   <tr>
@@ -56,6 +57,8 @@ custom nodes, run history, and troubleshooting.
   from `custom-nodes/` and community node packs from `community-nodes/`.
 - **Run history and replay** with event logs, model calls, tool calls, node
   timings, results, and errors.
+- **Python round-trip** so a graph can export to readable Python, import back
+  into the editor, and stream external Python execution into run replay.
 - **Framework export** so a visual graph can become Python, LangGraph, CrewAI,
   AutoGen, or OpenAI Swarm handoff code.
 - **Docker Compose deployment** for local, cloud VM, and on-prem demos.
@@ -105,6 +108,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | [Workflow Schema](docs/workflow-schema.md) | The saved workflow JSON format. |
 | [Workflow JSON Schema](docs/workflow.schema.json) | Machine-readable schema for validation and tooling. |
 | [Framework Export](docs/framework-export.md) | Exporting workflows to Python, LangGraph, CrewAI, AutoGen, Swarm, REST, and WebSocket control. |
+| [Python Round-Trip](docs/python-roundtrip.md) | Export Python, import Python back into the editor, and live-sync Python runs into replay. |
 | [Custom Nodes](docs/custom-nodes.md) | Persistent editor-created nodes, auto-discovery, community node packs, and node library extension. |
 | [Agent Guide](docs/agent-guide.md) | How agents should create and modify Blacknode workflows. |
 | [Blacknode Skill](.agents/skills/blacknode-workflow/SKILL.md) | Agent skill instructions for workflow creation, validation, running, and export. |

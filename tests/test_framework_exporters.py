@@ -52,13 +52,19 @@ class FrameworkExporterTests(unittest.TestCase):
     def test_lists_framework_export_targets(self):
         target_ids = {target["id"] for target in list_export_targets()}
 
-        self.assertEqual({"python", "langgraph", "crewai", "autogen", "swarm"}, target_ids)
+        self.assertEqual({"python", "python-class", "langgraph", "crewai", "autogen", "swarm"}, target_ids)
 
     def test_plain_python_export_uses_blacknode_graph(self):
         result = export_workflow(valid_workflow(), "python")
 
         self.assertEqual(result["target"], "python")
         self.assertIn("g = bn.Graph()", result["code"])
+
+    def test_python_class_export_uses_workflow_class(self):
+        result = export_workflow(valid_workflow(), "python-class")
+
+        self.assertEqual(result["target"], "python-class")
+        self.assertIn("class BlacknodeWorkflow:", result["code"])
 
     def test_langgraph_export_builds_stategraph(self):
         result = export_workflow(valid_workflow(), "langgraph")

@@ -21,7 +21,7 @@ Use this skill for:
 - Loading, validating, or repairing `blacknode.workflow` JSON.
 - Opening a workflow in the running visual editor.
 - Running a workflow or template and inspecting the structured event log.
-- Exporting a workflow to Python, LangGraph, CrewAI, AutoGen, or Swarm.
+- Exporting or importing a workflow with Python round-trip, LangGraph, CrewAI, AutoGen, or Swarm.
 - Creating persistent custom nodes and community node packs.
 - Creating NVIDIA NIM, local NIM, RAG, tool-agent, or research-pipeline demos.
 
@@ -61,6 +61,7 @@ blacknode doctor
 blacknode validate templates\text-pipeline.json
 blacknode run templates\text-pipeline.json
 blacknode export-python templates\text-pipeline.json --output workflow.py
+blacknode import-python workflow.py --output imported.workflow.json
 blacknode export-framework templates\text-pipeline.json --target langgraph --output workflow.langgraph.py
 ```
 
@@ -74,6 +75,7 @@ blacknode export-framework templates\text-pipeline.json --target langgraph --out
 6. Call `run_workflow` for headless execution or `cook_editor_node` for live UI execution.
 7. Call `list_recent_runs` and `get_run` to inspect replay events, model calls, tool calls, and errors.
 8. Call `export_python` when the user needs a handoff script.
+9. Use `blacknode import-python` or `/import/python` when a Python export should be restored as a visual graph.
 
 Every mutation should be followed by validation. If validation reports a port
 or type error, inspect `get_node_schema` and fix the graph instead of guessing.

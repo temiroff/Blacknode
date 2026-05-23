@@ -9,7 +9,7 @@ outside the editor.
 1. Start Blacknode with `start.bat` on Windows or `./start.sh` on macOS/Linux.
 2. Open or build a workflow that ends in an `Output` node.
 3. Press `Export` in the top bar.
-4. Choose `Plain Python`, `LangGraph`, `CrewAI`, `AutoGen`, or `OpenAI Swarm`.
+4. Choose `Plain Python`, `Python Class`, `LangGraph`, `CrewAI`, `AutoGen`, or `OpenAI Swarm`.
 5. The generated file downloads from the browser.
 
 ## CLI
@@ -24,6 +24,13 @@ Export plain Blacknode Python:
 
 ```powershell
 blacknode export-framework templates\text-pipeline.json --target python --output workflow.python.py
+blacknode export-framework templates\text-pipeline.json --target python-class --output workflow.class.py
+```
+
+Import a Blacknode Python export back into workflow JSON:
+
+```powershell
+blacknode import-python workflow.python.py --output imported.workflow.json
 ```
 
 Export framework maps:
@@ -62,13 +69,15 @@ Direct non-MCP workflow API:
 | `GET /api/workflows/current/validate` | Validate the current workflow. |
 | `POST /api/workflows/current/run` | Cook a selected node and port. |
 | `POST /api/workflows/current/export` | Export the current workflow to a framework target. |
+| `POST /api/workflows/current/import-python` | Import a Blacknode Python export into workflow JSON. |
 | `WS /api/workflows/current/ws` | WebSocket state, validation, and export actions. |
 
 ## Target Behavior
 
 | Target | Output |
 |---|---|
-| `python` | Runnable Blacknode `bn.Graph()` script. |
+| `python` | Runnable Blacknode `bn.Graph()` script with round-trip metadata and optional live sync. |
+| `python-class` | Runnable class-based Blacknode script for cleaner embedding. |
 | `langgraph` | LangGraph `StateGraph` with `START`, `END`, node functions, edges, and final result print. |
 | `crewai` | CrewAI task descriptors mapped from Blacknode nodes and upstream context. |
 | `autogen` | AutoGen agent descriptors with handoff targets from graph edges. |

@@ -36,6 +36,7 @@ const TAB_H = 36  // workflow tab bar height
 
 const DEFAULT_FRAMEWORK_EXPORT_TARGETS: FrameworkExportTarget[] = [
   { id: 'python', label: 'Plain Python', description: 'Readable Blacknode Graph script.', extension: '.py' },
+  { id: 'python-class', label: 'Python Class', description: 'Class-based Blacknode workflow script.', extension: '.py' },
   { id: 'langgraph', label: 'LangGraph', description: 'LangGraph StateGraph export.', extension: '.py' },
   { id: 'crewai', label: 'CrewAI', description: 'CrewAI task map export.', extension: '.py' },
   { id: 'autogen', label: 'AutoGen', description: 'AutoGen agent map export.', extension: '.py' },
@@ -81,10 +82,11 @@ export default function App() {
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     openGraphAsTab, openWorkflowAsTab, renameTab, saveActiveWorkflow,
-    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode,
+    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, applyRunReplay,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
+  const pythonImportInput = useRef<HTMLInputElement | null>(null)
   const [search, setSearch] = useState<SearchState | null>(null)
   const [isDark, setIsDark] = useState(true)
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
@@ -97,6 +99,7 @@ export default function App() {
   const [closeSaving, setCloseSaving] = useState(false)
   const [frameworkExportTargets, setFrameworkExportTargets] = useState(DEFAULT_FRAMEWORK_EXPORT_TARGETS)
   const [exportingTarget, setExportingTarget] = useState('')
+  const [importingPython, setImportingPython] = useState(false)
   const updatePendingCloseName = useCallback((draftName: string) => {
     setPendingClose(current => current ? { ...current, draftName } : current)
   }, [])
@@ -338,6 +341,16 @@ export default function App() {
                 message: 'Closed active workflow tab.',
               },
             }))
+          } else if (action.type === 'sync_run_event') {
+            const record = action.payload?.record
+            if (!record || typeof record !== 'object') continue
+            const events = (record as { events?: unknown }).events
+            if (!Array.isArray(events)) continue
+            const cursor = typeof action.payload?.cursor === 'number'
+              ? action.payload.cursor
+              : events.length - 1
+            const playing = action.payload?.playing !== false
+            applyRunReplay(record as any, cursor, playing)
           }
         }
       } catch {
@@ -354,6 +367,7 @@ export default function App() {
     }
   }, [
     activeTabId,
+    applyRunReplay,
     closeTab,
     cookNode,
     newTab,
@@ -704,6 +718,50 @@ export default function App() {
     }
   }, [exportingTarget])
 
+  const handlePythonImport = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (!file || importingPython) return
+    setImportingPython(true)
+    try {
+      const code = await file.text()
+      const name = file.name.replace(/\.py$/i, '') || 'Imported Python Workflow'
+      const result = await api.importPython(code, name)
+      if (!result.validation.ok) {
+        const firstError = result.validation.errors[0]
+        throw new Error(String(firstError?.message ?? 'Imported Python did not validate.'))
+      }
+      const workflow = result.workflow
+      const nodeMeta = workflow.node_meta && typeof workflow.node_meta === 'object'
+        ? workflow.node_meta
+        : {}
+      const edges = Array.isArray(workflow.edges) ? workflow.edges : []
+      await openGraphAsTab(workflow.name?.trim() || name, {
+        nodes: Object.values(nodeMeta),
+        edges,
+      })
+      await organizeNodes()
+      fitCurrentCanvas(320)
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'info',
+          title: 'Python import',
+          message: `Imported ${Object.keys(nodeMeta).length} nodes from ${file.name}.`,
+        },
+      }))
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: 'Import failed',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
+    } finally {
+      setImportingPython(false)
+    }
+  }, [fitCurrentCanvas, importingPython, openGraphAsTab, organizeNodes])
+
   const runTabMenuAction = useCallback((action: () => void | Promise<void>) => {
     setTabMenu(null)
     void action()
@@ -758,6 +816,23 @@ export default function App() {
               <option key={target.id} value={target.id}>{target.label}</option>
             ))}
           </select>
+
+          <input
+            ref={pythonImportInput}
+            type="file"
+            accept=".py,text/x-python"
+            style={{ display: 'none' }}
+            onChange={handlePythonImport}
+          />
+
+          <button
+            className="bn-top-button"
+            onClick={() => pythonImportInput.current?.click()}
+            disabled={!serverOk || importingPython}
+            title="Import a Blacknode Python export"
+          >
+            {importingPython ? 'Importing...' : 'Import'}
+          </button>
 
           <button
             className="bn-top-button bn-top-run-button"

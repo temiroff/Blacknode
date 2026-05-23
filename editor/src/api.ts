@@ -78,6 +78,17 @@ export interface FrameworkExportResult {
   warnings: string[]
 }
 
+export interface WorkflowValidation {
+  ok: boolean
+  errors: Array<Record<string, unknown>>
+  warnings: Array<Record<string, unknown>>
+}
+
+export interface PythonImportResult {
+  workflow: WorkflowSnapshot
+  validation: WorkflowValidation
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -212,6 +223,8 @@ export const api = {
     req<{ targets: FrameworkExportTarget[] }>('GET', '/export/frameworks'),
   exportFramework: (target: string, workflow?: WorkflowSnapshot) =>
     req<FrameworkExportResult>('POST', '/export/framework', { target, workflow }),
+  importPython: (code: string, name = 'Imported Python Workflow') =>
+    req<PythonImportResult>('POST', '/import/python', { code, name }),
 
   mcpStatus:  () =>
     req<{ mcp_installed: boolean; blacknode_cli: string | null; install_command: string; launch_command: string }>('GET', '/mcp/status'),

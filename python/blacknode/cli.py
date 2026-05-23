@@ -14,6 +14,7 @@ from typing import Any
 
 from .exporters import export_workflow as export_framework_workflow
 from .exporters import list_export_targets
+from .python_importer import PythonImportError, import_workflow_python
 from .workflow import WorkflowRunError, export_workflow_python, load_workflow, run_workflow, validate_workflow
 
 
@@ -25,7 +26,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         return _run(args.workflow, args.output)
     if args.command == "export-python":
-        return _export_python(args.workflow, args.output)
+        return _export_python(args.workflow, args.output, args.style)
+    if args.command == "import-python":
+        return _import_python(args.script, args.output, args.name)
     if args.command == "export-framework":
         return _export_framework(args.workflow, args.target, args.output)
     if args.command == "demo":
@@ -52,6 +55,17 @@ def _parser() -> argparse.ArgumentParser:
     export_python = subcommands.add_parser("export-python", help="export a workflow JSON file as a Python script")
     export_python.add_argument("workflow", type=Path)
     export_python.add_argument("--output", "-o", type=Path, help="write Python script to this path")
+    export_python.add_argument(
+        "--style",
+        choices=["flat", "class"],
+        default="flat",
+        help="Python script style to generate",
+    )
+
+    import_python = subcommands.add_parser("import-python", help="import a Blacknode Python export as workflow JSON")
+    import_python.add_argument("script", type=Path)
+    import_python.add_argument("--output", "-o", type=Path, help="write workflow JSON to this path")
+    import_python.add_argument("--name", help="workflow name to store in imported JSON")
 
     export_framework = subcommands.add_parser(
         "export-framework",
@@ -115,9 +129,9 @@ def _run(path: Path, output: Path | None) -> int:
     return 0
 
 
-def _export_python(path: Path, output: Path | None) -> int:
+def _export_python(path: Path, output: Path | None, style: str = "flat") -> int:
     try:
-        script = export_workflow_python(load_workflow(path))
+        script = export_workflow_python(load_workflow(path), style=style)
     except (OSError, json.JSONDecodeError, WorkflowRunError, Exception) as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -127,6 +141,22 @@ def _export_python(path: Path, output: Path | None) -> int:
         return 0
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(script, encoding="utf-8")
+    return 0
+
+
+def _import_python(path: Path, output: Path | None, name: str | None) -> int:
+    try:
+        source = path.read_text(encoding="utf-8")
+        workflow = import_workflow_python(source, name=name or path.stem)
+        report = validate_workflow(workflow)
+        if not report.ok:
+            print(json.dumps(report.to_dict(), indent=2), file=sys.stderr)
+            return 1
+    except (OSError, SyntaxError, PythonImportError, WorkflowRunError, Exception) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    _write_json(workflow, output)
     return 0
 
 

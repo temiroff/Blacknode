@@ -16,6 +16,7 @@ from blacknode.exporters import export_workflow as export_framework_workflow
 from blacknode.exporters import list_export_targets
 from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
+from blacknode.python_importer import import_workflow_python
 from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
 
@@ -193,6 +194,25 @@ class FrameworkExportReq(BaseModel):
 
 class ExportWorkflowReq(BaseModel):
     workflow: dict[str, Any] | None = None
+
+class ImportPythonReq(BaseModel):
+    code: str
+    name: str = "Imported Python Workflow"
+
+class SyncRunReq(BaseModel):
+    node_id: str
+    port: str = "output"
+    node_type: str = "ExternalPython"
+    workflow: dict[str, Any] | None = None
+
+class SyncEventReq(BaseModel):
+    run_id: str
+    event: dict[str, Any]
+
+class SyncFinishReq(BaseModel):
+    status: str = "success"
+    value: Any = None
+    error: str | None = None
 
 _PROVIDER_ENV: dict[str, str] = {
     "Anthropic":     "ANTHROPIC_API_KEY",
@@ -1621,6 +1641,62 @@ def clear_runs():
     return {"ok": True, "removed": _run_store.clear()}
 
 
+@app.post("/sync/runs")
+def sync_begin_run(req: SyncRunReq):
+    workflow = req.workflow
+    if isinstance(workflow, dict):
+        _ensure_workflow_header(workflow)
+        _enqueue_editor_action(
+            "open_workflow_tab",
+            {
+                "name": str(workflow.get("name") or "Python Live Sync"),
+                "workflow": workflow,
+                "organize": False,
+            },
+        )
+    run_id = _run_store.begin(
+        node_id=req.node_id,
+        port=req.port,
+        node_type=req.node_type,
+        workflow=workflow,
+    )
+    record = _run_store.snapshot(run_id)
+    if record is not None:
+        _enqueue_sync_run_update(record, playing=True)
+    return {"ok": True, "run_id": run_id}
+
+
+@app.post("/sync/events")
+def sync_record_event(req: SyncEventReq):
+    _run_store.record_event(req.run_id, req.event)
+    record = _run_store.snapshot(req.run_id)
+    if record is None:
+        raise HTTPException(404, "Run not found")
+    _enqueue_sync_run_update(record, playing=True)
+    events = record.get("events") or []
+    return {"ok": True, "run_id": req.run_id, "cursor": len(events) - 1}
+
+
+@app.post("/sync/runs/{run_id}/finish")
+def sync_finish_run(run_id: str, req: SyncFinishReq):
+    if req.status == "error" or req.error:
+        record = _run_store.finalize_error(run_id, error=req.error or "External Python run failed")
+    else:
+        record = _run_store.finalize_success(run_id, value=req.value)
+    if record is None:
+        raise HTTPException(404, "Run not found")
+    _enqueue_sync_run_update(record, playing=False)
+    return {"ok": True, "run": record}
+
+
+@app.get("/sync/runs/{run_id}")
+def sync_get_run(run_id: str):
+    record = _run_store.snapshot(run_id)
+    if record is None:
+        raise HTTPException(404, "Run not found")
+    return record
+
+
 @app.get("/mcp/status")
 def mcp_status():
     import importlib.util
@@ -2175,6 +2251,19 @@ def _export_framework_payload(target: str, workflow: dict[str, Any] | None = Non
         raise HTTPException(400, str(exc))
 
 
+def _enqueue_sync_run_update(record: dict[str, Any], *, playing: bool) -> None:
+    events = record.get("events") if isinstance(record.get("events"), list) else []
+    cursor = len(events) - 1
+    _enqueue_editor_action(
+        "sync_run_event",
+        {
+            "record": _redact_run_snapshot_secrets(record),
+            "cursor": cursor,
+            "playing": playing,
+        },
+    )
+
+
 def _redact_run_snapshot_secrets(value: Any, key: str = "") -> Any:
     if isinstance(value, dict):
         return {
@@ -2443,6 +2532,20 @@ def export_framework(req: FrameworkExportReq):
 @app.post("/export/langgraph")
 def export_langgraph(req: ExportWorkflowReq | None = None):
     return _export_framework_payload("langgraph", req.workflow if req else None)
+
+
+@app.post("/import/python")
+@app.post("/api/workflows/current/import-python")
+def import_python_workflow(req: ImportPythonReq):
+    try:
+        workflow = import_workflow_python(req.code, name=req.name.strip() or "Imported Python Workflow")
+        _ensure_workflow_header(workflow)
+        validation = validate_bn_workflow(workflow).to_dict()
+    except SyntaxError as exc:
+        raise HTTPException(400, f"Python parse error: {exc}")
+    except Exception as exc:
+        raise HTTPException(400, str(exc))
+    return {"workflow": workflow, "validation": validation}
 
 
 @app.get("/api/workflows/current")
