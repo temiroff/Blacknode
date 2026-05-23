@@ -17,6 +17,7 @@ dependencies = [
 dev = [
     "fastapi>=0.110",
     "httpx>=0.27",
+    "mcp>=1.0",
     "pytest",
 ]
 mcp = [
