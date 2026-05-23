@@ -26,6 +26,8 @@ class _PythonWorkflowImporter(ast.NodeVisitor):
         self.edges: list[dict[str, str]] = []
         self.entrypoint: dict[str, str] | None = None
         self.source_workflow: dict[str, Any] | None = None
+        self.runtime_nodes: dict[str, Any] | None = None
+        self.runtime_edges: list[Any] | None = None
         self._var_to_id: dict[str, str] = {}
         self._next_position = 0
 
@@ -37,6 +39,13 @@ class _PythonWorkflowImporter(ast.NodeVisitor):
             metadata["source"] = "python_import"
             payload["metadata"] = metadata
             return payload
+        if not self.node_meta and self.runtime_nodes is not None:
+            return _workflow_from_runtime(
+                self.runtime_nodes,
+                self.runtime_edges or [],
+                name=self.name,
+                entrypoint=self.entrypoint,
+            )
 
         node_meta = self._enriched_node_meta()
         edges = self.edges or _source_edges(self.source_workflow)
@@ -60,10 +69,20 @@ class _PythonWorkflowImporter(ast.NodeVisitor):
             target_name = _target_name(target)
             if not target_name:
                 continue
-            if target_name == "_WORKFLOW":
+            if target_name in {"_WORKFLOW", "_BLACKNODE_WORKFLOW"}:
                 embedded = _literal_dict(value)
                 if _looks_like_workflow(embedded):
                     self.source_workflow = embedded
+                continue
+            if target_name == "_RUNTIME_NODES":
+                embedded_nodes = _literal_dict(value)
+                if isinstance(embedded_nodes, dict):
+                    self.runtime_nodes = embedded_nodes
+                continue
+            if target_name == "_RUNTIME_EDGES":
+                embedded_edges = _literal_list(value)
+                if isinstance(embedded_edges, list):
+                    self.runtime_edges = embedded_edges
                 continue
             node_call = _extract_node_call(value)
             if node_call is not None:
@@ -264,6 +283,77 @@ def _literal_dict(value: ast.AST) -> dict[str, Any] | None:
     except (ValueError, SyntaxError):
         return None
     return literal if isinstance(literal, dict) else None
+
+
+def _literal_list(value: ast.AST) -> list[Any] | None:
+    try:
+        literal = ast.literal_eval(value)
+    except (ValueError, SyntaxError):
+        return None
+    return literal if isinstance(literal, list) else None
+
+
+def _workflow_from_runtime(
+    runtime_nodes: dict[str, Any],
+    runtime_edges: list[Any],
+    *,
+    name: str,
+    entrypoint: dict[str, str] | None,
+) -> dict[str, Any]:
+    node_meta: dict[str, dict[str, Any]] = {}
+    for index, (node_id, raw_node) in enumerate(runtime_nodes.items()):
+        if not isinstance(raw_node, dict):
+            continue
+        type_name = str(raw_node.get("type") or "")
+        fn = _NODE_REGISTRY.get(type_name)
+        meta: dict[str, Any] = {
+            "id": str(node_id),
+            "type": type_name,
+            "params": dict(raw_node.get("params") or {}),
+            "pos": [120 + (index % 4) * 240, 80 + (index // 4) * 160],
+            "inputs": list(getattr(fn, "_bn_inputs", [])),
+            "outputs": list(getattr(fn, "_bn_outputs", ["output"]) if fn else ["output"]),
+            "input_types": dict(getattr(fn, "_bn_input_types", {})),
+            "output_types": dict(getattr(fn, "_bn_output_types", {})),
+            "input_defaults": dict(getattr(fn, "_bn_input_defaults", {})),
+        }
+        if isinstance(raw_node.get("subgraph"), dict):
+            meta["subgraph"] = raw_node["subgraph"]
+        elif type_name in SUBGRAPH_NODE_TYPES:
+            meta["subgraph"] = {"node_meta": {}, "edges": []}
+        node_meta[str(node_id)] = meta
+
+    edges = [
+        dict(edge)
+        for edge in runtime_edges
+        if isinstance(edge, dict)
+    ]
+    payload: dict[str, Any] = {
+        "kind": WORKFLOW_KIND,
+        "schema_version": WORKFLOW_SCHEMA_VERSION,
+        "name": name,
+        "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "node_meta": node_meta,
+        "edges": edges,
+        "metadata": {"source": "python_import", "import_format": "langgraph_runtime"},
+    }
+    resolved_entrypoint = entrypoint or _infer_runtime_entrypoint(node_meta)
+    if resolved_entrypoint:
+        payload["entrypoint"] = resolved_entrypoint
+    return payload
+
+
+def _infer_runtime_entrypoint(node_meta: dict[str, dict[str, Any]]) -> dict[str, str] | None:
+    for node_id, meta in node_meta.items():
+        if meta.get("type") in {"Output", "SubnetOutput"}:
+            inputs = meta.get("inputs") or []
+            port = "value" if "value" in inputs else (str(inputs[0]) if inputs else "output")
+            return {"node_id": node_id, "port": port}
+    for node_id, meta in node_meta.items():
+        outputs = meta.get("outputs") or []
+        if outputs:
+            return {"node_id": node_id, "port": str(outputs[0])}
+    return None
 
 
 def _looks_like_workflow(value: Any) -> bool:

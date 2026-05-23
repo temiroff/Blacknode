@@ -1,8 +1,8 @@
 # Python Round-Trip
 
-Blacknode can export a visual workflow to readable Python, import that Python
-back into the editor, and stream external Python execution state into run
-replay.
+Blacknode can export a visual workflow to readable Python or LangGraph, import
+that generated file back into the editor, and stream external Python execution
+state into run replay.
 
 ## Export
 
@@ -47,13 +47,14 @@ Hello World
 Editor:
 
 1. Click `Import` in the top bar.
-2. Pick a Blacknode Python export.
+2. Pick a Blacknode Python or LangGraph export.
 3. The editor opens it as a new workflow tab.
 
 CLI:
 
 ```powershell
 blacknode import-python workflow.py --output imported.workflow.json
+blacknode import-python workflow.langgraph.py --output imported-langgraph.workflow.json
 blacknode validate imported.workflow.json
 ```
 

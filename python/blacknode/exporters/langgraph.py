@@ -7,7 +7,7 @@ import re
 from collections import defaultdict
 from typing import Any, Mapping
 
-from ..workflow import WorkflowRunError, infer_entrypoint, validate_workflow
+from ..workflow import WORKFLOW_KIND, WORKFLOW_SCHEMA_VERSION, WorkflowRunError, infer_entrypoint, validate_workflow
 
 
 def export_langgraph_workflow(data: Mapping[str, Any]) -> tuple[str, list[str]]:
@@ -31,6 +31,7 @@ def export_langgraph_workflow(data: Mapping[str, Any]) -> tuple[str, list[str]]:
     runtime_nodes = _runtime_nodes(node_meta)
     workflow_name = str(data.get("name") or "Blacknode Workflow")
     entry_name = node_names[entry_node]
+    blacknode_workflow = _blacknode_workflow_payload(data, {"node_id": entry_node, "port": entry_port})
 
     lines: list[str] = [
         "from __future__ import annotations",
@@ -45,6 +46,8 @@ def export_langgraph_workflow(data: Mapping[str, Any]) -> tuple[str, list[str]]:
         "from blacknode.node import _NODE_REGISTRY",
         "from langgraph.graph import END, START, StateGraph",
         "",
+        "",
+        f"_BLACKNODE_WORKFLOW = {_pretty_literal(blacknode_workflow)}",
         "",
         f"_RUNTIME_NODES = {_pretty_literal(runtime_nodes)}",
         f"_RUNTIME_EDGES = {_pretty_literal(edges)}",
@@ -183,6 +186,24 @@ def _runtime_nodes(node_meta: Mapping[str, Mapping[str, Any]]) -> dict[str, dict
             node_def["subgraph"] = dict(meta["subgraph"])
         runtime[str(node_id)] = node_def
     return runtime
+
+
+def _blacknode_workflow_payload(data: Mapping[str, Any], entrypoint: dict[str, str]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "kind": WORKFLOW_KIND,
+        "schema_version": WORKFLOW_SCHEMA_VERSION,
+        "name": str(data.get("name") or "Blacknode Workflow"),
+        "node_meta": _node_meta(data),
+        "edges": [dict(edge) for edge in data.get("edges") or []],
+        "entrypoint": dict(entrypoint),
+    }
+    saved_at = data.get("saved_at")
+    if saved_at:
+        payload["saved_at"] = saved_at
+    metadata = data.get("metadata")
+    if isinstance(metadata, Mapping):
+        payload["metadata"] = dict(metadata)
+    return payload
 
 
 def _incoming_edges(edges: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

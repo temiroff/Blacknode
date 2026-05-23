@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from blacknode.exporters import export_workflow
 from blacknode.cli import main
 from blacknode.python_importer import import_workflow_python
 from blacknode.workflow import export_workflow_python, validate_workflow
@@ -120,6 +121,34 @@ result = run_graph_live(g, "out", "value")
             imported = json.loads(imported_path.read_text(encoding="utf-8"))
             self.assertTrue(validate_workflow(imported).ok)
             self.assertEqual(imported["entrypoint"], {"node_id": "out", "port": "value"})
+
+    def test_import_langgraph_export_reconstructs_visual_workflow(self):
+        script = export_workflow(valid_workflow(), "langgraph")["code"]
+
+        imported = import_workflow_python(script, name="Imported LangGraph")
+
+        self.assertTrue(validate_workflow(imported).ok)
+        self.assertEqual(imported["name"], "Imported LangGraph")
+        self.assertEqual(imported["entrypoint"], {"node_id": "out", "port": "value"})
+        self.assertEqual(imported["edges"], valid_workflow()["edges"])
+        self.assertEqual(imported["node_meta"]["text"]["type"], "Text")
+
+    def test_import_legacy_langgraph_runtime_reconstructs_visual_workflow(self):
+        source = """
+_RUNTIME_NODES = {
+    "text": {"type": "Text", "params": {"value": "hello"}},
+    "out": {"type": "Output", "params": {}},
+}
+_RUNTIME_EDGES = [
+    {"from": "text", "from_port": "value", "to": "out", "to_port": "value"},
+]
+"""
+
+        imported = import_workflow_python(source, name="Legacy LangGraph")
+
+        self.assertTrue(validate_workflow(imported).ok)
+        self.assertEqual(imported["entrypoint"], {"node_id": "out", "port": "value"})
+        self.assertEqual(imported["node_meta"]["text"]["outputs"], ["value"])
 
 
 def _run_script(script: str) -> str:
