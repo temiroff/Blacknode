@@ -4,10 +4,10 @@
 
 **The visual workflow builder where AI agents build the workflow.**
 
-Blacknode lets AI agents and agent tools assemble, validate, run, debug, and
-export typed visual workflows. Agents get a structured control surface through
-MCP, HTTP, and WebSocket APIs instead of guessing JSON, and users get a live
-graph with run replay they can inspect.
+Blacknode turns agent intent into typed, visible, runnable workflows. Agents
+get a structured control surface through MCP, HTTP, and WebSocket APIs instead
+of guessing JSON, and users get a live graph they can inspect, run, replay, and
+export.
 
 Workflows export to plain Python, class-based Python, LangGraph, CrewAI,
 AutoGen, and OpenAI Swarm, with NVIDIA NIM and AI-Q/NeMo Agent Toolkit
@@ -43,25 +43,26 @@ It shows the exact commands to run, buttons to press, templates to open, results
 to expect, NVIDIA NIM paths, MCP setup, framework export, Docker Compose,
 custom nodes, run history, and troubleshooting.
 
-## What Blacknode Gives You
+## Pitch
 
-- **Visual workflow editor** for building and inspecting typed node graphs.
-- **Agent control through MCP, HTTP, and WebSocket APIs** so AI agents and
-  external tools can create, connect, validate, run, organize, save, inspect,
-  and export workflows.
-- **NVIDIA workflow surface** for hosted NIM, local NIM launch planning,
-  benchmark workflows, AI-Q integration, and streamable HTTP MCP.
-- **Typed ports and validation** for Text, Int, Float, Bool, List, Dict,
-  Embedding, Fn, Model, Number, and Any.
-- **Persistent custom nodes** from the editor Script tab with auto-discovery
-  from `custom-nodes/` and community node packs from `community-nodes/`.
-- **Run history and replay** with event logs, model calls, tool calls, node
-  timings, results, and errors.
-- **Python round-trip** so a graph can export to readable Python, import back
-  into the editor, and stream external Python execution into run replay.
-- **Framework export** so a visual graph can become Python, LangGraph, CrewAI,
-  AutoGen, or OpenAI Swarm handoff code.
-- **Docker Compose deployment** for local, cloud VM, and on-prem demos.
+Chat agents are good at intent and iteration. They are weak at showing durable
+workflow state. Blacknode gives agents a typed workflow editor: they can create
+nodes, connect ports, validate the graph, run it, debug failures, replay the
+execution, and export the result as code.
+
+## Feature Map
+
+| Feature | What it gives you | Read more |
+|---|---|---|
+| Visual workflow editor | Build and inspect typed node graphs with visible execution state. | [Beginner Walkthrough](docs/walkthrough.md) |
+| Agent control surface | MCP, HTTP, and WebSocket APIs for agents to create, connect, validate, run, save, inspect, and export workflows. | [Agent Guide](docs/agent-guide.md), [MCP Quickstart](docs/quickstart-mcp.md) |
+| NVIDIA workflow surface | Hosted NIM, local NIM launch planning, NIM benchmarks, AI-Q/NeMo Agent Toolkit integration, and streamable HTTP MCP. | [NVIDIA Mission Control](docs/nvidia-mission-control.md), [NVIDIA NIM Demo](docs/nvidia-nim-demo.md), [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) |
+| Typed ports and validation | Text, Int, Float, Bool, List, Dict, Embedding, Fn, Model, Number, Any, cycle checks, and MCP repair suggestions. | [Workflow Schema](docs/workflow-schema.md), [Agent Skill](.agents/skills/blacknode-workflow/SKILL.md) |
+| Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md), [Presentation Checklist](docs/presentation-checklist.md) |
+| Custom nodes | Persistent editor-created nodes, Python decorator nodes, auto-discovery, and community node packs. | [Custom Nodes](docs/custom-nodes.md) |
+| Python round-trip | Export readable Python, import it back into the editor, and live-sync Python runs into replay. | [Python Round-Trip](docs/python-roundtrip.md) |
+| Framework export | Turn a visual graph into Python, LangGraph, CrewAI, AutoGen, or OpenAI Swarm handoff code. | [Framework Export](docs/framework-export.md) |
+| Self-hosted deployment | Run the editor, backend, and HTTP MCP server locally, on a VM, or in an on-prem demo stack. | [Docker Compose](docs/docker-compose.md), [Docker Publishing](docs/docker-publish.md) |
 
 ## NVIDIA Agent Stack
 
