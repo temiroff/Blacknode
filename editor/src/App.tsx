@@ -72,6 +72,13 @@ function downloadTextFile(filename: string, text: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+function fileBaseName(filename: string): string {
+  return filename
+    .replace(/\.(workflow\.)?json$/i, '')
+    .replace(/\.(langgraph|python-class|python|crewai|autogen|swarm|nvidia-agent-stack)?\.?py$/i, '')
+    .trim()
+}
+
 export default function App() {
   const {
     nodes, edges, nodeTypes, nodeDefs, serverOk, cookLog, cookActive,
@@ -99,7 +106,7 @@ export default function App() {
   const [closeSaving, setCloseSaving] = useState(false)
   const [frameworkExportTargets, setFrameworkExportTargets] = useState(DEFAULT_FRAMEWORK_EXPORT_TARGETS)
   const [exportingTarget, setExportingTarget] = useState('')
-  const [importingPython, setImportingPython] = useState(false)
+  const [importingFile, setImportingFile] = useState(false)
   const updatePendingCloseName = useCallback((draftName: string) => {
     setPendingClose(current => current ? { ...current, draftName } : current)
   }, [])
@@ -430,19 +437,103 @@ export default function App() {
     return () => window.removeEventListener('blacknode:fit-view', handler)
   }, [fitCurrentCanvas])
 
+  const importWorkflowFile = useCallback(async (file: File) => {
+    if (importingFile) return
+    setImportingFile(true)
+    try {
+      const text = await file.text()
+      const name = fileBaseName(file.name) || 'Imported Workflow'
+      const lowerName = file.name.toLowerCase()
+      let tabName = name
+      let nodeMeta: Record<string, any> = {}
+      let edges: any[] = []
+      let sourceLabel = 'workflow'
+
+      if (lowerName.endsWith('.py')) {
+        const result = await api.importPython(text, name)
+        if (!result.validation.ok) {
+          const firstError = result.validation.errors[0]
+          throw new Error(String(firstError?.message ?? 'Imported Python did not validate.'))
+        }
+        const workflow = result.workflow
+        tabName = workflow.name?.trim() || name
+        nodeMeta = workflow.node_meta && typeof workflow.node_meta === 'object'
+          ? workflow.node_meta
+          : {}
+        edges = Array.isArray(workflow.edges) ? workflow.edges : []
+        sourceLabel = 'Python'
+      } else {
+        const parsed = JSON.parse(text)
+        const workflow = parsed?.workflow && typeof parsed.workflow === 'object'
+          ? parsed.workflow
+          : parsed
+        if (workflow?.node_meta && typeof workflow.node_meta === 'object') {
+          tabName = typeof workflow.name === 'string' && workflow.name.trim() ? workflow.name : name
+          nodeMeta = workflow.node_meta as Record<string, any>
+          edges = Array.isArray(workflow.edges) ? workflow.edges : []
+        } else if (Array.isArray(workflow?.nodes)) {
+          tabName = typeof workflow.name === 'string' && workflow.name.trim() ? workflow.name : name
+          nodeMeta = Object.fromEntries(
+            workflow.nodes
+              .filter((node: any) => node && typeof node === 'object' && typeof node.id === 'string')
+              .map((node: any) => [node.id, node])
+          )
+          edges = Array.isArray(workflow.edges) ? workflow.edges : []
+        } else {
+          throw new Error('Drop a Blacknode workflow JSON file or a Blacknode-generated Python/LangGraph export.')
+        }
+        sourceLabel = 'workflow JSON'
+      }
+
+      if (Object.keys(nodeMeta).length === 0) {
+        throw new Error('Imported file has no workflow nodes.')
+      }
+
+      await openGraphAsTab(tabName, {
+        nodes: Object.values(nodeMeta),
+        edges,
+      })
+      await organizeNodes()
+      fitCurrentCanvas(320)
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'info',
+          title: 'Import',
+          message: `Imported ${Object.keys(nodeMeta).length} nodes from ${file.name} (${sourceLabel}).`,
+        },
+      }))
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: 'Import failed',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
+    } finally {
+      setImportingFile(false)
+    }
+  }, [fitCurrentCanvas, importingFile, openGraphAsTab, organizeNodes])
+
   const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
+    const files = Array.from(e.dataTransfer.files ?? [])
+    if (files.length > 0) {
+      e.stopPropagation()
+      void importWorkflowFile(files[0])
+      return
+    }
     const type = e.dataTransfer.getData('application/blacknode-type')
     if (!type || !rfInstance.current) return
     const paramsRaw = e.dataTransfer.getData('application/blacknode-params')
     const params = paramsRaw ? JSON.parse(paramsRaw) : {}
     const pos = rfInstance.current.screenToFlowPosition({ x: e.clientX, y: e.clientY })
     addNode(type, pos, params)
-  }, [addNode])
+  }, [addNode, importWorkflowFile])
 
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
+    e.dataTransfer.dropEffect = Array.from(e.dataTransfer.types).includes('Files') ? 'copy' : 'move'
   }
 
   const trackMouseFlowPos = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -721,46 +812,9 @@ export default function App() {
   const handlePythonImport = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0]
     event.currentTarget.value = ''
-    if (!file || importingPython) return
-    setImportingPython(true)
-    try {
-      const code = await file.text()
-      const name = file.name.replace(/\.py$/i, '') || 'Imported Python Workflow'
-      const result = await api.importPython(code, name)
-      if (!result.validation.ok) {
-        const firstError = result.validation.errors[0]
-        throw new Error(String(firstError?.message ?? 'Imported Python did not validate.'))
-      }
-      const workflow = result.workflow
-      const nodeMeta = workflow.node_meta && typeof workflow.node_meta === 'object'
-        ? workflow.node_meta
-        : {}
-      const edges = Array.isArray(workflow.edges) ? workflow.edges : []
-      await openGraphAsTab(workflow.name?.trim() || name, {
-        nodes: Object.values(nodeMeta),
-        edges,
-      })
-      await organizeNodes()
-      fitCurrentCanvas(320)
-      window.dispatchEvent(new CustomEvent('blacknode:notice', {
-        detail: {
-          kind: 'info',
-          title: 'Python import',
-          message: `Imported ${Object.keys(nodeMeta).length} nodes from ${file.name}.`,
-        },
-      }))
-    } catch (err) {
-      window.dispatchEvent(new CustomEvent('blacknode:notice', {
-        detail: {
-          kind: 'error',
-          title: 'Import failed',
-          message: err instanceof Error ? err.message : String(err),
-        },
-      }))
-    } finally {
-      setImportingPython(false)
-    }
-  }, [fitCurrentCanvas, importingPython, openGraphAsTab, organizeNodes])
+    if (!file) return
+    await importWorkflowFile(file)
+  }, [importWorkflowFile])
 
   const runTabMenuAction = useCallback((action: () => void | Promise<void>) => {
     setTabMenu(null)
@@ -820,7 +874,7 @@ export default function App() {
           <input
             ref={pythonImportInput}
             type="file"
-            accept=".py,text/x-python"
+            accept=".py,.json,application/json,text/x-python"
             style={{ display: 'none' }}
             onChange={handlePythonImport}
           />
@@ -828,10 +882,10 @@ export default function App() {
           <button
             className="bn-top-button"
             onClick={() => pythonImportInput.current?.click()}
-            disabled={!serverOk || importingPython}
-            title="Import a Blacknode Python export"
+            disabled={!serverOk || importingFile}
+            title="Import a workflow JSON, Python export, or LangGraph export"
           >
-            {importingPython ? 'Importing...' : 'Import'}
+            {importingFile ? 'Importing...' : 'Import'}
           </button>
 
           <button

@@ -218,6 +218,12 @@ Expected result:
 - Clicking a workflow opens it as a tab.
 - **Insert** drops a saved graph into the current canvas.
 
+File import:
+
+- Drag a Blacknode `.json` workflow onto the canvas to open it in a new tab.
+- Drag a Blacknode-generated `.py` export, including LangGraph, onto the canvas
+  to restore it as a visual workflow.
+
 ## 9. Inspect Run History and Replay
 
 After any cook:

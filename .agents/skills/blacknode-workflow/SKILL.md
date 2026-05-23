@@ -77,7 +77,7 @@ blacknode export-framework templates\text-pipeline.json --target nvidia-agent-st
 6. Call `run_workflow` for headless execution or `cook_editor_node` for live UI execution.
 7. Call `list_recent_runs` and `get_run` to inspect replay events, model calls, tool calls, and errors.
 8. Call `export_python` when the user needs a handoff script.
-9. Use `blacknode import-python` or `/import/python` when a Python or LangGraph export should be restored as a visual graph.
+9. Use `blacknode import-python`, `/import/python`, the editor `Import` button, or canvas file drop when a workflow JSON, Python export, or LangGraph export should be restored as a visual graph.
 
 Every mutation should be followed by validation. If validation reports a port
 or type error, inspect `get_node_schema` and fix the graph instead of guessing.

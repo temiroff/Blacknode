@@ -47,8 +47,11 @@ Hello World
 Editor:
 
 1. Click `Import` in the top bar.
-2. Pick a Blacknode Python or LangGraph export.
+2. Pick a Blacknode workflow JSON, Python export, or LangGraph export.
 3. The editor opens it as a new workflow tab.
+
+You can also drag a `.json` workflow or `.py` export directly onto the editor
+canvas.
 
 CLI:
 

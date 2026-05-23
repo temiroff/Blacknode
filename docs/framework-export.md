@@ -34,8 +34,9 @@ blacknode import-python workflow.python.py --output imported.workflow.json
 blacknode import-python workflow.langgraph.py --output imported-langgraph.workflow.json
 ```
 
-The editor `Import` button uses the same importer, so Blacknode-generated
-Python and LangGraph files can be reopened as visual workflow tabs.
+The editor `Import` button and canvas file drop use the same importer, so
+Blacknode-generated Python and LangGraph files can be reopened as visual
+workflow tabs.
 
 Export framework maps:
 
