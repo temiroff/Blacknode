@@ -21,7 +21,7 @@ Use this skill for:
 - Loading, validating, or repairing `blacknode.workflow` JSON.
 - Opening a workflow in the running visual editor.
 - Running a workflow or template and inspecting the structured event log.
-- Exporting or importing a workflow with Python round-trip, LangGraph, CrewAI, AutoGen, or Swarm.
+- Exporting or importing a workflow with Python round-trip, LangGraph, CrewAI, AutoGen, Swarm, or NVIDIA Agent Stack.
 - Creating persistent custom nodes and community node packs.
 - Creating NVIDIA NIM, local NIM, RAG, tool-agent, or research-pipeline demos.
 
@@ -63,6 +63,7 @@ blacknode run templates\text-pipeline.json
 blacknode export-python templates\text-pipeline.json --output workflow.py
 blacknode import-python workflow.py --output imported.workflow.json
 blacknode export-framework templates\text-pipeline.json --target langgraph --output workflow.langgraph.py
+blacknode export-framework templates\text-pipeline.json --target nvidia-agent-stack --output workflow.nvidia-agent-stack.py
 ```
 
 ## MCP Flow

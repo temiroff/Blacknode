@@ -48,6 +48,11 @@ _TARGETS: tuple[FrameworkExportTarget, ...] = (
         "OpenAI Swarm",
         "Swarm handoff map generated from the Blacknode graph.",
     ),
+    FrameworkExportTarget(
+        "nvidia-agent-stack",
+        "NVIDIA Agent Stack",
+        "AI-Q, NeMo Agent Toolkit, and NIM integration manifest generated from the Blacknode graph.",
+    ),
 )
 
 _TARGET_BY_ID = {target.id: target for target in _TARGETS}

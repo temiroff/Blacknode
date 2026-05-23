@@ -10,8 +10,8 @@ of guessing JSON, and users get a live graph they can inspect, run, replay, and
 export.
 
 Workflows export to plain Python, class-based Python, LangGraph, CrewAI,
-AutoGen, and OpenAI Swarm, with NVIDIA NIM and AI-Q/NeMo Agent Toolkit
-workflow paths built in.
+AutoGen, OpenAI Swarm, and an NVIDIA Agent Stack manifest, with NVIDIA NIM and
+AI-Q/NeMo Agent Toolkit workflow paths built in.
 
 <table>
   <tr>
@@ -61,7 +61,7 @@ execution, and export the result as code.
 | Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md), [Presentation Checklist](docs/presentation-checklist.md) |
 | Custom nodes | Persistent editor-created nodes, Python decorator nodes, auto-discovery, and community node packs. | [Custom Nodes](docs/custom-nodes.md) |
 | Python round-trip | Export readable Python, import it back into the editor, and live-sync Python runs into replay. | [Python Round-Trip](docs/python-roundtrip.md) |
-| Framework export | Turn a visual graph into Python, LangGraph, CrewAI, AutoGen, or OpenAI Swarm handoff code. | [Framework Export](docs/framework-export.md) |
+| Framework export | Turn a visual graph into Python, LangGraph, CrewAI, AutoGen, OpenAI Swarm, or an NVIDIA Agent Stack manifest. | [Framework Export](docs/framework-export.md) |
 | Self-hosted deployment | Run the editor, backend, and HTTP MCP server locally, on a VM, or in an on-prem demo stack. | [Docker Compose](docs/docker-compose.md), [Docker Publishing](docs/docker-publish.md) |
 
 ## NVIDIA Agent Stack

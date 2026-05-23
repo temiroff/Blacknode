@@ -9,7 +9,7 @@ outside the editor.
 1. Start Blacknode with `start.bat` on Windows or `./start.sh` on macOS/Linux.
 2. Open or build a workflow that ends in an `Output` node.
 3. Press `Export` in the top bar.
-4. Choose `Plain Python`, `Python Class`, `LangGraph`, `CrewAI`, `AutoGen`, or `OpenAI Swarm`.
+4. Choose `Plain Python`, `Python Class`, `LangGraph`, `CrewAI`, `AutoGen`, `OpenAI Swarm`, or `NVIDIA Agent Stack`.
 5. The generated file downloads from the browser.
 
 ## CLI
@@ -39,6 +39,7 @@ Export framework maps:
 blacknode export-framework templates\text-pipeline.json --target crewai --output workflow.crewai.py
 blacknode export-framework templates\text-pipeline.json --target autogen --output workflow.autogen.py
 blacknode export-framework templates\text-pipeline.json --target swarm --output workflow.swarm.py
+blacknode export-framework templates\text-pipeline.json --target nvidia-agent-stack --output workflow.nvidia-agent-stack.py
 ```
 
 ## HTTP
@@ -82,3 +83,4 @@ Direct non-MCP workflow API:
 | `crewai` | CrewAI task descriptors mapped from Blacknode nodes and upstream context. |
 | `autogen` | AutoGen agent descriptors with handoff targets from graph edges. |
 | `swarm` | OpenAI Swarm-style handoff descriptors from graph edges. |
+| `nvidia-agent-stack` | AI-Q, NeMo Agent Toolkit, and NIM integration manifest with MCP commands and readable workflow steps. |
