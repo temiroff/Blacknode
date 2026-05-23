@@ -20,7 +20,7 @@ import NodeSearch from './components/NodeSearch'
 import { portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
-import { api } from './api'
+import { api, type FrameworkExportTarget } from './api'
 
 const NODE_TYPES = {
   blacknode: BlackNode,
@@ -33,6 +33,14 @@ const NODE_TYPES = {
 }
 
 const TAB_H = 36  // workflow tab bar height
+
+const DEFAULT_FRAMEWORK_EXPORT_TARGETS: FrameworkExportTarget[] = [
+  { id: 'python', label: 'Plain Python', description: 'Readable Blacknode Graph script.', extension: '.py' },
+  { id: 'langgraph', label: 'LangGraph', description: 'LangGraph StateGraph export.', extension: '.py' },
+  { id: 'crewai', label: 'CrewAI', description: 'CrewAI task map export.', extension: '.py' },
+  { id: 'autogen', label: 'AutoGen', description: 'AutoGen agent map export.', extension: '.py' },
+  { id: 'swarm', label: 'OpenAI Swarm', description: 'Swarm handoff map export.', extension: '.py' },
+]
 
 interface SearchState {
   screenPos: { x: number; y: number }
@@ -49,6 +57,18 @@ interface NoticeState {
 interface PendingCloseState {
   tabId: string
   draftName: string
+}
+
+function downloadTextFile(filename: string, text: string) {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 export default function App() {
@@ -75,6 +95,8 @@ export default function App() {
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [pendingClose, setPendingClose] = useState<PendingCloseState | null>(null)
   const [closeSaving, setCloseSaving] = useState(false)
+  const [frameworkExportTargets, setFrameworkExportTargets] = useState(DEFAULT_FRAMEWORK_EXPORT_TARGETS)
+  const [exportingTarget, setExportingTarget] = useState('')
   const updatePendingCloseName = useCallback((draftName: string) => {
     setPendingClose(current => current ? { ...current, draftName } : current)
   }, [])
@@ -157,6 +179,21 @@ export default function App() {
     const id = setInterval(checkServer, 5000)
     return () => clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (!serverOk) return
+    let cancelled = false
+    api.listFrameworkExportTargets()
+      .then(({ targets }) => {
+        if (!cancelled && targets.length) setFrameworkExportTargets(targets)
+      })
+      .catch(() => {
+        if (!cancelled) setFrameworkExportTargets(DEFAULT_FRAMEWORK_EXPORT_TARGETS)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [serverOk])
 
   useEffect(() => {
     if (!serverOk) return
@@ -641,6 +678,32 @@ export default function App() {
     await cookNode(target.id, target.port)
   }, [cookNode, fitCurrentCanvas, nodes])
 
+  const handleFrameworkExport = useCallback(async (target: string) => {
+    if (!target || exportingTarget) return
+    setExportingTarget(target)
+    try {
+      const result = await api.exportFramework(target)
+      downloadTextFile(result.filename, result.code)
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'info',
+          title: 'Framework export',
+          message: `${result.label} exported as ${result.filename}.`,
+        },
+      }))
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: 'Export failed',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
+    } finally {
+      setExportingTarget('')
+    }
+  }, [exportingTarget])
+
   const runTabMenuAction = useCallback((action: () => void | Promise<void>) => {
     setTabMenu(null)
     void action()
@@ -682,6 +745,19 @@ export default function App() {
           <div style={{ flex: 1 }} />
 
           <span style={{ color: 'var(--tx3)', fontSize: 12 }}>right-click to add</span>
+
+          <select
+            className="bn-top-select"
+            value={exportingTarget}
+            onChange={e => void handleFrameworkExport(e.target.value)}
+            disabled={!serverOk || nodes.length === 0 || Boolean(exportingTarget)}
+            title="Export current graph"
+          >
+            <option value="">{exportingTarget ? 'Exporting...' : 'Export'}</option>
+            {frameworkExportTargets.map(target => (
+              <option key={target.id} value={target.id}>{target.label}</option>
+            ))}
+          </select>
 
           <button
             className="bn-top-button bn-top-run-button"

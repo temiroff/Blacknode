@@ -50,7 +50,8 @@ history, and troubleshooting.
   Embedding, Fn, Model, Number, and Any.
 - **Run history and replay** with event logs, model calls, tool calls, node
   timings, results, and errors.
-- **Python export** so a visual graph can become readable Python.
+- **Framework export** so a visual graph can become Python, LangGraph, CrewAI,
+  AutoGen, or OpenAI Swarm handoff code.
 - **Docker Compose deployment** for local, cloud VM, and on-prem demos.
 
 ## NVIDIA Agent Stack
@@ -97,6 +98,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 |---|---|
 | [Workflow Schema](docs/workflow-schema.md) | The saved workflow JSON format. |
 | [Workflow JSON Schema](docs/workflow.schema.json) | Machine-readable schema for validation and tooling. |
+| [Framework Export](docs/framework-export.md) | Exporting workflows to Python, LangGraph, CrewAI, AutoGen, Swarm, REST, and WebSocket control. |
 | [Agent Guide](docs/agent-guide.md) | How agents should create and modify Blacknode workflows. |
 | [Blacknode Skill](.agents/skills/blacknode-workflow/SKILL.md) | Agent skill instructions for workflow creation, validation, running, and export. |
 

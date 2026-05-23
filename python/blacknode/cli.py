@@ -12,6 +12,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .exporters import export_workflow as export_framework_workflow
+from .exporters import list_export_targets
 from .workflow import WorkflowRunError, export_workflow_python, load_workflow, run_workflow, validate_workflow
 
 
@@ -24,6 +26,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run(args.workflow, args.output)
     if args.command == "export-python":
         return _export_python(args.workflow, args.output)
+    if args.command == "export-framework":
+        return _export_framework(args.workflow, args.target, args.output)
     if args.command == "demo":
         return _demo(args.workflow, args.json)
     if args.command == "doctor":
@@ -48,6 +52,20 @@ def _parser() -> argparse.ArgumentParser:
     export_python = subcommands.add_parser("export-python", help="export a workflow JSON file as a Python script")
     export_python.add_argument("workflow", type=Path)
     export_python.add_argument("--output", "-o", type=Path, help="write Python script to this path")
+
+    export_framework = subcommands.add_parser(
+        "export-framework",
+        help="export a workflow JSON file for LangGraph, CrewAI, AutoGen, Swarm, or plain Python",
+    )
+    export_framework.add_argument("workflow", type=Path)
+    export_framework.add_argument(
+        "--target",
+        "-t",
+        choices=[target["id"] for target in list_export_targets()],
+        default="langgraph",
+        help="framework export target",
+    )
+    export_framework.add_argument("--output", "-o", type=Path, help="write exported code to this path")
 
     demo = subcommands.add_parser("demo", help="run the built-in no-key demo workflow")
     demo.add_argument("--workflow", type=Path, help="workflow JSON to run instead of templates/text-pipeline.json")
@@ -109,6 +127,22 @@ def _export_python(path: Path, output: Path | None) -> int:
         return 0
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(script, encoding="utf-8")
+    return 0
+
+
+def _export_framework(path: Path, target: str, output: Path | None) -> int:
+    try:
+        result = export_framework_workflow(load_workflow(path), target)
+    except (OSError, json.JSONDecodeError, WorkflowRunError, ValueError, Exception) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    code = result["code"]
+    if output is None:
+        print(code)
+        return 0
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(code, encoding="utf-8")
     return 0
 
 

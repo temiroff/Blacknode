@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+import ast
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from blacknode.cli import main
+from blacknode.engine import BlacknodeWorkflowEngine
+from blacknode.exporters import export_workflow, list_export_targets
+
+
+def node(
+    node_id: str,
+    type_name: str,
+    *,
+    inputs: list[str] | None = None,
+    outputs: list[str] | None = None,
+    input_types: dict[str, str] | None = None,
+    output_types: dict[str, str] | None = None,
+    params: dict | None = None,
+) -> dict:
+    return {
+        "id": node_id,
+        "type": type_name,
+        "params": params or {},
+        "pos": [0, 0],
+        "inputs": inputs or [],
+        "outputs": outputs or [],
+        "input_types": input_types or {},
+        "output_types": output_types or {},
+        "input_defaults": {},
+    }
+
+
+def valid_workflow() -> dict:
+    return {
+        "kind": "blacknode.workflow",
+        "schema_version": 1,
+        "name": "Framework Export Test",
+        "saved_at": "2026-05-22T12:00:00",
+        "node_meta": {
+            "text": node("text", "Text", outputs=["value"], output_types={"value": "Text"}, params={"value": "hello"}),
+            "out": node("out", "Output", inputs=["value"], input_types={"value": "Any"}),
+        },
+        "edges": [{"from": "text", "from_port": "value", "to": "out", "to_port": "value"}],
+    }
+
+
+class FrameworkExporterTests(unittest.TestCase):
+    def test_lists_framework_export_targets(self):
+        target_ids = {target["id"] for target in list_export_targets()}
+
+        self.assertEqual({"python", "langgraph", "crewai", "autogen", "swarm"}, target_ids)
+
+    def test_plain_python_export_uses_blacknode_graph(self):
+        result = export_workflow(valid_workflow(), "python")
+
+        self.assertEqual(result["target"], "python")
+        self.assertIn("g = bn.Graph()", result["code"])
+
+    def test_langgraph_export_builds_stategraph(self):
+        result = export_workflow(valid_workflow(), "langgraph")
+        code = result["code"]
+
+        ast.parse(code)
+        self.assertEqual(result["target"], "langgraph")
+        self.assertIn("from langgraph.graph import END, START, StateGraph", code)
+        self.assertIn("workflow = StateGraph(WorkflowState)", code)
+        self.assertIn("workflow.add_edge(START, 'text')", code)
+        self.assertIn("workflow.add_edge('text', 'out')", code)
+        self.assertIn("print(result.get('out__value'))", code)
+
+    def test_framework_maps_are_generated_for_agent_frameworks(self):
+        for target in ("crewai", "autogen", "swarm"):
+            with self.subTest(target=target):
+                result = export_workflow(valid_workflow(), target)
+                ast.parse(result["code"])
+                self.assertEqual(result["target"], target)
+                self.assertIn("WORKFLOW =", result["code"])
+                self.assertIn("'entrypoint': {'node_id': 'out', 'port': 'value'}", result["code"])
+
+    def test_cli_export_framework_writes_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            workflow_path = Path(td) / "workflow.json"
+            output_path = Path(td) / "workflow.langgraph.py"
+            workflow_path.write_text(json.dumps(valid_workflow()), encoding="utf-8")
+
+            code = main([
+                "export-framework",
+                str(workflow_path),
+                "--target",
+                "langgraph",
+                "--output",
+                str(output_path),
+            ])
+
+            self.assertEqual(code, 0)
+            self.assertIn("StateGraph", output_path.read_text(encoding="utf-8"))
+
+    def test_blacknode_workflow_engine_creates_valid_state(self):
+        engine = BlacknodeWorkflowEngine()
+        text = engine.create_node("Text", {"value": "hello"})
+        out = engine.create_node("Output")
+        engine.connect(text["id"], "value", out["id"], "value")
+
+        self.assertTrue(engine.validate().ok)
+        self.assertEqual(engine.execute(out["id"], "value"), "hello")
+        self.assertEqual(len(engine.get_state()["nodes"]), 2)

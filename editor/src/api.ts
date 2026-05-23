@@ -62,6 +62,22 @@ export interface EditorAction {
   payload?: Record<string, unknown>
 }
 
+export interface FrameworkExportTarget {
+  id: string
+  label: string
+  description: string
+  extension: string
+}
+
+export interface FrameworkExportResult {
+  target: string
+  label: string
+  description: string
+  filename: string
+  code: string
+  warnings: string[]
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -185,6 +201,11 @@ export const api = {
     req<TemplateMeta[]>('GET', '/templates'),
   loadTemplate: (slug: string) =>
     req<{ nodes: any[]; edges: any[] }>('POST', `/templates/${encodeURIComponent(slug)}/load`),
+
+  listFrameworkExportTargets: () =>
+    req<{ targets: FrameworkExportTarget[] }>('GET', '/export/frameworks'),
+  exportFramework: (target: string, workflow?: WorkflowSnapshot) =>
+    req<FrameworkExportResult>('POST', '/export/framework', { target, workflow }),
 
   mcpStatus:  () =>
     req<{ mcp_installed: boolean; blacknode_cli: string | null; install_command: string; launch_command: string }>('GET', '/mcp/status'),

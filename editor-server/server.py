@@ -3,13 +3,15 @@ from __future__ import annotations
 import uuid, os, sys, json, threading, re
 from datetime import datetime
 from typing import Any
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import blacknode as bn
+from blacknode.exporters import export_workflow as export_framework_workflow
+from blacknode.exporters import list_export_targets
 from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
 from blacknode.workflow import validate_graph as validate_bn_graph
@@ -177,6 +179,13 @@ class UpdateSubgraphReq(BaseModel):
 class CollapseSubnetReq(BaseModel):
     node_ids: list[str]
     label: str = "Subnet"
+
+class FrameworkExportReq(BaseModel):
+    target: str
+    workflow: dict[str, Any] | None = None
+
+class ExportWorkflowReq(BaseModel):
+    workflow: dict[str, Any] | None = None
 
 _PROVIDER_ENV: dict[str, str] = {
     "Anthropic":     "ANTHROPIC_API_KEY",
@@ -2041,6 +2050,22 @@ def _workflow_payload(
     return payload
 
 
+def _workflow_for_export(workflow: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = dict(workflow) if workflow is not None else _workflow_payload(
+        "Current Graph",
+        metadata={"source": "editor"},
+    )
+    _ensure_workflow_header(data)
+    return data
+
+
+def _export_framework_payload(target: str, workflow: dict[str, Any] | None = None) -> dict[str, Any]:
+    try:
+        return export_framework_workflow(_workflow_for_export(workflow), target)
+    except Exception as exc:
+        raise HTTPException(400, str(exc))
+
+
 def _redact_run_snapshot_secrets(value: Any, key: str = "") -> Any:
     if isinstance(value, dict):
         return {
@@ -2294,6 +2319,74 @@ def validate_current_workflow():
         [dict(edge) for edge in _session.graph._edges],
     )
     return report.to_dict()
+
+
+@app.get("/export/frameworks")
+def export_frameworks():
+    return {"targets": list_export_targets()}
+
+
+@app.post("/export/framework")
+def export_framework(req: FrameworkExportReq):
+    return _export_framework_payload(req.target, req.workflow)
+
+
+@app.post("/export/langgraph")
+def export_langgraph(req: ExportWorkflowReq | None = None):
+    return _export_framework_payload("langgraph", req.workflow if req else None)
+
+
+@app.get("/api/workflows/current")
+def api_current_workflow():
+    workflow = _workflow_for_export()
+    return {"workflow": workflow, "validation": validate_current_workflow()}
+
+
+@app.post("/api/workflows/current/nodes")
+def api_create_node(req: AddNodeReq):
+    return add_node(req)
+
+
+@app.post("/api/workflows/current/edges")
+def api_connect_node(req: ConnectReq):
+    return connect(req)
+
+
+@app.get("/api/workflows/current/validate")
+def api_validate_current_workflow():
+    return validate_current_workflow()
+
+
+@app.post("/api/workflows/current/run")
+def api_run_current_workflow(req: CookReq):
+    return cook(req)
+
+
+@app.post("/api/workflows/current/export")
+def api_export_current_workflow(req: FrameworkExportReq):
+    return _export_framework_payload(req.target, req.workflow)
+
+
+@app.websocket("/api/workflows/current/ws")
+@app.websocket("/ws/workflows/current")
+async def workflow_socket(websocket: WebSocket):
+    await websocket.accept()
+    await websocket.send_json({"type": "state", **api_current_workflow()})
+    try:
+        while True:
+            message = await websocket.receive_json()
+            action = str(message.get("action") or "get_state")
+            if action == "get_state":
+                await websocket.send_json({"type": "state", **api_current_workflow()})
+            elif action == "validate":
+                await websocket.send_json({"type": "validation", "validation": validate_current_workflow()})
+            elif action == "export":
+                target = str(message.get("target") or "langgraph")
+                await websocket.send_json({"type": "export", **_export_framework_payload(target, message.get("workflow"))})
+            else:
+                await websocket.send_json({"type": "error", "error": f"Unknown action '{action}'"})
+    except WebSocketDisconnect:
+        return
 
 
 @app.get("/workflows/{slug}/validate")

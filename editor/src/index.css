@@ -137,6 +137,31 @@ body {
   transform: translateY(1px);
 }
 
+.bn-top-select {
+  background: var(--panel);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  color: var(--tx2);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 122px;
+  padding: 5px 10px;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.bn-top-select:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: var(--accent);
+  color: var(--tx1);
+}
+
+.bn-top-select:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
 .bn-top-run-button {
   background: var(--ok);
   border-color: var(--ok);
