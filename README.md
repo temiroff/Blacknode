@@ -43,7 +43,7 @@ It shows the exact commands to run, buttons to press, templates to open, results
 to expect, NVIDIA NIM paths, MCP setup, framework export, Docker Compose,
 custom nodes, run history, and troubleshooting.
 
-## Pitch
+## Why Blacknode
 
 Chat agents are good at intent and iteration. They are weak at showing durable
 workflow state. Blacknode gives agents a typed workflow editor: they can create
