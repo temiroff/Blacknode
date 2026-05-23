@@ -45,11 +45,14 @@ export interface NodeCookState {
 
 export interface BnNodeDef {
   type: string
+  category?: string
   inputs: string[]
   outputs: string[]
   input_types: Record<string, string>
   output_types: Record<string, string>
   input_defaults: Record<string, unknown>
+  doc?: string
+  source?: string
 }
 
 export interface BnEdge {

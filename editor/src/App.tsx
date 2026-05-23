@@ -1245,6 +1245,7 @@ export default function App() {
         <NodeSearch
           screenPos={search.screenPos}
           nodeTypes={nodeTypes}
+          nodeDefs={nodeDefs}
           allowedTypes={search.connect && Object.keys(nodeDefs).length > 0 ? getCompatibleNodeTypes(search.connect, nodeDefs) : undefined}
           title={search.connect ? `${search.connect.portType} port` : undefined}
           emptyMessage={search.connect ? 'No nodes can connect to this port' : undefined}

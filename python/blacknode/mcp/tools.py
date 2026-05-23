@@ -32,11 +32,16 @@ _TEMPLATES_DIR = _REPO_ROOT / "templates"
 _CATEGORY_BY_MODULE = {
     "blacknode.nodes.values": "Values",
     "blacknode.nodes.ai": "AI",
+    "blacknode.nodes.api": "API",
     "blacknode.nodes.core": "Core",
+    "blacknode.nodes.database": "Database",
     "blacknode.nodes.flow": "Flow",
     "blacknode.nodes.io": "IO",
     "blacknode.nodes.math": "Math",
     "blacknode.nodes.nvidia": "NVIDIA",
+    "blacknode.nodes.rag": "RAG",
+    "blacknode.nodes.routing": "Routing",
+    "blacknode.nodes.search": "Search",
     "blacknode.nodes.subnet": "Subnet",
 }
 
@@ -623,11 +628,12 @@ def _node_schema(name: str, fn: Any) -> dict[str, Any]:
     summary = doc.split("\n", 1)[0] if doc else ""
     return {
         "type": name,
-        "category": _CATEGORY_BY_MODULE.get(getattr(fn, "__module__", ""), "Other"),
+        "category": getattr(fn, "_bn_category", None) or _CATEGORY_BY_MODULE.get(getattr(fn, "__module__", ""), "Other"),
         "inputs": [{"name": p, "type": input_types.get(p, "Any")} for p in inputs],
         "outputs": [{"name": p, "type": output_types.get(p, "Any")} for p in outputs],
         "input_defaults": dict(getattr(fn, "_bn_input_defaults", {})),
-        "doc": summary,
+        "doc": getattr(fn, "_bn_description", None) or summary,
+        "source": getattr(fn, "_bn_source_path", ""),
     }
 
 

@@ -176,6 +176,12 @@ export const api = {
   },
   reset:      ()                             => req('POST', '/reset'),
   execNode:   (code: string)                 => req<{ ok: boolean; new_types: string[] }>('POST', '/exec-node', { code }),
+  saveCustomNode: (filename: string, code: string) =>
+    req<{ ok: boolean; path: string; new_types: string[] }>('POST', '/custom-nodes', { filename, code }),
+  reloadCustomNodes: () =>
+    req<{ ok: boolean; loaded: Array<Record<string, unknown>>; failed: Array<Record<string, unknown>> }>('POST', '/custom-nodes/reload'),
+  listCustomNodes: () =>
+    req<{ directory: string; files: string[]; registered: BnNodeDef[] }>('GET', '/custom-nodes'),
   getApiKeys:       () => req<Record<string, string>>('GET', '/settings/api-keys'),
   setApiKey:        (provider: string, key: string) => req('POST', '/settings/api-key', { provider, key }),
   getCustomModels:  () => req<string[]>('GET', '/settings/custom-models'),

@@ -2,9 +2,10 @@
 name: blacknode-workflow
 description: >
   Use this skill when the task asks an agent to create, edit, validate, run,
-  export, debug, visualize, or open Blacknode workflows. Trigger phrases include
-  Blacknode, visual workflow, node graph, MCP workflow builder, run replay,
-  NVIDIA NIM workflow, workflow JSON, open in editor, and export to Python.
+  export, debug, visualize, extend, or open Blacknode workflows. Trigger phrases
+  include Blacknode, visual workflow, node graph, MCP workflow builder, run
+  replay, NVIDIA NIM workflow, workflow JSON, custom node, open in editor, and
+  framework export.
 ---
 
 # Blacknode Workflow
@@ -20,11 +21,12 @@ Use this skill for:
 - Loading, validating, or repairing `blacknode.workflow` JSON.
 - Opening a workflow in the running visual editor.
 - Running a workflow or template and inspecting the structured event log.
-- Exporting a workflow to readable Python.
+- Exporting a workflow to Python, LangGraph, CrewAI, AutoGen, or Swarm.
+- Creating persistent custom nodes and community node packs.
 - Creating NVIDIA NIM, local NIM, RAG, tool-agent, or research-pipeline demos.
 
 Use the ordinary answer path for prose-only questions. Use this skill when the
-workflow artifact, editor state, run trace, or exported Python matters.
+workflow artifact, editor state, run trace, custom node, or framework export matters.
 
 ## Available Surfaces
 
@@ -59,6 +61,7 @@ blacknode doctor
 blacknode validate templates\text-pipeline.json
 blacknode run templates\text-pipeline.json
 blacknode export-python templates\text-pipeline.json --output workflow.py
+blacknode export-framework templates\text-pipeline.json --target langgraph --output workflow.langgraph.py
 ```
 
 ## MCP Flow

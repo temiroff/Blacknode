@@ -1,5 +1,5 @@
 from .graph import Graph, NodeProxy
-from .node import node, _NODE_REGISTRY
+from .node import Any, Bool, Dict, Embedding, Float, Fn, Int, List, Model, Number, Text, _NODE_REGISTRY, node
 from .workflow import validate_graph, validate_workflow
 
 # Auto-register built-in node libraries
@@ -7,10 +7,39 @@ import blacknode.nodes.values  # noqa: F401
 import blacknode.nodes.core    # noqa: F401
 import blacknode.nodes.ai      # noqa: F401
 import blacknode.nodes.nvidia  # noqa: F401
+import blacknode.nodes.api     # noqa: F401
+import blacknode.nodes.database  # noqa: F401
 import blacknode.nodes.flow    # noqa: F401
 import blacknode.nodes.io      # noqa: F401
 import blacknode.nodes.math    # noqa: F401
+import blacknode.nodes.rag     # noqa: F401
+import blacknode.nodes.routing  # noqa: F401
+import blacknode.nodes.search  # noqa: F401
 import blacknode.nodes.subnet  # noqa: F401
 
+from .discovery import discover_node_modules  # noqa: E402
+
+_DISCOVERY_REPORT = discover_node_modules()
+
 __version__ = "0.1.0"
-__all__ = ["Graph", "NodeProxy", "node", "_NODE_REGISTRY", "validate_graph", "validate_workflow"]
+__all__ = [
+    "Any",
+    "Bool",
+    "Dict",
+    "Embedding",
+    "Float",
+    "Fn",
+    "Graph",
+    "Int",
+    "List",
+    "Model",
+    "NodeProxy",
+    "Number",
+    "Text",
+    "_DISCOVERY_REPORT",
+    "_NODE_REGISTRY",
+    "discover_node_modules",
+    "node",
+    "validate_graph",
+    "validate_workflow",
+]

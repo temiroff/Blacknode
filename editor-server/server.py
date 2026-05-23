@@ -2,6 +2,7 @@
 from __future__ import annotations
 import uuid, os, sys, json, threading, re
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +11,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import blacknode as bn
+from blacknode.discovery import discover_node_modules, load_node_file
 from blacknode.exporters import export_workflow as export_framework_workflow
 from blacknode.exporters import list_export_targets
 from blacknode.node import _NODE_REGISTRY
@@ -27,6 +29,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 _SAVE_PATH      = os.path.join(os.path.dirname(__file__), "blacknode_graph.json")
 _WORKFLOWS_DIR  = os.path.join(os.path.dirname(__file__), "..", "workflows")
 _TEMPLATES_DIR  = os.path.join(os.path.dirname(__file__), "..", "templates")
+_CUSTOM_NODES_DIR = os.path.join(os.path.dirname(__file__), "..", "custom-nodes")
 _RUNS_DIR       = os.path.join(os.path.dirname(__file__), "runs")
 _run_store      = RunStore(_RUNS_DIR)
 _save_timer: threading.Timer | None = None
@@ -139,6 +142,10 @@ class SetGraphReq(BaseModel):
     edges: list[dict[str, Any]] = []
 
 class ExecNodeReq(BaseModel):
+    code: str
+
+class SaveCustomNodeReq(BaseModel):
+    filename: str = "custom_node.py"
     code: str
 
 class SetApiKeyReq(BaseModel):
@@ -612,17 +619,45 @@ def list_node_types():
     return sorted(_NODE_REGISTRY.keys())
 
 
+def _category_for_node(fn: Any) -> str:
+    module = getattr(fn, "__module__", "")
+    module_categories = {
+        "blacknode.nodes.values": "Values",
+        "blacknode.nodes.ai": "AI",
+        "blacknode.nodes.api": "API",
+        "blacknode.nodes.core": "Core",
+        "blacknode.nodes.database": "Database",
+        "blacknode.nodes.flow": "Flow",
+        "blacknode.nodes.io": "IO",
+        "blacknode.nodes.math": "Math",
+        "blacknode.nodes.nvidia": "NVIDIA",
+        "blacknode.nodes.rag": "RAG",
+        "blacknode.nodes.routing": "Routing",
+        "blacknode.nodes.search": "Search",
+        "blacknode.nodes.subnet": "Subnet",
+    }
+    return getattr(fn, "_bn_category", None) or module_categories.get(module, "Custom")
+
+
+def _node_def_payload(name: str, fn: Any) -> dict[str, Any]:
+    doc = (getattr(fn, "_bn_description", None) or fn.__doc__ or "").strip()
+    return {
+        "type": name,
+        "category": _category_for_node(fn),
+        "inputs": getattr(fn, "_bn_inputs", []),
+        "outputs": getattr(fn, "_bn_outputs", ["output"]),
+        "input_types": getattr(fn, "_bn_input_types", {}),
+        "output_types": getattr(fn, "_bn_output_types", {}),
+        "input_defaults": getattr(fn, "_bn_input_defaults", {}),
+        "doc": doc.split("\n", 1)[0] if doc else "",
+        "source": getattr(fn, "_bn_source_path", ""),
+    }
+
+
 @app.get("/node-defs")
 def list_node_defs():
     return {
-        name: {
-            "type": name,
-            "inputs": getattr(fn, "_bn_inputs", []),
-            "outputs": getattr(fn, "_bn_outputs", ["output"]),
-            "input_types": getattr(fn, "_bn_input_types", {}),
-            "output_types": getattr(fn, "_bn_output_types", {}),
-            "input_defaults": getattr(fn, "_bn_input_defaults", {}),
-        }
+        name: _node_def_payload(name, fn)
         for name, fn in sorted(_NODE_REGISTRY.items())
     }
 
@@ -1985,17 +2020,91 @@ def remove_custom_model(value: str):
     return {"ok": True}
 
 
+def _custom_node_globals() -> dict[str, Any]:
+    return {
+        "Any": bn.Any,
+        "Bool": bn.Bool,
+        "Dict": bn.Dict,
+        "Embedding": bn.Embedding,
+        "Float": bn.Float,
+        "Fn": bn.Fn,
+        "Int": bn.Int,
+        "List": bn.List,
+        "Model": bn.Model,
+        "Number": bn.Number,
+        "Text": bn.Text,
+        "blacknode": bn,
+        "bn": bn,
+        "node": bn.node,
+        "__builtins__": __builtins__,
+    }
+
+
 @app.post("/exec-node")
 def exec_node(req: ExecNodeReq):
     import traceback
     before = set(_NODE_REGISTRY.keys())
-    globs: dict = {"node": bn.node, "__builtins__": __builtins__}
+    globs: dict = _custom_node_globals()
     try:
         exec(compile(req.code, "<custom>", "exec"), globs)
         new_types = sorted(set(_NODE_REGISTRY.keys()) - before)
         return {"ok": True, "new_types": new_types}
     except Exception:
         raise HTTPException(400, traceback.format_exc())
+
+
+@app.get("/custom-nodes")
+def list_custom_nodes():
+    custom_dir = Path(_CUSTOM_NODES_DIR).resolve()
+    files = []
+    if custom_dir.exists():
+        files = [str(path.relative_to(custom_dir)) for path in sorted(custom_dir.rglob("*.py")) if not path.name.startswith("_")]
+    registered = [
+        _node_def_payload(name, fn)
+        for name, fn in sorted(_NODE_REGISTRY.items())
+        if getattr(fn, "_bn_source_path", "")
+    ]
+    return {"directory": str(custom_dir), "files": files, "registered": registered}
+
+
+@app.post("/custom-nodes/reload")
+def reload_custom_nodes():
+    report = discover_node_modules()
+    if report.get("failed"):
+        return {"ok": False, **report}
+    return {"ok": True, **report}
+
+
+@app.post("/custom-nodes")
+def save_custom_node(req: SaveCustomNodeReq):
+    import traceback
+
+    try:
+        compile(req.code, "<custom-node>", "exec")
+    except Exception:
+        raise HTTPException(400, traceback.format_exc())
+
+    filename = _safe_custom_node_filename(req.filename)
+    custom_dir = Path(_CUSTOM_NODES_DIR).resolve()
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    path = (custom_dir / filename).resolve()
+    if custom_dir not in path.parents and path != custom_dir:
+        raise HTTPException(400, "Invalid custom node path")
+
+    path.write_text(req.code, encoding="utf-8")
+    result = load_node_file(path)
+    if not result["ok"]:
+        raise HTTPException(400, result.get("error", "Could not load custom node"))
+    return {"ok": True, "path": str(path), "new_types": result["new_types"]}
+
+
+def _safe_custom_node_filename(filename: str) -> str:
+    raw = Path(filename or "custom_node").name.strip()
+    if raw.lower().endswith(".py"):
+        raw = raw[:-3]
+    stem = re.sub(r"[^a-zA-Z0-9_-]+", "_", raw)
+    stem = stem.strip("._-") or "custom_node"
+    return f"{stem}.py"
 
 
 @app.post("/reset")

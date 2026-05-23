@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { CATEGORIES } from '../categories'
 import { PYTHON_TOOL_TYPES } from '../pythonToolPresets'
+import type { BnNodeDef } from '../types'
 
 interface Props {
   screenPos: { x: number; y: number }
   nodeTypes?: string[]
+  nodeDefs?: Record<string, BnNodeDef>
   allowedTypes?: string[]
   title?: string
   emptyMessage?: string
@@ -24,19 +26,29 @@ const KNOWN_NODES = Object.entries(CATEGORIES).flatMap(([cat, { color, nodes }])
 )
 const KNOWN_BY_TYPE = new Map(KNOWN_NODES.map(n => [n.type, n]))
 
-function buildNodeItems(nodeTypes?: string[], allowedTypes?: string[]): SearchNode[] {
+function buildNodeItems(
+  nodeTypes?: string[],
+  allowedTypes?: string[],
+  nodeDefs?: Record<string, BnNodeDef>,
+): SearchNode[] {
   const allowed = allowedTypes ? new Set(allowedTypes) : null
   const source = nodeTypes && nodeTypes.length > 0
     ? [...nodeTypes, ...PYTHON_TOOL_TYPES.filter(type => !nodeTypes.includes(type))]
     : KNOWN_NODES.map(n => n.type)
   return source
     .filter(type => !allowed || allowed.has(type))
-    .map(type => KNOWN_BY_TYPE.get(type) ?? { type, category: 'Custom', color: 'var(--tx3)' })
+    .map(type => {
+      const known = KNOWN_BY_TYPE.get(type)
+      if (known) return known
+      const category = nodeDefs?.[type]?.category || 'Custom'
+      return { type, category, color: CATEGORIES[category]?.color || 'var(--tx3)' }
+    })
 }
 
 export default function NodeSearch({
   screenPos,
   nodeTypes,
+  nodeDefs,
   allowedTypes,
   title,
   emptyMessage,
@@ -48,7 +60,7 @@ export default function NodeSearch({
   const [cursor, setCursor] = useState(0)
   const inputRef            = useRef<HTMLInputElement>(null)
   const listRef             = useRef<HTMLDivElement>(null)
-  const nodes               = buildNodeItems(nodeTypes, allowedTypes)
+  const nodes               = buildNodeItems(nodeTypes, allowedTypes, nodeDefs)
 
   const filtered = query.trim()
     ? nodes.filter(n =>

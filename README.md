@@ -52,6 +52,8 @@ custom nodes, run history, and troubleshooting.
   benchmark workflows, AI-Q integration, and streamable HTTP MCP.
 - **Typed ports and validation** for Text, Int, Float, Bool, List, Dict,
   Embedding, Fn, Model, Number, and Any.
+- **Persistent custom nodes** from the editor Script tab with auto-discovery
+  from `custom-nodes/` and community node packs from `community-nodes/`.
 - **Run history and replay** with event logs, model calls, tool calls, node
   timings, results, and errors.
 - **Framework export** so a visual graph can become Python, LangGraph, CrewAI,
@@ -103,6 +105,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | [Workflow Schema](docs/workflow-schema.md) | The saved workflow JSON format. |
 | [Workflow JSON Schema](docs/workflow.schema.json) | Machine-readable schema for validation and tooling. |
 | [Framework Export](docs/framework-export.md) | Exporting workflows to Python, LangGraph, CrewAI, AutoGen, Swarm, REST, and WebSocket control. |
+| [Custom Nodes](docs/custom-nodes.md) | Persistent editor-created nodes, auto-discovery, community node packs, and node library extension. |
 | [Agent Guide](docs/agent-guide.md) | How agents should create and modify Blacknode workflows. |
 | [Blacknode Skill](.agents/skills/blacknode-workflow/SKILL.md) | Agent skill instructions for workflow creation, validation, running, and export. |
 

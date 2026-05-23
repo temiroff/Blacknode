@@ -71,7 +71,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 ]
 
 export default function NodePalette() {
-  const { nodeTypes, addNode, loadNodeTypes } = useStore()
+  const { nodeTypes, nodeDefs, addNode, loadNodeTypes } = useStore()
   const [activeTab, setActiveTab] = useState<Tab | null>('nodes')
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
@@ -117,6 +117,17 @@ export default function NodePalette() {
   })).filter(g => g.types.length > 0)
 
   const ungrouped = nodeTypes.filter(t => !ALL_CATEGORISED.includes(t))
+  for (const type of ungrouped) {
+    const category = nodeDefs[type]?.category || 'Custom'
+    const known = CATEGORIES[category]
+    const color = known?.color || 'var(--tx3)'
+    let group = groups.find(item => item.group === category)
+    if (!group) {
+      group = { group: category, color, types: [] }
+      groups.push(group)
+    }
+    if (!group.types.includes(type)) group.types.push(type)
+  }
 
   const toggleGroup = (group: string) => {
     setOpenGroups(prev => {
@@ -396,32 +407,6 @@ export default function NodePalette() {
                       ))}
                   </div>
                 ))}
-
-                {ungrouped.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    {renderGroupHeader('Custom', 'var(--tx3)', ungrouped.length)}
-                    {openGroups.has('Custom') && ungrouped.map(type => (
-                      <div
-                        key={type}
-                        draggable
-                        onDragStart={e => handleDragStart(e, type)}
-                        style={{
-                          padding: '5px 14px 5px 26px',
-                          color: 'var(--tx2)',
-                          fontSize: 13,
-                          cursor: 'grab',
-                          borderRadius: 6,
-                          margin: '1px 6px',
-                          userSelect: 'none',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--tx1)' }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--tx2)' }}
-                      >
-                        {type}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             )}
 

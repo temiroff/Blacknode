@@ -488,13 +488,15 @@ def FirstNWords(ctx: dict) -> dict:
     return {"result": " ".join(words[:n])}
 ```
 
-3. Click **Run** or press **Ctrl+Enter**.
-4. Open the node palette and find the new node in **Custom**.
-5. Add it to the canvas and cook it like any other node.
+3. Click **Run** or press **Ctrl+Enter** to register it immediately.
+4. Set a file name and click **Save** to keep it in `custom-nodes/`.
+5. Open the node palette and find the new node in its category.
+6. Add it to the canvas and cook it like any other node.
 
 Expected result:
 
 - The custom node appears without restarting the server.
+- Saved custom nodes auto-load on the next Blacknode start.
 - Its typed inputs and outputs can connect to compatible handles.
 
 ## 18. Try Tool and Agent Templates
