@@ -109,14 +109,17 @@ class ConnectNodesTests(unittest.TestCase):
 
     def test_missing_source_node(self):
         wf = self._wf_with_two_texts_and_concat()
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as ctx:
             t.connect_nodes(wf, "ghost", "value", "c", "a")
+        self.assertIn("Suggestion:", str(ctx.exception))
+        self.assertIn("available_nodes", str(ctx.exception))
 
     def test_missing_source_port(self):
         wf = self._wf_with_two_texts_and_concat()
         with self.assertRaises(ValueError) as ctx:
             t.connect_nodes(wf, "a", "nope", "c", "a")
         self.assertIn("output port", str(ctx.exception))
+        self.assertIn("Suggestion:", str(ctx.exception))
 
     def test_incompatible_types_rejected(self):
         wf = t.create_workflow()
@@ -125,6 +128,20 @@ class ConnectNodesTests(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             t.connect_nodes(wf, "b1", "value", "c", "a")
         self.assertIn("Incompatible", str(ctx.exception))
+        self.assertIn("Suggestion:", str(ctx.exception))
+
+    def test_cycle_rejected_with_suggestion(self):
+        wf = t.create_workflow()
+        wf = t.add_node(wf, "Concat", node_id="a")["workflow"]
+        wf = t.add_node(wf, "Concat", node_id="b")["workflow"]
+        wf = t.connect_nodes(wf, "a", "value", "b", "a")["workflow"]
+
+        with self.assertRaises(ValueError) as ctx:
+            t.connect_nodes(wf, "b", "value", "a", "a")
+
+        message = str(ctx.exception)
+        self.assertIn("cycle_detected", message)
+        self.assertIn("Remove the back-edge", message)
 
 
 class ValidateAndExportTests(unittest.TestCase):
@@ -143,6 +160,15 @@ class ValidateAndExportTests(unittest.TestCase):
         report = t.validate_workflow_tool(wf)
         self.assertTrue(report["ok"], report)
         self.assertEqual(report["errors"], [])
+
+    def test_validation_errors_include_suggestions(self):
+        wf = self._hello_workflow()
+        wf["edges"][0]["from_port"] = "missing"
+
+        report = t.validate_workflow_tool(wf)
+
+        self.assertFalse(report["ok"])
+        self.assertIn("suggestion", report["errors"][0])
 
     def test_export_python_includes_blacknode_import(self):
         wf = self._hello_workflow()

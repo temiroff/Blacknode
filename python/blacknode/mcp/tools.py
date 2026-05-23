@@ -46,6 +46,23 @@ _CATEGORY_BY_MODULE = {
 }
 
 
+class BlacknodeMCPError(ValueError):
+    """MCP-facing error with an actionable suggestion in the message."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        suggestion: str,
+        *,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
+        self.code = code
+        self.suggestion = suggestion
+        self.details = dict(details or {})
+        super().__init__(_format_mcp_error(code, message, suggestion, self.details))
+
+
 # ── Public tool functions ─────────────────────────────────────────────────────
 
 def list_nodes() -> dict[str, Any]:
@@ -201,29 +218,53 @@ def connect_nodes(
     source = node_meta.get(from_node)
     target = node_meta.get(to_node)
     if source is None:
-        raise ValueError(f"Source node '{from_node}' does not exist")
+        raise BlacknodeMCPError(
+            "missing_source_node",
+            f"Source node '{from_node}' does not exist.",
+            _node_lookup_suggestion(node_meta, from_node),
+            details={"from_node": from_node, "available_nodes": _node_refs(node_meta)},
+        )
     if target is None:
-        raise ValueError(f"Target node '{to_node}' does not exist")
+        raise BlacknodeMCPError(
+            "missing_target_node",
+            f"Target node '{to_node}' does not exist.",
+            _node_lookup_suggestion(node_meta, to_node),
+            details={"to_node": to_node, "available_nodes": _node_refs(node_meta)},
+        )
 
     source_outputs = list(source.get("outputs", []))
     target_inputs = list(target.get("inputs", []))
     if from_port not in source_outputs:
-        raise ValueError(
+        raise BlacknodeMCPError(
+            "invalid_source_port",
             f"Node '{from_node}' ({source.get('type')}) has no output port "
-            f"'{from_port}'. Available outputs: {source_outputs}"
+            f"'{from_port}'. Available outputs: {source_outputs}.",
+            _port_lookup_suggestion(source, from_port, direction="output"),
+            details={"node": from_node, "requested_port": from_port, "available_outputs": source_outputs},
         )
     if to_port not in target_inputs:
-        raise ValueError(
+        raise BlacknodeMCPError(
+            "invalid_target_port",
             f"Node '{to_node}' ({target.get('type')}) has no input port "
-            f"'{to_port}'. Available inputs: {target_inputs}"
+            f"'{to_port}'. Available inputs: {target_inputs}.",
+            _port_lookup_suggestion(target, to_port, direction="input"),
+            details={"node": to_node, "requested_port": to_port, "available_inputs": target_inputs},
         )
 
     from_type = str((source.get("output_types") or {}).get(from_port, "Any"))
     to_type = str((target.get("input_types") or {}).get(to_port, "Any"))
     if not ports_compatible(from_type, to_type):
-        raise ValueError(
+        raise BlacknodeMCPError(
+            "incompatible_port_types",
             f"Incompatible port types: '{from_node}.{from_port}' is {from_type}, "
-            f"'{to_node}.{to_port}' is {to_type}"
+            f"'{to_node}.{to_port}' is {to_type}.",
+            _type_compatibility_suggestion(source, target, from_type, to_type),
+            details={
+                "from": f"{from_node}.{from_port}",
+                "from_type": from_type,
+                "to": f"{to_node}.{to_port}",
+                "to_type": to_type,
+            },
         )
 
     new_workflow.setdefault("edges", []).append({
@@ -232,12 +273,21 @@ def connect_nodes(
         "to": to_node,
         "to_port": to_port,
     })
-    return {"workflow": new_workflow, "validation": _validate_summary(new_workflow)}
+    report = _validate_summary(new_workflow)
+    if not report.get("ok"):
+        issue = (report.get("errors") or [{}])[0]
+        raise BlacknodeMCPError(
+            str(issue.get("code") or "invalid_connection"),
+            f"Connection would make the workflow invalid: {issue.get('message') or report}",
+            str(issue.get("suggestion") or "Inspect validate_workflow output, remove the bad edge, and reconnect using compatible ports."),
+            details={"validation": report},
+        )
+    return {"workflow": new_workflow, "validation": report}
 
 
 def validate_workflow_tool(workflow: Mapping[str, Any]) -> dict[str, Any]:
     """Run full schema + port-type validation against the workflow schema."""
-    return validate_workflow(workflow).to_dict()
+    return _validation_with_suggestions(workflow)
 
 
 def run_workflow_tool(workflow: Mapping[str, Any]) -> dict[str, Any]:
@@ -662,6 +712,127 @@ def _copy_workflow(workflow: Mapping[str, Any]) -> dict[str, Any]:
     return json.loads(json.dumps(dict(workflow)))
 
 
+def _format_mcp_error(
+    code: str,
+    message: str,
+    suggestion: str,
+    details: Mapping[str, Any],
+) -> str:
+    detail_text = f" Details: {json.dumps(details, default=str)}" if details else ""
+    return f"[{code}] {message} Suggestion: {suggestion}{detail_text}"
+
+
+def _node_refs(node_meta: Mapping[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for node_id, meta in node_meta.items():
+        node_type = meta.get("type") if isinstance(meta, Mapping) else "Unknown"
+        refs.append(f"{node_id}({node_type})")
+    return refs
+
+
+def _node_lookup_suggestion(node_meta: Mapping[str, Any], requested: str) -> str:
+    closest = _closest_string(requested, [str(node_id) for node_id in node_meta])
+    if closest:
+        return f"Use existing node id '{closest}', or call add_node first and pass the returned node_id."
+    return "Call add_node first and pass the returned node_id into connect_nodes."
+
+
+def _port_lookup_suggestion(meta: Mapping[str, Any], requested: str, *, direction: str) -> str:
+    key = "outputs" if direction == "output" else "inputs"
+    ports = [str(port) for port in meta.get(key, [])]
+    closest = _closest_string(requested, ports)
+    if closest:
+        return f"Use port '{closest}', or call get_node_schema('{meta.get('type')}') before connecting."
+    if ports:
+        return f"Use one of {ports}, or call get_node_schema('{meta.get('type')}') before connecting."
+    return f"This node has no {direction} ports. Choose a different node or add an adapter node."
+
+
+def _type_compatibility_suggestion(
+    source: Mapping[str, Any],
+    target: Mapping[str, Any],
+    from_type: str,
+    to_type: str,
+) -> str:
+    compatible_inputs = [
+        port
+        for port, port_type in (target.get("input_types") or {}).items()
+        if ports_compatible(from_type, str(port_type))
+    ]
+    if compatible_inputs:
+        return f"Connect to one of the compatible inputs on {target.get('type')}: {compatible_inputs}."
+
+    source_type = source.get("type")
+    target_type = target.get("type")
+    if from_type != "Text" and to_type == "Text":
+        return "Convert the value to Text first, for example with JSONDump for Dict/List data or a custom PythonFn adapter."
+    if from_type == "Text" and to_type in {"Dict", "List"}:
+        return "Parse the Text first with JSONParse or add a PythonFn adapter that returns the required structured type."
+    if to_type == "Bool":
+        return "Use a Bool-producing node or add a PythonFn predicate before Branch/Gate-style control nodes."
+    return (
+        f"Do not connect {source_type} {from_type} output directly to {target_type} {to_type} input. "
+        "Call list_nodes/get_node_schema and insert a converter, router, or node with an Any-compatible input."
+    )
+
+
+def _validation_with_suggestions(workflow: Mapping[str, Any]) -> dict[str, Any]:
+    report = validate_workflow(workflow).to_dict()
+    node_meta = workflow.get("node_meta") if isinstance(workflow, Mapping) else {}
+    nodes = node_meta if isinstance(node_meta, Mapping) else {}
+    for issue in report.get("errors", []):
+        if isinstance(issue, dict):
+            issue.setdefault("suggestion", _suggestion_for_issue(issue, nodes))
+    for issue in report.get("warnings", []):
+        if isinstance(issue, dict):
+            issue.setdefault("suggestion", _suggestion_for_issue(issue, nodes))
+    return report
+
+
+def _suggestion_for_issue(issue: Mapping[str, Any], nodes: Mapping[str, Any]) -> str:
+    code = str(issue.get("code") or "")
+    path = str(issue.get("path") or "")
+    if code in {"missing_source_node", "missing_target_node", "missing_entrypoint_node"}:
+        return f"Use an existing node id. Available nodes: {_node_refs(nodes)}."
+    if code in {"invalid_source_port", "invalid_target_port", "invalid_entrypoint_port"}:
+        node_id = _node_id_from_issue_path(path)
+        if node_id and node_id in nodes and isinstance(nodes[node_id], Mapping):
+            meta = nodes[node_id]
+            return f"Call get_node_schema('{meta.get('type')}') and use one of inputs={meta.get('inputs', [])}, outputs={meta.get('outputs', [])}."
+        return "Call get_node_schema for the node type and use a real input/output port."
+    if code == "incompatible_port_types":
+        return "Insert a converter node or reconnect to a port whose type is compatible. Text can flow to Text/Any; structured data usually needs JSONParse/JSONDump or PythonFn."
+    if code == "cycle_detected":
+        return "Remove the back-edge. Blacknode workflows are DAGs: data should flow toward Output/SubnetOutput nodes only."
+    if code in {"missing_output_node", "missing_subgraph_output_node"}:
+        return "Add an Output/SubnetOutput node or set an explicit entrypoint."
+    if code == "runtime_status_in_workflow":
+        return "Remove cookResult, cookError, cooking, and cookPort before saving or sending workflow JSON."
+    return "Fix the field named by path, then call validate_workflow again before running or exporting."
+
+
+def _node_id_from_issue_path(path: str) -> str | None:
+    marker = ".node_meta."
+    if marker not in path:
+        return None
+    tail = path.split(marker, 1)[1]
+    return tail.split(".", 1)[0]
+
+
+def _closest_string(value: str, candidates: list[str]) -> str | None:
+    if not candidates:
+        return None
+    value_lower = value.lower()
+    for candidate in candidates:
+        if candidate.lower() == value_lower:
+            return candidate
+    for candidate in candidates:
+        candidate_lower = candidate.lower()
+        if value_lower in candidate_lower or candidate_lower in value_lower:
+            return candidate
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def _unique_id(node_meta: Mapping[str, Any], type_name: str) -> str:
     base = type_name.lower()
     candidate = base
@@ -680,4 +851,4 @@ def _next_pos(node_meta: Mapping[str, Any]) -> tuple[float, float]:
 
 
 def _validate_summary(workflow: Mapping[str, Any]) -> dict[str, Any]:
-    return validate_workflow(workflow).to_dict()
+    return _validation_with_suggestions(workflow)

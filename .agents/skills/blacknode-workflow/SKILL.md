@@ -80,6 +80,69 @@ blacknode export-framework templates\text-pipeline.json --target langgraph --out
 Every mutation should be followed by validation. If validation reports a port
 or type error, inspect `get_node_schema` and fix the graph instead of guessing.
 
+## Agent Build Prompt
+
+When an agent builds a workflow, use this operating prompt:
+
+```text
+You are building a typed Blacknode workflow. Keep planning reasoning internal,
+then return a concise graph plan with node ids, node types, key params, edges,
+entrypoint, and expected result.
+
+Build loop:
+1. Understand the user goal and choose the smallest runnable graph.
+2. Inspect list_nodes or get_node_schema before using unfamiliar nodes.
+3. Create or load a workflow.
+4. Add nodes with stable, descriptive ids.
+5. Connect only declared output ports to declared input ports.
+6. Validate after each meaningful mutation.
+7. If validation fails, read the code, path, message, and suggestion, then fix
+   the graph instead of retrying the same edge.
+8. Run the final Output or explicit entrypoint.
+9. Open the workflow in the editor when the user needs visual proof.
+10. Export Python or a framework target only after validation is clean.
+```
+
+## Node Catalog Quick Map
+
+Use `list_nodes` for the live catalog. Current core groups:
+
+| Category | Use for | Common nodes |
+|---|---|---|
+| Values | Constants and model handles | `Text`, `Int`, `Float`, `Bool`, `Dict`, `Model` |
+| Core | Basic graph composition and output | `Concat`, `Output`, `Print`, `Switch`, `Literal`, `ForEach` |
+| AI | LLM calls, agent loops, tool calls | `LLMAgent`, `PythonFn`, `ToolCall`, `ToolBox`, `AgentLoop`, `EmbedText` |
+| NVIDIA | Hosted/local NIM and NVIDIA demo flows | `NIMAgent`, `NIMBenchmark`, `NIMDockerCommand`, `NIMHealthCheck`, `NVIDIASystemCheck` |
+| RAG | Chunking, simple indexing, retrieval context | `TextChunker`, `KeywordIndex`, `KeywordSearch`, `RAGContext` |
+| IO | Files, folders, HTTP, JSON, CSV | `FileRead`, `FileWrite`, `DirectoryList`, `HTTPGet`, `JSONParse`, `JSONDump`, `CSVRead`, `CSVWrite` |
+| API | HTTP request construction | `APIRequestBuilder`, `HTTPRequest` |
+| Database | SQLite operations | `SQLiteQuery`, `SQLiteExec` |
+| Flow | Data routing and collection transforms | `Branch`, `Gate`, `Map`, `Filter`, `Reduce` |
+| Search | Web/search result helpers | `WebSearchURL`, `SearchResultExtractor`, `SearchResultsFormat` |
+| Routing | Model/provider choice | `LLMModelRouter` |
+| Subnet | Visual subgraph boundaries | `SubnetInput`, `SubnetOutput`; build full `Subnet` nodes in the editor |
+
+## Graph Reliability Rules
+
+- Treat Blacknode workflows as DAGs. Do not create cycles or back-edges.
+- Always connect from `outputs` to `inputs`; never invent port names.
+- Respect types: `Any` accepts everything, exact type matches are valid, and
+  Text/Number compatibility is limited by `ports_compatible`.
+- Use adapter nodes when types do not match: `JSONParse`, `JSONDump`,
+  `PythonFn`, `Concat`, `Branch`, `Gate`, or a purpose-built custom node.
+- Keep ids stable and readable: `prompt`, `retriever`, `agent`, `report`,
+  `out` are better than generated ids when constructing demos.
+- Put the final user-visible value into an `Output` node or set an explicit
+  `entrypoint`.
+- Use `input_defaults` and params for fixed values; use edges for values that
+  should come from upstream nodes.
+- Do not save runtime-only fields such as `cookResult`, `cookError`,
+  `cooking`, or `cookPort`.
+- For NVIDIA demos, state clearly whether the workflow uses hosted NIM, a
+  generated local NIM launch command, or a custom OpenAI-compatible endpoint.
+- If MCP returns an error with `Suggestion:`, apply that suggestion before
+  trying another mutation.
+
 ## NVIDIA Workflow Pattern
 
 For an NVIDIA demo, prefer these templates first:

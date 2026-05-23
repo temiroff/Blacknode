@@ -103,6 +103,24 @@ class WorkflowValidationTests(unittest.TestCase):
 
         self.assertIn("incompatible_port_types", error_codes(report))
 
+    def test_cycle_detected(self):
+        data = workflow(
+            {
+                "a": node("a", "Text", inputs=["input"], outputs=["value"], input_types={"input": "Text"}, output_types={"value": "Text"}),
+                "b": node("b", "Concat", inputs=["a", "b"], outputs=["value"], input_types={"a": "Text", "b": "Text"}, output_types={"value": "Text"}),
+                "out": node("out", "Output", inputs=["value"], input_types={"value": "Any"}),
+            },
+            [
+                {"from": "a", "from_port": "value", "to": "b", "to_port": "a"},
+                {"from": "b", "from_port": "value", "to": "a", "to_port": "input"},
+                {"from": "b", "from_port": "value", "to": "out", "to_port": "value"},
+            ],
+        )
+
+        report = validate_workflow(data)
+
+        self.assertIn("cycle_detected", error_codes(report))
+
     def test_duplicate_node_ids(self):
         data = workflow(
             {

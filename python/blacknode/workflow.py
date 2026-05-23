@@ -602,6 +602,7 @@ def _validate_graph(
         is_root=is_root,
     )
     _validate_edges(known_nodes, edges, path, errors)
+    _validate_acyclic_edges(known_nodes, edges, path, errors)
 
     for key, meta in known_nodes.items():
         node_type = str(meta.get("type", ""))
@@ -758,6 +759,49 @@ def _validate_edges(
         to_type = str(_mapping_value(target.get("input_types")).get(to_port, "Any"))
         if not ports_compatible(from_type, to_type):
             _error(errors, "incompatible_port_types", f"Cannot connect {from_type} output to {to_type} input.", edge_path)
+
+
+def _validate_acyclic_edges(
+    nodes: Mapping[str, Mapping[str, Any]],
+    edges: list[Any],
+    path: str,
+    errors: list[ValidationIssue],
+) -> None:
+    graph: dict[str, list[str]] = {node_id: [] for node_id in nodes}
+    for edge in edges:
+        if not isinstance(edge, Mapping):
+            continue
+        from_id = edge.get("from")
+        to_id = edge.get("to")
+        if isinstance(from_id, str) and isinstance(to_id, str) and from_id in nodes and to_id in nodes:
+            graph[from_id].append(to_id)
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    stack: list[str] = []
+
+    def visit(node_id: str) -> list[str] | None:
+        if node_id in visiting:
+            start = stack.index(node_id) if node_id in stack else 0
+            return [*stack[start:], node_id]
+        if node_id in visited:
+            return None
+        visiting.add(node_id)
+        stack.append(node_id)
+        for child_id in graph.get(node_id, []):
+            cycle = visit(child_id)
+            if cycle:
+                return cycle
+        stack.pop()
+        visiting.remove(node_id)
+        visited.add(node_id)
+        return None
+
+    for node_id in graph:
+        cycle = visit(node_id)
+        if cycle:
+            _error(errors, "cycle_detected", f"Workflow edges must be acyclic; detected cycle: {' -> '.join(cycle)}.", f"{path}.edges")
+            return
 
 
 def _cookable_ports(meta: Mapping[str, Any]) -> set[str]:
