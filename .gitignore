@@ -34,6 +34,9 @@ docs/release-v0.1.0-preview.md
 
 # Blacknode artifacts
 *.bn.cache
+/workflow.py
+/workflow.*.py
+/imported.workflow.json
 docs/*.mp4
 editor-server/blacknode_graph.json
 editor-server/api_keys.json
