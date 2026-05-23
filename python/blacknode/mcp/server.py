@@ -8,6 +8,8 @@ NVIDIA AI-Q/NeMo Agent Toolkit workflows. The tools call into
 from __future__ import annotations
 
 import json
+import os
+import sys
 from typing import Any
 
 try:
@@ -328,7 +330,29 @@ def main(
             mcp.settings.sse_path = path
     if allowed_hosts and mcp.settings.transport_security is not None:
         mcp.settings.transport_security.allowed_hosts = allowed_hosts
+    _write_stdio_terminal_hint(transport)
     mcp.run(transport=transport)
+
+
+def _write_stdio_terminal_hint(transport: str) -> None:
+    if transport != "stdio":
+        return
+    if os.environ.get("BLACKNODE_MCP_QUIET"):
+        return
+    if not getattr(sys.stdin, "isatty", lambda: False)():
+        return
+    if not getattr(sys.stderr, "isatty", lambda: False)():
+        return
+
+    print(
+        "Blacknode MCP stdio server is running.\n"
+        "This terminal is waiting for an MCP client over stdin/stdout; no browser opens here.\n"
+        "Visual editor: .\\start.bat\n"
+        "HTTP MCP: blacknode mcp --transport streamable-http --host 127.0.0.1 --port 9901 --path /mcp\n"
+        "Press Ctrl+C to stop.",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
