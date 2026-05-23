@@ -4,10 +4,13 @@
 
 **The visual workflow builder where AI agents build the workflow.**
 
-Blacknode lets Claude Desktop, Codex, OpenCode, AI-Q, NeMo Agent Toolkit, and
-other MCP clients assemble, validate, run, debug, and export typed visual
-workflows. Agents get a structured tool surface instead of guessing JSON, and
-users get a live graph they can inspect.
+Blacknode lets AI agents and agent tools assemble, validate, run, debug, and
+export typed visual workflows. Agents get a structured control surface through
+MCP, HTTP, and WebSocket APIs instead of guessing JSON, and users get a live
+graph with run replay they can inspect.
+
+Workflows export to plain Python, LangGraph, CrewAI, AutoGen, and OpenAI Swarm,
+with NVIDIA NIM and AI-Q/NeMo Agent Toolkit workflow paths built in.
 
 <table>
   <tr>
@@ -36,14 +39,15 @@ users get a live graph they can inspect.
 **New users should begin with the [Beginner Walkthrough](docs/walkthrough.md).**
 
 It shows the exact commands to run, buttons to press, templates to open, results
-to expect, NVIDIA NIM paths, MCP setup, Docker Compose, custom nodes, run
-history, and troubleshooting.
+to expect, NVIDIA NIM paths, MCP setup, framework export, Docker Compose,
+custom nodes, run history, and troubleshooting.
 
 ## What Blacknode Gives You
 
 - **Visual workflow editor** for building and inspecting typed node graphs.
-- **Agent control through MCP** so an AI agent can create, connect, validate,
-  run, organize, save, and inspect workflows.
+- **Agent control through MCP, HTTP, and WebSocket APIs** so AI agents and
+  external tools can create, connect, validate, run, organize, save, inspect,
+  and export workflows.
 - **NVIDIA workflow surface** for hosted NIM, local NIM launch planning,
   benchmark workflows, AI-Q integration, and streamable HTTP MCP.
 - **Typed ports and validation** for Text, Int, Float, Bool, List, Dict,
