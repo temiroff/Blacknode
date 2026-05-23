@@ -81,7 +81,7 @@ function fileBaseName(filename: string): string {
 
 export default function App() {
   const {
-    nodes, edges, nodeTypes, nodeDefs, serverOk, cookLog, cookActive,
+    nodes, edges, nodeTypes, nodeDefs, serverOk, cookLog, cookActive, cookStatusHidden,
     tabs, activeTabId,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels,
@@ -89,7 +89,7 @@ export default function App() {
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     openGraphAsTab, openWorkflowAsTab, renameTab, saveActiveWorkflow,
-    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, applyRunReplay,
+    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, dismissCookStatus, applyRunReplay,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -1221,7 +1221,13 @@ export default function App() {
 
         <SubnetBreadcrumb />
 
-        <CookStatusPanel entries={cookLog} active={cookActive} raised={Boolean(notice)} />
+        <CookStatusPanel
+          entries={cookLog}
+          active={cookActive}
+          hidden={cookStatusHidden}
+          raised={Boolean(notice)}
+          onDismiss={dismissCookStatus}
+        />
 
         {notice && (
           <div
@@ -1463,13 +1469,17 @@ function inferGraphRunTarget(nodes: any[]): { id: string; port: string } | null 
 function CookStatusPanel({
   entries,
   active,
+  hidden,
   raised,
+  onDismiss,
 }: {
   entries: CookLogEntry[]
   active: boolean
+  hidden: boolean
   raised: boolean
+  onDismiss: () => void
 }) {
-  if (entries.length === 0) return null
+  if (hidden || entries.length === 0) return null
   const latest = entries[entries.length - 1]
   const recent = entries.slice(-8).reverse()
   const statusColor = active ? 'var(--warn)' : latest.kind === 'error' ? 'var(--err)' : 'var(--ok)'
@@ -1529,6 +1539,29 @@ function CookStatusPanel({
           }}>
             {active ? 'running' : 'idle'} · {entries.length}
           </div>
+          <button
+            type="button"
+            aria-label="Hide run status"
+            title="Hide run status"
+            onClick={onDismiss}
+            style={{
+              width: 20,
+              height: 20,
+              border: '1px solid var(--line2)',
+              borderRadius: 6,
+              background: 'transparent',
+              color: 'var(--tx3)',
+              cursor: 'pointer',
+              display: 'grid',
+              placeItems: 'center',
+              fontSize: 14,
+              lineHeight: 1,
+              padding: 0,
+              flexShrink: 0,
+            }}
+          >
+            ×
+          </button>
         </div>
 
         <div style={{ maxHeight: 168, overflowY: 'auto', padding: '4px 0' }}>

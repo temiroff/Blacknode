@@ -20,6 +20,9 @@ export interface WorkflowTab {
   slug: string | null  // null = unsaved
   dirty: boolean
   graph: GraphSnapshot | null
+  cookLog?: CookLogEntry[]
+  cookActive?: boolean
+  cookStatusHidden?: boolean
 }
 
 interface GraphSnapshot {
@@ -82,6 +85,7 @@ interface Store {
   undoHistory: UndoSnapshot[]
   cookLog: CookLogEntry[]
   cookActive: boolean
+  cookStatusHidden: boolean
   runReplay: RunReplayState
 
   loadNodeTypes: () => Promise<void>
@@ -154,6 +158,7 @@ interface Store {
   ) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
   cookNode: (id: string, port?: string) => Promise<void>
+  dismissCookStatus: () => void
   applyRunReplay: (record: RunRecord, cursor: number, playing: boolean) => void
   clearRunReplay: () => void
   selectNode: (id: string | null) => void
@@ -826,6 +831,43 @@ function blankGraph(): GraphSnapshot {
   return { nodes: [], edges: [] }
 }
 
+function cookStateFromTab(tab?: WorkflowTab): Pick<Store, 'cookLog' | 'cookActive' | 'cookStatusHidden'> {
+  return {
+    cookLog: tab?.cookLog ?? [],
+    cookActive: Boolean(tab?.cookActive),
+    cookStatusHidden: Boolean(tab?.cookStatusHidden),
+  }
+}
+
+function tabCookLog(s: Store, tabId: string): CookLogEntry[] {
+  const tab = s.tabs.find(t => t.id === tabId)
+  if (tab?.cookLog) return tab.cookLog
+  return s.activeTabId === tabId ? s.cookLog : []
+}
+
+function syncTabCookState(
+  s: Store,
+  tabId: string,
+  patch: {
+    cookLog?: CookLogEntry[]
+    cookActive?: boolean
+    cookStatusHidden?: boolean
+  },
+): Partial<Store> {
+  const active = s.activeTabId === tabId
+  const tabPatch = {
+    ...(patch.cookLog !== undefined ? { cookLog: patch.cookLog } : {}),
+    ...(patch.cookActive !== undefined ? { cookActive: patch.cookActive } : {}),
+    ...(patch.cookStatusHidden !== undefined ? { cookStatusHidden: patch.cookStatusHidden } : {}),
+  }
+  return {
+    tabs: s.tabs.map(t => t.id === tabId ? { ...t, ...tabPatch } : t),
+    ...(active && patch.cookLog !== undefined ? { cookLog: patch.cookLog } : {}),
+    ...(active && patch.cookActive !== undefined ? { cookActive: patch.cookActive } : {}),
+    ...(active && patch.cookStatusHidden !== undefined ? { cookStatusHidden: patch.cookStatusHidden } : {}),
+  }
+}
+
 function markActiveTabDirty(s: Store): Pick<Store, 'tabs'> {
   return {
     tabs: s.tabs.map(t => t.id === s.activeTabId ? { ...t, dirty: true } : t),
@@ -841,12 +883,13 @@ export const useStore = create<Store>((set, get) => ({
   serverOk: false,
   apiKeys: {},
   customModels: [],
-  tabs: [{ id: 'default', name: 'Untitled', slug: null, dirty: false, graph: null }],
+  tabs: [{ id: 'default', name: 'Untitled', slug: null, dirty: false, graph: null, cookLog: [], cookActive: false, cookStatusHidden: false }],
   activeTabId: 'default',
   workflowRevision: 0,
   undoHistory: [],
   cookLog: [],
   cookActive: false,
+  cookStatusHidden: false,
   runReplay: EMPTY_REPLAY,
   subnetStack: [],
 
@@ -925,7 +968,14 @@ export const useStore = create<Store>((set, get) => ({
     await get().saveActiveTabSnapshot()
     const id = makeTabId()
     const tabName = cleanWorkflowName(name)
-    set(s => ({ tabs: [...s.tabs, { id, name: tabName, slug: null, dirty: false, graph: blankGraph() }], activeTabId: id, undoHistory: [] }))
+    set(s => ({
+      tabs: [...s.tabs, { id, name: tabName, slug: null, dirty: false, graph: blankGraph(), cookLog: [], cookActive: false, cookStatusHidden: false }],
+      activeTabId: id,
+      undoHistory: [],
+      cookLog: [],
+      cookActive: false,
+      cookStatusHidden: false,
+    }))
     await api.reset()
     set({ nodes: [], edges: [], selectedId: null })
   },
@@ -937,8 +987,16 @@ export const useStore = create<Store>((set, get) => ({
     const idx = tabs.findIndex(t => t.id === tabId)
     const insertAt = idx < 0 ? tabs.length : idx + 1
     const nextTabs = [...tabs]
-    nextTabs.splice(insertAt, 0, { id, name: 'Untitled', slug: null, dirty: false, graph: blankGraph() })
-    set({ tabs: nextTabs, activeTabId: id, selectedId: null, undoHistory: [] })
+    nextTabs.splice(insertAt, 0, { id, name: 'Untitled', slug: null, dirty: false, graph: blankGraph(), cookLog: [], cookActive: false, cookStatusHidden: false })
+    set({
+      tabs: nextTabs,
+      activeTabId: id,
+      selectedId: null,
+      undoHistory: [],
+      cookLog: [],
+      cookActive: false,
+      cookStatusHidden: false,
+    })
     await api.reset()
     set({ nodes: [], edges: [] })
   },
@@ -948,10 +1006,10 @@ export const useStore = create<Store>((set, get) => ({
     if (tabId === activeTabId) return
     await get().saveActiveTabSnapshot()
     const nextTabs = get().tabs
-    const tab = tabs.find(t => t.id === tabId)
-      ?? nextTabs.find(t => t.id === tabId)
+    const tab = nextTabs.find(t => t.id === tabId)
+      ?? tabs.find(t => t.id === tabId)
     if (!tab) return
-    set({ activeTabId: tabId, selectedId: null, undoHistory: [] })
+    set({ activeTabId: tabId, selectedId: null, undoHistory: [], ...cookStateFromTab(tab) })
     if (tab.graph) {
       const graph = cloneGraph(tab.graph)
       await api.setGraph(graph.nodes, graph.edges)
@@ -974,7 +1032,7 @@ export const useStore = create<Store>((set, get) => ({
       const tab = tabs[idx]
       await api.reset()
       set({
-        tabs: [{ ...tab, name: 'Untitled', slug: null, dirty: false, graph: blankGraph() }],
+        tabs: [{ ...tab, name: 'Untitled', slug: null, dirty: false, graph: blankGraph(), cookLog: [], cookActive: false, cookStatusHidden: false }],
         activeTabId: tab.id,
         nodes: [],
         edges: [],
@@ -983,6 +1041,7 @@ export const useStore = create<Store>((set, get) => ({
         undoHistory: [],
         cookLog: [],
         cookActive: false,
+        cookStatusHidden: false,
         runReplay: EMPTY_REPLAY,
       })
       return
@@ -990,7 +1049,7 @@ export const useStore = create<Store>((set, get) => ({
     const newTabs = tabs.filter(t => t.id !== tabId)
     if (tabId === activeTabId) {
       const next = newTabs[Math.max(0, idx - 1)]
-      set({ tabs: newTabs, activeTabId: next.id, selectedId: null, undoHistory: [] })
+      set({ tabs: newTabs, activeTabId: next.id, selectedId: null, undoHistory: [], ...cookStateFromTab(next) })
       if (next.graph) {
         const graph = cloneGraph(next.graph)
         await api.setGraph(graph.nodes, graph.edges)
@@ -1029,8 +1088,19 @@ export const useStore = create<Store>((set, get) => ({
       slug: null,
       dirty: true,
       graph: cloneGraph(graph),
+      cookLog: [],
+      cookActive: false,
+      cookStatusHidden: false,
     })
-    set({ tabs: nextTabs, activeTabId: id, selectedId: null, undoHistory: [] })
+    set({
+      tabs: nextTabs,
+      activeTabId: id,
+      selectedId: null,
+      undoHistory: [],
+      cookLog: [],
+      cookActive: false,
+      cookStatusHidden: false,
+    })
     await api.setGraph(graph.nodes, graph.edges)
     await get().loadGraph()
   },
@@ -1045,7 +1115,15 @@ export const useStore = create<Store>((set, get) => ({
     }
     const id = makeTabId()
     const graph = await api.loadWorkflow(slug)
-    set(s => ({ tabs: [...s.tabs, { id, name, slug, dirty: false, graph: cloneGraph(graph) }], activeTabId: id, selectedId: null, undoHistory: [] }))
+    set(s => ({
+      tabs: [...s.tabs, { id, name, slug, dirty: false, graph: cloneGraph(graph), cookLog: [], cookActive: false, cookStatusHidden: false }],
+      activeTabId: id,
+      selectedId: null,
+      undoHistory: [],
+      cookLog: [],
+      cookActive: false,
+      cookStatusHidden: false,
+    }))
     await get().loadGraph()
   },
 
@@ -1054,10 +1132,13 @@ export const useStore = create<Store>((set, get) => ({
     const id = makeTabId()
     const nextGraph = cloneGraph(graph)
     set(s => ({
-      tabs: [...s.tabs, { id, name: cleanWorkflowName(name), slug: null, dirty: true, graph: nextGraph }],
+      tabs: [...s.tabs, { id, name: cleanWorkflowName(name), slug: null, dirty: true, graph: nextGraph, cookLog: [], cookActive: false, cookStatusHidden: false }],
       activeTabId: id,
       selectedId: null,
       undoHistory: [],
+      cookLog: [],
+      cookActive: false,
+      cookStatusHidden: false,
     }))
     await api.setGraph(nextGraph.nodes, nextGraph.edges)
     await get().loadGraph()
@@ -2112,9 +2193,11 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   cookNode: async (id, port = 'output') => {
+    const cookTabId = get().activeTabId
     const stack = get().subnetStack
     const activeSubnetId = stack.length > 0 ? stack[stack.length - 1].subnetId : null
-    const startNode = get().nodes.find(n => n.id === id)
+    const cookNodes = get().nodes
+    const startNode = cookNodes.find(n => n.id === id)
     const liveRunId = `live-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
     const liveStartedAt = new Date().toISOString()
     const liveEvents: RunRecord['events'] = []
@@ -2151,65 +2234,88 @@ export const useStore = create<Store>((set, get) => ({
       queueLiveReplay(event)
       if (event.type === 'done') {
         set(s => ({
-          cookActive: false,
-          cookLog: appendCookLog(s.cookLog, cookEventLogEntry(event, s.nodes)),
-          nodes: s.nodes.map(n => ({
-            ...n,
-            data: { ...n.data, cooking: false },
-          })),
+          ...syncTabCookState(s, cookTabId, {
+            cookActive: false,
+            cookLog: appendCookLog(tabCookLog(s, cookTabId), cookEventLogEntry(event, s.activeTabId === cookTabId ? s.nodes : cookNodes)),
+          }),
+          nodes: s.activeTabId === cookTabId
+            ? s.nodes.map(n => ({
+                ...n,
+                data: { ...n.data, cooking: false },
+              }))
+            : s.nodes,
         }))
         return
       }
       if (event.type === 'model_call' || event.type === 'tool_call') {
         set(s => ({
-          cookLog: appendCookLog(s.cookLog, cookEventLogEntry(event, s.nodes)),
+          ...syncTabCookState(s, cookTabId, {
+            cookLog: appendCookLog(tabCookLog(s, cookTabId), cookEventLogEntry(event, s.activeTabId === cookTabId ? s.nodes : cookNodes)),
+          }),
         }))
         return
       }
       set(s => ({
-        cookActive: true,
-        cookLog: appendCookLog(s.cookLog, cookEventLogEntry(event, s.nodes)),
-        nodes: s.nodes.map(n => {
-          if (n.id !== event.node_id) return n
-          if (event.type === 'start') {
-            return {
-              ...n,
-              data: {
-                ...n.data,
-                cooking: true,
-                cookError: undefined,
-                cookResult: undefined,
-                cookPort: event.port,
-              },
+        ...syncTabCookState(s, cookTabId, {
+          cookActive: true,
+          cookLog: appendCookLog(tabCookLog(s, cookTabId), cookEventLogEntry(event, s.activeTabId === cookTabId ? s.nodes : cookNodes)),
+        }),
+        nodes: s.activeTabId === cookTabId
+          ? s.nodes.map(n => {
+            if (n.id !== event.node_id) return n
+            if (event.type === 'start') {
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  cooking: true,
+                  cookError: undefined,
+                  cookResult: undefined,
+                  cookPort: event.port,
+                },
+              }
             }
-          }
-          if (event.type === 'success') {
+            if (event.type === 'success') {
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  cooking: false,
+                  cookResult: event.value,
+                  cookError: undefined,
+                  cookPort: event.port,
+                },
+              }
+            }
             return {
               ...n,
               data: {
                 ...n.data,
                 cooking: false,
-                cookResult: event.value,
-                cookError: undefined,
+                cookError: event.error,
                 cookPort: event.port,
               },
             }
-          }
-          return {
-            ...n,
-            data: {
-              ...n.data,
-              cooking: false,
-              cookError: event.error,
-              cookPort: event.port,
-            },
-          }
-        }),
+          })
+          : s.nodes,
       }))
     }
 
+    const queuedLog: CookLogEntry[] = [{
+      id: `${Date.now()}-${id}-queued`,
+      kind: 'start',
+      label: nodeRunLabel(cookNodes, id),
+      message: `Queued ${nodeRunLabel(cookNodes, id)}.${port}`,
+      nodeId: id,
+      port,
+      ts: Date.now(),
+    }]
     set(s => ({
-      cookActive: true,
+      ...syncTabCookState(s, cookTabId, {
+        cookActive: true,
+        cookLog: queuedLog,
+        cookStatusHidden: false,
+      }),
       runReplay: {
         runId: liveRunId,
         cursor: -1,
@@ -2217,17 +2323,8 @@ export const useStore = create<Store>((set, get) => ({
         playing: true,
         currentNodeId: id,
         currentEventType: 'queued',
-        message: `Queued ${nodeRunLabel(s.nodes, id)}.${port}`,
+        message: `Queued ${nodeRunLabel(cookNodes, id)}.${port}`,
       },
-      cookLog: [{
-        id: `${Date.now()}-${id}-queued`,
-        kind: 'start',
-        label: nodeRunLabel(s.nodes, id),
-        message: `Queued ${nodeRunLabel(s.nodes, id)}.${port}`,
-        nodeId: id,
-        port,
-        ts: Date.now(),
-      }],
       nodes: s.nodes.map(n => ({
         ...n,
         data: n.id === id
@@ -2253,21 +2350,29 @@ export const useStore = create<Store>((set, get) => ({
       }
     } catch (e: any) {
       set(s => ({
-        cookActive: false,
-        cookLog: appendCookLog(s.cookLog, {
-          id: `${Date.now()}-${id}-client-error`,
-          kind: 'error',
-          label: nodeRunLabel(s.nodes, id),
-          message: `${nodeRunLabel(s.nodes, id)}.${port} error: ${e.message}`,
-          nodeId: id,
-          port,
-          ts: Date.now(),
+        ...syncTabCookState(s, cookTabId, {
+          cookActive: false,
+          cookLog: appendCookLog(tabCookLog(s, cookTabId), {
+            id: `${Date.now()}-${id}-client-error`,
+            kind: 'error',
+            label: nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id),
+            message: `${nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id)}.${port} error: ${e.message}`,
+            nodeId: id,
+            port,
+            ts: Date.now(),
+          }),
         }),
-        nodes: s.nodes.map(n =>
-          n.id === id ? { ...n, data: { ...n.data, cooking: false, cookError: e.message, cookPort: port } } : n
-        ),
+        nodes: s.activeTabId === cookTabId
+          ? s.nodes.map(n =>
+              n.id === id ? { ...n, data: { ...n.data, cooking: false, cookError: e.message, cookPort: port } } : n
+            )
+          : s.nodes,
       }))
     }
+  },
+
+  dismissCookStatus: () => {
+    set(s => syncTabCookState(s, s.activeTabId, { cookStatusHidden: true }))
   },
 
   applyRunReplay: (record, cursor, playing) => {
@@ -2337,6 +2442,18 @@ export const useStore = create<Store>((set, get) => ({
   reset: async () => {
     set(s => pushUndoSnapshot(s))
     await api.reset()
-    set(s => ({ nodes: [], edges: [], selectedId: null, ...markActiveTabDirty(s) }))
+    set(s => ({
+      nodes: [],
+      edges: [],
+      selectedId: null,
+      tabs: s.tabs.map(t =>
+        t.id === s.activeTabId
+          ? { ...t, dirty: true, cookLog: [], cookActive: false, cookStatusHidden: false }
+          : t
+      ),
+      cookLog: [],
+      cookActive: false,
+      cookStatusHidden: false,
+    }))
   },
 }))
