@@ -86,6 +86,34 @@ Endpoint:
 http://127.0.0.1:9901/mcp
 ```
 
+## Recommended MCP Client Instruction
+
+Put this in your MCP client's project instructions or system prompt so agents
+use learned nodes only when a reusable capability is missing:
+
+```text
+When building Blacknode workflows, always inspect the existing node catalog first
+with list_nodes and get_node_schema.
+
+Use built-in nodes whenever they can solve the task.
+
+If the task needs a reusable capability that is missing from the catalog, create
+a learned node with create_node_type instead of using one-off Python code.
+
+Before creating a learned node:
+- keep the interface small and typed
+- use requires_network=false unless network is strictly required
+- generate only a def run(...) function
+- make sure learned-node code matches the declared inputs and outputs
+
+After creating a learned node:
+- call list_learned_nodes to confirm it exists
+- use it in the visual workflow
+- validate the workflow
+- open it in the editor
+- cook the final Output node
+```
+
 ## No-API-Key Smoke Prompt
 
 Use this first. It proves the agent can inspect schemas, build a graph, validate it, run it, and export Python without external services.

@@ -50,6 +50,10 @@ Do not commit local planning notes, generated scratch exports, API keys, run log
 
 ## Learned Nodes vs PythonFn
 
+Default rule: inspect the catalog first, use built-in nodes when they solve the
+task, and create a learned node only when a reusable missing capability is
+needed.
+
 Use `PythonFn` for one-shot code that belongs only to the current workflow.
 Examples: a tiny adapter between two ports, a temporary formatting expression,
 or exploratory code that should travel with one graph.
@@ -64,6 +68,11 @@ Before creating a learned node:
 - keep the interface small and typed with `Text`, `Int`, `Float`, `Bool`,
   `List`, `Dict`, or `Any`
 - set `requires_network=False` unless the code must reach the network
+- generate only a `def run(...)` function and make sure its parameters match the
+  declared input ports
+- after creation, call `list_learned_nodes`, use the learned node in the visual
+  workflow, validate the graph, open it in the editor, and cook the final
+  `Output` node
 - remember that learned-node code never runs in the host process; it runs in the
   Docker sandbox wrapper
 
