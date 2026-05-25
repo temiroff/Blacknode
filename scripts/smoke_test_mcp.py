@@ -87,6 +87,10 @@ def main() -> int:
             return 1
         server_info = init_resp.get("result", {}).get("serverInfo", {})
         print(f"[smoke] connected to: {server_info.get('name', '?')} v{server_info.get('version', '?')}")
+        instructions = init_resp.get("result", {}).get("instructions", "")
+        if "Use built-in nodes whenever they can solve the task" not in instructions:
+            print("[smoke] FAIL: server instructions are missing the learned-node creation rule")
+            return 1
 
         # 2. initialized notification (no id)
         send(proc, {"jsonrpc": "2.0", "method": "notifications/initialized"})
@@ -119,9 +123,21 @@ def main() -> int:
             print(f"[smoke] FAIL: missing expected tools: {sorted(missing)}")
             return 1
 
-        # 4. resources/list
-        send(proc, {"jsonrpc": "2.0", "id": 3, "method": "resources/list"})
-        resources_resp = recv(stdout_q, expect_id=3)
+        # 4. prompts/list
+        send(proc, {"jsonrpc": "2.0", "id": 3, "method": "prompts/list"})
+        prompts_resp = recv(stdout_q, expect_id=3)
+        if "error" in prompts_resp:
+            print(f"[smoke] FAIL: prompts/list returned error: {prompts_resp['error']}")
+            return 1
+        prompts = prompts_resp.get("result", {}).get("prompts", [])
+        prompt_names = sorted(p["name"] for p in prompts)
+        if "blacknode_workflow_builder" not in prompt_names:
+            print(f"[smoke] FAIL: missing blacknode_workflow_builder prompt: {prompt_names}")
+            return 1
+
+        # 5. resources/list
+        send(proc, {"jsonrpc": "2.0", "id": 4, "method": "resources/list"})
+        resources_resp = recv(stdout_q, expect_id=4)
         if "error" in resources_resp:
             print(f"[smoke] FAIL: resources/list returned error: {resources_resp['error']}")
             return 1
@@ -129,6 +145,7 @@ def main() -> int:
         uris = sorted(r["uri"] for r in resources)
         print(f"[smoke] resources/list returned {len(resources)} resources: {', '.join(uris)}")
         expected_resources = {
+            "blacknode://agent-instructions",
             "blacknode://nodes",
             "blacknode://templates",
             "blacknode://workflows",
@@ -139,14 +156,31 @@ def main() -> int:
             print(f"[smoke] FAIL: missing expected resources: {sorted(missing_resources)}")
             return 1
 
-        # 5. read a static resource
+        # 6. read the MCP agent instructions resource
         send(proc, {
             "jsonrpc": "2.0",
-            "id": 4,
+            "id": 5,
+            "method": "resources/read",
+            "params": {"uri": "blacknode://agent-instructions"},
+        })
+        instructions_resource_resp = recv(stdout_q, expect_id=5)
+        if "error" in instructions_resource_resp:
+            print(f"[smoke] FAIL: agent instructions resource returned error: {instructions_resource_resp['error']}")
+            return 1
+        instructions_content = instructions_resource_resp.get("result", {}).get("contents", [])
+        instructions_text = json.dumps(instructions_content)
+        if "create_node_type" not in instructions_text or "one-off Python" not in instructions_text:
+            print(f"[smoke] FAIL: agent instructions resource is missing the learned-node rule: {instructions_content}")
+            return 1
+
+        # 7. read a static resource
+        send(proc, {
+            "jsonrpc": "2.0",
+            "id": 6,
             "method": "resources/read",
             "params": {"uri": "blacknode://templates"},
         })
-        resource_read_resp = recv(stdout_q, expect_id=4)
+        resource_read_resp = recv(stdout_q, expect_id=6)
         if "error" in resource_read_resp:
             print(f"[smoke] FAIL: resources/read returned error: {resource_read_resp['error']}")
             return 1
@@ -163,14 +197,14 @@ def main() -> int:
             print(f"[smoke] FAIL: templates resource returned no parseable templates: {contents}")
             return 1
 
-        # 6. call list_nodes
+        # 8. call list_nodes
         send(proc, {
             "jsonrpc": "2.0",
-            "id": 5,
+            "id": 7,
             "method": "tools/call",
             "params": {"name": "list_nodes", "arguments": {}},
         })
-        call_resp = recv(stdout_q, expect_id=5)
+        call_resp = recv(stdout_q, expect_id=7)
         if "error" in call_resp:
             print(f"[smoke] FAIL: list_nodes call returned error: {call_resp['error']}")
             return 1

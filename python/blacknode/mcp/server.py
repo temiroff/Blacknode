@@ -22,7 +22,27 @@ except ImportError as exc:  # pragma: no cover - import guidance
 
 from . import tools
 
-mcp = FastMCP("blacknode")
+WORKFLOW_BUILDER_INSTRUCTIONS = """When building Blacknode workflows:
+
+1. Always inspect the existing node catalog first with list_nodes and
+   get_node_schema.
+2. Use built-in nodes whenever they can solve the task.
+3. If the task needs a reusable capability that is missing from the catalog,
+   create a learned node with create_node_type instead of using one-off Python
+   code.
+4. Before creating a learned node, keep the interface small and typed, use
+   requires_network=false unless network is strictly required, generate only a
+   def run(...) function, and make sure the function parameters match the
+   declared inputs.
+5. After creating a learned node, call list_learned_nodes, use it in the visual
+   workflow, validate the graph, open it in the editor, and cook the final
+   Output node.
+
+Learned-node code is registered as a node type, but it never runs in the
+Blacknode host process. It executes through the Docker sandbox wrapper.
+"""
+
+mcp = FastMCP("blacknode", instructions=WORKFLOW_BUILDER_INSTRUCTIONS)
 
 
 def _json_resource(payload: dict[str, Any]) -> str:
@@ -34,6 +54,16 @@ def _safe_editor_resource(name: str, payload_fn: Any) -> str:
         return _json_resource(payload_fn())
     except Exception as exc:  # pragma: no cover - depends on live editor state
         return _json_resource({"ok": False, "resource": name, "error": str(exc)})
+
+
+@mcp.resource(
+    "blacknode://agent-instructions",
+    mime_type="text/plain",
+    description="Recommended MCP agent instructions for building Blacknode workflows.",
+)
+def agent_instructions_resource() -> str:
+    """Recommended MCP agent instructions as plain text."""
+    return WORKFLOW_BUILDER_INSTRUCTIONS
 
 
 @mcp.resource(
@@ -84,6 +114,16 @@ def editor_graph_resource() -> str:
 def runs_resource() -> str:
     """Recent editor run summaries as JSON."""
     return _safe_editor_resource("blacknode://runs", tools.list_recent_runs)
+
+
+@mcp.prompt(
+    name="blacknode_workflow_builder",
+    title="Blacknode Workflow Builder",
+    description="Use built-in nodes first; create learned nodes only for reusable missing capabilities.",
+)
+def blacknode_workflow_builder_prompt() -> str:
+    """Instructions for building Blacknode workflows through MCP."""
+    return WORKFLOW_BUILDER_INSTRUCTIONS
 
 
 @mcp.tool()

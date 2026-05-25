@@ -114,6 +114,12 @@ After creating a learned node:
 - cook the final Output node
 ```
 
+The Blacknode MCP server also exposes this same rule as:
+
+- server instructions in the MCP `initialize` response
+- the `blacknode_workflow_builder` MCP prompt
+- the `blacknode://agent-instructions` MCP resource
+
 ## No-API-Key Smoke Prompt
 
 Use this first. It proves the agent can inspect schemas, build a graph, validate it, run it, and export Python without external services.
