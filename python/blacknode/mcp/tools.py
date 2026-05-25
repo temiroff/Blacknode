@@ -18,8 +18,15 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 from datetime import datetime, timezone
 
+from ..discovery import load_node_file
 from ..learned import registry as learned_registry
-from ..learned.manifest import ALLOWED_PORT_TYPES, PORT_RE, validate_manifest
+from ..learned.manifest import (
+    ALLOWED_PORT_TYPES,
+    PORT_RE,
+    ManifestValidationError,
+    validate_category_name,
+    validate_manifest,
+)
 from ..node import _NODE_REGISTRY
 from ..sandbox.static import check_safe
 from ..workflow import (
@@ -333,6 +340,7 @@ def create_node_type(
     outputs: list[str],
     code: str,
     requires_network: bool = False,
+    category: str = "Learned",
 ) -> dict[str, Any]:
     """
     Create a new permanent learned Blacknode node type.
@@ -351,6 +359,7 @@ def create_node_type(
         inputs=inputs,
         outputs=outputs,
         code=code,
+        category=category,
     )
     if validation is not None:
         return validation
@@ -360,6 +369,7 @@ def create_node_type(
     manifest = {
         "name": name,
         "description": description,
+        "category": category,
         "inputs": list(inputs),
         "outputs": list(outputs),
         "permissions": {"network": bool(requires_network)},
@@ -367,7 +377,10 @@ def create_node_type(
         "created_by": "claude-via-mcp",
         "schema_version": 1,
     }
-    validate_manifest(manifest)
+    try:
+        manifest_obj = validate_manifest(manifest)
+    except ManifestValidationError as exc:
+        return {"status": "rejected", "reason": str(exc)}
 
     try:
         node_dir.mkdir(parents=True, exist_ok=False)
@@ -381,7 +394,7 @@ def create_node_type(
         return {"status": "rejected", "reason": f"Failed to create learned node: {exc}"}
 
     _notify_learned_node_event("learned_node_added", name)
-    return {"status": "created", "node_type": name, "path": str(node_dir)}
+    return {"status": "created", "node_type": name, "category": manifest_obj.category, "path": str(node_dir)}
 
 
 def list_learned_nodes() -> dict[str, Any]:
@@ -399,6 +412,7 @@ def list_learned_nodes() -> dict[str, Any]:
             nodes.append({
                 "name": manifest.name,
                 "description": manifest.description,
+                "category": manifest.category,
                 "inputs": list(manifest.inputs),
                 "outputs": list(manifest.outputs),
                 "permissions": dict(manifest.permissions),
@@ -446,6 +460,105 @@ def get_learned_node_source(name: str) -> dict[str, Any]:
         "node_type": name,
         "path": str(source_path),
         "source": source_path.read_text(encoding="utf-8"),
+    }
+
+
+def promote_learned_node(
+    name: str,
+    *,
+    category: str | None = None,
+    target: str = "custom-nodes",
+    overwrite: bool = False,
+    keep_learned: bool = False,
+    notify_editor: bool = True,
+) -> dict[str, Any]:
+    """Promote one learned node into a host-side custom or community node file."""
+    learned_registry.sync_with_disk()
+    if not _is_valid_learned_name(name):
+        return {"status": "rejected", "reason": "Invalid learned node name"}
+
+    node_dir = learned_registry.learned_dir() / name
+    manifest_path = node_dir / "manifest.json"
+    source_path = node_dir / "node.py"
+    if not manifest_path.is_file() or not source_path.is_file():
+        return {"status": "not_found", "node_type": name}
+
+    try:
+        manifest = validate_manifest(json.loads(manifest_path.read_text(encoding="utf-8")), path=manifest_path)
+    except Exception as exc:
+        return {"status": "rejected", "reason": f"Invalid learned node manifest: {exc}"}
+
+    try:
+        target_dir, target_label = _promotion_target_dir(target)
+    except ValueError as exc:
+        return {"status": "rejected", "reason": str(exc)}
+
+    promoted_category = category if category is not None else _default_promoted_category(manifest.category, target_label)
+    try:
+        promoted_category = validate_category_name(promoted_category)
+    except ManifestValidationError as exc:
+        return {"status": "rejected", "reason": str(exc)}
+
+    code = source_path.read_text(encoding="utf-8")
+    promotable_error = _validate_promotable_learned_source(code, list(manifest.input_names))
+    if promotable_error is not None:
+        return {"status": "rejected", "reason": promotable_error}
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / f"{_snake_case(name)}.py"
+    if target_path.exists() and not overwrite:
+        return {
+            "status": "rejected",
+            "reason": f"Target file already exists: {target_path}",
+        }
+
+    promoted_source = _render_promoted_node_source(
+        code=code,
+        name=manifest.name,
+        description=manifest.description,
+        category=promoted_category,
+        inputs=list(manifest.inputs),
+        outputs=list(manifest.outputs),
+        input_names=list(manifest.input_names),
+    )
+
+    created_new_file = not target_path.exists()
+    try:
+        target_path.write_text(promoted_source, encoding="utf-8")
+        if not keep_learned:
+            load_result = load_node_file(target_path)
+            if not load_result.get("ok"):
+                raise RuntimeError(load_result.get("error", "Could not load promoted node"))
+            if name not in _NODE_REGISTRY:
+                raise RuntimeError(f"Promoted node '{name}' did not register")
+            shutil.rmtree(node_dir)
+            learned_registry.LEARNED_NODE_MANIFESTS.pop(name, None)
+            learned_registry.LEARNED_NODE_DIRS.pop(name, None)
+            if notify_editor:
+                _notify_learned_node_event("learned_node_deleted", name)
+    except Exception as exc:
+        if created_new_file and target_path.exists():
+            target_path.unlink()
+        existing = _NODE_REGISTRY.get(name)
+        if (
+            not keep_learned
+            and node_dir.exists()
+            and (existing is None or getattr(existing, "_bn_source", None) == "learned")
+        ):
+            try:
+                learned_registry.register_one(name)
+            except Exception as rollback_exc:
+                _LOGGER.warning("Could not restore learned node %s after promotion failure: %s", name, rollback_exc)
+        return {"status": "rejected", "reason": f"Failed to promote learned node: {exc}"}
+
+    return {
+        "status": "promoted",
+        "node_type": name,
+        "category": promoted_category,
+        "target": target_label,
+        "path": str(target_path),
+        "registered": not keep_learned,
+        "learned_node_kept": bool(keep_learned),
     }
 
 
@@ -744,6 +857,7 @@ def _validate_create_node_type_inputs(
     inputs: list[str],
     outputs: list[str],
     code: str,
+    category: str,
 ) -> dict[str, Any] | None:
     if not _is_valid_learned_name(name):
         return {
@@ -757,6 +871,11 @@ def _validate_create_node_type_inputs(
 
     if not isinstance(description, str) or not (10 <= len(description) <= 200):
         return {"status": "rejected", "reason": "description must be 10-200 characters"}
+
+    try:
+        validate_category_name(category)
+    except ManifestValidationError as exc:
+        return {"status": "rejected", "reason": str(exc)}
 
     port_error = _validate_port_declarations(inputs, "inputs", allow_empty=True)
     if port_error is not None:
@@ -887,6 +1006,110 @@ def _truthy(value: str) -> bool:
 
 def _is_valid_learned_name(name: str) -> bool:
     return isinstance(name, str) and 3 <= len(name) <= 40 and bool(_LEARNED_NAME_RE.match(name))
+
+
+def _promotion_target_dir(target: str) -> tuple[Path, str]:
+    aliases = {
+        "custom": "custom-nodes",
+        "custom-nodes": "custom-nodes",
+        "community": "community-nodes",
+        "community-nodes": "community-nodes",
+    }
+    key = str(target or "").strip().replace("\\", "/").strip("/").lower()
+    label = aliases.get(key)
+    if label is None:
+        raise ValueError("target must be 'custom-nodes' or 'community-nodes'")
+    return _REPO_ROOT / label, label
+
+
+def _default_promoted_category(category: str, target: str) -> str:
+    if category and category != "Learned":
+        return category
+    return "Community" if target == "community-nodes" else "Custom"
+
+
+def _validate_promotable_learned_source(code: str, input_names: list[str]) -> str | None:
+    static_result = check_safe(code)
+    if not static_result.safe:
+        return static_result.reason
+
+    signature_error = _validate_run_function_signature(code, input_names)
+    if signature_error is not None:
+        return str(signature_error["reason"])
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return f"Syntax error: {exc.msg} at line {exc.lineno}"
+
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom, ast.FunctionDef)):
+            continue
+        if _is_module_docstring(node):
+            continue
+        if isinstance(node, ast.Assign) and _is_literal_node(node.value):
+            continue
+        if isinstance(node, ast.AnnAssign) and (node.value is None or _is_literal_node(node.value)):
+            continue
+        return (
+            "Promotion only supports learned-node source with imports, function "
+            "definitions, docstrings, and literal constants at module scope"
+        )
+    return None
+
+
+def _is_module_docstring(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    )
+
+
+def _is_literal_node(node: ast.AST) -> bool:
+    try:
+        ast.literal_eval(node)
+    except Exception:
+        return False
+    return True
+
+
+def _render_promoted_node_source(
+    *,
+    code: str,
+    name: str,
+    description: str,
+    category: str,
+    inputs: list[str],
+    outputs: list[str],
+    input_names: list[str],
+) -> str:
+    return (
+        "# Promoted from a Blacknode learned node. Review before sharing.\n"
+        f"{code.rstrip()}\n\n"
+        "from blacknode.node import node as _blacknode_node\n\n\n"
+        "@_blacknode_node(\n"
+        f"    name={_py_literal(name)},\n"
+        f"    category={_py_literal(category)},\n"
+        f"    inputs={_py_literal(inputs)},\n"
+        f"    outputs={_py_literal(outputs)},\n"
+        f"    description={_py_literal(description)},\n"
+        ")\n"
+        f"def {_snake_case(name)}(ctx: dict) -> dict:\n"
+        f"    kwargs = {{key: ctx[key] for key in {_py_literal(input_names)} if key in ctx}}\n"
+        "    return run(**kwargs)\n"
+    )
+
+
+def _py_literal(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=True)
+
+
+def _snake_case(value: str) -> str:
+    first_pass = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", value)
+    second_pass = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", first_pass)
+    clean = re.sub(r"[^A-Za-z0-9_]+", "_", second_pass).strip("_").lower()
+    return clean or "promoted_node"
 
 
 def _port_names(ports: list[str]) -> list[str]:

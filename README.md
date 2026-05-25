@@ -72,8 +72,9 @@ node fits a task. Generated nodes:
 
 - Are stored as plain Python in `nodes/learned/<name>/`
 - Execute inside a Docker sandbox with no network by default
-- Appear live in the editor palette under "Learned"
+- Appear live in the editor palette under "Learned" or a chosen category
 - Persist across sessions and are reusable
+- Can be promoted into `custom-nodes/` or `community-nodes/` when stable
 
 Requires Docker. Run `blacknode doctor` to verify your setup.
 

@@ -3,7 +3,8 @@
 Learned nodes let an MCP-connected agent create a new permanent Blacknode node
 type when the current catalog does not contain the capability it needs. The node
 is stored as plain Python under `nodes/learned/<Name>/`, appears in the editor
-palette under **Learned**, and can be reused in later workflows.
+palette under **Learned** or a chosen category, and can be reused in later
+workflows.
 
 This feature is opt-in. On first use, `create_node_type` refuses the request
 unless `BLACKNODE_LEARNED_NODES_CONSENT=1` is set. After opt-in, consent is
@@ -22,6 +23,7 @@ create_node_type(
   outputs=["entries:List"],
   code="def run(feed): ...",
   requires_network=False,
+  category="RAG",
 )
 ```
 
@@ -31,6 +33,7 @@ The tool validates:
 - unique node type name
 - port declarations in `name:Type` format
 - allowed port types: `Text`, `Int`, `Float`, `Bool`, `List`, `Dict`, `Any`
+- palette category names, defaulting to `Learned` when omitted
 - AST-only static check for dangerous imports and names
 - presence of `def run(...)`
 - exact match between `run` parameters and input port names
@@ -43,6 +46,28 @@ nodes/learned/<Name>/
   node.py
   manifest.json
 ```
+
+## Categories and Promotion
+
+Pass `category` to `create_node_type` when the learned node belongs in a real
+palette group such as `RAG`, `Search`, `Vision`, `Parsing`, or `Research`.
+Existing learned nodes without a category continue to load under `Learned`.
+
+When a learned node is stable enough to run in the host process, promote it:
+
+```text
+promote_learned_node(
+  name="ParseRSS",
+  target="custom-nodes",
+  category="RAG",
+)
+```
+
+Promotion writes a reviewed `@node` module to `custom-nodes/` or
+`community-nodes/`, registers it, and removes the learned-node source by
+default. Use `keep_learned=True` to copy the file without migrating the live
+node type. The editor's **Learned Nodes** tab exposes the default
+`custom-nodes/` promotion path.
 
 ## Execution Model
 
@@ -60,7 +85,7 @@ backend broadcasts a Server-Sent Event, and the frontend refreshes:
 
 - `/learned-nodes`
 - `/node-defs`
-- the **Learned** palette category
+- the relevant palette category
 - the read-only **Learned Nodes** sidebar tab
 
 Newly added learned nodes pulse briefly in the palette so the user can see the

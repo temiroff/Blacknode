@@ -35,12 +35,13 @@ WORKFLOW_BUILDER_INSTRUCTIONS = """When building Blacknode workflows:
    create a learned node that parses RSS structurally instead of returning feed
    metadata or other false positives.
 5. Do not create or modify files under nodes/learned directly. Use
-   create_node_type, list_learned_nodes, get_learned_node_source, and
-   delete_learned_node.
+   create_node_type, list_learned_nodes, get_learned_node_source,
+   promote_learned_node, and delete_learned_node.
 6. Before creating a learned node, keep the interface small and typed, use
    requires_network=false unless network is strictly required, generate only a
    def run(...) function, and make sure the function parameters match the
-   declared inputs.
+   declared inputs. Set category to the palette group where the node should
+   appear, such as RAG, Search, Vision, Parsing, or Research.
 7. After creating a learned node, call list_learned_nodes, use it in the visual
    workflow, validate the graph, open it in the editor, and cook the final
    Output node.
@@ -235,6 +236,7 @@ def create_node_type(
     outputs: list[str],
     code: str,
     requires_network: bool = False,
+    category: str = "Learned",
 ) -> dict[str, Any]:
     """Create a permanent learned node type that executes in the Docker sandbox."""
     return tools.create_node_type(
@@ -244,6 +246,7 @@ def create_node_type(
         outputs=outputs,
         code=code,
         requires_network=requires_network,
+        category=category,
     )
 
 
@@ -263,6 +266,24 @@ def delete_learned_node(name: str, confirm: bool = False) -> dict[str, Any]:
 def get_learned_node_source(name: str) -> dict[str, Any]:
     """Return the Python source for a learned node."""
     return tools.get_learned_node_source(name=name)
+
+
+@mcp.tool()
+def promote_learned_node(
+    name: str,
+    category: str | None = None,
+    target: str = "custom-nodes",
+    overwrite: bool = False,
+    keep_learned: bool = False,
+) -> dict[str, Any]:
+    """Promote a learned node into custom-nodes or community-nodes."""
+    return tools.promote_learned_node(
+        name=name,
+        category=category,
+        target=target,
+        overwrite=overwrite,
+        keep_learned=keep_learned,
+    )
 
 
 @mcp.tool()

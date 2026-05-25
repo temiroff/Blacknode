@@ -66,6 +66,16 @@ class LearnedRegistryTests(unittest.TestCase):
             self.assertEqual(call["inputs"], {"text": "hi"})
             self.assertEqual(call["permissions"], {"network": False})
 
+    def test_register_one_uses_manifest_category(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_learned_node(root, "TempLearned", manifest_overrides={"category": "Parsing"})
+
+            manifest = registry.register_one("TempLearned", learned_dir=root)
+
+            self.assertEqual(manifest.category, "Parsing")
+            self.assertEqual(_NODE_REGISTRY["TempLearned"]._bn_category, "Parsing")
+
     def test_wrapper_does_not_execute_or_import_user_code_in_host(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

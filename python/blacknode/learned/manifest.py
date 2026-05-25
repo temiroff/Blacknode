@@ -13,8 +13,9 @@ MANIFEST_SCHEMA_VERSION = 1
 
 NAME_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 PORT_RE = re.compile(r"^[a-z_][a-z0-9_]*:[A-Z][a-zA-Z]+$")
+CATEGORY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9 _-]{1,31}$")
 
-MANIFEST_KEYS = frozenset({
+REQUIRED_MANIFEST_KEYS = frozenset({
     "name",
     "description",
     "inputs",
@@ -24,6 +25,8 @@ MANIFEST_KEYS = frozenset({
     "created_by",
     "schema_version",
 })
+OPTIONAL_MANIFEST_KEYS = frozenset({"category"})
+MANIFEST_KEYS = REQUIRED_MANIFEST_KEYS | OPTIONAL_MANIFEST_KEYS
 PERMISSION_KEYS = frozenset({"network"})
 
 
@@ -41,6 +44,7 @@ class LearnedNodeManifest:
     created_at: str
     created_by: str
     schema_version: int = MANIFEST_SCHEMA_VERSION
+    category: str = "Learned"
 
     @property
     def input_names(self) -> tuple[str, ...]:
@@ -62,6 +66,7 @@ class LearnedNodeManifest:
         return {
             "name": self.name,
             "description": self.description,
+            "category": self.category,
             "inputs": list(self.inputs),
             "outputs": list(self.outputs),
             "permissions": dict(self.permissions),
@@ -87,7 +92,7 @@ def validate_manifest(data: Mapping[str, Any], *, path: str | Path = "manifest.j
         raise ManifestValidationError(f"{path}: manifest must be a JSON object")
 
     keys = set(data)
-    missing = sorted(MANIFEST_KEYS - keys)
+    missing = sorted(REQUIRED_MANIFEST_KEYS - keys)
     extra = sorted(keys - MANIFEST_KEYS)
     if missing:
         raise ManifestValidationError(f"{path}: missing required keys: {missing}")
@@ -102,6 +107,7 @@ def validate_manifest(data: Mapping[str, Any], *, path: str | Path = "manifest.j
     if not (10 <= len(description) <= 200):
         raise ManifestValidationError(f"{path}: description must be 10-200 characters")
 
+    category = validate_category_name(data.get("category", "Learned"), path=path)
     inputs = _validate_ports(data["inputs"], "inputs", path, allow_empty=True)
     outputs = _validate_ports(data["outputs"], "outputs", path, allow_empty=False)
     permissions = _validate_permissions(data["permissions"], path)
@@ -122,7 +128,19 @@ def validate_manifest(data: Mapping[str, Any], *, path: str | Path = "manifest.j
         created_at=created_at,
         created_by=created_by,
         schema_version=schema_version,
+        category=category,
     )
+
+
+def validate_category_name(value: Any, *, path: str | Path = "manifest.json") -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ManifestValidationError(f"{path}: category must be a non-empty string")
+    category = value.strip()
+    if not CATEGORY_RE.match(category):
+        raise ManifestValidationError(
+            f"{path}: category must be 2-32 characters and contain only letters, numbers, spaces, '_' or '-'"
+        )
+    return category
 
 
 def _validate_ports(value: Any, field: str, path: str | Path, *, allow_empty: bool) -> list[str]:

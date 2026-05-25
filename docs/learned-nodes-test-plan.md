@@ -201,6 +201,7 @@ create_node_type
 list_learned_nodes
 delete_learned_node
 get_learned_node_source
+promote_learned_node
 ```
 
 This proves an MCP client can see the learned-node control surface.
@@ -245,6 +246,7 @@ Create a Blacknode learned node named TitleCaseDemo.
 Description: Convert text to title case and return it.
 Inputs: text:Text
 Outputs: result:Text
+Category: Parsing
 Code:
 def run(text):
     return {"result": text.title()}
@@ -256,9 +258,9 @@ Expected result:
 - The MCP tool returns `{"status": "created", ...}`.
 - `nodes/learned/TitleCaseDemo/node.py` exists.
 - `nodes/learned/TitleCaseDemo/manifest.json` exists.
-- The editor palette shows `TitleCaseDemo` under **Learned**.
+- The editor palette shows `TitleCaseDemo` under **Parsing**.
 - The sidebar shows name, description, created date, permissions, **View source**,
-  and **Delete**.
+  **Promote**, and **Delete**.
 
 Use **View source** to confirm the modal is read-only.
 

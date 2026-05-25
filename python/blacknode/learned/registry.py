@@ -112,7 +112,7 @@ def register_one(name: str, *, learned_dir: str | Path | None = None) -> Learned
         inputs=list(manifest.inputs),
         outputs=list(manifest.outputs),
         name=manifest.name,
-        category="Learned",
+        category=manifest.category,
         description=manifest.description,
     )(wrapper)
 

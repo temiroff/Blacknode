@@ -39,6 +39,20 @@ export default function LearnedNodesPanel() {
     }
   }
 
+  const promoteNode = async (node: LearnedNodeSummary) => {
+    if (!window.confirm(`Promote learned node ${node.name} to custom-nodes?`)) return
+    setError('')
+    setBusyName(node.name)
+    try {
+      await api.promoteLearnedNode(node.name)
+      await Promise.all([loadLearnedNodes(), loadNodeTypes()])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusyName('')
+    }
+  }
+
   return (
     <div className="bn-learned-panel">
       <div className="bn-learned-toolbar">
@@ -63,6 +77,7 @@ export default function LearnedNodesPanel() {
             <div className="bn-learned-desc">{node.description}</div>
             <div className="bn-learned-meta">
               <span>{formatDate(node.created_at)}</span>
+              <span>{node.category}</span>
               <span>{node.inputs.length} in</span>
               <span>{node.outputs.length} out</span>
             </div>
@@ -73,6 +88,13 @@ export default function LearnedNodesPanel() {
                 onClick={() => void viewSource(node)}
               >
                 View source
+              </button>
+              <button
+                className="bn-top-button"
+                disabled={busyName === node.name}
+                onClick={() => void promoteNode(node)}
+              >
+                Promote
               </button>
               <button
                 className="bn-top-button"

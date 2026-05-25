@@ -31,6 +31,18 @@ class LearnedManifestTests(unittest.TestCase):
         self.assertEqual(manifest.input_names, ("url",))
         self.assertEqual(manifest.output_names, ("entries",))
         self.assertEqual(manifest.permissions, {"network": True})
+        self.assertEqual(manifest.category, "Learned")
+
+    def test_valid_manifest_accepts_category(self):
+        manifest = validate_manifest(valid_manifest(category="RAG"))
+
+        self.assertEqual(manifest.category, "RAG")
+
+    def test_rejects_invalid_category(self):
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(valid_manifest(category="../bad"))
+
+        self.assertIn("category", str(ctx.exception))
 
     def test_load_manifest_reads_json_file(self):
         with tempfile.TemporaryDirectory() as tmp:

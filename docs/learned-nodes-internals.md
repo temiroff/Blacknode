@@ -53,6 +53,7 @@ The v1 manifest schema has exact keys:
 {
   "name": "ParseRSS",
   "description": "Parse RSS XML text into a list of entries.",
+  "category": "RAG",
   "inputs": ["feed:Text"],
   "outputs": ["entries:List"],
   "permissions": { "network": false },
@@ -62,8 +63,21 @@ The v1 manifest schema has exact keys:
 }
 ```
 
+`category` is optional for backward compatibility and defaults to `Learned`.
 Unknown manifest keys and unknown permission keys are rejected. The only v1
 permission is `network`.
+
+## Promotion
+
+`promote_learned_node` reads `nodes/learned/<Name>/node.py`, verifies that the
+source can be imported host-side, renders a normal `@node` wrapper, and writes
+it to `custom-nodes/<name>.py` or `community-nodes/<name>.py`.
+
+By default promotion migrates the live node type: the generated file is loaded,
+the learned-node directory is deleted, and the editor receives a learned-node
+delete event so `/learned-nodes` and `/node-defs` refresh. With
+`keep_learned=True`, promotion is copy-only and the learned registry entry stays
+active.
 
 ## Editor Events
 

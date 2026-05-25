@@ -106,14 +106,16 @@ learned node that parses RSS structurally instead of returning feed metadata or
 other false positives.
 
 Do not create or modify files under nodes/learned directly. Use
-create_node_type, list_learned_nodes, get_learned_node_source, and
-delete_learned_node.
+create_node_type, list_learned_nodes, get_learned_node_source,
+promote_learned_node, and delete_learned_node.
 
 Before creating a learned node:
 - keep the interface small and typed
 - use requires_network=false unless network is strictly required
 - generate only a def run(...) function
 - make sure learned-node code matches the declared inputs and outputs
+- set `category` when the node belongs in an existing or user-defined palette
+  group such as `RAG`, `Search`, `Parsing`, `Vision`, or `Research`
 
 After creating a learned node:
 - call list_learned_nodes to confirm it exists
@@ -161,10 +163,12 @@ After opt-in, MCP exposes:
 | `create_node_type` | Create a reusable learned node from Python source plus manifest fields. |
 | `list_learned_nodes` | List learned nodes stored on disk. |
 | `get_learned_node_source` | Inspect learned-node source read-only. |
+| `promote_learned_node` | Migrate a stable learned node into `custom-nodes/` or `community-nodes/`. |
 | `delete_learned_node` | Delete a learned node after `confirm=True`. |
 
-Generated learned nodes appear in the editor palette under **Learned** and run
-through Docker, not in the host Python process.
+Generated learned nodes appear in the editor palette under their requested
+category, default to **Learned**, and run through Docker, not in the host Python
+process.
 
 ## Visual Editor Smoke Prompt
 

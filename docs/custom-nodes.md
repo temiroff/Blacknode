@@ -75,6 +75,18 @@ Community nodes live in `community-nodes/*.py`. A good PR includes:
 - no secrets or hardcoded credentials,
 - tests for parsing, retrieval, database, or API behavior.
 
+## Promote Learned Nodes
+
+When an MCP-created learned node is stable, use `promote_learned_node` to turn
+it into a normal custom or community node:
+
+```text
+promote_learned_node(name="ParseRSS", target="custom-nodes", category="RAG")
+```
+
+Promotion writes a reviewed `@node` module, registers it live, and removes the
+learned-node source by default. Pass `keep_learned=True` for a copy-only export.
+
 ## Built-In Expansion Nodes
 
 The current extension-focused node set includes:

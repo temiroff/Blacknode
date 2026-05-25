@@ -68,11 +68,13 @@ Before creating a learned node:
 
 - call `list_nodes` and `get_node_schema` to confirm no built-in node fits
 - do not create or modify files under `nodes/learned` directly; use
-  `create_node_type`, `list_learned_nodes`, `get_learned_node_source`, and
-  `delete_learned_node`
+  `create_node_type`, `list_learned_nodes`, `get_learned_node_source`,
+  `promote_learned_node`, and `delete_learned_node`
 - keep the interface small and typed with `Text`, `Int`, `Float`, `Bool`,
   `List`, `Dict`, or `Any`
 - set `requires_network=False` unless the code must reach the network
+- set a useful `category` so the node lands in the right palette group instead
+  of the default `Learned`
 - generate only a `def run(...)` function and make sure its parameters match the
   declared input ports
 - after creation, call `list_learned_nodes`, use the learned node in the visual
@@ -83,6 +85,11 @@ Before creating a learned node:
 
 Do not ask the editor to edit learned nodes. The UI is read-only by design; the
 plain files in `nodes/learned/<Name>/` are the editing contract.
+
+Promote stable learned nodes with `promote_learned_node` instead of moving files
+by hand. Promotion writes a normal `@node` module into `custom-nodes/` or
+`community-nodes/` and removes the learned-node source unless `keep_learned=True`
+is requested.
 
 ## Workflow JSON Shape
 

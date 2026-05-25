@@ -1837,6 +1837,17 @@ def delete_learned_node(name: str):
     return result
 
 
+@app.post("/learned-nodes/{name}/promote")
+def promote_learned_node(name: str):
+    result = mcp_tools.promote_learned_node(name, notify_editor=False)
+    if result.get("status") == "not_found":
+        raise HTTPException(404, f"Learned node '{name}' not found")
+    if result.get("status") == "rejected":
+        raise HTTPException(400, result.get("reason", "Could not promote learned node"))
+    _broadcast_learned_node_event("learned_node_deleted", name)
+    return result
+
+
 @app.get("/learned-nodes/events")
 def learned_nodes_events():
     def event_generator():

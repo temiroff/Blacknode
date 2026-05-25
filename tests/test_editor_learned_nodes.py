@@ -22,11 +22,11 @@ import server  # noqa: E402
 from blacknode.learned import registry  # noqa: E402
 
 
-def write_learned_node(root: Path, name: str) -> None:
+def write_learned_node(root: Path, name: str, *, category: str | None = None) -> None:
     node_dir = root / name
     node_dir.mkdir(parents=True)
     (node_dir / "node.py").write_text("def run():\n    return {'ok': True}\n", encoding="utf-8")
-    (node_dir / "manifest.json").write_text(json.dumps({
+    manifest = {
         "name": name,
         "description": "Editor server learned node test.",
         "inputs": [],
@@ -35,12 +35,16 @@ def write_learned_node(root: Path, name: str) -> None:
         "created_at": "2026-05-24T18:00:00Z",
         "created_by": "unit-test",
         "schema_version": 1,
-    }), encoding="utf-8")
+    }
+    if category:
+        manifest["category"] = category
+    (node_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
 class EditorLearnedNodesTests(unittest.TestCase):
     def tearDown(self):
         registry.unregister_one("EditorLearned")
+        server._NODE_REGISTRY.pop("EditorLearned", None)
         with server._learned_node_event_lock:
             server._learned_node_event_subscribers.clear()
 
@@ -80,6 +84,28 @@ class EditorLearnedNodesTests(unittest.TestCase):
             self.assertEqual(deleted.status_code, 200)
             self.assertFalse((root / "EditorLearned").exists())
             self.assertEqual(events.get_nowait()["type"], "learned_node_deleted")
+
+    def test_promote_learned_node_writes_custom_node_and_broadcasts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            learned_root = root / "learned"
+            with patch.dict(os.environ, {"BLACKNODE_LEARNED_DIR": str(learned_root)}, clear=False), patch.object(server.mcp_tools, "_REPO_ROOT", root):
+                write_learned_node(learned_root, "EditorLearned", category="Parsing")
+                registry.register_one("EditorLearned", learned_dir=learned_root)
+                events: queue.Queue = queue.Queue()
+                with server._learned_node_event_lock:
+                    server._learned_node_event_subscribers.append(events)
+
+                client = TestClient(server.app)
+                promoted = client.post("/learned-nodes/EditorLearned/promote")
+
+                self.assertEqual(promoted.status_code, 200)
+                self.assertEqual(promoted.json()["category"], "Parsing")
+                self.assertTrue((root / "custom-nodes" / "editor_learned.py").is_file())
+                self.assertFalse((learned_root / "EditorLearned").exists())
+                self.assertEqual(events.get_nowait()["type"], "learned_node_deleted")
+                node_defs = client.get("/node-defs").json()
+                self.assertEqual(node_defs["EditorLearned"]["category"], "Parsing")
 
 
 if __name__ == "__main__":

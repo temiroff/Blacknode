@@ -26,8 +26,11 @@ class CreateNodeTypeTests(unittest.TestCase):
             "McpNotify",
             "McpRollback",
             "McpStale",
+            "McpCategorized",
+            "McpPromote",
         ):
             registry.unregister_one(name)
+            bn._NODE_REGISTRY.pop(name, None)
 
     def learned_env(self, root: Path, *, consent: str | None = "1"):
         values = {
@@ -151,6 +154,26 @@ class CreateNodeTypeTests(unittest.TestCase):
         self.assertEqual(result["status"], "rejected")
         self.assertIn("description", result["reason"])
 
+    def test_create_node_type_accepts_category(self):
+        with tempfile.TemporaryDirectory() as tmp, self.learned_env(Path(tmp)), patch.object(t, "_notify_learned_node_event"):
+            result = self.create_valid("McpCategorized", category="Parsing")
+
+            manifest = json.loads((Path(tmp) / "McpCategorized" / "manifest.json").read_text(encoding="utf-8"))
+            listed = t.list_learned_nodes()
+
+        self.assertEqual(result["status"], "created")
+        self.assertEqual(result["category"], "Parsing")
+        self.assertEqual(manifest["category"], "Parsing")
+        self.assertEqual(bn._NODE_REGISTRY["McpCategorized"]._bn_category, "Parsing")
+        self.assertEqual(listed["nodes"][0]["category"], "Parsing")
+
+    def test_create_node_type_rejects_invalid_category(self):
+        with tempfile.TemporaryDirectory() as tmp, self.learned_env(Path(tmp)):
+            result = self.create_valid(category="../bad")
+
+        self.assertEqual(result["status"], "rejected")
+        self.assertIn("category", result["reason"])
+
     def test_create_node_type_writes_files_registers_and_cooks_through_wrapper(self):
         with tempfile.TemporaryDirectory() as tmp, self.learned_env(Path(tmp)), patch.object(t, "_notify_learned_node_event"):
             result = self.create_valid()
@@ -160,7 +183,9 @@ class CreateNodeTypeTests(unittest.TestCase):
             self.assertEqual((node_dir / "node.py").read_text(encoding="utf-8"), VALID_CODE)
             manifest = json.loads((node_dir / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["permissions"], {"network": False})
+            self.assertEqual(manifest["category"], "Learned")
             self.assertIn("McpEcho", bn._NODE_REGISTRY)
+            self.assertEqual(bn._NODE_REGISTRY["McpEcho"]._bn_category, "Learned")
 
             graph = bn.Graph()
             node = graph.node("McpEcho", text="hi")
@@ -224,6 +249,52 @@ class CreateNodeTypeTests(unittest.TestCase):
             self.assertEqual(second["status"], "created")
             self.assertTrue((Path(tmp) / "McpStale" / "node.py").is_file())
             self.assertIn("McpStale", bn._NODE_REGISTRY)
+
+    def test_promote_learned_node_writes_custom_node_and_removes_learned_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            learned_root = root / "learned"
+            with (
+                self.learned_env(learned_root),
+                patch.object(t, "_REPO_ROOT", root),
+                patch.object(t, "_notify_learned_node_event"),
+            ):
+                created = self.create_valid("McpPromote", category="Parsing")
+                promoted = t.promote_learned_node("McpPromote")
+
+                self.assertEqual(created["status"], "created")
+                self.assertEqual(promoted["status"], "promoted")
+                self.assertEqual(promoted["category"], "Parsing")
+                self.assertEqual(promoted["target"], "custom-nodes")
+                self.assertTrue((root / "custom-nodes" / "mcp_promote.py").is_file())
+                self.assertFalse((learned_root / "McpPromote").exists())
+                self.assertIn("McpPromote", bn._NODE_REGISTRY)
+                self.assertNotEqual(getattr(bn._NODE_REGISTRY["McpPromote"], "_bn_source", None), "learned")
+                self.assertEqual(bn._NODE_REGISTRY["McpPromote"]._bn_category, "Parsing")
+
+                graph = bn.Graph()
+                node = graph.node("McpPromote", text="hi")
+                self.assertEqual(graph.cook(node, "result"), "HI")
+
+    def test_promote_learned_node_can_keep_learned_source_as_copy_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            learned_root = root / "learned"
+            with (
+                self.learned_env(learned_root),
+                patch.object(t, "_REPO_ROOT", root),
+                patch.object(t, "_notify_learned_node_event"),
+            ):
+                created = self.create_valid("McpPromote")
+                promoted = t.promote_learned_node("McpPromote", keep_learned=True)
+
+                self.assertEqual(created["status"], "created")
+                self.assertEqual(promoted["status"], "promoted")
+                self.assertEqual(promoted["category"], "Custom")
+                self.assertFalse(promoted["registered"])
+                self.assertTrue((root / "custom-nodes" / "mcp_promote.py").is_file())
+                self.assertTrue((learned_root / "McpPromote").exists())
+                self.assertEqual(getattr(bn._NODE_REGISTRY["McpPromote"], "_bn_source", None), "learned")
 
 
 if __name__ == "__main__":

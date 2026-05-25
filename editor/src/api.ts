@@ -81,6 +81,7 @@ export interface FrameworkExportResult {
 export interface LearnedNodeSummary {
   name: string
   description: string
+  category: string
   inputs: string[]
   outputs: string[]
   permissions: { network: boolean }
@@ -251,6 +252,8 @@ export const api = {
     req<{ nodes: LearnedNodeSummary[]; count: number }>('GET', '/learned-nodes'),
   getLearnedNodeSource: (name: string) =>
     req<LearnedNodeSource>('GET', `/learned-nodes/${encodeURIComponent(name)}/source`),
+  promoteLearnedNode: (name: string) =>
+    req<{ status: string; node_type: string; category: string; path: string }>('POST', `/learned-nodes/${encodeURIComponent(name)}/promote`),
   deleteLearnedNode: (name: string) =>
     req<{ status: string; node_type: string }>('DELETE', `/learned-nodes/${encodeURIComponent(name)}`),
   learnedNodeEventsUrl: () => `${BASE}/learned-nodes/events`,
