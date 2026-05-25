@@ -95,10 +95,15 @@ use learned nodes only when a reusable capability is missing:
 When building Blacknode workflows, always inspect the existing node catalog first
 with list_nodes and get_node_schema.
 
-Use built-in nodes whenever they can solve the task.
+Use built-in nodes whenever they can solve the task exactly.
 
 If the task needs a reusable capability that is missing from the catalog, create
 a learned node with create_node_type instead of using one-off Python code.
+
+Do not treat a brittle approximation as a match. For example, if the user asks
+to parse RSS article titles and only a generic regex extractor exists, create a
+learned node that parses RSS structurally instead of returning feed metadata or
+other false positives.
 
 Do not create or modify files under nodes/learned directly. Use
 create_node_type, list_learned_nodes, get_learned_node_source, and

@@ -51,8 +51,10 @@ Do not commit local planning notes, generated scratch exports, API keys, run log
 ## Learned Nodes vs PythonFn
 
 Default rule: inspect the catalog first, use built-in nodes when they solve the
-task, and create a learned node only when a reusable missing capability is
-needed.
+task exactly, and create a learned node when a reusable missing capability is
+needed. Do not treat brittle approximations as matches; for example, generic
+regex extraction is not a structural RSS parser if the requested output is only
+article titles.
 
 Use `PythonFn` for one-shot code that belongs only to the current workflow.
 Examples: a tiny adapter between two ports, a temporary formatting expression,

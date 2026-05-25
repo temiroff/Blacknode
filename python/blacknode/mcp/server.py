@@ -26,18 +26,22 @@ WORKFLOW_BUILDER_INSTRUCTIONS = """When building Blacknode workflows:
 
 1. Always inspect the existing node catalog first with list_nodes and
    get_node_schema.
-2. Use built-in nodes whenever they can solve the task.
+2. Use built-in nodes whenever they can solve the task exactly.
 3. If the task needs a reusable capability that is missing from the catalog,
    create a learned node with create_node_type instead of using one-off Python
    code.
-4. Do not create or modify files under nodes/learned directly. Use
+4. Do not treat a brittle approximation as a match. For example, if the user
+   asks to parse RSS article titles and only a generic regex extractor exists,
+   create a learned node that parses RSS structurally instead of returning feed
+   metadata or other false positives.
+5. Do not create or modify files under nodes/learned directly. Use
    create_node_type, list_learned_nodes, get_learned_node_source, and
    delete_learned_node.
-5. Before creating a learned node, keep the interface small and typed, use
+6. Before creating a learned node, keep the interface small and typed, use
    requires_network=false unless network is strictly required, generate only a
    def run(...) function, and make sure the function parameters match the
    declared inputs.
-6. After creating a learned node, call list_learned_nodes, use it in the visual
+7. After creating a learned node, call list_learned_nodes, use it in the visual
    workflow, validate the graph, open it in the editor, and cook the final
    Output node.
 
