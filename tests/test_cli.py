@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from blacknode.cli import _doctor_status, _node_version_ok, main
+from blacknode.cli import _doctor_status, _node_version_ok, _sandbox_duration_detail, main
 from blacknode.providers import registry
 from blacknode.providers.base import CompletionResponse
 from blacknode.workflow import WorkflowRunError, run_workflow
@@ -173,12 +173,26 @@ class CliTests(unittest.TestCase):
     def test_doctor_passes_required_core_checks(self):
         stdout = io.StringIO()
 
-        with contextlib.redirect_stdout(stdout):
+        with patch(
+            "blacknode.cli.docker_runner.learned_node_runtime_status",
+            return_value={
+                "disabled": False,
+                "docker_available": False,
+                "image": "blacknode-sandbox:latest",
+                "image_present": False,
+                "last_execution_duration_seconds": None,
+                "detail": "Docker is not available - learned nodes require Docker. Run 'blacknode doctor' for diagnostics.",
+            },
+        ), contextlib.redirect_stdout(stdout):
             code = main(["doctor"])
 
         self.assertEqual(code, 0)
         output = stdout.getvalue()
         self.assertIn("Blacknode doctor", output)
+        self.assertIn("Learned nodes:", output)
+        self.assertIn("Docker:", output)
+        self.assertIn("Sandbox image:", output)
+        self.assertIn("Last sandbox run:", output)
         self.assertIn("Required checks passed.", output)
 
     def test_doctor_node_version_matches_editor_requirement(self):
@@ -195,6 +209,10 @@ class CliTests(unittest.TestCase):
         self.assertIn("\033[32m", _doctor_status(True, True, color=True))
         self.assertIn("\033[31m", _doctor_status(False, True, color=True))
         self.assertIn("\033[33m", _doctor_status(False, False, color=True))
+
+    def test_sandbox_duration_detail(self):
+        self.assertEqual(_sandbox_duration_detail(None), "no sandbox runs in this process")
+        self.assertEqual(_sandbox_duration_detail(0.12345), "0.123s")
 
     def test_mcp_forwards_streamable_http_options(self):
         with patch("blacknode.mcp.main") as run_mcp:

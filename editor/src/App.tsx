@@ -84,12 +84,13 @@ export default function App() {
     nodes, edges, nodeTypes, nodeDefs, serverOk, cookLog, cookActive, cookStatusHidden,
     tabs, activeTabId,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
-    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels,
+    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels, loadLearnedNodes,
     addNodeFromConnection, copySelection, pasteClipboard,
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     openGraphAsTab, openWorkflowAsTab, renameTab, saveActiveWorkflow,
     diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, dismissCookStatus, applyRunReplay,
+    handleLearnedNodeEvent,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -183,12 +184,28 @@ export default function App() {
     checkServer().then(() => {
       loadApiKeys()
       loadCustomModels()
+      loadLearnedNodes()
       loadNodeTypes()
       loadGraph()
     })
     const id = setInterval(checkServer, 5000)
     return () => clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (!serverOk) return
+    const source = new EventSource(api.learnedNodeEventsUrl())
+    const handleEvent = (event: MessageEvent) => {
+      try {
+        void handleLearnedNodeEvent(JSON.parse(event.data))
+      } catch {
+      }
+    }
+    source.addEventListener('learned_node_added', handleEvent)
+    source.addEventListener('learned_node_deleted', handleEvent)
+    source.onmessage = handleEvent
+    return () => source.close()
+  }, [handleLearnedNodeEvent, serverOk])
 
   useEffect(() => {
     if (!serverOk) return

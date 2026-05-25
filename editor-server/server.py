@@ -1,6 +1,6 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import uuid, os, sys, json, threading, re
+import uuid, os, sys, json, threading, re, queue
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +14,8 @@ import blacknode as bn
 from blacknode.discovery import discover_node_modules, load_node_file
 from blacknode.exporters import export_workflow as export_framework_workflow
 from blacknode.exporters import list_export_targets
+from blacknode.learned import registry as learned_registry
+from blacknode.mcp import tools as mcp_tools
 from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
 from blacknode.python_importer import import_workflow_python
@@ -180,6 +182,9 @@ class LoadSavedWorkflowTabReq(BaseModel):
 class RenameEditorTabReq(BaseModel):
     name: str
 
+class LearnedNodeEventReq(BaseModel):
+    name: str
+
 class UpdateSubgraphReq(BaseModel):
     node_meta: dict[str, Any] = {}
     edges: list[dict[str, Any]] = []
@@ -225,6 +230,8 @@ _KEYS_PATH = os.path.join(os.path.dirname(__file__), "api_keys.json")
 _api_keys: dict[str, str] = {}
 _editor_action_queue: list[dict[str, Any]] = []
 _editor_action_lock = threading.Lock()
+_learned_node_event_subscribers: list[queue.Queue] = []
+_learned_node_event_lock = threading.Lock()
 
 
 def _load_api_keys() -> None:
@@ -627,6 +634,19 @@ def _enqueue_editor_action(action_type: str, payload: dict[str, Any] | None = No
         _editor_action_queue.append(action)
         del _editor_action_queue[:-100]
     return action
+
+
+def _broadcast_learned_node_event(event_type: str, name: str) -> dict[str, Any]:
+    event = {
+        "type": event_type,
+        "name": name,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    with _learned_node_event_lock:
+        subscribers = list(_learned_node_event_subscribers)
+    for subscriber in subscribers:
+        subscriber.put(event)
+    return event
 
 
 _load()   # restore last session on startup
@@ -1789,6 +1809,77 @@ def consume_editor_actions():
         actions = list(_editor_action_queue)
         _editor_action_queue.clear()
     return {"actions": actions}
+
+
+@app.get("/learned-nodes")
+def list_learned_nodes():
+    return mcp_tools.list_learned_nodes()
+
+
+@app.get("/learned-nodes/{name}/source")
+def get_learned_node_source(name: str):
+    result = mcp_tools.get_learned_node_source(name)
+    if result.get("status") == "not_found":
+        raise HTTPException(404, f"Learned node '{name}' not found")
+    if result.get("status") == "rejected":
+        raise HTTPException(400, result.get("reason", "Invalid learned node name"))
+    return result
+
+
+@app.delete("/learned-nodes/{name}")
+def delete_learned_node(name: str):
+    result = mcp_tools.delete_learned_node(name, confirm=True, notify_editor=False)
+    if result.get("status") == "not_found":
+        raise HTTPException(404, f"Learned node '{name}' not found")
+    if result.get("status") == "rejected":
+        raise HTTPException(400, result.get("reason", "Could not delete learned node"))
+    _broadcast_learned_node_event("learned_node_deleted", name)
+    return result
+
+
+@app.get("/learned-nodes/events")
+def learned_nodes_events():
+    def event_generator():
+        subscriber: queue.Queue = queue.Queue()
+        with _learned_node_event_lock:
+            _learned_node_event_subscribers.append(subscriber)
+        try:
+            while True:
+                try:
+                    event = subscriber.get(timeout=15)
+                except queue.Empty:
+                    yield ": keep-alive\n\n"
+                    continue
+                yield f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+        finally:
+            with _learned_node_event_lock:
+                if subscriber in _learned_node_event_subscribers:
+                    _learned_node_event_subscribers.remove(subscriber)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+@app.post("/internal/learned-node-added")
+def internal_learned_node_added(req: LearnedNodeEventReq):
+    name = req.name.strip()
+    try:
+        learned_registry.register_one(name)
+    except Exception as exc:
+        raise HTTPException(400, str(exc))
+    event = _broadcast_learned_node_event("learned_node_added", name)
+    return {"ok": True, "event": event}
+
+
+@app.post("/internal/learned-node-deleted")
+def internal_learned_node_deleted(req: LearnedNodeEventReq):
+    name = req.name.strip()
+    learned_registry.unregister_one(name)
+    event = _broadcast_learned_node_event("learned_node_deleted", name)
+    return {"ok": True, "event": event}
 
 
 def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str):

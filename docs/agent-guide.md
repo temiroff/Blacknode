@@ -25,6 +25,8 @@ Use these paths consistently:
 |---|---|---|
 | `templates/*.json` | Shared reusable workflow templates | tracked |
 | `workflows/*.json` | User-saved local workflows from the editor | ignored |
+| `nodes/learned/*.py` | User-created learned nodes generated through MCP | ignored |
+| `examples/learned/*` | Reference learned-node examples | tracked |
 | `examples/*.py` | Human-readable Python examples | tracked |
 | `docs/*.md` | Project documentation | tracked |
 | `editor-server/blacknode_graph.json` | Last local editor session | ignored |
@@ -43,6 +45,30 @@ Do not commit local planning notes, generated scratch exports, API keys, run log
 - Output node: terminal node used by the editor and inferred by the CLI when there is exactly one.
 - Subnet: nested workflow graph inside a node.
 - Template: a tracked workflow JSON file in `templates/` with `metadata.template: true`.
+- Learned node: a reusable MCP-created node type stored on disk and executed in
+  Docker through the learned-node wrapper.
+
+## Learned Nodes vs PythonFn
+
+Use `PythonFn` for one-shot code that belongs only to the current workflow.
+Examples: a tiny adapter between two ports, a temporary formatting expression,
+or exploratory code that should travel with one graph.
+
+Use `create_node_type` when the capability is general and reusable across
+workflows. Examples: parsing RSS, extracting a domain-specific CSV format,
+normalizing a recurring API response, or wrapping a stable local calculation.
+
+Before creating a learned node:
+
+- call `list_nodes` and `get_node_schema` to confirm no built-in node fits
+- keep the interface small and typed with `Text`, `Int`, `Float`, `Bool`,
+  `List`, `Dict`, or `Any`
+- set `requires_network=False` unless the code must reach the network
+- remember that learned-node code never runs in the host process; it runs in the
+  Docker sandbox wrapper
+
+Do not ask the editor to edit learned nodes. The UI is read-only by design; the
+plain files in `nodes/learned/<Name>/` are the editing contract.
 
 ## Workflow JSON Shape
 

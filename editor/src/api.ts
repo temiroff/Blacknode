@@ -78,6 +78,22 @@ export interface FrameworkExportResult {
   warnings: string[]
 }
 
+export interface LearnedNodeSummary {
+  name: string
+  description: string
+  inputs: string[]
+  outputs: string[]
+  permissions: { network: boolean }
+  created_at: string
+}
+
+export interface LearnedNodeSource {
+  status: string
+  node_type: string
+  path: string
+  source: string
+}
+
 export interface WorkflowValidation {
   ok: boolean
   errors: Array<Record<string, unknown>>
@@ -230,6 +246,14 @@ export const api = {
     req<{ mcp_installed: boolean; blacknode_cli: string | null; install_command: string; launch_command: string }>('GET', '/mcp/status'),
   consumeEditorActions: () =>
     req<{ actions: EditorAction[] }>('GET', '/editor/actions'),
+
+  listLearnedNodes: () =>
+    req<{ nodes: LearnedNodeSummary[]; count: number }>('GET', '/learned-nodes'),
+  getLearnedNodeSource: (name: string) =>
+    req<LearnedNodeSource>('GET', `/learned-nodes/${encodeURIComponent(name)}/source`),
+  deleteLearnedNode: (name: string) =>
+    req<{ status: string; node_type: string }>('DELETE', `/learned-nodes/${encodeURIComponent(name)}`),
+  learnedNodeEventsUrl: () => `${BASE}/learned-nodes/events`,
 
   listRuns:   (limit = 50) =>
     req<{ runs: RunSummary[] }>('GET', `/runs?limit=${limit}`),

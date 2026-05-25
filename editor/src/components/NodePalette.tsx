@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { CATEGORIES } from '../categories'
 import { isPythonToolPreset, resolvePythonToolPreset } from '../pythonToolPresets'
 import McpPanel from './McpPanel'
+import LearnedNodesPanel from './LearnedNodesPanel'
 import RunsPanel from './RunsPanel'
 import ScriptEditor from './ScriptEditor'
 import TemplateGallery from './TemplateGallery'
@@ -10,7 +11,7 @@ import WorkflowManager from './WorkflowManager'
 
 const ALL_CATEGORISED = Object.values(CATEGORIES).flatMap(c => c.nodes)
 
-type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs' | 'mcp'
+type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs' | 'learned' | 'mcp'
 
 const TOP_BAR_H = 44
 const RAIL_W = 78
@@ -53,6 +54,13 @@ const ICON_RUNS = (
     <path d="M9 5v4l2.5 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 )
+const ICON_LEARNED = (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <path d="M2.5 6.5L9 3.5l6.5 3-6.5 3-6.5-3z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+    <path d="M5 8v3.2c0 1.2 1.8 2.1 4 2.1s4-.9 4-2.1V8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    <path d="M15.5 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+  </svg>
+)
 const ICON_MCP = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
     <rect x="3" y="6" width="12" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.3"/>
@@ -67,11 +75,12 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'workflows', label: 'Workflows', icon: ICON_WORKFLOWS },
   { id: 'script',    label: 'Script',    icon: ICON_SCRIPT    },
   { id: 'runs',      label: 'Runs',      icon: ICON_RUNS      },
+  { id: 'learned',   label: 'Learned',   icon: ICON_LEARNED   },
   { id: 'mcp',       label: 'MCP',       icon: ICON_MCP       },
 ]
 
 export default function NodePalette() {
-  const { nodeTypes, nodeDefs, addNode, loadNodeTypes } = useStore()
+  const { nodeTypes, nodeDefs, addNode, loadNodeTypes, learnedNodeHighlight } = useStore()
   const [activeTab, setActiveTab] = useState<Tab | null>('nodes')
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
@@ -80,6 +89,12 @@ export default function NodePalette() {
   useEffect(() => {
     if (activeTab === 'nodes') loadNodeTypes()
   }, [activeTab, loadNodeTypes])
+
+  useEffect(() => {
+    if (!learnedNodeHighlight) return
+    setActiveTab('nodes')
+    setOpenGroups(prev => new Set(prev).add('Learned'))
+  }, [learnedNodeHighlight])
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -375,6 +390,7 @@ export default function NodePalette() {
                     {openGroups.has(group) && types.map(type => (
                         <div
                           key={type}
+                          className={type === learnedNodeHighlight ? 'bn-node-palette-item bn-learned-node-pulse' : 'bn-node-palette-item'}
                           draggable
                           onDragStart={e => handleDragStart(e, type)}
                           onClick={() => {
@@ -429,6 +445,9 @@ export default function NodePalette() {
 
             {/* ── RUNS ── */}
             {activeTab === 'runs' && <RunsPanel />}
+
+            {/* ── LEARNED ── */}
+            {activeTab === 'learned' && <LearnedNodesPanel />}
 
             {/* ── MCP ── */}
             {activeTab === 'mcp' && <McpPanel />}
