@@ -117,6 +117,15 @@ The script starts the editor backend when needed, creates a temporary learned
 RSS parser through MCP, verifies it appears in `/learned-nodes`, runs a workflow
 through the Docker sandbox, and deletes the node.
 
+Run the complex category demo without Docker:
+
+```powershell
+python scripts\complex_learned_demo.py --mock-sandbox
+```
+
+It creates three temporary learned nodes in `Parsing`, `Analysis`, and
+`Research`, builds a 14-node workflow, validates it, runs it, and cleans up.
+
 For the full command-by-command validation path, including Docker integration
 tests, MCP smoke checks, consent-gate verification, and the visible editor pulse
 test, see [Learned Nodes Test Plan](learned-nodes-test-plan.md).
