@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,6 +25,7 @@ class CreateNodeTypeTests(unittest.TestCase):
             "McpDelete",
             "McpNotify",
             "McpRollback",
+            "McpStale",
         ):
             registry.unregister_one(name)
 
@@ -209,6 +211,19 @@ class CreateNodeTypeTests(unittest.TestCase):
             self.assertEqual(deleted["status"], "deleted")
             self.assertFalse((Path(tmp) / "McpSource").exists())
             self.assertNotIn("McpSource", bn._NODE_REGISTRY)
+
+    def test_create_node_type_recovers_from_stale_learned_registry_entry(self):
+        with tempfile.TemporaryDirectory() as tmp, self.learned_env(Path(tmp)), patch.object(t, "_notify_learned_node_event"):
+            first = self.create_valid("McpStale")
+            self.assertEqual(first["status"], "created")
+            shutil.rmtree(Path(tmp) / "McpStale")
+            self.assertIn("McpStale", bn._NODE_REGISTRY)
+
+            second = self.create_valid("McpStale")
+
+            self.assertEqual(second["status"], "created")
+            self.assertTrue((Path(tmp) / "McpStale" / "node.py").is_file())
+            self.assertIn("McpStale", bn._NODE_REGISTRY)
 
 
 if __name__ == "__main__":

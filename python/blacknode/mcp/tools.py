@@ -80,6 +80,7 @@ class BlacknodeMCPError(ValueError):
 
 def list_nodes() -> dict[str, Any]:
     """Return every registered node type with its category and port schema."""
+    learned_registry.sync_with_disk()
     nodes = [_node_schema(name, fn) for name, fn in sorted(_NODE_REGISTRY.items())]
     by_category: dict[str, list[str]] = {}
     for entry in nodes:
@@ -89,6 +90,7 @@ def list_nodes() -> dict[str, Any]:
 
 def get_node_schema(type_name: str) -> dict[str, Any]:
     """Return the input/output port schema for one node type."""
+    learned_registry.sync_with_disk()
     if type_name in SUBGRAPH_NODE_TYPES:
         return {
             "type": type_name,
@@ -192,6 +194,7 @@ def add_node(
     node_id: str | None = None,
 ) -> dict[str, Any]:
     """Add a node to a workflow and return the updated workflow + validation."""
+    learned_registry.sync_with_disk()
     if type_name in SUBGRAPH_NODE_TYPES:
         raise ValueError(
             f"{type_name} requires a nested subgraph and cannot be added via MCP. "
@@ -300,11 +303,13 @@ def connect_nodes(
 
 def validate_workflow_tool(workflow: Mapping[str, Any]) -> dict[str, Any]:
     """Run full schema + port-type validation against the workflow schema."""
+    learned_registry.sync_with_disk()
     return _validation_with_suggestions(workflow)
 
 
 def run_workflow_tool(workflow: Mapping[str, Any]) -> dict[str, Any]:
     """Execute the workflow and return the cooked value plus run event log."""
+    learned_registry.sync_with_disk()
     try:
         return run_workflow(workflow)
     except WorkflowRunError as exc:
@@ -335,6 +340,7 @@ def create_node_type(
     Learned node source is written to disk, registered into the normal node
     registry, and executed only through the Docker-backed learned-node wrapper.
     """
+    learned_registry.sync_with_disk()
     consent = _ensure_learned_nodes_consent()
     if consent is not None:
         return consent
@@ -380,6 +386,7 @@ def create_node_type(
 
 def list_learned_nodes() -> dict[str, Any]:
     """List learned nodes currently present on disk."""
+    learned_registry.sync_with_disk()
     nodes: list[dict[str, Any]] = []
     base = learned_registry.learned_dir()
     if base.exists():
@@ -402,6 +409,7 @@ def list_learned_nodes() -> dict[str, Any]:
 
 def delete_learned_node(name: str, confirm: bool = False, *, notify_editor: bool = True) -> dict[str, Any]:
     """Remove one learned node from disk and unregister it."""
+    learned_registry.sync_with_disk()
     if not confirm:
         return {
             "status": "rejected",

@@ -65,6 +65,9 @@ normalizing a recurring API response, or wrapping a stable local calculation.
 Before creating a learned node:
 
 - call `list_nodes` and `get_node_schema` to confirm no built-in node fits
+- do not create or modify files under `nodes/learned` directly; use
+  `create_node_type`, `list_learned_nodes`, `get_learned_node_source`, and
+  `delete_learned_node`
 - keep the interface small and typed with `Text`, `Int`, `Float`, `Bool`,
   `List`, `Dict`, or `Any`
 - set `requires_network=False` unless the code must reach the network

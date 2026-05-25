@@ -150,6 +150,30 @@ class LearnedRegistryTests(unittest.TestCase):
         self.assertNotIn("TempLearned", _NODE_REGISTRY)
         self.assertFalse(registry.unregister_one("Text"))
 
+    def test_sync_with_disk_unregisters_deleted_learned_node(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            node_dir = write_learned_node(root, "TempLearned")
+            registry.register_one("TempLearned", learned_dir=root)
+            for path in node_dir.iterdir():
+                path.unlink()
+            node_dir.rmdir()
+
+            report = registry.sync_with_disk(root)
+
+        self.assertEqual(report.loaded, [])
+        self.assertNotIn("TempLearned", _NODE_REGISTRY)
+
+    def test_sync_with_disk_loads_node_created_by_other_process(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_learned_node(root, "TempLearned")
+
+            report = registry.sync_with_disk(root)
+
+        self.assertEqual(report.loaded, ["TempLearned"])
+        self.assertIn("TempLearned", _NODE_REGISTRY)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -59,6 +59,34 @@ def load_all(root: str | Path | None = None) -> LearnedLoadReport:
     return report
 
 
+def sync_with_disk(root: str | Path | None = None) -> LearnedLoadReport:
+    """Reconcile in-memory learned nodes with the learned-node directory.
+
+    The editor backend and MCP server often run as separate processes. A learned
+    node may be deleted from disk by one process while another still has the
+    wrapper registered in memory. Disk is the source of truth, so stale learned
+    wrappers are removed before valid manifests are loaded again.
+    """
+    base = Path(root).resolve() if root is not None else learned_dir()
+    for name, fn in list(_NODE_REGISTRY.items()):
+        if getattr(fn, "_bn_source", None) != "learned":
+            continue
+        source_raw = getattr(fn, "_bn_source_path", "")
+        manifest_raw = getattr(fn, "_bn_manifest_path", "")
+        source_path = Path(source_raw).resolve() if source_raw else None
+        manifest_path = Path(manifest_raw).resolve() if manifest_raw else None
+        if (
+            source_path is None
+            or manifest_path is None
+            or not _is_relative_to(source_path, base)
+            or not _is_relative_to(manifest_path, base)
+            or not source_path.is_file()
+            or not manifest_path.is_file()
+        ):
+            unregister_one(name)
+    return load_all(base)
+
+
 def register_one(name: str, *, learned_dir: str | Path | None = None) -> LearnedNodeManifest:
     base = Path(learned_dir).resolve() if learned_dir is not None else globals()["learned_dir"]()
     node_dir = base / name
@@ -139,3 +167,11 @@ def _learned_node_impl(
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+    except ValueError:
+        return False
+    return True
