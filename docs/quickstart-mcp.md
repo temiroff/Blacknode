@@ -102,6 +102,27 @@ Expected result:
 - `run_workflow` returns `Hello World`.
 - `export_python` returns a runnable Python script.
 
+## Learned Node Tools
+
+Learned-node creation is opt-in because agents can create new Python code that
+will execute on your machine in a Docker sandbox.
+
+```powershell
+$env:BLACKNODE_LEARNED_NODES_CONSENT="1"
+```
+
+After opt-in, MCP exposes:
+
+| Tool | Use |
+|---|---|
+| `create_node_type` | Create a reusable learned node from Python source plus manifest fields. |
+| `list_learned_nodes` | List learned nodes stored on disk. |
+| `get_learned_node_source` | Inspect learned-node source read-only. |
+| `delete_learned_node` | Delete a learned node after `confirm=True`. |
+
+Generated learned nodes appear in the editor palette under **Learned** and run
+through Docker, not in the host Python process.
+
 ## Visual Editor Smoke Prompt
 
 Use this after the editor backend and browser are running.

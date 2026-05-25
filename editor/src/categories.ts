@@ -22,6 +22,7 @@ export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
   RAG:      { color: '#f97316', nodes: ['TextChunker', 'KeywordIndex', 'KeywordSearch', 'RAGContext'] },
   Database: { color: '#a855f7', nodes: ['SQLiteQuery', 'SQLiteExec'] },
   API:      { color: '#06b6d4', nodes: ['HTTPRequest', 'APIRequestBuilder'] },
+  Learned:  { color: '#a78bfa', nodes: [] },
   Math:     { color: '#22c55e', nodes: ['Add', 'Subtract', 'Multiply', 'Divide'] },
   Flow:     { color: '#d97706', nodes: ['Branch', 'Switch', 'Gate', 'Map', 'Filter', 'Reduce', 'ForEach'] },
   IO:       { color: '#0891b2', nodes: ['FileRead', 'FileWrite', 'DirectoryList', 'FileInfo', 'CSVRead', 'CSVWrite', 'HTTPGet', 'JSONParse', 'JSONDump'] },

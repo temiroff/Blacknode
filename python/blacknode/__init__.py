@@ -21,6 +21,10 @@ from .discovery import discover_node_modules  # noqa: E402
 
 _DISCOVERY_REPORT = discover_node_modules()
 
+from .learned.registry import load_all as _load_learned_nodes  # noqa: E402
+
+_LEARNED_REPORT = _load_learned_nodes()
+
 __version__ = "0.1.0"
 __all__ = [
     "Any",
@@ -37,6 +41,7 @@ __all__ = [
     "Number",
     "Text",
     "_DISCOVERY_REPORT",
+    "_LEARNED_REPORT",
     "_NODE_REGISTRY",
     "discover_node_modules",
     "node",

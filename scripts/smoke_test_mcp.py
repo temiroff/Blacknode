@@ -111,6 +111,8 @@ def main() -> int:
             "list_saved_workflows", "load_saved_workflow_in_editor",
             "organize_editor_graph", "rename_editor_tab", "close_editor_tab",
             "run_template_in_editor",
+            "create_node_type", "list_learned_nodes", "delete_learned_node",
+            "get_learned_node_source",
         }
         missing = expected - set(names)
         if missing:

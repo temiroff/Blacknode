@@ -14,7 +14,9 @@ from typing import Any
 
 from .exporters import export_workflow as export_framework_workflow
 from .exporters import list_export_targets
+from .learned import registry as learned_registry
 from .python_importer import PythonImportError, import_workflow_python
+from .sandbox import docker_runner
 from .workflow import WorkflowRunError, export_workflow_python, load_workflow, run_workflow, validate_workflow
 
 
@@ -248,6 +250,23 @@ def _doctor() -> int:
     server_ok = _url_ok("http://127.0.0.1:7777/node-types")
     add("Editor server", server_ok, "http://127.0.0.1:7777" if server_ok else "not running", required=False)
 
+    _learned_count, learned_detail = _learned_nodes_doctor_detail()
+    add("Learned nodes", True, learned_detail, required=False)
+
+    sandbox_status = docker_runner.learned_node_runtime_status()
+    docker_ok = bool(sandbox_status["docker_available"]) and not bool(sandbox_status["disabled"])
+    add("Docker", docker_ok, str(sandbox_status["detail"]), required=False)
+    image_detail = str(sandbox_status["detail"])
+    if sandbox_status["docker_available"]:
+        image_detail = f"{sandbox_status['image']} ({'present' if sandbox_status['image_present'] else 'missing'})"
+    add("Sandbox image", bool(sandbox_status["image_present"]), image_detail, required=False)
+    add(
+        "Last sandbox run",
+        True,
+        _sandbox_duration_detail(sandbox_status.get("last_execution_duration_seconds")),
+        required=False,
+    )
+
     print("Blacknode doctor")
     use_color = _terminal_color_enabled()
     for label, ok, detail, required in checks:
@@ -289,6 +308,28 @@ def _template_path(name: str) -> Path:
         if candidate.exists():
             return candidate
     return candidates[0]
+
+
+def _learned_nodes_doctor_detail() -> tuple[int, str]:
+    loaded = sorted(learned_registry.LEARNED_NODE_MANIFESTS)
+    base = learned_registry.learned_dir()
+    skipped = {}
+    report = getattr(sys.modules.get("blacknode"), "_LEARNED_REPORT", None)
+    if report is not None and hasattr(report, "skipped"):
+        skipped = dict(report.skipped)
+    detail = f"{len(loaded)} loaded from {base}"
+    if skipped:
+        detail += f"; {len(skipped)} skipped"
+    return len(loaded), detail
+
+
+def _sandbox_duration_detail(value: Any) -> str:
+    if value is None:
+        return "no sandbox runs in this process"
+    try:
+        return f"{float(value):.3f}s"
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _command_version(command: str, version_arg: str) -> str:

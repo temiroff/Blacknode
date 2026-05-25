@@ -3,7 +3,7 @@ import {
   Node, Edge, addEdge, applyNodeChanges, applyEdgeChanges,
   NodeChange, EdgeChange, Connection,
 } from 'reactflow'
-import { api, type CookEvent, type RunRecord } from './api'
+import { api, type CookEvent, type LearnedNodeSummary, type RunRecord } from './api'
 import { BnNodeDef, BnNodeMeta, ConnectionDraft, NodeCookState, SubnetFrame } from './types'
 import { VALUE_NODE_TYPES } from './categories'
 import { portsCompatible, portColor } from './portColors'
@@ -69,6 +69,7 @@ interface UndoSnapshot {
 
 const UNDO_LIMIT = 80
 let dragUndoActive = false
+let learnedHighlightTimer: ReturnType<typeof setTimeout> | null = null
 
 interface Store {
   nodes: Node<NodeData>[]
@@ -79,6 +80,8 @@ interface Store {
   serverOk: boolean
   apiKeys: Record<string, string>
   customModels: string[]
+  learnedNodes: LearnedNodeSummary[]
+  learnedNodeHighlight: string | null
   tabs: WorkflowTab[]
   activeTabId: string
   workflowRevision: number
@@ -95,6 +98,8 @@ interface Store {
   loadCustomModels: () => Promise<void>
   addCustomModel: (value: string) => Promise<void>
   removeCustomModel: (value: string) => Promise<void>
+  loadLearnedNodes: () => Promise<void>
+  handleLearnedNodeEvent: (event: { type?: string; name?: string }) => Promise<void>
   checkServer: () => Promise<void>
 
   newTab: (name?: string) => Promise<void>
@@ -883,6 +888,8 @@ export const useStore = create<Store>((set, get) => ({
   serverOk: false,
   apiKeys: {},
   customModels: [],
+  learnedNodes: [],
+  learnedNodeHighlight: null,
   tabs: [{ id: 'default', name: 'Untitled', slug: null, dirty: false, graph: null, cookLog: [], cookActive: false, cookStatusHidden: false }],
   activeTabId: 'default',
   workflowRevision: 0,
@@ -909,6 +916,26 @@ export const useStore = create<Store>((set, get) => ({
     } catch {
       const types = await api.nodeTypes()
       set({ nodeTypes: types, nodeDefs: {} })
+    }
+  },
+
+  loadLearnedNodes: async () => {
+    try {
+      const result = await api.listLearnedNodes()
+      set({ learnedNodes: result.nodes })
+    } catch {
+      set({ learnedNodes: [] })
+    }
+  },
+
+  handleLearnedNodeEvent: async (event) => {
+    await Promise.all([get().loadNodeTypes(), get().loadLearnedNodes()])
+    if (event.type === 'learned_node_added' && event.name) {
+      if (learnedHighlightTimer) clearTimeout(learnedHighlightTimer)
+      set({ learnedNodeHighlight: event.name })
+      learnedHighlightTimer = setTimeout(() => {
+        set(current => current.learnedNodeHighlight === event.name ? { learnedNodeHighlight: null } : {})
+      }, 2200)
     }
   },
 

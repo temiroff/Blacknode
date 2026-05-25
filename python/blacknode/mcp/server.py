@@ -181,6 +181,44 @@ def export_python(workflow: dict[str, Any]) -> dict[str, Any]:
 
 
 @mcp.tool()
+def create_node_type(
+    name: str,
+    description: str,
+    inputs: list[str],
+    outputs: list[str],
+    code: str,
+    requires_network: bool = False,
+) -> dict[str, Any]:
+    """Create a permanent learned node type that executes in the Docker sandbox."""
+    return tools.create_node_type(
+        name=name,
+        description=description,
+        inputs=inputs,
+        outputs=outputs,
+        code=code,
+        requires_network=requires_network,
+    )
+
+
+@mcp.tool()
+def list_learned_nodes() -> dict[str, Any]:
+    """List learned nodes stored on disk."""
+    return tools.list_learned_nodes()
+
+
+@mcp.tool()
+def delete_learned_node(name: str, confirm: bool = False) -> dict[str, Any]:
+    """Delete a learned node from disk and unregister it; requires confirm=True."""
+    return tools.delete_learned_node(name=name, confirm=confirm)
+
+
+@mcp.tool()
+def get_learned_node_source(name: str) -> dict[str, Any]:
+    """Return the Python source for a learned node."""
+    return tools.get_learned_node_source(name=name)
+
+
+@mcp.tool()
 def create_editor_workflow_tab(
     name: str = "Untitled",
     editor_url: str | None = None,

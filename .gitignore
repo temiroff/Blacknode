@@ -44,3 +44,5 @@ editor-server/api_keys.json
 editor-server/custom_models.json
 editor-server/runs/
 /workflows/
+/nodes/learned/*
+!/nodes/learned/.gitkeep

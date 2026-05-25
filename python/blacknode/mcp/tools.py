@@ -6,14 +6,22 @@ here means tests can exercise the tool surface without installing ``mcp``.
 """
 from __future__ import annotations
 
+import ast
+import logging
 import json
 import os
+import re
+import shutil
 from pathlib import Path
 from typing import Any, Mapping
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+from datetime import datetime, timezone
 
+from ..learned import registry as learned_registry
+from ..learned.manifest import ALLOWED_PORT_TYPES, PORT_RE, validate_manifest
 from ..node import _NODE_REGISTRY
+from ..sandbox.static import check_safe
 from ..workflow import (
     SUBGRAPH_NODE_TYPES,
     WORKFLOW_KIND,
@@ -28,6 +36,11 @@ from ..workflow import (
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _TEMPLATES_DIR = _REPO_ROOT / "templates"
+_LOGGER = logging.getLogger(__name__)
+_LEARNED_NAME_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
+_LEARNED_CONSENT_ENV = "BLACKNODE_LEARNED_NODES_CONSENT"
+_LEARNED_CONSENT_FILE = "learned-nodes-consent.json"
+_ALLOWED_PORT_TYPES_DISPLAY = "Text, Int, Float, Bool, List, Dict, Any"
 
 _CATEGORY_BY_MODULE = {
     "blacknode.nodes.values": "Values",
@@ -306,6 +319,126 @@ def run_workflow_tool(workflow: Mapping[str, Any]) -> dict[str, Any]:
 def export_python_tool(workflow: Mapping[str, Any]) -> dict[str, Any]:
     """Export the workflow as a standalone Python script."""
     return {"source": export_workflow_python(workflow)}
+
+
+def create_node_type(
+    name: str,
+    description: str,
+    inputs: list[str],
+    outputs: list[str],
+    code: str,
+    requires_network: bool = False,
+) -> dict[str, Any]:
+    """
+    Create a new permanent learned Blacknode node type.
+
+    Learned node source is written to disk, registered into the normal node
+    registry, and executed only through the Docker-backed learned-node wrapper.
+    """
+    consent = _ensure_learned_nodes_consent()
+    if consent is not None:
+        return consent
+
+    validation = _validate_create_node_type_inputs(
+        name=name,
+        description=description,
+        inputs=inputs,
+        outputs=outputs,
+        code=code,
+    )
+    if validation is not None:
+        return validation
+
+    base = learned_registry.learned_dir()
+    node_dir = base / name
+    manifest = {
+        "name": name,
+        "description": description,
+        "inputs": list(inputs),
+        "outputs": list(outputs),
+        "permissions": {"network": bool(requires_network)},
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "created_by": "claude-via-mcp",
+        "schema_version": 1,
+    }
+    validate_manifest(manifest)
+
+    try:
+        node_dir.mkdir(parents=True, exist_ok=False)
+        (node_dir / "node.py").write_text(code, encoding="utf-8")
+        (node_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        learned_registry.register_one(name, learned_dir=base)
+    except Exception as exc:
+        if node_dir.exists():
+            shutil.rmtree(node_dir)
+        learned_registry.unregister_one(name)
+        return {"status": "rejected", "reason": f"Failed to create learned node: {exc}"}
+
+    _notify_learned_node_event("learned_node_added", name)
+    return {"status": "created", "node_type": name, "path": str(node_dir)}
+
+
+def list_learned_nodes() -> dict[str, Any]:
+    """List learned nodes currently present on disk."""
+    nodes: list[dict[str, Any]] = []
+    base = learned_registry.learned_dir()
+    if base.exists():
+        for manifest_path in sorted(base.glob("*/manifest.json")):
+            try:
+                manifest = validate_manifest(json.loads(manifest_path.read_text(encoding="utf-8")), path=manifest_path)
+            except Exception as exc:
+                _LOGGER.warning("Skipping invalid learned node manifest %s: %s", manifest_path, exc)
+                continue
+            nodes.append({
+                "name": manifest.name,
+                "description": manifest.description,
+                "inputs": list(manifest.inputs),
+                "outputs": list(manifest.outputs),
+                "permissions": dict(manifest.permissions),
+                "created_at": manifest.created_at,
+            })
+    return {"nodes": nodes, "count": len(nodes)}
+
+
+def delete_learned_node(name: str, confirm: bool = False, *, notify_editor: bool = True) -> dict[str, Any]:
+    """Remove one learned node from disk and unregister it."""
+    if not confirm:
+        return {
+            "status": "rejected",
+            "reason": "delete_learned_node requires confirm=True",
+        }
+    if not _is_valid_learned_name(name):
+        return {"status": "rejected", "reason": "Invalid learned node name"}
+
+    fn = _NODE_REGISTRY.get(name)
+    if fn is not None and getattr(fn, "_bn_source", None) != "learned":
+        return {"status": "rejected", "reason": f"'{name}' is a built-in node and cannot be deleted"}
+
+    node_dir = learned_registry.learned_dir() / name
+    if not node_dir.exists():
+        return {"status": "not_found", "node_type": name}
+
+    learned_registry.unregister_one(name)
+    shutil.rmtree(node_dir)
+    if notify_editor:
+        _notify_learned_node_event("learned_node_deleted", name)
+    return {"status": "deleted", "node_type": name}
+
+
+def get_learned_node_source(name: str) -> dict[str, Any]:
+    """Return the Python source for one learned node."""
+    if not _is_valid_learned_name(name):
+        return {"status": "rejected", "reason": "Invalid learned node name"}
+
+    source_path = learned_registry.learned_dir() / name / "node.py"
+    if not source_path.is_file():
+        return {"status": "not_found", "node_type": name}
+    return {
+        "status": "ok",
+        "node_type": name,
+        "path": str(source_path),
+        "source": source_path.read_text(encoding="utf-8"),
+    }
 
 
 def create_editor_workflow_tab(
@@ -594,6 +727,183 @@ def _post_editor_action(
     editor_url: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     return _editor_request_json("POST", path, payload_dict, editor_url=editor_url)
+
+
+def _validate_create_node_type_inputs(
+    *,
+    name: str,
+    description: str,
+    inputs: list[str],
+    outputs: list[str],
+    code: str,
+) -> dict[str, Any] | None:
+    if not _is_valid_learned_name(name):
+        return {
+            "status": "rejected",
+            "reason": "name must match ^[A-Z][A-Za-z0-9]*$ and be 3-40 characters",
+        }
+    if name in _NODE_REGISTRY:
+        return {"status": "rejected", "reason": f"Node type '{name}' already exists"}
+    if (learned_registry.learned_dir() / name).exists():
+        return {"status": "rejected", "reason": f"Learned node '{name}' already exists on disk"}
+
+    if not isinstance(description, str) or not (10 <= len(description) <= 200):
+        return {"status": "rejected", "reason": "description must be 10-200 characters"}
+
+    port_error = _validate_port_declarations(inputs, "inputs", allow_empty=True)
+    if port_error is not None:
+        return port_error
+    port_error = _validate_port_declarations(outputs, "outputs", allow_empty=False)
+    if port_error is not None:
+        return port_error
+
+    static_result = check_safe(code)
+    if not static_result.safe:
+        return {"status": "rejected", "reason": static_result.reason}
+
+    run_error = _validate_run_function_signature(code, _port_names(inputs))
+    if run_error is not None:
+        return run_error
+
+    return None
+
+
+def _validate_port_declarations(
+    ports: Any,
+    field: str,
+    *,
+    allow_empty: bool,
+) -> dict[str, Any] | None:
+    if not isinstance(ports, list):
+        return {"status": "rejected", "reason": f"{field} must be a list"}
+    if not ports and not allow_empty:
+        return {"status": "rejected", "reason": f"{field} must declare at least one port"}
+    names: set[str] = set()
+    for port in ports:
+        if not isinstance(port, str) or not PORT_RE.match(port):
+            return {
+                "status": "rejected",
+                "reason": f"{field} entries must match 'name:Type'",
+            }
+        port_name, port_type = port.split(":", 1)
+        if port_name in names:
+            return {"status": "rejected", "reason": f"duplicate {field} port '{port_name}'"}
+        if port_type not in ALLOWED_PORT_TYPES:
+            return {
+                "status": "rejected",
+                "reason": f"Port type '{port_type}' not in allowed set: {_ALLOWED_PORT_TYPES_DISPLAY}",
+            }
+        names.add(port_name)
+    return None
+
+
+def _validate_run_function_signature(code: str, expected_params: list[str]) -> dict[str, Any] | None:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return {"status": "rejected", "reason": f"Syntax error: {exc.msg} at line {exc.lineno}"}
+
+    run_functions = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "run"
+    ]
+    if not run_functions:
+        return {"status": "rejected", "reason": "Generated node must define def run(...)"}
+
+    args = run_functions[0].args
+    if args.vararg is not None or args.kwarg is not None:
+        return {"status": "rejected", "reason": "run parameters must match input ports exactly"}
+
+    actual_params = [
+        *(arg.arg for arg in args.posonlyargs),
+        *(arg.arg for arg in args.args),
+        *(arg.arg for arg in args.kwonlyargs),
+    ]
+    if actual_params != expected_params:
+        return {
+            "status": "rejected",
+            "reason": (
+                "run parameters must match input ports exactly: "
+                f"expected {expected_params}, got {actual_params}"
+            ),
+        }
+    return None
+
+
+def _ensure_learned_nodes_consent() -> dict[str, Any] | None:
+    consent_file = _learned_consent_file()
+    if consent_file.is_file():
+        return None
+
+    raw = os.environ.get(_LEARNED_CONSENT_ENV)
+    if raw is None:
+        consent_file = _learned_consent_file()
+        return {
+            "status": "rejected",
+            "reason": (
+                "Learned nodes let MCP-connected agents create new permanent Python node "
+                "code that will execute on your machine in a Docker sandbox. To opt in, "
+                "set BLACKNODE_LEARNED_NODES_CONSENT=1 and call create_node_type again. "
+                f"On opt-in, consent is saved to {consent_file}; delete that file to revoke it."
+            ),
+        }
+    if not _truthy(raw):
+        return {
+            "status": "rejected",
+            "reason": "BLACKNODE_LEARNED_NODES_CONSENT must be set to 1/true/yes to enable learned nodes",
+        }
+
+    consent_file.parent.mkdir(parents=True, exist_ok=True)
+    consent_file.write_text(
+        json.dumps({
+            "accepted": True,
+            "accepted_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "source": _LEARNED_CONSENT_ENV,
+        }, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return None
+
+
+def _learned_consent_file() -> Path:
+    config_dir = os.environ.get("BLACKNODE_CONFIG_DIR")
+    if config_dir:
+        return Path(config_dir).expanduser().resolve() / _LEARNED_CONSENT_FILE
+    return Path.home() / ".blacknode" / _LEARNED_CONSENT_FILE
+
+
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _is_valid_learned_name(name: str) -> bool:
+    return isinstance(name, str) and 3 <= len(name) <= 40 and bool(_LEARNED_NAME_RE.match(name))
+
+
+def _port_names(ports: list[str]) -> list[str]:
+    return [port.split(":", 1)[0] for port in ports]
+
+
+def _notify_learned_node_event(event_type: str, name: str) -> None:
+    base_url = (os.environ.get("BLACKNODE_EDITOR_URL") or "http://127.0.0.1:7777").rstrip("/")
+    payload = json.dumps({"name": name}).encode("utf-8")
+    path = "/internal/learned-node-deleted" if event_type == "learned_node_deleted" else "/internal/learned-node-added"
+    req = urllib_request.Request(
+        f"{base_url}{path}",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=1):
+            pass
+    except Exception as exc:
+        _LOGGER.info("Could not notify editor about %s for %s: %s", event_type, name, exc)
+
+
+def _notify_learned_node_added(name: str) -> None:
+    _notify_learned_node_event("learned_node_added", name)
 
 
 def _editor_request_json(

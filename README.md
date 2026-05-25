@@ -60,9 +60,24 @@ execution, and export the result as code.
 | Typed ports and validation | Text, Int, Float, Bool, List, Dict, Embedding, Fn, Model, Number, Any, cycle checks, and MCP repair suggestions. | [Workflow Schema](docs/workflow-schema.md), [Agent Skill](.agents/skills/blacknode-workflow/SKILL.md) |
 | Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md), [Presentation Checklist](docs/presentation-checklist.md) |
 | Custom nodes | Persistent editor-created nodes, Python decorator nodes, auto-discovery, and community node packs. | [Custom Nodes](docs/custom-nodes.md) |
+| Learned nodes | MCP agents can create reusable Docker-sandboxed node types that appear live in the editor palette. | [Learned Nodes](docs/learned-nodes.md) |
 | Python round-trip | Export readable Python, import it back into the editor, and live-sync Python runs into replay. | [Python Round-Trip](docs/python-roundtrip.md) |
 | Framework export | Turn a visual graph into Python, LangGraph, CrewAI, AutoGen, OpenAI Swarm, or an NVIDIA Agent Stack manifest. | [Framework Export](docs/framework-export.md) |
 | Self-hosted deployment | Run the editor, backend, and HTTP MCP server locally, on a VM, or in an on-prem demo stack. | [Docker Compose](docs/docker-compose.md), [Docker Publishing](docs/docker-publish.md) |
+
+## Learned Nodes
+
+Agents connected via MCP can create new permanent node types when no existing
+node fits a task. Generated nodes:
+
+- Are stored as plain Python in `nodes/learned/<name>/`
+- Execute inside a Docker sandbox with no network by default
+- Appear live in the editor palette under "Learned"
+- Persist across sessions and are reusable
+
+Requires Docker. Run `blacknode doctor` to verify your setup.
+
+See [docs/learned-nodes.md](docs/learned-nodes.md) for details.
 
 ## NVIDIA Agent Stack
 
@@ -111,6 +126,9 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | [Framework Export](docs/framework-export.md) | Exporting workflows to Python, LangGraph, CrewAI, AutoGen, Swarm, REST, and WebSocket control. |
 | [Python Round-Trip](docs/python-roundtrip.md) | Export Python, import Python back into the editor, and live-sync Python runs into replay. |
 | [Custom Nodes](docs/custom-nodes.md) | Persistent editor-created nodes, auto-discovery, community node packs, and node library extension. |
+| [Learned Nodes](docs/learned-nodes.md) | MCP-created reusable nodes, opt-in behavior, editor behavior, and user workflow. |
+| [Learned Nodes Internals](docs/learned-nodes-internals.md) | Registry wiring, manifest schema, execution wrapper, and SSE events. |
+| [Learned Nodes Sandbox](docs/learned-nodes-sandbox.md) | Docker image, runtime limits, configuration, and troubleshooting. |
 | [Agent Guide](docs/agent-guide.md) | How agents should create and modify Blacknode workflows. |
 | [Blacknode Skill](.agents/skills/blacknode-workflow/SKILL.md) | Agent skill instructions for workflow creation, validation, running, and export. |
 
