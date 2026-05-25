@@ -91,3 +91,7 @@ python scripts\demo_dry_run.py
 The script starts the editor backend when needed, creates a temporary learned
 RSS parser through MCP, verifies it appears in `/learned-nodes`, runs a workflow
 through the Docker sandbox, and deletes the node.
+
+For the full command-by-command validation path, including Docker integration
+tests, MCP smoke checks, consent-gate verification, and the visible editor pulse
+test, see [Learned Nodes Test Plan](learned-nodes-test-plan.md).

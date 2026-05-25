@@ -77,7 +77,9 @@ node fits a task. Generated nodes:
 
 Requires Docker. Run `blacknode doctor` to verify your setup.
 
-See [docs/learned-nodes.md](docs/learned-nodes.md) for details.
+See [docs/learned-nodes.md](docs/learned-nodes.md) for details and
+[docs/learned-nodes-test-plan.md](docs/learned-nodes-test-plan.md) for the
+step-by-step test path.
 
 ## NVIDIA Agent Stack
 
@@ -127,6 +129,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | [Python Round-Trip](docs/python-roundtrip.md) | Export Python, import Python back into the editor, and live-sync Python runs into replay. |
 | [Custom Nodes](docs/custom-nodes.md) | Persistent editor-created nodes, auto-discovery, community node packs, and node library extension. |
 | [Learned Nodes](docs/learned-nodes.md) | MCP-created reusable nodes, opt-in behavior, editor behavior, and user workflow. |
+| [Learned Nodes Test Plan](docs/learned-nodes-test-plan.md) | Step-by-step commands for validating Docker, MCP, editor refresh, consent, and the camera demo dry run. |
 | [Learned Nodes Internals](docs/learned-nodes-internals.md) | Registry wiring, manifest schema, execution wrapper, and SSE events. |
 | [Learned Nodes Sandbox](docs/learned-nodes-sandbox.md) | Docker image, runtime limits, configuration, and troubleshooting. |
 | [Agent Guide](docs/agent-guide.md) | How agents should create and modify Blacknode workflows. |
