@@ -126,6 +126,27 @@ python scripts\complex_learned_demo.py --mock-sandbox
 It creates three temporary learned nodes in `Parsing`, `Analysis`, and
 `Research`, builds a 14-node workflow, validates it, runs it, and cleans up.
 
+For a live editor demo, start Blacknode first:
+
+```powershell
+.\start.bat
+```
+
+Then run the Docker-backed demo from another terminal:
+
+```powershell
+$env:BLACKNODE_LEARNED_NODES_CONSENT="1"
+python scripts\complex_learned_demo.py --open-editor
+```
+
+The script opens **Complex Learned Nodes Demo** as a new editor tab and keeps
+the three demo learned nodes available so the palette categories remain live.
+After the demo, clean them up:
+
+```powershell
+python scripts\complex_learned_demo.py --cleanup-demo-nodes
+```
+
 For the full command-by-command validation path, including Docker integration
 tests, MCP smoke checks, consent-gate verification, and the visible editor pulse
 test, see [Learned Nodes Test Plan](learned-nodes-test-plan.md).

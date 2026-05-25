@@ -4,7 +4,8 @@ The demo creates temporary learned nodes, assigns them to explicit palette
 categories, builds a 15-node workflow, validates it, runs it, and cleans up.
 Use ``--mock-sandbox`` for a fast local dry run that does not require Docker.
 Without that flag, learned-node execution goes through the configured Docker
-sandbox.
+sandbox. Use ``--open-editor`` with a running Blacknode editor backend to open
+the generated 14-node graph as a live editor tab.
 """
 from __future__ import annotations
 
@@ -149,11 +150,45 @@ def main(argv: list[str] | None = None) -> int:
         default=10,
         help="Minimum workflow node count to assert before running.",
     )
+    parser.add_argument(
+        "--open-editor",
+        action="store_true",
+        help="Open the generated workflow in the running Blacknode editor.",
+    )
+    parser.add_argument(
+        "--editor-url",
+        default="http://127.0.0.1:7777",
+        help="Editor backend URL used with --open-editor.",
+    )
+    parser.add_argument(
+        "--keep-learned",
+        action="store_true",
+        help="Keep demo learned nodes after the script exits.",
+    )
+    parser.add_argument(
+        "--cleanup-demo-nodes",
+        action="store_true",
+        help="Delete the persistent demo learned nodes and exit.",
+    )
     args = parser.parse_args(argv)
 
-    with tempfile.TemporaryDirectory(prefix="blacknode-complex-demo-") as tmp:
-        root = Path(tmp)
-        _configure_demo_env(root)
+    if args.cleanup_demo_nodes:
+        _configure_live_env(args.editor_url)
+        from blacknode.mcp import tools
+
+        _delete_demo_nodes(tools, notify_editor=True)
+        print("[complex-demo] deleted persistent demo learned nodes")
+        return 0
+
+    live_editor = bool(args.open_editor)
+    keep_learned = bool(args.keep_learned or live_editor)
+
+    temp_dir = tempfile.TemporaryDirectory(prefix="blacknode-complex-demo-") if not keep_learned else None
+    try:
+        if temp_dir is not None:
+            _configure_demo_env(Path(temp_dir.name))
+        else:
+            _configure_live_env(args.editor_url)
 
         from blacknode.learned import registry
         from blacknode.mcp import tools
@@ -165,50 +200,70 @@ def main(argv: list[str] | None = None) -> int:
             else _nullcontext()
         )
 
+        with runner_patch:
+            if keep_learned:
+                _delete_demo_nodes(tools, notify_editor=live_editor)
+
+            for spec in LEARNED_NODE_SPECS:
+                result = tools.create_node_type(**spec, requires_network=False)
+                if result.get("status") != "created":
+                    raise RuntimeError(f"create_node_type failed for {spec['name']}: {result}")
+                created.append(spec["name"])
+
+            workflow = build_workflow(tools)
+            node_count = len(workflow.get("node_meta") or {})
+            if node_count < args.min_nodes:
+                raise RuntimeError(f"workflow has {node_count} nodes, expected at least {args.min_nodes}")
+
+            validation = tools.validate_workflow_tool(workflow)
+            if not validation.get("ok"):
+                raise RuntimeError(f"workflow validation failed: {validation}")
+
+            if live_editor:
+                open_result = tools.open_workflow_in_editor_tab(
+                    workflow,
+                    name="Complex Learned Nodes Demo",
+                    editor_url=args.editor_url,
+                    organize=True,
+                )
+                print(f"[complex-demo] opened editor tab: {open_result.get('editor_url')}")
+
+            run_result = tools.run_workflow_tool(workflow)
+            if run_result.get("ok") is False:
+                raise RuntimeError(f"workflow run failed: {run_result}")
+
+            value = run_result.get("value")
+            if not isinstance(value, str) or "promotion_note" not in value:
+                raise RuntimeError(f"unexpected demo output: {value!r}")
+
+            learned = tools.list_learned_nodes()
+            categories = sorted({node.get("category") for node in learned.get("nodes", []) if node.get("name") in created})
+
+            print(f"[complex-demo] learned nodes: {', '.join(created)}")
+            print(f"[complex-demo] categories: {', '.join(categories)}")
+            print(f"[complex-demo] workflow node count: {node_count}")
+            print("[complex-demo] validation: ok")
+            if keep_learned:
+                print("[complex-demo] learned nodes kept for live demo")
+            print("[complex-demo] output preview:")
+            print(value[:900])
+            return 0
+    except Exception as exc:
+        print(f"[complex-demo] FAIL: {exc}", file=sys.stderr)
+        return 1
+    finally:
         try:
-            with runner_patch:
-                for spec in LEARNED_NODE_SPECS:
-                    result = tools.create_node_type(**spec, requires_network=False)
-                    if result.get("status") != "created":
-                        raise RuntimeError(f"create_node_type failed for {spec['name']}: {result}")
-                    created.append(spec["name"])
+            if not keep_learned:
+                from blacknode.mcp import tools
 
-                workflow = build_workflow(tools)
-                node_count = len(workflow.get("node_meta") or {})
-                if node_count < args.min_nodes:
-                    raise RuntimeError(f"workflow has {node_count} nodes, expected at least {args.min_nodes}")
-
-                validation = tools.validate_workflow_tool(workflow)
-                if not validation.get("ok"):
-                    raise RuntimeError(f"workflow validation failed: {validation}")
-
-                run_result = tools.run_workflow_tool(workflow)
-                if run_result.get("ok") is False:
-                    raise RuntimeError(f"workflow run failed: {run_result}")
-
-                value = run_result.get("value")
-                if not isinstance(value, str) or "promotion_note" not in value:
-                    raise RuntimeError(f"unexpected demo output: {value!r}")
-
-                learned = tools.list_learned_nodes()
-                categories = sorted({node.get("category") for node in learned.get("nodes", []) if node.get("name") in created})
-
-                print(f"[complex-demo] learned nodes: {', '.join(created)}")
-                print(f"[complex-demo] categories: {', '.join(categories)}")
-                print(f"[complex-demo] workflow node count: {node_count}")
-                print("[complex-demo] validation: ok")
-                print("[complex-demo] output preview:")
-                print(value[:900])
-                return 0
-        except Exception as exc:
-            print(f"[complex-demo] FAIL: {exc}", file=sys.stderr)
-            return 1
+                for name in [spec["name"] for spec in LEARNED_NODE_SPECS]:
+                    try:
+                        tools.delete_learned_node(name, confirm=True, notify_editor=False)
+                    except Exception:
+                        pass
         finally:
-            for name in created:
-                try:
-                    tools.delete_learned_node(name, confirm=True, notify_editor=False)
-                except Exception:
-                    pass
+            if temp_dir is not None:
+                temp_dir.cleanup()
 
 
 def build_workflow(tools: Any) -> dict[str, Any]:
@@ -280,6 +335,18 @@ def _configure_demo_env(root: Path) -> None:
     os.environ["BLACKNODE_CONFIG_DIR"] = str(root / "config")
     os.environ["BLACKNODE_LEARNED_NODES_CONSENT"] = "1"
     os.environ.setdefault("BLACKNODE_MCP_QUIET", "1")
+
+
+def _configure_live_env(editor_url: str) -> None:
+    os.environ.pop("BLACKNODE_LEARNED_DIR", None)
+    os.environ["BLACKNODE_EDITOR_URL"] = editor_url.rstrip("/")
+    os.environ["BLACKNODE_LEARNED_NODES_CONSENT"] = "1"
+    os.environ.setdefault("BLACKNODE_MCP_QUIET", "1")
+
+
+def _delete_demo_nodes(tools: Any, *, notify_editor: bool) -> None:
+    for spec in LEARNED_NODE_SPECS:
+        tools.delete_learned_node(spec["name"], confirm=True, notify_editor=notify_editor)
 
 
 def _mock_run_in_container(
