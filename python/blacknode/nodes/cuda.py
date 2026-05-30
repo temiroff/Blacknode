@@ -13,6 +13,7 @@ error instead of raising, so the editor stays usable.
 from __future__ import annotations
 
 import math
+import subprocess
 import time
 from typing import Any, Callable
 
@@ -559,3 +560,133 @@ def _custom_error(message: str, device: str = "") -> dict:
         "device": device,
         "report": {"error": message, "device": device, "compiled": False},
     }
+
+
+# ---------------------------------------------------------------------------
+# GPU capability detection + preflight (Task 1.2)
+# ---------------------------------------------------------------------------
+
+def _gpu_capability() -> dict:
+    """Detect the local NVIDIA GPU. Prefer CuPy (richest data), fall back to
+    nvidia-smi, and degrade to "unavailable" instead of raising."""
+    try:
+        import cupy as cp
+        props = cp.cuda.runtime.getDeviceProperties(0)
+        name = props["name"].decode() if isinstance(props["name"], bytes) else props["name"]
+        free, total = cp.cuda.runtime.memGetInfo()
+        ver = cp.cuda.runtime.runtimeGetVersion()  # e.g. 12080 -> "12.8"
+        return {
+            "available": True,
+            "source": "cupy",
+            "name": name,
+            "compute_capability": f"{props['major']}.{props['minor']}",
+            "vram_total_gb": round(total / 1024 ** 3, 2),
+            "vram_free_gb": round(free / 1024 ** 3, 2),
+            "cuda_version": f"{ver // 1000}.{(ver % 1000) // 10}",
+            "cupy_available": True,
+        }
+    except Exception:
+        pass
+
+    smi = _gpu_capability_from_smi()
+    if smi is not None:
+        return smi
+
+    return {
+        "available": False,
+        "source": "none",
+        "name": "",
+        "compute_capability": "",
+        "vram_total_gb": 0.0,
+        "vram_free_gb": 0.0,
+        "cuda_version": "",
+        "cupy_available": False,
+    }
+
+
+def _gpu_capability_from_smi() -> dict | None:
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total,memory.free,compute_cap",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=4,
+        )
+    except Exception:
+        return None
+    if out.returncode != 0 or not (out.stdout or "").strip():
+        return None
+    parts = [p.strip() for p in out.stdout.strip().splitlines()[0].split(",")]
+    if len(parts) < 4:
+        return None
+    try:
+        total_gb = round(float(parts[1]) / 1024, 2)
+        free_gb = round(float(parts[2]) / 1024, 2)
+    except ValueError:
+        total_gb = free_gb = 0.0
+    return {
+        "available": True,
+        "source": "nvidia-smi",
+        "name": parts[0],
+        "compute_capability": parts[3],
+        "vram_total_gb": total_gb,
+        "vram_free_gb": free_gb,
+        "cuda_version": "",
+        "cupy_available": False,
+    }
+
+
+@node(
+    inputs=[],
+    outputs=["available:Bool", "name:Text", "compute_capability:Text",
+             "vram_total_gb:Float", "vram_free_gb:Float", "cuda_version:Text", "report:Dict"],
+    name="GPUCapability",
+    category="NVIDIA GPU",
+    description="Detect the local NVIDIA GPU's name, compute capability, VRAM, and CUDA version.",
+)
+def gpu_capability(ctx: dict) -> dict:
+    cap = _gpu_capability()
+    return {
+        "available": cap["available"],
+        "name": cap["name"],
+        "compute_capability": cap["compute_capability"],
+        "vram_total_gb": cap["vram_total_gb"],
+        "vram_free_gb": cap["vram_free_gb"],
+        "cuda_version": cap["cuda_version"],
+        "report": cap,
+    }
+
+
+@node(
+    inputs={"min_compute": Float(default=8.0), "min_vram_gb": Float(default=8.0)},
+    outputs=["ok:Bool", "reason:Text", "report:Dict"],
+    name="GPURequirement",
+    category="NVIDIA GPU",
+    description="Preflight gate: passes only if the local GPU meets a minimum compute capability and VRAM.",
+)
+def gpu_requirement(ctx: dict) -> dict:
+    min_compute = float(ctx.get("min_compute") or 0.0)
+    min_vram = float(ctx.get("min_vram_gb") or 0.0)
+    cap = _gpu_capability()
+    meta = {**cap, "min_compute": min_compute, "min_vram_gb": min_vram}
+
+    if not cap["available"]:
+        return {"ok": False, "reason": "No NVIDIA GPU available.", "report": {**meta, "ok": False}}
+
+    try:
+        cc = float(cap["compute_capability"])
+    except (ValueError, TypeError):
+        cc = 0.0
+
+    failures = []
+    if cc < min_compute:
+        failures.append(f"compute {cap['compute_capability']} < required {min_compute}")
+    if cap["vram_total_gb"] < min_vram:
+        failures.append(f"VRAM {cap['vram_total_gb']} GB < required {min_vram} GB")
+
+    ok = not failures
+    reason = (
+        f"OK: {cap['name']} (compute {cap['compute_capability']}, {cap['vram_total_gb']} GB)"
+        if ok else
+        f"GPU does not meet requirements: {'; '.join(failures)}"
+    )
+    return {"ok": ok, "reason": reason, "report": {**meta, "ok": ok, "failures": failures}}

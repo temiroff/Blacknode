@@ -11,6 +11,8 @@ from blacknode.nodes.cuda import (
     DEFAULT_CUSTOM_SOURCE,
     cuda_custom_kernel,
     cuda_kernel_lab,
+    gpu_capability,
+    gpu_requirement,
 )
 
 
@@ -114,3 +116,37 @@ def test_custom_kernel_compile_error_is_reported():
     assert r["report"]["compiled"] is False
     assert "error" in r["result"]
     assert r["gpu_ms"] == 0.0
+
+
+# --- GPU capability + preflight (Task 1.2) --------------------------------------
+
+def test_gpu_capability_shape():
+    r = gpu_capability({})
+    assert set(r) >= {"available", "name", "compute_capability",
+                      "vram_total_gb", "vram_free_gb", "cuda_version", "report"}
+    assert isinstance(r["available"], bool)
+
+
+def test_gpu_requirement_unmeetable_fails():
+    # Compute 99.0 can never be met (and with no GPU it reports unavailable) ->
+    # either way the gate fails with a readable reason.
+    r = gpu_requirement({"min_compute": 99.0, "min_vram_gb": 8.0})
+    assert r["ok"] is False
+    assert r["reason"]
+
+
+@gpu_only
+def test_gpu_capability_reports_device():
+    r = gpu_capability({})
+    assert r["available"] is True
+    assert r["name"]
+    assert r["compute_capability"]
+    assert r["vram_total_gb"] > 0
+
+
+@gpu_only
+def test_gpu_requirement_pass_and_fail():
+    assert gpu_requirement({"min_compute": 1.0, "min_vram_gb": 1.0})["ok"] is True
+    fail = gpu_requirement({"min_compute": 99.0, "min_vram_gb": 1.0})
+    assert fail["ok"] is False
+    assert "compute" in fail["reason"]
