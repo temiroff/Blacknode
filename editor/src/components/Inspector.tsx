@@ -15,6 +15,9 @@ const formatFloat = (v: unknown): string => {
   return Number.isInteger(n) ? `${n}.0` : String(n)
 }
 
+export const isImageDataUrl = (v: unknown): v is string =>
+  typeof v === 'string' && v.startsWith('data:image/')
+
 const ICON_PARAMS = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
     <line x1="3" y1="5"  x2="15" y2="5"  stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
@@ -127,21 +130,33 @@ export default function Inspector() {
             }}>
               Result
             </div>
-            <pre style={{
-              background: 'var(--lift)',
-              border: `1px solid ${data.cookError ? 'var(--err)' : 'var(--line2)'}`,
-              borderRadius: 6, padding: '8px 10px',
-              color: data.cookError ? 'var(--err)' : 'var(--ok)',
-              fontSize: 12, fontFamily: 'var(--font-mono)',
-              whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-              maxHeight: 200, overflowY: 'auto', margin: 0,
-            }}>
-              {data.cookError
-                ? data.cookError
-                : typeof data.cookResult === 'object'
-                  ? JSON.stringify(data.cookResult, null, 2)
-                  : String(data.cookResult)}
-            </pre>
+            {!data.cookError && isImageDataUrl(data.cookResult) ? (
+              <img
+                src={data.cookResult as string}
+                alt="result"
+                style={{
+                  maxWidth: '100%', borderRadius: 6,
+                  border: '1px solid var(--line2)', background: 'var(--lift)',
+                  imageRendering: 'auto', display: 'block',
+                }}
+              />
+            ) : (
+              <pre style={{
+                background: 'var(--lift)',
+                border: `1px solid ${data.cookError ? 'var(--err)' : 'var(--line2)'}`,
+                borderRadius: 6, padding: '8px 10px',
+                color: data.cookError ? 'var(--err)' : 'var(--ok)',
+                fontSize: 12, fontFamily: 'var(--font-mono)',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                maxHeight: 200, overflowY: 'auto', margin: 0,
+              }}>
+                {data.cookError
+                  ? data.cookError
+                  : typeof data.cookResult === 'object'
+                    ? JSON.stringify(data.cookResult, null, 2)
+                    : String(data.cookResult)}
+              </pre>
+            )}
           </div>
         )}
 

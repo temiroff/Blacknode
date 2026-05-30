@@ -9,6 +9,7 @@ export const PORT_COLORS: Record<string, string> = {
   Embedding: '#ec4899',  // pink
   Fn:        '#ef4444',  // red
   Model:     '#76b900',  // nvidia green
+  Image:     '#fb7185',  // rose
   Any:       '#6b7280',  // grey
 }
 
@@ -24,6 +25,7 @@ const COMPAT: Record<string, Set<string>> = {
   Embedding: new Set(['Embedding', 'Any']),
   Fn:        new Set(['Fn', 'Any']),
   Model:     new Set(['Model', 'Text', 'Any']),
+  Image:     new Set(['Image', 'Any']),
 }
 
 export function portColor(type: string): string {

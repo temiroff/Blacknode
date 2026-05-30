@@ -1,0 +1,54 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "GPU Image Filter",
+  "saved_at": "2026-05-30T00:00:00",
+  "entrypoint": {
+    "node_id": "out",
+    "port": "image"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Load an image, run a CUDA filter on your NVIDIA GPU, and view the result. Set the path on the LoadImage node, then cook OutputImage.",
+    "color": "#fb7185"
+  },
+  "node_meta": {
+    "load": {
+      "id": "load",
+      "type": "LoadImage",
+      "params": { "path": "", "max_size": 768 },
+      "pos": [80, 160],
+      "inputs": ["path", "max_size"],
+      "outputs": ["image", "width", "height", "report"],
+      "input_types": { "path": "Text", "max_size": "Int" },
+      "output_types": { "image": "Image", "width": "Int", "height": "Int", "report": "Dict" },
+      "input_defaults": { "path": "", "max_size": 768 }
+    },
+    "filter": {
+      "id": "filter",
+      "type": "CUDAImageFilter",
+      "params": { "op": "sobel_edges", "amount": 1.0 },
+      "pos": [420, 180],
+      "inputs": ["image", "op", "amount"],
+      "outputs": ["image", "gpu_ms", "device", "report"],
+      "input_types": { "image": "Image", "op": "Text", "amount": "Float" },
+      "output_types": { "image": "Image", "gpu_ms": "Float", "device": "Text", "report": "Dict" },
+      "input_defaults": { "op": "grayscale", "amount": 1.0 }
+    },
+    "out": {
+      "id": "out",
+      "type": "OutputImage",
+      "params": {},
+      "pos": [760, 200],
+      "inputs": ["image"],
+      "outputs": ["image"],
+      "input_types": { "image": "Image" },
+      "output_types": { "image": "Image" },
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    { "from": "load", "from_port": "image", "to": "filter", "to_port": "image" },
+    { "from": "filter", "from_port": "image", "to": "out", "to_port": "image" }
+  ]
+}

@@ -19,6 +19,9 @@ async function copyText(text: string): Promise<void> {
   document.body.removeChild(textarea)
 }
 
+const isImageDataUrl = (v: unknown): v is string =>
+  typeof v === 'string' && v.startsWith('data:image/')
+
 function previewValue(v: unknown): string {
   if (v === undefined || v === null) return ''
   const s = typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)
@@ -114,17 +117,25 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
             {copyLabel}
           </div>
           {!isCooking && (
-            <div style={{
-              color: isError ? 'var(--err)' : 'var(--tx1)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 12,
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-              maxHeight: 240,
-              overflowY: 'auto',
-            }}>
-              {label}
-            </div>
+            !isError && isImageDataUrl(data.cookResult) ? (
+              <img
+                src={data.cookResult as string}
+                alt="result"
+                style={{ maxWidth: '100%', borderRadius: 4, display: 'block' }}
+              />
+            ) : (
+              <div style={{
+                color: isError ? 'var(--err)' : 'var(--tx1)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 12,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                maxHeight: 240,
+                overflowY: 'auto',
+              }}>
+                {label}
+              </div>
+            )
           )}
         </div>
       )}

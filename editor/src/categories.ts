@@ -9,8 +9,9 @@ export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
     'AgentIteration', 'AgentAppendMessages', 'AgentStopCheck', 'AgentFinalAnswer',
     'EmbedText', 'LLMModelRouter',
   ] },
+  Image:    { color: '#fb7185', nodes: ['LoadImage', 'OutputImage'] },
   NVIDIA:   { color: '#76b900', nodes: [
-    'CUDAKernelLab', 'CUDACustomKernel', 'GPUCapability', 'GPURequirement',
+    'CUDAKernelLab', 'CUDACustomKernel', 'CUDAImageFilter', 'GPUCapability', 'GPURequirement',
     'NVIDIASystemCheck', 'NVIDIABlueprintPlan', 'NIMDockerCommand',
     'NIMHealthCheck', 'NIMAgent', 'NIMBenchmark', 'VideoFolderInput',
     'NVIDIADeploymentChoice', 'NVIDIAVideoSummaryPlan',

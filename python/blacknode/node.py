@@ -43,6 +43,7 @@ Embedding = PortType("Embedding")
 Fn = PortType("Fn")
 Model = PortType("Model")
 Number = PortType("Number")
+Image = PortType("Image")
 Any = PortType("Any")
 
 
@@ -281,6 +282,7 @@ __all__ = [
     "Enum",
     "Float",
     "Fn",
+    "Image",
     "Int",
     "List",
     "Model",

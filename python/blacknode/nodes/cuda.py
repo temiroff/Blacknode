@@ -22,7 +22,7 @@ try:  # NumPy is only used once CuPy (which depends on it) is confirmed present.
 except Exception:  # pragma: no cover - keeps the package importable on minimal installs
     np = None
 
-from blacknode.node import Enum, Float, Int, Text, node
+from blacknode.node import Enum, Float, Image, Int, Text, node
 
 # ---------------------------------------------------------------------------
 # Op catalogue (drives the dropdown and validation)
@@ -690,3 +690,117 @@ def gpu_requirement(ctx: dict) -> dict:
         f"GPU does not meet requirements: {'; '.join(failures)}"
     )
     return {"ok": ok, "reason": reason, "report": {**meta, "ok": ok, "failures": failures}}
+
+
+# ---------------------------------------------------------------------------
+# GPU image filter — apply a CUDA op to a real image (LoadImage -> here -> OutputImage)
+# ---------------------------------------------------------------------------
+
+IMAGE_FILTERS = ["grayscale", "invert", "brighten", "threshold",
+                 "gaussian_blur", "sharpen", "sobel_edges"]
+
+
+def _img_lum(cp, g):
+    return 0.299 * g[:, :, 0] + 0.587 * g[:, :, 1] + 0.114 * g[:, :, 2]
+
+
+def _img_blur(cp, g):
+    p = cp.pad(g, ((1, 1), (1, 1), (0, 0)), mode="edge")
+    h, w = g.shape[:2]
+    out = cp.zeros_like(g)
+    for di, row in enumerate(((1, 2, 1), (2, 4, 2), (1, 2, 1))):
+        for dj, wt in enumerate(row):
+            out = out + wt * p[di:di + h, dj:dj + w, :]
+    return out / 16.0
+
+
+def _apply_image_filter(cp, op: str, g, amount: float):
+    if op == "grayscale":
+        lum = _img_lum(cp, g)
+        return cp.stack([lum, lum, lum], axis=-1)
+    if op == "invert":
+        return 1.0 - g
+    if op == "brighten":
+        return cp.clip(g * amount, 0.0, 1.0)
+    if op == "threshold":
+        cut = amount if 0.0 < amount < 1.0 else 0.5
+        m = (_img_lum(cp, g) > cut).astype(g.dtype)
+        return cp.stack([m, m, m], axis=-1)
+    if op == "gaussian_blur":
+        return _img_blur(cp, g)
+    if op == "sharpen":
+        return cp.clip(g + amount * (g - _img_blur(cp, g)), 0.0, 1.0)
+    if op == "sobel_edges":
+        lum = _img_lum(cp, g)
+        p = cp.pad(lum, 1, mode="edge")
+        h, w = lum.shape
+        def at(di, dj):
+            return p[di:di + h, dj:dj + w]
+        gx = (at(0, 2) + 2 * at(1, 2) + at(2, 2)) - (at(0, 0) + 2 * at(1, 0) + at(2, 0))
+        gy = (at(2, 0) + 2 * at(2, 1) + at(2, 2)) - (at(0, 0) + 2 * at(0, 1) + at(0, 2))
+        e = cp.clip(cp.sqrt(gx * gx + gy * gy), 0.0, 1.0)
+        return cp.stack([e, e, e], axis=-1)
+    return g
+
+
+@node(
+    inputs={"image": Image, "op": Enum(IMAGE_FILTERS, default="grayscale"), "amount": Float(default=1.0)},
+    outputs=["image:Image", "gpu_ms:Float", "device:Text", "report:Dict"],
+    name="CUDAImageFilter",
+    category="NVIDIA GPU",
+    description="Apply a GPU (CUDA) image filter to an image and return the filtered image.",
+)
+def cuda_image_filter(ctx: dict) -> dict:
+    image = ctx.get("image")
+    op = str(ctx.get("op") or "grayscale").strip()
+    amount = float(ctx.get("amount") or 1.0)
+
+    if not image:
+        return _img_error("no image input (connect a LoadImage node)")
+    if op not in IMAGE_FILTERS:
+        return _img_error(f"unknown filter '{op}'; choose one of {IMAGE_FILTERS}")
+    if np is None:
+        return _img_error("NumPy is not installed.")
+
+    try:
+        import cupy as cp
+    except Exception as exc:  # noqa: BLE001
+        return _img_error(f"CuPy not available ({type(exc).__name__}: {exc}).")
+
+    try:
+        from blacknode.nodes.image import decode_image, encode_image
+        arr = decode_image(image)
+    except Exception as exc:  # noqa: BLE001
+        return _img_error(f"could not read image ({type(exc).__name__}: {exc}).")
+
+    try:
+        props = cp.cuda.runtime.getDeviceProperties(0)
+        name = props["name"].decode() if isinstance(props["name"], bytes) else props["name"]
+    except Exception as exc:  # noqa: BLE001
+        return _img_error(f"no CUDA device ({type(exc).__name__}: {exc}).")
+
+    try:
+        g = cp.asarray(arr)
+        cp.cuda.Stream.null.synchronize()
+        ev0, ev1 = cp.cuda.Event(), cp.cuda.Event()
+        ev0.record()
+        out = _apply_image_filter(cp, op, g, amount)
+        ev1.record()
+        ev1.synchronize()
+        gpu_ms = cp.cuda.get_elapsed_time(ev0, ev1)
+        host = cp.asnumpy(out)
+    except Exception as exc:  # noqa: BLE001
+        return _img_error(f"GPU filter failed ({type(exc).__name__}: {exc}).")
+
+    h, w = arr.shape[:2]
+    return {
+        "image": encode_image(host),
+        "gpu_ms": round(gpu_ms, 4),
+        "device": name,
+        "report": {"op": op, "amount": amount, "width": w, "height": h,
+                   "device": name, "gpu_ms": round(gpu_ms, 4)},
+    }
+
+
+def _img_error(message: str) -> dict:
+    return {"image": "", "gpu_ms": 0.0, "device": "", "report": {"error": message}}
