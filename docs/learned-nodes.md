@@ -117,14 +117,26 @@ The script starts the editor backend when needed, creates a temporary learned
 RSS parser through MCP, verifies it appears in `/learned-nodes`, runs a workflow
 through the Docker sandbox, and deletes the node.
 
-Run the complex category demo without Docker:
+Run the deterministic category/plumbing demo without Docker:
 
 ```powershell
 python scripts\complex_learned_demo.py --mock-sandbox
 ```
 
-It creates three temporary learned nodes in `Parsing`, `Analysis`, and
-`Research`, builds a 14-node workflow, validates it, runs it, and cleans up.
+It uses built-in fixture text and deterministic learned-node source. This is a
+test/demo of learned-node creation, category placement, graph validation, and
+editor opening. It is not a real-world data demo.
+
+Run the real-world local repository demo against an actual folder:
+
+```powershell
+$env:BLACKNODE_LEARNED_NODES_CONSENT="1"
+python scripts\real_repo_learned_demo.py --target F:\PROJECTS\NVDIA\Blacknode
+```
+
+That script samples real readable source/docs files from `--target`, creates
+learned nodes in `Repo`, `Audit`, and `Research`, builds a 14-node workflow,
+runs the audit, and prints findings derived from those files.
 
 For a live editor demo, start Blacknode first:
 
@@ -136,15 +148,16 @@ Then run the Docker-backed demo from another terminal:
 
 ```powershell
 $env:BLACKNODE_LEARNED_NODES_CONSENT="1"
-python scripts\complex_learned_demo.py --open-editor
+python scripts\real_repo_learned_demo.py --target F:\PROJECTS\NVDIA\Blacknode --open-editor
 ```
 
-The script opens **Complex Learned Nodes Demo** as a new editor tab and keeps
-the three demo learned nodes available so the palette categories remain live.
+The script opens **Real Repo Audit - Blacknode** as a new editor tab and keeps
+the three real repo demo learned nodes available so the palette categories
+remain live.
 After the demo, clean them up:
 
 ```powershell
-python scripts\complex_learned_demo.py --cleanup-demo-nodes
+python scripts\real_repo_learned_demo.py --cleanup-demo-nodes
 ```
 
 For the full command-by-command validation path, including Docker integration

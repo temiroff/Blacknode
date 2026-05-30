@@ -142,7 +142,8 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 |---|---|
 | [MCP + NVIDIA NIM preview](https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2) | Claude opens, organizes, and cooks an NVIDIA NIM workflow through MCP. |
 | [Run workflow live replay](https://github.com/user-attachments/assets/16a0d311-f237-4d6f-9fec-c303fc3e41d0) | The editor runs a visible graph with live node highlights and run replay. |
-| `python scripts/complex_learned_demo.py --mock-sandbox` | Creates three categorized learned nodes and runs a 14-node workflow without Docker. Use `--open-editor` with `.\start.bat` for the live editor demo. |
+| `python scripts/complex_learned_demo.py --mock-sandbox` | Deterministic learned-node plumbing test with fixture text, categorized nodes, and a 14-node workflow. Not a real-world data demo. |
+| `python scripts/real_repo_learned_demo.py --target . --open-editor` | Real-world local repo audit: samples actual files from `--target`, creates learned nodes, opens a 14-node graph, and reports findings from that input. |
 
 ## Visuals
 
