@@ -10,6 +10,7 @@ export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
     'EmbedText', 'LLMModelRouter',
   ] },
   NVIDIA:   { color: '#76b900', nodes: [
+    'CUDAKernelLab', 'CUDACustomKernel', 'GPUCapability', 'GPURequirement',
     'NVIDIASystemCheck', 'NVIDIABlueprintPlan', 'NIMDockerCommand',
     'NIMHealthCheck', 'NIMAgent', 'NIMBenchmark', 'VideoFolderInput',
     'NVIDIADeploymentChoice', 'NVIDIAVideoSummaryPlan',
