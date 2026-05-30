@@ -1,5 +1,5 @@
 from .graph import Graph, NodeProxy
-from .node import Any, Bool, Dict, Embedding, Float, Fn, Int, List, Model, Number, Text, _NODE_REGISTRY, node
+from .node import Any, Bool, Dict, Embedding, Enum, Float, Fn, Int, List, Model, Number, Text, _NODE_REGISTRY, node
 from .workflow import validate_graph, validate_workflow
 
 # Auto-register built-in node libraries
@@ -7,6 +7,7 @@ import blacknode.nodes.values  # noqa: F401
 import blacknode.nodes.core    # noqa: F401
 import blacknode.nodes.ai      # noqa: F401
 import blacknode.nodes.nvidia  # noqa: F401
+import blacknode.nodes.cuda    # noqa: F401
 import blacknode.nodes.api     # noqa: F401
 import blacknode.nodes.database  # noqa: F401
 import blacknode.nodes.flow    # noqa: F401
@@ -31,6 +32,7 @@ __all__ = [
     "Bool",
     "Dict",
     "Embedding",
+    "Enum",
     "Float",
     "Fn",
     "Graph",

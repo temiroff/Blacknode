@@ -89,7 +89,7 @@ export default function App() {
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     openGraphAsTab, openWorkflowAsTab, renameTab, saveActiveWorkflow,
-    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, dismissCookStatus, applyRunReplay,
+    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, stopCook, dismissCookStatus, applyRunReplay,
     handleLearnedNodeEvent,
   } = useStore()
 
@@ -102,6 +102,7 @@ export default function App() {
   const [savingWorkflow, setSavingWorkflow] = useState(false)
   const [saveOk, setSaveOk] = useState(false)
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tabId: string } | null>(null)
+  const [nodeMenu, setNodeMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null)
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [pendingClose, setPendingClose] = useState<PendingCloseState | null>(null)
   const [closeSaving, setCloseSaving] = useState(false)
@@ -170,6 +171,20 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [tabMenu])
+
+  useEffect(() => {
+    if (!nodeMenu) return
+    const close = () => setNodeMenu(null)
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [nodeMenu])
 
   useEffect(() => {
     if (!pendingClose || closeSaving) return
@@ -907,11 +922,11 @@ export default function App() {
 
           <button
             className="bn-top-button bn-top-run-button"
-            onClick={() => void handleRunGraph()}
-            disabled={!serverOk || cookActive || nodes.length === 0}
-            title="Run current graph"
+            onClick={() => (cookActive ? stopCook() : void handleRunGraph())}
+            disabled={!serverOk || (!cookActive && nodes.length === 0)}
+            title={cookActive ? 'Stop the running cook' : 'Run current graph'}
           >
-            {cookActive ? 'Running...' : 'Run'}
+            {cookActive ? '■ Stop' : 'Run'}
           </button>
 
           <button
@@ -1135,6 +1150,58 @@ export default function App() {
             </button>
           </div>
         )}
+
+        {nodeMenu && (() => {
+          const menuNode = nodes.find(n => n.id === nodeMenu.nodeId)
+          if (!menuNode) return null
+          const data = menuNode.data
+          const hasValue = data.cookResult !== undefined
+          const hasError = Boolean(data.cookError)
+          return (
+            <div
+              onMouseDown={e => e.stopPropagation()}
+              onClick={e => e.stopPropagation()}
+              onContextMenu={e => e.preventDefault()}
+              style={{
+                position: 'fixed',
+                top: nodeMenu.y,
+                left: nodeMenu.x,
+                zIndex: 40,
+                minWidth: 168,
+                background: 'var(--panel)',
+                border: '1px solid var(--line2)',
+                borderRadius: 7,
+                padding: 4,
+                boxShadow: '0 8px 24px rgba(0,0,0,.28)',
+              }}
+            >
+              <button
+                className="bn-menu-item"
+                style={menuItemStyle(!hasValue)}
+                disabled={!hasValue}
+                onClick={() => { void copyToClipboard(stringifyValue(data.cookResult)); setNodeMenu(null) }}
+              >
+                Copy value
+              </button>
+              {hasError && (
+                <button
+                  className="bn-menu-item"
+                  style={menuItemStyle(false, 'var(--err)')}
+                  onClick={() => { void copyToClipboard(String(data.cookError)); setNodeMenu(null) }}
+                >
+                  Copy error
+                </button>
+              )}
+              <button
+                className="bn-menu-item"
+                style={menuItemStyle()}
+                onClick={() => { void copyToClipboard(menuNode.id); setNodeMenu(null) }}
+              >
+                Copy node ID
+              </button>
+            </div>
+          )
+        })()}
 
         {pendingClose && pendingCloseTab && (
           <div
@@ -1369,8 +1436,14 @@ export default function App() {
             selectNode(null)
             setSearch(null)
             setTabMenu(null)
+            setNodeMenu(null)
           }}
           onPaneContextMenu={onPaneContextMenu}
+          onNodeContextMenu={(e, node) => {
+            e.preventDefault()
+            selectNode(node.id)
+            setNodeMenu({ x: e.clientX, y: e.clientY, nodeId: node.id })
+          }}
           fitView
           fitViewOptions={{ padding: 0.24, maxZoom: 1 }}
           deleteKeyCode={['Delete', 'Backspace']}
@@ -1496,9 +1569,11 @@ function CookStatusPanel({
   raised: boolean
   onDismiss: () => void
 }) {
+  const [debug, setDebug] = useState(false)
   if (hidden || entries.length === 0) return null
   const latest = entries[entries.length - 1]
   const recent = entries.slice(-8).reverse()
+  const debugRows = entries.slice(-300)
   const statusColor = active ? 'var(--warn)' : latest.kind === 'error' ? 'var(--err)' : 'var(--ok)'
 
   return (
@@ -1558,6 +1633,29 @@ function CookStatusPanel({
           </div>
           <button
             type="button"
+            aria-label="Toggle debug output"
+            title="Show full system output (stdout/stderr, node results, tracebacks)"
+            onClick={() => setDebug(d => !d)}
+            style={{
+              height: 20,
+              padding: '0 8px',
+              border: `1px solid ${debug ? 'var(--accent)' : 'var(--line2)'}`,
+              borderRadius: 6,
+              background: debug ? 'var(--accent)' : 'transparent',
+              color: debug ? '#fff' : 'var(--tx3)',
+              cursor: 'pointer',
+              fontSize: 10,
+              fontWeight: 700,
+              fontFamily: 'var(--font-ui)',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              flexShrink: 0,
+            }}
+          >
+            Debug
+          </button>
+          <button
+            type="button"
             aria-label="Hide run status"
             title="Hide run status"
             onClick={onDismiss}
@@ -1581,47 +1679,124 @@ function CookStatusPanel({
           </button>
         </div>
 
-        <div style={{ maxHeight: 168, overflowY: 'auto', padding: '4px 0' }}>
-          {recent.map(entry => {
-            const color = entry.kind === 'error'
-              ? 'var(--err)'
-              : entry.kind === 'start'
-                ? 'var(--warn)'
-                : entry.kind === 'done'
-                  ? 'var(--accent)'
-                  : 'var(--ok)'
-            return (
-              <div
-                key={entry.id}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '70px 1fr',
-                  gap: 8,
-                  padding: '4px 10px',
-                  fontSize: 11,
-                  lineHeight: 1.35,
-                  fontFamily: 'var(--font-ui)',
-                }}
-              >
-                <span style={{ color, fontWeight: 700, textTransform: 'uppercase' }}>
-                  {entry.kind}
-                </span>
-                <span style={{
-                  color: entry.kind === 'error' ? 'var(--err)' : 'var(--tx2)',
-                  fontFamily: 'var(--font-mono)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}>
-                  {entry.message}
-                </span>
-              </div>
-            )
-          })}
-        </div>
+        {debug ? (
+          <div style={{ maxHeight: 360, overflowY: 'auto', padding: '4px 0' }}>
+            {debugRows.map(entry => {
+              const color = cookEntryColor(entry.kind)
+              return (
+                <div
+                  key={entry.id}
+                  style={{ padding: '4px 10px', borderBottom: '1px solid var(--line)' }}
+                >
+                  <div style={{
+                    display: 'flex', gap: 8, alignItems: 'baseline',
+                    fontSize: 11, fontFamily: 'var(--font-ui)',
+                  }}>
+                    <span style={{ color, fontWeight: 700, textTransform: 'uppercase', flexShrink: 0 }}>
+                      {entry.stream ?? entry.kind}
+                    </span>
+                    <span style={{ color: 'var(--tx2)', fontFamily: 'var(--font-mono)', wordBreak: 'break-word' }}>
+                      {entry.message}
+                    </span>
+                  </div>
+                  {entry.detail && (
+                    <pre style={{
+                      margin: '4px 0 0',
+                      padding: '6px 8px',
+                      background: 'var(--lift)',
+                      border: `1px solid ${entry.kind === 'error' ? 'var(--err)' : 'var(--line2)'}`,
+                      borderRadius: 5,
+                      color: entry.kind === 'error' ? 'var(--err)' : entry.stream === 'stderr' ? 'var(--warn)' : 'var(--tx2)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 11,
+                      lineHeight: 1.4,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      maxHeight: 180,
+                      overflowY: 'auto',
+                    }}>
+                      {entry.detail}
+                    </pre>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div style={{ maxHeight: 168, overflowY: 'auto', padding: '4px 0' }}>
+            {recent.map(entry => {
+              const color = cookEntryColor(entry.kind)
+              return (
+                <div
+                  key={entry.id}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '70px 1fr',
+                    gap: 8,
+                    padding: '4px 10px',
+                    fontSize: 11,
+                    lineHeight: 1.35,
+                    fontFamily: 'var(--font-ui)',
+                  }}
+                >
+                  <span style={{ color, fontWeight: 700, textTransform: 'uppercase' }}>
+                    {entry.kind}
+                  </span>
+                  <span style={{
+                    color: entry.kind === 'error' ? 'var(--err)' : 'var(--tx2)',
+                    fontFamily: 'var(--font-mono)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}>
+                    {entry.message}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
+}
+
+function stringifyValue(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+  if (!text) return
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.left = '-9999px'
+  document.body.appendChild(ta)
+  ta.focus()
+  ta.select()
+  document.execCommand('copy')
+  document.body.removeChild(ta)
+}
+
+function cookEntryColor(kind: CookLogEntry['kind']): string {
+  switch (kind) {
+    case 'error': return 'var(--err)'
+    case 'start': return 'var(--warn)'
+    case 'done':  return 'var(--accent)'
+    case 'log':   return 'var(--tx3)'
+    case 'info':  return 'var(--tx3)'
+    default:      return 'var(--ok)'
+  }
 }
 
 function getCompatibleNodeTypes(draft: ConnectionDraft, nodeDefs: Record<string, BnNodeDef>): string[] {

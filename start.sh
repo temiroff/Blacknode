@@ -213,6 +213,17 @@ if ! "$PYTHON_BIN" -c "import importlib.metadata; importlib.metadata.version('bl
   "$PYTHON_BIN" -m pip install -e "$ROOT_DIR" -q --disable-pip-version-check
 fi
 
+# Optional: install CuPy for the GPU/CUDA nodes when an NVIDIA GPU is present.
+# macOS has no NVIDIA CUDA GPUs, so nvidia-smi is absent and this is skipped.
+# Non-fatal: a failure here never blocks the editor.
+if command -v nvidia-smi >/dev/null 2>&1; then
+  if ! "$PYTHON_BIN" -c "import cupy" >/dev/null 2>&1; then
+    echo "  NVIDIA GPU detected - installing CuPy for CUDA nodes (one-time, large download)..."
+    "$PYTHON_BIN" -m pip install cupy-cuda12x -q --disable-pip-version-check \
+      || echo "  CuPy install failed; GPU/CUDA nodes stay unavailable but the editor will run."
+  fi
+fi
+
 ensure_frontend_dependencies
 
 echo "  Done."

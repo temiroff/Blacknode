@@ -14,6 +14,9 @@ const MODEL_NODE_TYPES  = new Set(['Model'])
 const OUTPUT_NODE_TYPES = new Set(['Output'])
 const SUBGRAPH_NODE_TYPES = new Set(['Subnet', 'SubnetAsTool', 'VisualAgentLoop'])
 
+// In-flight cook stream, so a Stop button can abort a running/stuck cook.
+let cookAbort: AbortController | null = null
+
 export interface WorkflowTab {
   id: string
   name: string
@@ -39,9 +42,11 @@ export interface GraphClipboard {
 
 export interface CookLogEntry {
   id: string
-  kind: 'start' | 'success' | 'error' | 'done' | 'info'
+  kind: 'start' | 'success' | 'error' | 'done' | 'info' | 'log'
   label: string
   message: string
+  detail?: string          // full payload (result JSON, stdout/stderr, traceback) for the debug view
+  stream?: 'stdout' | 'stderr'
   nodeId?: string
   port?: string
   cached?: boolean
@@ -163,6 +168,7 @@ interface Store {
   ) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
   cookNode: (id: string, port?: string) => Promise<void>
+  stopCook: () => void
   dismissCookStatus: () => void
   applyRunReplay: (record: RunRecord, cursor: number, playing: boolean) => void
   clearRunReplay: () => void
@@ -374,6 +380,20 @@ function cookEventLogEntry(event: CookEvent, nodes: Node<NodeData>[]): CookLogEn
   }
 
   const label = nodeRunLabel(nodes, event.node_id)
+  if (event.type === 'log') {
+    const text = String(event.text ?? '')
+    const firstLine = text.split('\n').find(l => l.trim()) ?? text
+    return {
+      id: `${ts}-${event.node_id}-log-${Math.random().toString(36).slice(2, 6)}`,
+      kind: 'log',
+      label,
+      message: `${label} ${event.stream}: ${firstLine}`,
+      detail: text,
+      stream: event.stream,
+      nodeId: event.node_id,
+      ts,
+    }
+  }
   if (event.type === 'model_call') {
     return {
       id: `${ts}-${event.node_id}-model`,
@@ -413,6 +433,7 @@ function cookEventLogEntry(event: CookEvent, nodes: Node<NodeData>[]): CookLogEn
       kind: 'success',
       label,
       message: `${label}${port} ${event.cached ? 'cached' : 'done'}${event.value !== undefined ? `: ${shortText(event.value)}` : ''}`,
+      detail: fullDetail(event.outputs ?? event.value),
       nodeId: event.node_id,
       port: event.port,
       cached: event.cached,
@@ -424,9 +445,19 @@ function cookEventLogEntry(event: CookEvent, nodes: Node<NodeData>[]): CookLogEn
     kind: 'error',
     label,
     message: `${label}${port} error: ${shortText(event.error, 180)}`,
+    detail: String(event.error ?? ''),
     nodeId: event.node_id,
     port: event.port,
     ts,
+  }
+}
+
+function fullDetail(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined
+  try {
+    return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
   }
 }
 
@@ -2274,7 +2305,7 @@ export const useStore = create<Store>((set, get) => ({
         }))
         return
       }
-      if (event.type === 'model_call' || event.type === 'tool_call') {
+      if (event.type === 'model_call' || event.type === 'tool_call' || event.type === 'log') {
         set(s => ({
           ...syncTabCookState(s, cookTabId, {
             cookLog: appendCookLog(tabCookLog(s, cookTabId), cookEventLogEntry(event, s.activeTabId === cookTabId ? s.nodes : cookNodes)),
@@ -2369,21 +2400,26 @@ export const useStore = create<Store>((set, get) => ({
       })),
     }))
 
+    cookAbort = new AbortController()
+    const signal = cookAbort.signal
     try {
       if (activeSubnetId) {
-        await api.cookSubgraphStream(activeSubnetId, id, port, applyCookEvent)
+        await api.cookSubgraphStream(activeSubnetId, id, port, applyCookEvent, signal)
       } else {
-        await api.cookStream(id, port, applyCookEvent)
+        await api.cookStream(id, port, applyCookEvent, signal)
       }
     } catch (e: any) {
+      const stopped = e?.name === 'AbortError' || signal.aborted
       set(s => ({
         ...syncTabCookState(s, cookTabId, {
           cookActive: false,
           cookLog: appendCookLog(tabCookLog(s, cookTabId), {
-            id: `${Date.now()}-${id}-client-error`,
-            kind: 'error',
+            id: `${Date.now()}-${id}-${stopped ? 'stopped' : 'client-error'}`,
+            kind: stopped ? 'start' : 'error',
             label: nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id),
-            message: `${nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id)}.${port} error: ${e.message}`,
+            message: stopped
+              ? `Stopped ${nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id)}.${port}`
+              : `${nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id)}.${port} error: ${e.message}`,
             nodeId: id,
             port,
             ts: Date.now(),
@@ -2391,11 +2427,26 @@ export const useStore = create<Store>((set, get) => ({
         }),
         nodes: s.activeTabId === cookTabId
           ? s.nodes.map(n =>
-              n.id === id ? { ...n, data: { ...n.data, cooking: false, cookError: e.message, cookPort: port } } : n
+              n.id === id
+                ? { ...n, data: { ...n.data, cooking: false, cookError: stopped ? undefined : e.message, cookPort: port } }
+                : n
             )
           : s.nodes,
       }))
+    } finally {
+      cookAbort = null
     }
+  },
+
+  stopCook: () => {
+    cookAbort?.abort()
+    cookAbort = null
+    set(s => ({
+      ...syncTabCookState(s, s.activeTabId, { cookActive: false }),
+      nodes: s.nodes.map(n =>
+        n.data.cooking ? { ...n, data: { ...n.data, cooking: false } } : n
+      ),
+    }))
   },
 
   dismissCookStatus: () => {

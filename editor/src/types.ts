@@ -51,6 +51,7 @@ export interface BnNodeDef {
   input_types: Record<string, string>
   output_types: Record<string, string>
   input_defaults: Record<string, unknown>
+  input_choices?: Record<string, string[]>
   doc?: string
   source?: string
 }

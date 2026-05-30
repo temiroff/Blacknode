@@ -1,6 +1,6 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import uuid, os, sys, json, threading, re, queue
+import uuid, os, sys, json, threading, re, queue, io, contextlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -689,6 +689,7 @@ def _node_def_payload(name: str, fn: Any) -> dict[str, Any]:
         "input_types": getattr(fn, "_bn_input_types", {}),
         "output_types": getattr(fn, "_bn_output_types", {}),
         "input_defaults": getattr(fn, "_bn_input_defaults", {}),
+        "input_choices": getattr(fn, "_bn_input_choices", {}),
         "doc": doc.split("\n", 1)[0] if doc else "",
         "source": getattr(fn, "_bn_source_path", ""),
     }
@@ -1551,10 +1552,21 @@ def _cook_trace(node_id: str, port: str):
             ctx["__graph__"] = _session.graph
             ctx["__node_id__"] = current_id
             ctx["__run_logger__"] = logger
+            _out_buf, _err_buf = io.StringIO(), io.StringIO()
             try:
-                result = fn(ctx)
+                with contextlib.redirect_stdout(_out_buf), contextlib.redirect_stderr(_err_buf):
+                    result = fn(ctx)
             finally:
                 yield from drain_logger()
+                for _stream, _buf in (("stdout", _out_buf), ("stderr", _err_buf)):
+                    _text = _buf.getvalue()
+                    if _text.strip():
+                        yield _node_event({
+                            "type": "log",
+                            "node_id": current_id,
+                            "stream": _stream,
+                            "text": _text,
+                        })
             if not isinstance(result, dict):
                 result = {"output": result}
 

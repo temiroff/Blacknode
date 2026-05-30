@@ -1,0 +1,91 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "NVIDIA CUDA Lab",
+  "saved_at": "2026-05-30T00:00:00",
+  "entrypoint": {
+    "node_id": "out",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Run a real CUDA op on your NVIDIA GPU and read back measured GPU vs CPU timings. Requires an NVIDIA GPU + cupy-cuda12x.",
+    "color": "#76b900"
+  },
+  "node_meta": {
+    "gpu": {
+      "id": "gpu",
+      "type": "CUDAKernelLab",
+      "params": {
+        "op": "matmul",
+        "size": 1048576,
+        "dtype": "float32",
+        "seed": 0
+      },
+      "pos": [
+        120,
+        140
+      ],
+      "inputs": [
+        "op",
+        "size",
+        "dtype",
+        "seed"
+      ],
+      "outputs": [
+        "result",
+        "gpu_ms",
+        "cpu_ms",
+        "speedup",
+        "device",
+        "report"
+      ],
+      "input_types": {
+        "op": "Text",
+        "size": "Int",
+        "dtype": "Text",
+        "seed": "Int"
+      },
+      "output_types": {
+        "result": "Any",
+        "gpu_ms": "Float",
+        "cpu_ms": "Float",
+        "speedup": "Float",
+        "device": "Text",
+        "report": "Dict"
+      },
+      "input_defaults": {
+        "op": "vector_add",
+        "size": 1048576,
+        "dtype": "float32",
+        "seed": 0
+      }
+    },
+    "out": {
+      "id": "out",
+      "type": "Output",
+      "params": {},
+      "pos": [
+        520,
+        180
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "gpu",
+      "from_port": "report",
+      "to": "out",
+      "to_port": "value"
+    }
+  ]
+}

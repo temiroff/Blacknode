@@ -9,6 +9,7 @@ export type CookEvent =
   | { type: 'done'; port: string; value?: unknown; error?: string }
   | { type: 'model_call'; node_id: string; model: string; action?: string; provider?: string; tool_count?: number; node_type?: string }
   | { type: 'tool_call'; node_id: string; name: string; arguments?: Record<string, unknown>; node_type?: string }
+  | { type: 'log'; node_id: string; stream: 'stdout' | 'stderr'; text: string; node_type?: string }
 
 export interface TemplateMeta {
   slug: string
@@ -140,11 +141,12 @@ export const api = {
     req('DELETE', `/edges?from_id=${from_id}&from_port=${from_port}&to_id=${to_id}&to_port=${to_port}`),
   cook:       (node_id: string, port = 'output') =>
     req<{ value: unknown; port: string }>('POST', '/cook', { node_id, port }),
-  cookStream: async (node_id: string, port = 'output', onEvent: (event: CookEvent) => void) => {
+  cookStream: async (node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) => {
     const res = await fetch(`${BASE}/cook-stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ node_id, port }),
+      signal,
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))
@@ -171,11 +173,12 @@ export const api = {
     buffer += decoder.decode()
     if (buffer.trim()) onEvent(JSON.parse(buffer) as CookEvent)
   },
-  cookSubgraphStream: async (subnet_id: string, node_id: string, port = 'output', onEvent: (event: CookEvent) => void) => {
+  cookSubgraphStream: async (subnet_id: string, node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) => {
     const res = await fetch(`${BASE}/nodes/${subnet_id}/cook-stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ node_id, port }),
+      signal,
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }))

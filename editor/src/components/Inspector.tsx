@@ -27,7 +27,7 @@ const ICON_PARAMS = (
 )
 
 export default function Inspector() {
-  const { nodes, edges, nodeDefs, selectedId, updateParam, cookNode, removeNode } = useStore()
+  const { nodes, edges, nodeDefs, selectedId, updateParam, cookNode, stopCook, removeNode } = useStore()
   const node = nodes.find(n => n.id === selectedId)
 
   const [open, setOpen]             = useState(true)
@@ -96,6 +96,7 @@ export default function Inspector() {
                 const type = (data.input_types as Record<string, string>)?.[inp] ?? 'Any'
                 const def  = (data.input_defaults as Record<string, unknown>)?.[inp]
                           ?? nodeDefs[data.type]?.input_defaults?.[inp]
+                const choices = nodeDefs[data.type]?.input_choices?.[inp]
                 return (
                   <ParamRow
                     key={`${node.id}-${inp}`}
@@ -103,6 +104,7 @@ export default function Inspector() {
                     type={type}
                     value={data.params[inp]}
                     defaultValue={def}
+                    choices={choices}
                     connected={connectedPorts.has(inp)}
                     onChange={v => updateParam(node.id, inp, v)}
                   />
@@ -145,12 +147,21 @@ export default function Inspector() {
 
         {/* actions */}
         <div style={{ padding: '12px 16px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button
-            onClick={() => cookNode(node.id, data.outputs[0] ?? 'output')}
-            style={btnStyle('var(--accent)', true)}
-          >
-            {data.cooking ? 'Cooking…' : '▶  Cook'}
-          </button>
+          {data.cooking ? (
+            <button
+              onClick={() => stopCook()}
+              style={btnStyle('var(--err)', true)}
+            >
+              ■  Stop
+            </button>
+          ) : (
+            <button
+              onClick={() => cookNode(node.id, data.outputs[0] ?? 'output')}
+              style={btnStyle('var(--accent)', true)}
+            >
+              ▶  Cook
+            </button>
+          )}
           <button
             onClick={() => removeNode(node.id)}
             style={btnStyle('var(--err)', false)}
@@ -259,11 +270,12 @@ export default function Inspector() {
   )
 }
 
-function ParamRow({ label, type, value, defaultValue, connected, onChange }: {
+function ParamRow({ label, type, value, defaultValue, choices, connected, onChange }: {
   label: string
   type: string
   value: unknown
   defaultValue: unknown
+  choices?: string[]
   connected: boolean
   onChange: (v: unknown) => void
 }) {
@@ -323,6 +335,8 @@ function ParamRow({ label, type, value, defaultValue, connected, onChange }: {
         }}>
           ← connect a wire
         </div>
+      ) : choices && choices.length > 0 ? (
+        <EnumControl value={value} defaultValue={defaultValue} choices={choices} onChange={onChange} />
       ) : type === 'Bool' ? (
         <BoolControl value={value} onChange={onChange} />
       ) : type === 'Int' ? (
@@ -335,6 +349,40 @@ function ParamRow({ label, type, value, defaultValue, connected, onChange }: {
         <TextControl value={value} defaultValue={defaultValue} onChange={onChange} multiline={type !== 'Model'} />
       )}
     </div>
+  )
+}
+
+function EnumControl({ value, defaultValue, choices, onChange }: {
+  value: unknown; defaultValue: unknown; choices: string[]; onChange: (v: unknown) => void
+}) {
+  const current = value !== undefined && value !== null ? String(value)
+    : defaultValue !== undefined && defaultValue !== null ? String(defaultValue)
+    : choices[0]
+  const color = portColor('Text')
+  return (
+    <select
+      value={current}
+      onChange={e => onChange(e.target.value)}
+      style={{
+        width: '100%',
+        background: 'var(--lift)',
+        border: '1px solid var(--line)',
+        borderRadius: 6,
+        padding: '5px 8px',
+        minHeight: 28,
+        color: 'var(--tx1)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 12,
+        fontWeight: 600,
+        outline: 'none',
+        cursor: 'pointer',
+        borderLeft: `2px solid ${color}`,
+      }}
+    >
+      {choices.map(opt => (
+        <option key={opt} value={opt}>{opt}</option>
+      ))}
+    </select>
   )
 }
 

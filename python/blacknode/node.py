@@ -13,6 +13,7 @@ class PortSpec:
     type_name: str
     default: TypingAny = None
     has_default: bool = False
+    choices: tuple = ()
 
 
 class PortType:
@@ -45,8 +46,22 @@ Number = PortType("Number")
 Any = PortType("Any")
 
 
-def _parse_ports(ports: list[str] | Mapping[str, TypingAny]) -> tuple[list[str], dict[str, str], dict[str, object]]:
-    """Parse port specs into (names, {name: type}, {name: default}).
+def Enum(choices: TypingAny, default: TypingAny = None, type_name: str = "Text") -> PortSpec:
+    """A fixed-choice param rendered as a dropdown in the editor.
+
+    The wire type stays ``Text`` (default) so validation and code export are
+    unchanged; the editor renders a ``<select>`` when a port carries choices::
+
+        @node(inputs={"op": Enum(["vector_add", "matmul"], default="vector_add")})
+
+    """
+    opts = tuple(str(c) for c in choices)
+    chosen = default if default is not None else (opts[0] if opts else None)
+    return PortSpec(type_name, chosen, True, opts)
+
+
+def _parse_ports(ports: list[str] | Mapping[str, TypingAny]) -> tuple[list[str], dict[str, str], dict[str, object], dict[str, list]]:
+    """Parse port specs into (names, {name: type}, {name: default}, {name: choices}).
 
     Supports the original compact syntax:
 
@@ -57,6 +72,7 @@ def _parse_ports(ports: list[str] | Mapping[str, TypingAny]) -> tuple[list[str],
         {"name": Text, "limit": Int(default=5), "items": List[Dict]}
 
     Ports without a colon default to type "Any". The =default part is optional.
+    Only the mapping syntax can carry dropdown choices (via ``Enum(...)``).
     """
     if isinstance(ports, Mapping):
         return _parse_mapping_ports(ports)
@@ -90,13 +106,14 @@ def _parse_ports(ports: list[str] | Mapping[str, TypingAny]) -> tuple[list[str],
         types[name] = typ
         if has_default:
             defaults[name] = default_val
-    return names, types, defaults
+    return names, types, defaults, {}
 
 
-def _parse_mapping_ports(ports: Mapping[str, TypingAny]) -> tuple[list[str], dict[str, str], dict[str, object]]:
+def _parse_mapping_ports(ports: Mapping[str, TypingAny]) -> tuple[list[str], dict[str, str], dict[str, object], dict[str, list]]:
     names: list[str] = []
     types: dict[str, str] = {}
     defaults: dict[str, object] = {}
+    choices: dict[str, list] = {}
     for raw_name, value in ports.items():
         name = str(raw_name)
         spec = _coerce_port_spec(value)
@@ -104,7 +121,9 @@ def _parse_mapping_ports(ports: Mapping[str, TypingAny]) -> tuple[list[str], dic
         types[name] = spec.type_name
         if spec.has_default:
             defaults[name] = spec.default
-    return names, types, defaults
+        if spec.choices:
+            choices[name] = list(spec.choices)
+    return names, types, defaults, choices
 
 
 def _coerce_port_spec(value: TypingAny) -> PortSpec:
@@ -182,14 +201,14 @@ def node(
 
         # Use `is not None` so that an explicit empty list [] is honoured
         # (the `or` idiom treats [] as falsy, giving a wrong default).
-        in_names,  in_types,  in_defaults  = _parse_ports(inputs  if inputs  is not None else [])
-        out_names, out_types, _            = _parse_ports(outputs if outputs is not None else ["output:Any"])
+        in_names,  in_types,  in_defaults,  in_choices = _parse_ports(inputs  if inputs  is not None else [])
+        out_names, out_types, _,            _          = _parse_ports(outputs if outputs is not None else ["output:Any"])
 
         runtime_fn = fn if _expects_context(fn) else _wrap_direct_node(fn, in_names, in_defaults, out_names)
         _NODE_REGISTRY[type_name] = runtime_fn
-        _attach_metadata(runtime_fn, type_name, in_names, in_types, in_defaults, out_names, out_types, category, description)
+        _attach_metadata(runtime_fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description)
         if runtime_fn is not fn:
-            _attach_metadata(fn, type_name, in_names, in_types, in_defaults, out_names, out_types, category, description)
+            _attach_metadata(fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description)
         return fn
     return decorator
 
@@ -234,6 +253,7 @@ def _attach_metadata(
     inputs: list[str],
     input_types: dict[str, str],
     input_defaults: dict[str, object],
+    input_choices: dict[str, list],
     outputs: list[str],
     output_types: dict[str, str],
     category: str | None,
@@ -244,6 +264,7 @@ def _attach_metadata(
     fn._bn_inputs = inputs
     fn._bn_input_types = input_types
     fn._bn_input_defaults = input_defaults
+    fn._bn_input_choices = input_choices
     fn._bn_outputs = outputs
     fn._bn_output_types = output_types
     if category:
@@ -257,6 +278,7 @@ __all__ = [
     "Bool",
     "Dict",
     "Embedding",
+    "Enum",
     "Float",
     "Fn",
     "Int",

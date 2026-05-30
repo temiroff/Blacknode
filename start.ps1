@@ -277,6 +277,19 @@ try {
         }
     }
 
+    # Optional: install CuPy for the GPU/CUDA nodes when an NVIDIA GPU is present.
+    # Non-fatal: a failure here never blocks the editor.
+    if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+        & $Python -c "import cupy" > $null 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Step "NVIDIA GPU detected - installing CuPy for CUDA nodes (one-time, large download)..."
+            & $Python -m pip install cupy-cuda12x -q --disable-pip-version-check
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  CuPy install failed; GPU/CUDA nodes stay unavailable but the editor will run." -ForegroundColor Yellow
+            }
+        }
+    }
+
     $NodeModules = Join-Path $Root "editor\node_modules"
     if (-not (Test-Path -LiteralPath $NodeModules)) {
         Install-FrontendDependencies -Message "Installing frontend dependencies (first run, this can take a minute)..."

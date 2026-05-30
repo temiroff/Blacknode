@@ -27,6 +27,11 @@ mcp = [
 rust = [
     "maturin>=1.0,<2.0",
 ]
+# Real GPU compute blocks (CUDAKernelLab). Requires an NVIDIA GPU + CUDA 12.x.
+gpu = [
+    "cupy-cuda12x>=13",
+    "numpy>=1.24",
+]
 
 [project.scripts]
 blacknode = "blacknode.cli:main"
