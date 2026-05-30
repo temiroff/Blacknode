@@ -16,13 +16,13 @@
     "load": {
       "id": "load",
       "type": "LoadImage",
-      "params": { "path": "", "max_size": 768 },
+      "params": { "source": "", "max_size": 768 },
       "pos": [80, 160],
-      "inputs": ["path", "max_size"],
+      "inputs": ["source", "max_size"],
       "outputs": ["image", "width", "height", "report"],
-      "input_types": { "path": "Text", "max_size": "Int" },
+      "input_types": { "source": "Image", "max_size": "Int" },
       "output_types": { "image": "Image", "width": "Int", "height": "Int", "report": "Dict" },
-      "input_defaults": { "path": "", "max_size": 768 }
+      "input_defaults": { "source": "", "max_size": 768 }
     },
     "filter": {
       "id": "filter",

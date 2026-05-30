@@ -16,7 +16,7 @@ try:
 except Exception:  # pragma: no cover
     np = None
 
-from blacknode.node import Image, Int, Text, node
+from blacknode.node import Image, Int, node
 
 
 def _pil():
@@ -66,31 +66,32 @@ def _resize_max(arr: "np.ndarray", max_size: int) -> "np.ndarray":
 
 
 @node(
-    inputs={"path": Text(""), "max_size": Int(default=768)},
+    inputs={"source": Image(""), "max_size": Int(default=768)},
     outputs=["image:Image", "width:Int", "height:Int", "report:Dict"],
     name="LoadImage",
     category="Image",
-    description="Load an image file from disk into the graph (downscaled to max_size for speed).",
+    description="Load an image via the Browse button (or a file path) into the graph, downscaled to max_size.",
 )
 def load_image(ctx: dict) -> dict:
-    path = str(ctx.get("path") or "").strip()
+    source = str(ctx.get("source") or "").strip()
     max_size = int(ctx.get("max_size") or 0)
-    if not path:
-        return {"image": "", "width": 0, "height": 0, "report": {"error": "no path provided"}}
+    if not source:
+        return {"image": "", "width": 0, "height": 0,
+                "report": {"error": "no image (use Browse to pick a file, or paste a path)"}}
     if np is None:
         return {"image": "", "width": 0, "height": 0, "report": {"error": "NumPy not installed"}}
     try:
-        arr = decode_image(path)
+        arr = decode_image(source)
     except Exception as exc:  # noqa: BLE001
         return {"image": "", "width": 0, "height": 0,
-                "report": {"error": f"{type(exc).__name__}: {exc}", "path": path}}
+                "report": {"error": f"{type(exc).__name__}: {exc}"}}
     arr = _resize_max(arr, max_size)
     h, w = arr.shape[:2]
     return {
         "image": encode_image(arr),
         "width": w,
         "height": h,
-        "report": {"path": path, "width": w, "height": h},
+        "report": {"width": w, "height": h},
     }
 
 

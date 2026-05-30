@@ -49,8 +49,8 @@ def test_output_image_passthrough():
     assert output_image({"image": url})["image"] == url
 
 
-def test_load_image_missing_path():
-    r = load_image({"path": ""})
+def test_load_image_missing_source():
+    r = load_image({"source": ""})
     assert r["image"] == ""
     assert "error" in r["report"]
 
@@ -83,7 +83,7 @@ def _make_test_image() -> str:
 @pil_only
 def test_load_image_reads_file():
     path = _make_test_image()
-    r = load_image({"path": path, "max_size": 0})
+    r = load_image({"source": path, "max_size": 0})
     assert r["width"] == 32 and r["height"] == 24
     assert r["image"].startswith("data:image/png;base64,")
 
@@ -93,7 +93,7 @@ def test_load_image_reads_file():
 @gpu_only
 @pytest.mark.parametrize("op", IMAGE_FILTERS)
 def test_each_filter_returns_image(op):
-    loaded = load_image({"path": _make_test_image(), "max_size": 0})
+    loaded = load_image({"source": _make_test_image(), "max_size": 0})
     r = cuda_image_filter({"image": loaded["image"], "op": op, "amount": 0.5})
     assert "error" not in r["report"], r["report"]
     assert r["image"].startswith("data:image/png;base64,")

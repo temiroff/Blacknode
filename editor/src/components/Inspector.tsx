@@ -350,6 +350,8 @@ function ParamRow({ label, type, value, defaultValue, choices, connected, onChan
         }}>
           ← connect a wire
         </div>
+      ) : type === 'Image' ? (
+        <ImageControl value={value} onChange={onChange} />
       ) : choices && choices.length > 0 ? (
         <EnumControl value={value} defaultValue={defaultValue} choices={choices} onChange={onChange} />
       ) : type === 'Bool' ? (
@@ -362,6 +364,61 @@ function ParamRow({ label, type, value, defaultValue, choices, connected, onChan
         <CodeControl value={value} defaultValue={defaultValue} onChange={onChange} />
       ) : (
         <TextControl value={value} defaultValue={defaultValue} onChange={onChange} multiline={type !== 'Model'} />
+      )}
+    </div>
+  )
+}
+
+function ImageControl({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const current = typeof value === 'string' ? value : ''
+  const isImg = isImageDataUrl(current)
+  const [draft, setDraft] = useState(isImg ? '' : current)
+  useEffect(() => { setDraft(isImageDataUrl(current) ? '' : current) }, [current])
+
+  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => onChange(String(reader.result))
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  const btn: React.CSSProperties = {
+    background: 'var(--lift)', border: '1px solid var(--line)', borderRadius: 6,
+    color: 'var(--tx1)', fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600,
+    padding: '5px 10px', cursor: 'pointer',
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button type="button" style={btn} onClick={() => fileRef.current?.click()}>Browse…</button>
+        {current && (
+          <button type="button" style={{ ...btn, color: 'var(--err)' }} onClick={() => onChange('')}>Clear</button>
+        )}
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onPick} />
+      </div>
+      {isImg ? (
+        <img
+          src={current}
+          alt="preview"
+          style={{ maxWidth: '100%', borderRadius: 6, border: '1px solid var(--line2)', background: 'var(--lift)', display: 'block' }}
+        />
+      ) : (
+        <input
+          type="text"
+          value={draft}
+          placeholder="or paste a file path"
+          onChange={e => setDraft(e.target.value)}
+          onBlur={() => onChange(draft)}
+          style={{
+            background: 'var(--lift)', border: '1px solid var(--line)', borderRadius: 6,
+            color: 'var(--tx1)', fontFamily: 'var(--font-mono)', fontSize: 12,
+            padding: '5px 8px', outline: 'none', minHeight: 28,
+          }}
+        />
       )}
     </div>
   )
