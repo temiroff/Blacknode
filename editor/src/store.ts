@@ -83,6 +83,7 @@ interface Store {
   nodeDefs: Record<string, BnNodeDef>
   selectedId: string | null
   serverOk: boolean
+  serverError: string | null
   apiKeys: Record<string, string>
   customModels: string[]
   learnedNodes: LearnedNodeSummary[]
@@ -150,6 +151,7 @@ interface Store {
   addNode: (typeName: string, pos: { x: number; y: number }, params?: Record<string, unknown>) => Promise<void>
   addNodeFromConnection: (typeName: string, pos: { x: number; y: number }, draft: ConnectionDraft, params?: Record<string, unknown>) => Promise<void>
   removeNode: (id: string) => Promise<void>
+  resizeNode: (id: string, size: { width: number; height: number }) => void
   onNodesChange: (changes: NodeChange[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
   onConnect: (conn: Connection) => Promise<void>
@@ -362,9 +364,50 @@ function nodeRunLabel(nodes: Node<NodeData>[], nodeId?: string): string {
 
 function shortText(value: unknown, max = 120): string {
   if (value === undefined || value === null) return ''
+  if (isImageDataUrl(value)) return `[image data URL, ${value.length} chars]`
   const encoded = typeof value === 'string' ? value : JSON.stringify(value)
   const text = encoded === undefined ? String(value) : encoded
   return text.length > max ? `${text.slice(0, max)}...` : text
+}
+
+function isImageDataUrl(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('data:image/')
+}
+
+function summarizeImages(value: unknown): unknown {
+  if (isImageDataUrl(value)) {
+    return `[image data URL, ${value.length} chars]`
+  }
+  if (Array.isArray(value)) {
+    return value.map(summarizeImages)
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, summarizeImages(item)])
+    )
+  }
+  return value
+}
+
+function successOutputValue(event: CookEvent, port: string | null | undefined): unknown {
+  if (!port) return undefined
+  if (event.type !== 'success') return undefined
+  if (event.port === port) return event.value
+  return event.outputs?.[port]
+}
+
+function replayCookEvent(event: CookEvent): CookEvent {
+  if (event.type === 'success') {
+    return {
+      ...event,
+      value: summarizeImages(event.value),
+      outputs: event.outputs ? summarizeImages(event.outputs) as Record<string, unknown> : undefined,
+    }
+  }
+  if (event.type === 'done' && event.value !== undefined) {
+    return { ...event, value: summarizeImages(event.value) }
+  }
+  return event
 }
 
 function cookEventLogEntry(event: CookEvent, nodes: Node<NodeData>[]): CookLogEntry {
@@ -454,10 +497,11 @@ function cookEventLogEntry(event: CookEvent, nodes: Node<NodeData>[]): CookLogEn
 
 function fullDetail(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined
+  const safeValue = summarizeImages(value)
   try {
-    return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+    return typeof safeValue === 'string' ? safeValue : JSON.stringify(safeValue, null, 2)
   } catch {
-    return String(value)
+    return String(safeValue)
   }
 }
 
@@ -567,6 +611,12 @@ function eventPort(event: ReplayEvent | undefined): string | undefined {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function errorMessage(value: unknown): string {
+  if (value instanceof Error) return value.message
+  const text = String(value ?? '')
+  return text || 'Unknown error'
 }
 
 function outputValueForPort(outputs: unknown, port: string | undefined): unknown {
@@ -917,6 +967,7 @@ export const useStore = create<Store>((set, get) => ({
   nodeDefs: {},
   selectedId: null,
   serverOk: false,
+  serverError: null,
   apiKeys: {},
   customModels: [],
   learnedNodes: [],
@@ -934,9 +985,37 @@ export const useStore = create<Store>((set, get) => ({
   checkServer: async () => {
     try {
       await api.nodeTypes()
-      set({ serverOk: true })
-    } catch {
-      set({ serverOk: false })
+      set({ serverOk: true, serverError: null })
+    } catch (err) {
+      const message = errorMessage(err)
+      set(s => {
+        const hasCookingNodes = s.nodes.some(n => n.data.cooking)
+        const cookPatch = s.cookActive
+          ? syncTabCookState(s, s.activeTabId, {
+              cookActive: false,
+              cookStatusHidden: false,
+              cookLog: appendCookLog(tabCookLog(s, s.activeTabId), {
+                id: `${Date.now()}-backend-disconnected`,
+                kind: 'error',
+                label: 'Backend',
+                message: `Backend disconnected: ${message}`,
+                ts: Date.now(),
+              }),
+            })
+          : {}
+        return {
+          ...cookPatch,
+          serverOk: false,
+          serverError: message,
+          nodes: hasCookingNodes
+            ? s.nodes.map(n =>
+                n.data.cooking
+                  ? { ...n, data: { ...n.data, cooking: false, cookError: 'Backend disconnected' } }
+                  : n
+              )
+            : s.nodes,
+        }
+      })
     }
   },
 
@@ -1577,6 +1656,25 @@ export const useStore = create<Store>((set, get) => ({
       nodes: s.nodes.filter(n => n.id !== id),
       edges: s.edges.filter(e => e.source !== id && e.target !== id),
       selectedId: s.selectedId === id ? null : s.selectedId,
+      ...markActiveTabDirty(s),
+    }))
+  },
+
+  resizeNode: (id, size) => {
+    const width = Math.max(1, Math.round(size.width))
+    const height = Math.max(1, Math.round(size.height))
+    set(s => ({
+      ...pushUndoSnapshot(s),
+      nodes: s.nodes.map(n =>
+        n.id === id
+          ? {
+              ...n,
+              width,
+              height,
+              style: { ...(n.style ?? {}), width, height },
+            }
+          : n
+      ),
       ...markActiveTabDirty(s),
     }))
   },
@@ -2261,15 +2359,20 @@ export const useStore = create<Store>((set, get) => ({
     const liveEvents: RunRecord['events'] = []
     let liveReplayDelay = 0
     const queueLiveReplay = (event: CookEvent) => {
-      const stamped = { ...event, ts: new Date().toISOString() }
+      const stamped = { ...replayCookEvent(event), ts: new Date().toISOString() }
+      const finalSuccess = stamped.type === 'success' && stamped.node_id === id && stamped.port === port
       liveEvents.push(stamped)
       const eventIndex = liveEvents.length - 1
       const record: RunRecord = {
         run_id: liveRunId,
         started_at: liveStartedAt,
-        finished_at: stamped.type === 'done' ? stamped.ts as string : null,
+        finished_at: stamped.type === 'done' || finalSuccess ? stamped.ts as string : null,
         duration_ms: null,
-        status: stamped.type === 'done' ? (stamped.error ? 'error' : 'success') : 'running',
+        status: stamped.type === 'done'
+          ? (stamped.error ? 'error' : 'success')
+          : finalSuccess
+            ? 'success'
+            : 'running',
         node_id: id,
         port,
         node_type: startNode?.data.type ?? '',
@@ -2278,14 +2381,14 @@ export const useStore = create<Store>((set, get) => ({
         tool_calls: liveEvents.filter(e => e.type === 'tool_call').length,
         cached_nodes: liveEvents.filter(e => e.type === 'success' && Boolean(e.cached)).length,
         events: liveEvents.slice(),
-        value: stamped.type === 'done' ? stamped.value : undefined,
+        value: stamped.type === 'done' || finalSuccess ? stamped.value : undefined,
         error: stamped.type === 'done' && stamped.error ? stringValue(stamped.error) : undefined,
       }
       const delay = liveReplayDelay
       liveReplayDelay += 170
       window.setTimeout(() => {
         if (get().runReplay.runId !== liveRunId) return
-        get().applyRunReplay(record, eventIndex, stamped.type !== 'done')
+        get().applyRunReplay(record, eventIndex, stamped.type !== 'done' && !finalSuccess)
       }, delay)
     }
     const applyCookEvent = (event: CookEvent) => {
@@ -2313,13 +2416,34 @@ export const useStore = create<Store>((set, get) => ({
         }))
         return
       }
+      const finalSuccess = event.type === 'success' && event.node_id === id && event.port === port
       set(s => ({
         ...syncTabCookState(s, cookTabId, {
-          cookActive: true,
+          cookActive: event.type === 'start' || (event.type === 'success' && !finalSuccess),
           cookLog: appendCookLog(tabCookLog(s, cookTabId), cookEventLogEntry(event, s.activeTabId === cookTabId ? s.nodes : cookNodes)),
         }),
         nodes: s.activeTabId === cookTabId
           ? s.nodes.map(n => {
+            if (event.type === 'success' && n.data.type === 'OutputImage') {
+              const imageEdge = s.edges.find(e =>
+                e.source === event.node_id &&
+                e.target === n.id &&
+                e.targetHandle === 'image'
+              )
+              const imageValue = successOutputValue(event, imageEdge?.sourceHandle)
+              if (isImageDataUrl(imageValue)) {
+                return {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    cooking: false,
+                    cookResult: imageValue,
+                    cookError: undefined,
+                    cookPort: 'image',
+                  },
+                }
+              }
+            }
             if (n.id !== event.node_id) return n
             if (event.type === 'start') {
               return {
@@ -2410,6 +2534,8 @@ export const useStore = create<Store>((set, get) => ({
       }
     } catch (e: any) {
       const stopped = e?.name === 'AbortError' || signal.aborted
+      const message = errorMessage(e)
+      const backendDisconnected = !stopped && /backend disconnected|failed to fetch|network|invalid json/i.test(message)
       set(s => ({
         ...syncTabCookState(s, cookTabId, {
           cookActive: false,
@@ -2419,18 +2545,20 @@ export const useStore = create<Store>((set, get) => ({
             label: nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id),
             message: stopped
               ? `Stopped ${nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id)}.${port}`
-              : `${nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id)}.${port} error: ${e.message}`,
+              : `${nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id)}.${port} error: ${message}`,
             nodeId: id,
             port,
             ts: Date.now(),
           }),
         }),
+        ...(backendDisconnected ? { serverOk: false, serverError: message } : {}),
         nodes: s.activeTabId === cookTabId
-          ? s.nodes.map(n =>
-              n.id === id
-                ? { ...n, data: { ...n.data, cooking: false, cookError: stopped ? undefined : e.message, cookPort: port } }
-                : n
-            )
+          ? s.nodes.map(n => {
+              const data = { ...n.data, cooking: false }
+              return n.id === id
+                ? { ...n, data: { ...data, cookError: stopped ? undefined : message, cookPort: port } }
+                : { ...n, data }
+            })
           : s.nodes,
       }))
     } finally {
@@ -2441,10 +2569,24 @@ export const useStore = create<Store>((set, get) => ({
   stopCook: () => {
     cookAbort?.abort()
     cookAbort = null
+    api.stopCook().catch(err => {
+      set({ serverOk: false, serverError: errorMessage(err) })
+    })
     set(s => ({
-      ...syncTabCookState(s, s.activeTabId, { cookActive: false }),
+      ...syncTabCookState(s, s.activeTabId, {
+        cookActive: false,
+        cookStatusHidden: false,
+        cookLog: appendCookLog(tabCookLog(s, s.activeTabId), {
+          id: `${Date.now()}-stopped`,
+          kind: 'info',
+          label: 'Run',
+          message: 'Stopped run and cleared running state',
+          ts: Date.now(),
+        }),
+      }),
+      runReplay: EMPTY_REPLAY,
       nodes: s.nodes.map(n =>
-        n.data.cooking ? { ...n, data: { ...n.data, cooking: false } } : n
+        n.data.cooking ? { ...n, data: { ...clearReplayData(n.data), cooking: false } } : { ...n, data: clearReplayData(n.data) }
       ),
     }))
   },

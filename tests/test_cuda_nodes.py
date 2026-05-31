@@ -9,11 +9,15 @@ from blacknode.nodes.cuda import (
     CUDA_OPS,
     DEFAULT_BINARY_SOURCE,
     DEFAULT_CUSTOM_SOURCE,
+    DEFAULT_IMAGE_SOURCE,
     cuda_custom_kernel,
     cuda_kernel_lab,
     gpu_capability,
     gpu_requirement,
 )
+from blacknode.node import _NODE_REGISTRY
+from blacknode.nodes import cuda as cuda_nodes
+from blacknode.nodes import image as image_nodes
 
 
 def _has_gpu() -> bool:
@@ -87,10 +91,52 @@ def test_custom_kernel_empty_source_uses_default():
     assert r["report"].get("error", "") != "no CUDA source provided"
 
 
+def test_custom_kernel_declares_any_data_in_and_out():
+    fn = _NODE_REGISTRY["CUDACustomKernel"]
+    assert getattr(fn, "_bn_input_types")["input"] == "Any"
+    assert getattr(fn, "_bn_output_types")["output"] == "Any"
+    assert getattr(fn, "_bn_output_types")["result"] == "Dict"
+    assert "output" in getattr(fn, "_bn_outputs")
+    assert "result" in getattr(fn, "_bn_outputs")
+
+
+def test_custom_kernel_default_code_is_image_kernel():
+    fn = _NODE_REGISTRY["CUDACustomKernel"]
+    assert getattr(fn, "_bn_input_defaults")["code"] == DEFAULT_IMAGE_SOURCE
+
+
+@pytest.mark.skipif(cuda_nodes.np is None, reason="NumPy unavailable")
+def test_custom_kernel_auto_detects_numeric_array_input():
+    data = cuda_nodes._custom_data_from_value([1, 2, 3], cuda_nodes.np.float32)
+    assert data["kind"] == "array"
+    assert cuda_nodes._effective_custom_signature("auto", data) == "map"
+
+    output, kind = cuda_nodes._custom_output_value(
+        cuda_nodes.np.asarray([2, 4, 6], dtype=cuda_nodes.np.float32),
+        data,
+        "auto",
+    )
+    assert kind == "list"
+    assert output == [2.0, 4.0, 6.0]
+
+
+@pytest.mark.skipif(cuda_nodes.np is None, reason="NumPy unavailable")
+def test_custom_kernel_auto_detects_image_data_url(monkeypatch):
+    monkeypatch.setattr(
+        image_nodes,
+        "decode_image",
+        lambda _data: cuda_nodes.np.zeros((2, 3, 3), dtype=cuda_nodes.np.float32),
+    )
+    data = cuda_nodes._custom_data_from_value("data:image/png;base64,placeholder", cuda_nodes.np.float32)
+    assert data["kind"] == "image"
+    assert data["shape"] == (2, 3, 3)
+    assert cuda_nodes._effective_custom_signature("auto", data) == "image_rgb"
+
+
 def test_custom_kernel_never_raises():
     out = cuda_custom_kernel({"code": "garbage", "size": 1024})
     assert isinstance(out, dict)
-    assert set(out) >= {"result", "gpu_ms", "device", "report"}
+    assert set(out) >= {"output", "result", "gpu_ms", "device", "report"}
 
 
 @gpu_only
@@ -99,6 +145,7 @@ def test_custom_map_kernel_runs():
     r = cuda_custom_kernel({"code": DEFAULT_CUSTOM_SOURCE, "size": 1 << 14, "init": "arange"})
     assert r["report"]["compiled"] is True
     assert r["gpu_ms"] > 0.0
+    assert "output" in r
     assert r["result"]["sample"] == [1.0, 3.0, 5.0, 7.0]
 
 

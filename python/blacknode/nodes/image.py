@@ -66,11 +66,11 @@ def _resize_max(arr: "np.ndarray", max_size: int) -> "np.ndarray":
 
 
 @node(
-    inputs={"source": Image(""), "max_size": Int(default=768)},
+    inputs={"source": Image(""), "max_size": Int(default=0)},
     outputs=["image:Image", "width:Int", "height:Int", "report:Dict"],
     name="LoadImage",
     category="Image",
-    description="Load an image via the Browse button (or a file path) into the graph, downscaled to max_size.",
+    description="Load an image via the Browse button (or a file path) into the graph. Set max_size to downscale.",
 )
 def load_image(ctx: dict) -> dict:
     source = str(ctx.get("source") or "").strip()
@@ -85,13 +85,21 @@ def load_image(ctx: dict) -> dict:
     except Exception as exc:  # noqa: BLE001
         return {"image": "", "width": 0, "height": 0,
                 "report": {"error": f"{type(exc).__name__}: {exc}"}}
+    original_h, original_w = arr.shape[:2]
     arr = _resize_max(arr, max_size)
     h, w = arr.shape[:2]
     return {
         "image": encode_image(arr),
         "width": w,
         "height": h,
-        "report": {"width": w, "height": h},
+        "report": {
+            "width": w,
+            "height": h,
+            "original_width": original_w,
+            "original_height": original_h,
+            "resized": (w, h) != (original_w, original_h),
+            "max_size": max_size,
+        },
     }
 
 

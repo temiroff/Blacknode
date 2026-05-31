@@ -193,7 +193,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
 
       <div
         ref={menusRef}
-        className="nodrag nopan nowheel"
+        className="nodrag nopan"
         style={{ padding: '8px 8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}
         onPointerDownCapture={stopPointer}
         onMouseDownCapture={stopPointer}
@@ -296,7 +296,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
             marginBottom: 4,
           }}>
             <input
-              className="nodrag nopan nowheel"
+              className="nodrag nopan"
               ref={draftRef}
               value={modelDraft}
               placeholder={providerPlaceholderById(providerId)}
@@ -477,7 +477,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         {showApiKey ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <input
-              className="nodrag nopan nowheel"
+              className="nodrag nopan"
               value={apiKey}
               placeholder={`${keyName} API key`}
               onPointerDownCapture={stopPointer}

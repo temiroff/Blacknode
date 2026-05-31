@@ -107,18 +107,70 @@ export interface PythonImportResult {
   validation: WorkflowValidation
 }
 
+function bodyPreview(text: string): string {
+  return text.replace(/[^\x20-\x7E]+/g, ' ').trim().slice(0, 180)
+}
+
+function backendRequestError(path: string, err: unknown): Error {
+  const message = err instanceof Error ? err.message : String(err)
+  return new Error(
+    `Backend disconnected while calling ${path}. Start or restart the Blacknode backend, then try again. ${message}`,
+  )
+}
+
+async function fetchBackend(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${BASE}${path}`, init)
+  } catch (err) {
+    if ((err as { name?: string } | null)?.name === 'AbortError') throw err
+    throw backendRequestError(path, err)
+  }
+}
+
+async function responseJson<T>(res: Response, path: string): Promise<T> {
+  const text = await res.text().catch(err => {
+    throw backendRequestError(path, err)
+  })
+
+  if (!res.ok) {
+    let detail: unknown = res.statusText
+    if (text.trim()) {
+      try {
+        detail = JSON.parse(text).detail ?? bodyPreview(text)
+      } catch {
+        detail = bodyPreview(text) || res.statusText
+      }
+    }
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+  }
+
+  if (!text.trim()) return undefined as T
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error(
+      `Backend returned invalid JSON for ${path}. This usually means the backend errored or sent binary data instead of an API response. Response preview: ${bodyPreview(text) || '(binary data)'}`,
+    )
+  }
+}
+
+function parseCookEventLine(line: string, label: string): CookEvent {
+  try {
+    return JSON.parse(line) as CookEvent
+  } catch {
+    throw new Error(
+      `Backend stream returned invalid JSON while cooking ${label}. The backend may have errored or disconnected. Response preview: ${bodyPreview(line) || '(binary data)'}`,
+    )
+  }
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetchBackend(path, {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }))
-    const detail = err.detail ?? res.statusText
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
-  }
-  return res.json()
+  return responseJson<T>(res, path)
 }
 
 export const api = {
@@ -141,17 +193,17 @@ export const api = {
     req('DELETE', `/edges?from_id=${from_id}&from_port=${from_port}&to_id=${to_id}&to_port=${to_port}`),
   cook:       (node_id: string, port = 'output') =>
     req<{ value: unknown; port: string }>('POST', '/cook', { node_id, port }),
+  stopCook:   () => req<{ ok: boolean }>('POST', '/cook/stop'),
   cookStream: async (node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) => {
-    const res = await fetch(`${BASE}/cook-stream`, {
+    const path = '/cook-stream'
+    const label = `${node_id}.${port}`
+    const res = await fetchBackend(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ node_id, port }),
       signal,
     })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail ?? res.statusText)
-    }
+    if (!res.ok) await responseJson<never>(res, path)
     if (!res.body) return
 
     const reader = res.body.getReader()
@@ -166,24 +218,23 @@ export const api = {
       buffer = lines.pop() ?? ''
       for (const line of lines) {
         if (!line.trim()) continue
-        onEvent(JSON.parse(line) as CookEvent)
+        onEvent(parseCookEventLine(line, label))
       }
     }
 
     buffer += decoder.decode()
-    if (buffer.trim()) onEvent(JSON.parse(buffer) as CookEvent)
+    if (buffer.trim()) onEvent(parseCookEventLine(buffer, label))
   },
   cookSubgraphStream: async (subnet_id: string, node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) => {
-    const res = await fetch(`${BASE}/nodes/${subnet_id}/cook-stream`, {
+    const path = `/nodes/${subnet_id}/cook-stream`
+    const label = `${node_id}.${port}`
+    const res = await fetchBackend(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ node_id, port }),
       signal,
     })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail ?? res.statusText)
-    }
+    if (!res.ok) await responseJson<never>(res, path)
     if (!res.body) return
 
     const reader = res.body.getReader()
@@ -198,12 +249,12 @@ export const api = {
       buffer = lines.pop() ?? ''
       for (const line of lines) {
         if (!line.trim()) continue
-        onEvent(JSON.parse(line) as CookEvent)
+        onEvent(parseCookEventLine(line, label))
       }
     }
 
     buffer += decoder.decode()
-    if (buffer.trim()) onEvent(JSON.parse(buffer) as CookEvent)
+    if (buffer.trim()) onEvent(parseCookEventLine(buffer, label))
   },
   reset:      ()                             => req('POST', '/reset'),
   execNode:   (code: string)                 => req<{ ok: boolean; new_types: string[] }>('POST', '/exec-node', { code }),

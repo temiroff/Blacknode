@@ -79,9 +79,36 @@ function fileBaseName(filename: string): string {
     .trim()
 }
 
+function isImageFile(file: File): boolean {
+  return file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|tiff?|avif)$/i.test(file.name)
+}
+
+function isImageDataUrl(value: unknown): value is string {
+  return typeof value === 'string' && value.startsWith('data:image/')
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}`))
+    reader.readAsDataURL(file)
+  })
+}
+
+function nodeIdAtScreenPoint(point: { x: number; y: number }): string | null {
+  for (const element of document.elementsFromPoint(point.x, point.y)) {
+    if (!(element instanceof HTMLElement)) continue
+    const nodeEl = element.closest('.react-flow__node[data-id]')
+    if (!(nodeEl instanceof HTMLElement)) continue
+    return nodeEl.dataset.id ?? null
+  }
+  return null
+}
+
 export default function App() {
   const {
-    nodes, edges, nodeTypes, nodeDefs, serverOk, cookLog, cookActive, cookStatusHidden,
+    nodes, edges, nodeTypes, nodeDefs, serverOk, serverError, cookLog, cookActive, cookStatusHidden,
     tabs, activeTabId,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels, loadLearnedNodes,
@@ -90,7 +117,7 @@ export default function App() {
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     openGraphAsTab, openWorkflowAsTab, renameTab, saveActiveWorkflow,
     diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, stopCook, dismissCookStatus, applyRunReplay,
-    handleLearnedNodeEvent,
+    handleLearnedNodeEvent, updateParam,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -126,6 +153,7 @@ export default function App() {
     copyPromise: Promise<Record<string, string> | null>
   } | null>(null)
   const suppressPaneClick = useRef(false)
+  const lastBackendNotice = useRef<string | null>(null)
   const activeTab = tabs.find(tab => tab.id === activeTabId)
   const needsSave = Boolean(activeTab && (activeTab.dirty || !activeTab.slug))
   const menuTab = tabMenu ? tabs.find(tab => tab.id === tabMenu.tabId) : null
@@ -157,6 +185,22 @@ export default function App() {
     window.addEventListener('blacknode:notice', handler)
     return () => window.removeEventListener('blacknode:notice', handler)
   }, [])
+
+  useEffect(() => {
+    if (serverOk) {
+      lastBackendNotice.current = null
+      return
+    }
+    if (!serverError || lastBackendNotice.current === serverError) return
+    lastBackendNotice.current = serverError
+    setNotice({
+      kind: 'error',
+      title: 'Backend disconnected',
+      message: serverError,
+    })
+    if (noticeTimer.current) clearTimeout(noticeTimer.current)
+    noticeTimer.current = setTimeout(() => setNotice(null), 9000)
+  }, [serverError, serverOk])
 
   useEffect(() => {
     if (!tabMenu) return
@@ -547,11 +591,54 @@ export default function App() {
     }
   }, [fitCurrentCanvas, importingFile, openGraphAsTab, organizeNodes])
 
+  const handleImageDrop = useCallback(async (file: File, screenPoint: { x: number; y: number }) => {
+    if (!rfInstance.current) return
+    try {
+      const source = await readFileAsDataUrl(file)
+      const nodeId = nodeIdAtScreenPoint(screenPoint)
+      const targetNode = nodeId ? nodes.find(node => node.id === nodeId) : null
+      if (targetNode?.data?.type === 'LoadImage') {
+        await updateParam(targetNode.id, 'source', source)
+        selectNode(targetNode.id)
+        window.dispatchEvent(new CustomEvent('blacknode:notice', {
+          detail: {
+            kind: 'info',
+            title: 'Image loaded',
+            message: `Loaded ${file.name} into LoadImage.`,
+          },
+        }))
+        return
+      }
+
+      const pos = rfInstance.current.screenToFlowPosition(screenPoint)
+      await addNode('LoadImage', pos, { source })
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'info',
+          title: 'Image node created',
+          message: `Created LoadImage from ${file.name}.`,
+        },
+      }))
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: 'Image drop failed',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
+    }
+  }, [addNode, nodes, selectNode, updateParam])
+
   const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     const files = Array.from(e.dataTransfer.files ?? [])
     if (files.length > 0) {
       e.stopPropagation()
+      if (isImageFile(files[0])) {
+        void handleImageDrop(files[0], { x: e.clientX, y: e.clientY })
+        return
+      }
       void importWorkflowFile(files[0])
       return
     }
@@ -561,7 +648,7 @@ export default function App() {
     const params = paramsRaw ? JSON.parse(paramsRaw) : {}
     const pos = rfInstance.current.screenToFlowPosition({ x: e.clientX, y: e.clientY })
     addNode(type, pos, params)
-  }, [addNode, importWorkflowFile])
+  }, [addNode, handleImageDrop, importWorkflowFile])
 
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault()
@@ -815,6 +902,17 @@ export default function App() {
     await cookNode(target.id, target.port)
   }, [cookNode, fitCurrentCanvas, nodes])
 
+  const handleResetRun = useCallback(() => {
+    stopCook()
+    window.dispatchEvent(new CustomEvent('blacknode:notice', {
+      detail: {
+        kind: 'info',
+        title: 'Run reset',
+        message: 'Cleared running state and asked the backend to stop active work.',
+      },
+    }))
+  }, [stopCook])
+
   const handleFrameworkExport = useCallback(async (target: string) => {
     if (!target || exportingTarget) return
     setExportingTarget(target)
@@ -931,6 +1029,14 @@ export default function App() {
 
           <button
             className="bn-top-button"
+            onClick={handleResetRun}
+            title="Stop active work and clear any stuck running state"
+          >
+            Reset Run
+          </button>
+
+          <button
+            className="bn-top-button"
             onClick={() => void handleOrganize()}
             title="Organize current graph"
           >
@@ -960,8 +1066,16 @@ export default function App() {
             fontSize: 12,
             fontWeight: 500,
             marginLeft: 2,
-          }}>
-            {serverOk ? '● server' : '○ offline'}
+            maxWidth: 260,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+            title={serverOk
+              ? 'Backend connected'
+              : `Backend disconnected${serverError ? `: ${serverError}` : ''}`}
+          >
+            {serverOk ? '● backend' : `○ backend offline${serverError ? ': ' + serverError : ''}`}
           </span>
         </div>
 
@@ -1179,7 +1293,18 @@ export default function App() {
                 className="bn-menu-item"
                 style={menuItemStyle(!hasValue)}
                 disabled={!hasValue}
-                onClick={() => { void copyToClipboard(stringifyValue(data.cookResult)); setNodeMenu(null) }}
+                onClick={() => {
+                  void copyValueToClipboard(data.cookResult).catch(err => {
+                    window.dispatchEvent(new CustomEvent('blacknode:notice', {
+                      detail: {
+                        kind: 'error',
+                        title: 'Copy failed',
+                        message: err instanceof Error ? err.message : String(err),
+                      },
+                    }))
+                  })
+                  setNodeMenu(null)
+                }}
               >
                 Copy value
               </button>
@@ -1444,6 +1569,7 @@ export default function App() {
             selectNode(node.id)
             setNodeMenu({ x: e.clientX, y: e.clientY, nodeId: node.id })
           }}
+          minZoom={0.05}
           fitView
           fitViewOptions={{ padding: 0.24, maxZoom: 1 }}
           deleteKeyCode={['Delete', 'Backspace']}
@@ -1769,6 +1895,24 @@ function stringifyValue(value: unknown): string {
   } catch {
     return String(value)
   }
+}
+
+async function copyValueToClipboard(value: unknown): Promise<void> {
+  if (isImageDataUrl(value)) {
+    await copyImageToClipboard(value)
+    return
+  }
+  await copyToClipboard(stringifyValue(value))
+}
+
+async function copyImageToClipboard(dataUrl: string): Promise<void> {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+    throw new Error('This browser does not support copying images to the clipboard.')
+  }
+  const res = await fetch(dataUrl)
+  const blob = await res.blob()
+  const type = blob.type || 'image/png'
+  await navigator.clipboard.write([new ClipboardItem({ [type]: blob })])
 }
 
 async function copyToClipboard(text: string): Promise<void> {

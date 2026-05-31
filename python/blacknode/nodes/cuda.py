@@ -22,6 +22,7 @@ try:  # NumPy is only used once CuPy (which depends on it) is confirmed present.
 except Exception:  # pragma: no cover - keeps the package importable on minimal installs
     np = None
 
+from blacknode.node import Any as AnyPort
 from blacknode.node import Enum, Float, Image, Int, Text, node
 
 # ---------------------------------------------------------------------------
@@ -431,8 +432,9 @@ def _error(op: str, message: str, device: str = "") -> dict:
 # the local GPU. The "do anything" tier — predictable blocks' escape hatch.
 # ---------------------------------------------------------------------------
 
-CUSTOM_SIGNATURES = ["map", "binary"]   # (in,out,n) | (a,b,out,n)
+CUSTOM_SIGNATURES = ["auto", "map", "binary", "image_rgb"]   # auto | (in,out,n) | (a,b,out,n) | image pixels
 CUSTOM_INITS = ["arange", "random", "zeros", "ones"]
+CUSTOM_OUTPUT_MODES = ["auto", "same", "summary", "list", "image"]
 
 DEFAULT_CUSTOM_SOURCE = '''extern "C" __global__
 void user_kernel(const float* in, float* out, int n) {
@@ -446,6 +448,28 @@ void user_kernel(const float* a, const float* b, float* out, int n) {
     if (i < n) out[i] = a[i] * b[i];
 }'''
 
+DEFAULT_IMAGE_SOURCE = '''extern "C" __global__
+void user_kernel(const float* in, float* out, int width, int height, int channels) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    int n = width * height;
+    if (i >= n) return;
+
+    int p = i * channels;
+    float r = in[p + 0];
+    float g = in[p + 1];
+    float b = in[p + 2];
+
+    out[p + 0] = 1.0f - r;
+    out[p + 1] = 1.0f - g;
+    out[p + 2] = 1.0f - b;
+}'''
+
+DEFAULT_CUSTOM_SOURCES = {
+    DEFAULT_CUSTOM_SOURCE.strip(),
+    DEFAULT_BINARY_SOURCE.strip(),
+    DEFAULT_IMAGE_SOURCE.strip(),
+}
+
 
 def _seed_array(np_mod, init: str, n: int, dtype, seed: int):
     rng = np_mod.random.default_rng(seed)
@@ -458,23 +482,148 @@ def _seed_array(np_mod, init: str, n: int, dtype, seed: int):
     return np_mod.arange(n, dtype=dtype)
 
 
+def _has_custom_input(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _is_image_data_url(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith("data:image/")
+
+
+def _as_numeric_array(value: Any, dtype: Any, label: str):
+    try:
+        arr = np.asarray(value, dtype=dtype)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"{label} is not numeric array data ({type(exc).__name__}: {exc})") from exc
+    if arr.size < 1:
+        raise ValueError(f"{label} is empty")
+    if arr.ndim == 0:
+        arr = arr.reshape(1)
+    return arr
+
+
+def _custom_data_from_value(value: Any, dtype: Any) -> dict[str, Any]:
+    if _is_image_data_url(value):
+        from blacknode.nodes.image import decode_image
+
+        arr = decode_image(value).astype(np.float32, copy=False)
+        return {"kind": "image", "a": arr, "shape": arr.shape, "source": "data-url"}
+
+    if isinstance(value, dict):
+        if _is_image_data_url(value.get("image")):
+            return _custom_data_from_value(value["image"], dtype)
+        if "a" in value and "b" in value:
+            a = _as_numeric_array(value["a"], dtype, "input.a")
+            b = _as_numeric_array(value["b"], dtype, "input.b")
+            if a.size != b.size:
+                raise ValueError(f"input.a and input.b sizes differ ({a.size} != {b.size})")
+            return {"kind": "binary", "a": a, "b": b, "shape": a.shape, "source": "dict"}
+        raw = value.get("data", value.get("values", value.get("array")))
+        if raw is not None:
+            arr = _as_numeric_array(raw, dtype, "input.data")
+            shape = value.get("shape")
+            if shape:
+                try:
+                    arr = arr.reshape(tuple(int(x) for x in shape))
+                except Exception as exc:  # noqa: BLE001
+                    raise ValueError(f"input.shape cannot reshape data ({type(exc).__name__}: {exc})") from exc
+            return {"kind": "dict", "a": arr, "shape": arr.shape, "source": "dict"}
+        raise ValueError("dict input must contain image, a/b, data, values, or array")
+
+    if isinstance(value, str):
+        try:
+            return _custom_data_from_value(__import__("json").loads(value), dtype)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(
+                "string input must be an image data URL or JSON numeric array/object"
+            ) from exc
+
+    if isinstance(value, (int, float, bool)):
+        arr = _as_numeric_array([value], dtype, "input")
+        return {"kind": "scalar", "a": arr, "shape": arr.shape, "source": "scalar"}
+
+    arr = _as_numeric_array(value, dtype, "input")
+    return {"kind": "array", "a": arr, "shape": arr.shape, "source": type(value).__name__}
+
+
+def _synthetic_custom_data(signature: str, size: int, dtype: Any, init: str, seed: int) -> dict[str, Any]:
+    n = max(2, int(size))
+    if signature == "image_rgb":
+        side = max(8, int(math.isqrt(n)))
+        rng = np.random.default_rng(seed)
+        arr = rng.random((side, side, 3), dtype=np.float32)
+        return {"kind": "synthetic_image", "a": arr, "shape": arr.shape, "source": "synthetic"}
+    a = _seed_array(np, init, n, dtype, seed)
+    data = {"kind": "synthetic", "a": a, "shape": a.shape, "source": "synthetic"}
+    if signature == "binary":
+        data["b"] = _seed_array(np, init, n, dtype, seed + 1)
+    return data
+
+
+def _effective_custom_signature(signature: str, data: dict[str, Any]) -> str:
+    if signature != "auto":
+        return signature
+    if data["kind"] in {"image", "synthetic_image"}:
+        return "image_rgb"
+    if data["kind"] == "binary" or "b" in data:
+        return "binary"
+    return "map"
+
+
+def _default_custom_source_for(signature: str) -> str:
+    if signature == "binary":
+        return DEFAULT_BINARY_SOURCE
+    if signature == "image_rgb":
+        return DEFAULT_IMAGE_SOURCE
+    return DEFAULT_CUSTOM_SOURCE
+
+
+def _custom_output_value(host: Any, data: dict[str, Any], output_mode: str) -> tuple[Any, str]:
+    arr = np.asarray(host)
+    mode = output_mode if output_mode in CUSTOM_OUTPUT_MODES else "auto"
+    if mode in {"auto", "same"}:
+        if data["kind"] in {"image", "synthetic_image"}:
+            mode = "image"
+        elif data["kind"] == "scalar" and arr.size == 1:
+            return float(arr.ravel()[0]), "scalar"
+        elif data["kind"] in {"array", "dict", "binary"} and arr.size <= 4096:
+            mode = "list"
+        else:
+            mode = "summary"
+
+    if mode == "image":
+        from blacknode.nodes.image import encode_image
+
+        return encode_image(arr), "image"
+    if mode == "list":
+        return arr.tolist(), "list"
+    return _summary(arr), "summary"
+
+
 @node(
     inputs={
-        "code": Text(DEFAULT_CUSTOM_SOURCE),
+        "input": AnyPort,
+        "code": Text(DEFAULT_IMAGE_SOURCE),
         "kernel": Text("user_kernel"),
-        "signature": Enum(CUSTOM_SIGNATURES, default="map"),
+        "signature": Enum(CUSTOM_SIGNATURES, default="auto"),
         "size": Int(default=1048576),
         "dtype": Enum(["float32", "float64"], default="float32"),
         "init": Enum(CUSTOM_INITS, default="arange"),
         "seed": Int(default=0),
         "block": Int(default=256),
+        "output_mode": Enum(CUSTOM_OUTPUT_MODES, default="auto"),
     },
-    outputs=["result:Any", "gpu_ms:Float", "device:Text", "report:Dict"],
+    outputs=["output:Any", "result:Dict", "gpu_ms:Float", "device:Text", "report:Dict"],
     name="CUDACustomKernel",
     category="NVIDIA GPU",
-    description="Compile and run your own CUDA C kernel on the local NVIDIA GPU (NVRTC). Compile errors are reported.",
+    description="Compile and run your own CUDA C kernel on optional Any input data. Images round-trip as Image-compatible data URLs.",
 )
 def cuda_custom_kernel(ctx: dict) -> dict:
+    input_value = ctx.get("input")
     source = str(ctx.get("code") or "").strip()
     kernel = str(ctx.get("kernel") or "user_kernel").strip()
     sig = str(ctx.get("signature") or "map").strip()
@@ -483,14 +632,17 @@ def cuda_custom_kernel(ctx: dict) -> dict:
     init = str(ctx.get("init") or "arange").strip()
     seed = int(ctx.get("seed") or 0)
     block = max(1, min(1024, int(ctx.get("block") or 256)))
+    output_mode = str(ctx.get("output_mode") or "auto").strip()
 
     if sig not in CUSTOM_SIGNATURES:
-        return _custom_error(f"unknown signature '{sig}'; use 'map' (in,out,n) or 'binary' (a,b,out,n)")
-    if not source:
-        # No edits committed yet — run the default kernel that the editor shows.
-        source = DEFAULT_BINARY_SOURCE if sig == "binary" else DEFAULT_CUSTOM_SOURCE
+        return _custom_error(
+            f"unknown signature '{sig}'; use auto, map (in,out,n), "
+            "binary (a,b,out,n), or image_rgb (in,out,width,height,channels)"
+        )
     if dtype not in _CTYPE:
         return _custom_error(f"unknown dtype '{dtype}'; use float32 or float64")
+    if output_mode not in CUSTOM_OUTPUT_MODES:
+        return _custom_error(f"unknown output_mode '{output_mode}'; choose one of {CUSTOM_OUTPUT_MODES}")
     if np is None:
         return _custom_error("NumPy is not installed; install numpy and cupy-cuda12x.")
 
@@ -507,16 +659,66 @@ def cuda_custom_kernel(ctx: dict) -> dict:
     except Exception as exc:  # noqa: BLE001
         return _custom_error(f"No CUDA device available ({type(exc).__name__}: {exc}).")
 
-    np_dtype = np.float32 if dtype == "float32" else np.float64
-    n = size
-    a = cp.asarray(_seed_array(np, init, n, np_dtype, seed))
-    out = cp.empty_like(a)
-    if sig == "binary":
-        b = cp.asarray(_seed_array(np, init, n, np_dtype, seed + 1))
-        args = (a, b, out, np.int32(n))
-    else:
-        args = (a, out, np.int32(n))
-    grid = (n + block - 1) // block
+    try:
+        np_dtype = np.float32 if dtype == "float32" else np.float64
+        if _has_custom_input(input_value):
+            data = _custom_data_from_value(input_value, np_dtype)
+        else:
+            synthetic_sig = (
+                "image_rgb"
+                if sig == "auto" and source == DEFAULT_IMAGE_SOURCE.strip()
+                else "map" if sig == "auto" else sig
+            )
+            data = _synthetic_custom_data(synthetic_sig, size, np_dtype, init, seed)
+        effective_sig = _effective_custom_signature(sig, data)
+        if effective_sig == "image_rgb":
+            data["a"] = np.asarray(data["a"], dtype=np.float32)
+            dtype = "float32"
+            np_dtype = np.float32
+        if not source or source in DEFAULT_CUSTOM_SOURCES:
+            source = _default_custom_source_for(effective_sig)
+    except Exception as exc:  # noqa: BLE001
+        return _custom_error(f"could not adapt input ({type(exc).__name__}: {exc})", device=name)
+
+    try:
+        if effective_sig == "image_rgb":
+            arr = np.asarray(data["a"], dtype=np_dtype)
+            if arr.ndim == 2:
+                arr = arr[:, :, None]
+            if arr.ndim != 3:
+                return _custom_error("image_rgb signature requires HxW or HxWxC numeric input", device=name)
+            h, w, channels = arr.shape
+            a = cp.asarray(arr.ravel())
+            out = cp.empty_like(a)
+            n = h * w
+            args = (a, out, np.int32(w), np.int32(h), np.int32(channels))
+            grid = (n + block - 1) // block
+            output_shape = arr.shape
+        elif effective_sig == "binary":
+            a_host = np.asarray(data["a"], dtype=np_dtype).ravel()
+            if "b" in data:
+                b_host = np.asarray(data["b"], dtype=np_dtype).ravel()
+            else:
+                b_host = _seed_array(np, init, a_host.size, np_dtype, seed + 1)
+            if a_host.size != b_host.size:
+                return _custom_error(f"binary inputs differ in size ({a_host.size} != {b_host.size})", device=name)
+            a = cp.asarray(a_host)
+            b = cp.asarray(b_host)
+            out = cp.empty_like(a)
+            n = a_host.size
+            args = (a, b, out, np.int32(n))
+            grid = (n + block - 1) // block
+            output_shape = data.get("shape", a_host.shape)
+        else:
+            a_host = np.asarray(data["a"], dtype=np_dtype)
+            output_shape = data.get("shape", a_host.shape)
+            a = cp.asarray(a_host.ravel())
+            out = cp.empty_like(a)
+            n = a.size
+            args = (a, out, np.int32(n))
+            grid = (n + block - 1) // block
+    except Exception as exc:  # noqa: BLE001
+        return _custom_error(f"could not prepare GPU buffers ({type(exc).__name__}: {exc})", device=name)
 
     try:
         kern = cp.RawKernel(source, kernel)
@@ -533,11 +735,24 @@ def cuda_custom_kernel(ctx: dict) -> dict:
         return _custom_error(f"{type(exc).__name__}: {exc}", device=name)
 
     host = cp.asnumpy(out)
+    try:
+        host = host.reshape(output_shape)
+    except Exception:
+        pass
+    try:
+        output, output_kind = _custom_output_value(host, data, output_mode)
+    except Exception as exc:  # noqa: BLE001
+        return _custom_error(f"could not encode output ({type(exc).__name__}: {exc})", device=name)
+
     report = {
         "kernel": kernel,
-        "signature": sig,
+        "signature": effective_sig,
+        "requested_signature": sig,
         "size": n,
         "dtype": dtype,
+        "input_kind": data.get("kind", "synthetic"),
+        "input_shape": list(data.get("shape", [])),
+        "output_kind": output_kind,
         "block": block,
         "grid": grid,
         "device": name,
@@ -546,6 +761,7 @@ def cuda_custom_kernel(ctx: dict) -> dict:
         "gpu_ms": round(gpu_ms, 4),
     }
     return {
+        "output": output,
         "result": _summary(host),
         "gpu_ms": round(gpu_ms, 4),
         "device": name,
@@ -555,6 +771,7 @@ def cuda_custom_kernel(ctx: dict) -> dict:
 
 def _custom_error(message: str, device: str = "") -> dict:
     return {
+        "output": {"error": message},
         "result": {"error": message},
         "gpu_ms": 0.0,
         "device": device,

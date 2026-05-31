@@ -107,9 +107,112 @@ function PortRow({
   )
 }
 
+const isImageDataUrl = (v: unknown): v is string =>
+  typeof v === 'string' && v.startsWith('data:image/')
+
+const imgBtn: React.CSSProperties = {
+  background: 'var(--lift)', border: '1px solid var(--line)', borderRadius: 5,
+  color: 'var(--tx1)', fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 600,
+  padding: '3px 9px', cursor: 'pointer',
+}
+
+const previewImg: React.CSSProperties = {
+  width: '100%',
+  height: '100%',
+  minWidth: 0,
+  minHeight: 0,
+  objectFit: 'contain',
+  display: 'block',
+}
+
+const imageResultWrap: React.CSSProperties = {
+  padding: '0 10px 10px',
+  flex: 1,
+  minHeight: 70,
+  display: 'grid',
+  placeItems: 'center',
+  overflow: 'hidden',
+}
+
+const imagePreviewFrame: React.CSSProperties = {
+  width: '100%',
+  height: '100%',
+  minHeight: 56,
+  display: 'grid',
+  placeItems: 'center',
+  overflow: 'hidden',
+  borderRadius: 6,
+  border: '1px solid var(--line2)',
+  background: 'var(--lift)',
+  boxSizing: 'border-box',
+}
+
+function NodeImageInput({
+  value,
+  onChange,
+  onFitNatural,
+}: {
+  value: unknown
+  onChange: (v: string) => void
+  onFitNatural: (width: number, height: number) => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const v = typeof value === 'string' ? value : ''
+  const hasImage = isImageDataUrl(v)
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    const r = new FileReader()
+    r.onload = () => onChange(String(r.result))
+    r.readAsDataURL(f)
+    e.target.value = ''
+  }
+  return (
+    <div
+      style={{
+        padding: '2px 10px 8px',
+        display: 'flex',
+        flexDirection: 'column',
+        flex: hasImage ? 1 : undefined,
+        minHeight: 0,
+      }}
+    >
+      <div
+        className="nodrag"
+        style={{ display: 'flex', gap: 6, marginBottom: hasImage ? 6 : 0, flexShrink: 0 }}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <button className="nodrag" style={imgBtn}
+          onClick={e => { e.stopPropagation(); fileRef.current?.click() }}>Browse…</button>
+        {v && (
+          <button className="nodrag" style={{ ...imgBtn, color: 'var(--err)' }}
+            onClick={e => { e.stopPropagation(); onChange('') }}>Clear</button>
+        )}
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={pick} />
+      </div>
+      {hasImage && (
+        <div style={imagePreviewFrame}>
+          <img
+            src={v}
+            alt=""
+            draggable={false}
+            style={previewImg}
+            onDragStart={e => e.preventDefault()}
+            onDoubleClick={e => {
+              e.stopPropagation()
+              onFitNatural(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)
+            }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode    = useStore(s => s.cookNode)
   const updateParam = useStore(s => s.updateParam)
+  const resizeNode  = useStore(s => s.resizeNode)
   const disconnectEdge = useStore(s => s.disconnectEdge)
   const edges       = useStore(s => s.edges)
   const nodes       = useStore(s => s.nodes)
@@ -119,6 +222,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const visibleInputs = data.inputs ?? []
   const inputsKey = visibleInputs.join('|')
   const outputsKey = (data.outputs ?? []).join('|')
+  const imageResult = !data.cookError && isImageDataUrl(data.cookResult) ? data.cookResult : null
+  const showImageResult = data.type === 'LoadImage' ? null : imageResult
 
   const effectivePortType = (portName: string, side: 'input' | 'output'): string => {
     const declared = side === 'input'
@@ -142,7 +247,6 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     }
     return 'Any'
   }
-  const portsRef    = useRef<HTMLDivElement>(null)
   const [editingLabel, setEditingLabel] = useState(false)
   const [labelDraft, setLabelDraft] = useState('')
   const label = data.params?.label ? String(data.params.label) : null
@@ -163,13 +267,16 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     if (edge) await disconnectEdge(edge.id)
   }
 
-  useEffect(() => {
-    const el = portsRef.current
-    if (!el) return
-    const stop = (e: WheelEvent) => e.stopPropagation()
-    el.addEventListener('wheel', stop)
-    return () => el.removeEventListener('wheel', stop)
-  }, [])
+  const fitNodeToImage = (naturalWidth: number, naturalHeight: number, extraControls = 0) => {
+    if (!naturalWidth || !naturalHeight) return
+    const portRows = visibleInputs.length + (data.outputs?.length ?? 0) + (isToolBox ? 1 : 0)
+    const chromeHeight = 34 + portRows * 22 + extraControls + 24
+    resizeNode(id, {
+      width: Math.max(160, Math.ceil(naturalWidth + 22)),
+      height: Math.max(60, Math.ceil(naturalHeight + chromeHeight)),
+    })
+    requestAnimationFrame(() => updateNodeInternals(id))
+  }
 
   useEffect(() => {
     updateNodeInternals(id)
@@ -262,7 +369,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       </div>
 
       {/* ports */}
-      <div ref={portsRef} style={{ flex: 1, padding: '6px 0' }}>
+      <div style={{ flex: 1, padding: '6px 0', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {isToolBox && (
           <div style={{
             position: 'relative',
@@ -288,18 +395,57 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             </span>
           </div>
         )}
-        {visibleInputs.map(inp => (
-          <PortRow
-            key={inp}
-            name={inp}
-            type={effectivePortType(inp, 'input')}
-            dir="input"
-            onRemove={isToolBox ? () => removeToolSlot(inp) : undefined}
-          />
-        ))}
+        {visibleInputs.map(inp => {
+          const type = effectivePortType(inp, 'input')
+          const connected = edges.some(e => e.target === id && e.targetHandle === inp)
+          const showImageInput = type === 'Image' && !connected
+          const hasImageInputPreview = showImageInput && isImageDataUrl(data.params?.[inp])
+          return (
+            <div
+              key={inp}
+              style={hasImageInputPreview ? {
+                display: 'flex',
+                flexDirection: 'column',
+                flex: 1,
+                minHeight: 0,
+              } : undefined}
+            >
+              <PortRow
+                name={inp}
+                type={type}
+                dir="input"
+                onRemove={isToolBox ? () => removeToolSlot(inp) : undefined}
+              />
+              {showImageInput && (
+                <NodeImageInput
+                  value={data.params?.[inp]}
+                  onChange={value => { updateParam(id, inp, value).catch(() => {}) }}
+                  onFitNatural={(width, height) => fitNodeToImage(width, height, 36)}
+                />
+              )}
+            </div>
+          )
+        })}
         {data.outputs.map(out => (
           <PortRow key={out} name={out} type={effectivePortType(out, 'output')} dir="output" />
         ))}
+        {showImageResult && (
+          <div style={imageResultWrap}>
+            <div style={imagePreviewFrame}>
+              <img
+                src={showImageResult}
+                alt="result"
+                draggable={false}
+                style={previewImg}
+                onDragStart={e => e.preventDefault()}
+                onDoubleClick={e => {
+                  e.stopPropagation()
+                  fitNodeToImage(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)
+                }}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </NodeFrame>
   )
