@@ -7,9 +7,13 @@ import pytest
 
 from blacknode.nodes.cuda import (
     CUDA_OPS,
+    CUSTOM_KERNEL_TEMPLATE_INFO,
+    CUSTOM_KERNEL_TEMPLATES,
     DEFAULT_BINARY_SOURCE,
+    DEFAULT_CINEMATIC_SOURCE,
     DEFAULT_CUSTOM_SOURCE,
     DEFAULT_IMAGE_SOURCE,
+    DEFAULT_NEON_EDGE_GLOW_2D_SOURCE,
     cuda_custom_kernel,
     cuda_kernel_lab,
     gpu_capability,
@@ -102,13 +106,32 @@ def test_custom_kernel_declares_any_data_in_and_out():
 
 def test_custom_kernel_default_code_is_image_kernel():
     fn = _NODE_REGISTRY["CUDACustomKernel"]
+    assert getattr(fn, "_bn_input_defaults")["template"] == "image_invert"
     assert getattr(fn, "_bn_input_defaults")["code"] == DEFAULT_IMAGE_SOURCE
+    assert getattr(fn, "_bn_input_choices")["template"] == CUSTOM_KERNEL_TEMPLATES
 
 
 def test_custom_kernel_detects_source_signature():
     assert cuda_nodes._custom_source_signature(DEFAULT_CUSTOM_SOURCE, "user_kernel") == "map"
     assert cuda_nodes._custom_source_signature(DEFAULT_BINARY_SOURCE, "user_kernel") == "binary"
     assert cuda_nodes._custom_source_signature(DEFAULT_IMAGE_SOURCE, "user_kernel") == "image_rgb"
+    assert cuda_nodes._custom_source_signature(DEFAULT_CINEMATIC_SOURCE, "user_kernel") == "image_rgb"
+    assert cuda_nodes._custom_source_signature(DEFAULT_NEON_EDGE_GLOW_2D_SOURCE, "user_kernel") == "image_rgb"
+
+
+def test_custom_kernel_template_catalog_is_complete():
+    assert set(CUSTOM_KERNEL_TEMPLATE_INFO) == set(CUSTOM_KERNEL_TEMPLATES)
+    assert "map_double" not in CUSTOM_KERNEL_TEMPLATES
+    assert "binary_multiply" not in CUSTOM_KERNEL_TEMPLATES
+    assert CUSTOM_KERNEL_TEMPLATE_INFO["cinematic_teal_orange"]["signature"] == "image_rgb"
+    assert "powf" in CUSTOM_KERNEL_TEMPLATE_INFO["cinematic_teal_orange"]["source"]
+    assert CUSTOM_KERNEL_TEMPLATE_INFO["neon_edge_glow_2d"]["launch"] == "image_2d"
+    assert "threadIdx.y" in CUSTOM_KERNEL_TEMPLATE_INFO["neon_edge_glow_2d"]["source"]
+
+
+def test_custom_kernel_detects_2d_launch_from_source():
+    assert cuda_nodes._custom_launch_mode(DEFAULT_NEON_EDGE_GLOW_2D_SOURCE, "image_rgb") == "image_2d"
+    assert cuda_nodes._custom_launch_mode(DEFAULT_CINEMATIC_SOURCE, "image_rgb") == "linear"
 
 
 @pytest.mark.skipif(cuda_nodes.np is None, reason="NumPy unavailable")
@@ -169,6 +192,32 @@ def test_custom_image_kernel_missing_signature_defaults_auto():
     r = cuda_custom_kernel({"input": img, "code": DEFAULT_IMAGE_SOURCE})
     assert r["report"]["compiled"] is True
     assert r["report"]["signature"] == "image_rgb"
+    assert isinstance(r["output"], str)
+    assert r["output"].startswith("data:image/")
+
+
+@gpu_only
+@pytest.mark.parametrize("template", [t for t in CUSTOM_KERNEL_TEMPLATES if t != "custom"])
+def test_custom_image_template_runs(template):
+    img = image_nodes.encode_image(cuda_nodes.np.full((8, 8, 3), 0.5, dtype=cuda_nodes.np.float32))
+    r = cuda_custom_kernel({"input": img, "template": template})
+    assert r["report"]["compiled"] is True
+    assert r["report"]["template"] == template
+    assert r["report"]["signature"] == "image_rgb"
+    assert isinstance(r["output"], str)
+    assert r["output"].startswith("data:image/")
+
+
+@gpu_only
+def test_custom_2d_image_kernel_runs():
+    img = image_nodes.encode_image(cuda_nodes.np.full((8, 8, 3), 0.5, dtype=cuda_nodes.np.float32))
+    r = cuda_custom_kernel({"input": img, "template": "neon_edge_glow_2d"})
+    assert r["report"]["compiled"] is True
+    assert r["report"]["template"] == "neon_edge_glow_2d"
+    assert r["report"]["signature"] == "image_rgb"
+    assert r["report"]["launch"] == "image_2d"
+    assert r["report"]["block"] == [16, 16]
+    assert r["report"]["grid"] == [1, 1]
     assert isinstance(r["output"], str)
     assert r["output"].startswith("data:image/")
 

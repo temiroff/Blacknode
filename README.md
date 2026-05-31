@@ -15,6 +15,9 @@ AI-Q/NeMo Agent Toolkit workflow paths built in.
 
 <table>
   <tr>
+    <td colspan="2"><a href="docs/images/blacknode-cuda-custom-kernels.jpg"><img src="docs/images/blacknode-cuda-custom-kernels.jpg" alt="Blacknode CUDA custom kernels image workflow" width="860"></a></td>
+  </tr>
+  <tr>
     <td><a href="docs/images/blacknode-light-theme.png"><img src="docs/images/blacknode-light-theme.png" alt="Blacknode visual editor light theme" width="420"></a></td>
     <td><a href="docs/images/blacknode-launcher.png"><img src="docs/images/blacknode-launcher.png" alt="Blacknode launcher terminal" width="420"></a></td>
   </tr>
@@ -57,7 +60,7 @@ execution, and export the result as code.
 | Visual workflow editor | Build and inspect typed node graphs with visible execution state. | [Beginner Walkthrough](docs/walkthrough.md) |
 | Agent control surface | MCP, HTTP, and WebSocket APIs for agents to create, connect, validate, run, save, inspect, and export workflows. | [Agent Guide](docs/agent-guide.md), [MCP Quickstart](docs/quickstart-mcp.md) |
 | NVIDIA workflow surface | Hosted NIM, local NIM launch planning, NIM benchmarks, AI-Q/NeMo Agent Toolkit integration, and streamable HTTP MCP. | [NVIDIA Mission Control](docs/nvidia-mission-control.md), [NVIDIA NIM Demo](docs/nvidia-nim-demo.md), [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) |
-| GPU/CUDA blocks | Real CUDA kernels, custom NVRTC-compiled kernels, and GPU capability/preflight nodes that run on your local NVIDIA GPU. | [NVIDIA GPU Blocks](docs/nvidia-gpu-blocks.md) |
+| GPU/CUDA blocks | Real CUDA kernels, custom NVRTC-compiled kernels, GPU image nodes, and capability/preflight nodes that run on your local NVIDIA GPU. | [NVIDIA GPU Blocks](docs/nvidia-gpu-blocks.md) |
 | Typed ports and validation | Text, Int, Float, Bool, List, Dict, Embedding, Fn, Model, Number, Any, cycle checks, and MCP repair suggestions. | [Workflow Schema](docs/workflow-schema.md), [Agent Skill](.agents/skills/blacknode-workflow/SKILL.md) |
 | Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md), [Presentation Checklist](docs/presentation-checklist.md) |
 | Custom nodes | Persistent editor-created nodes, Python decorator nodes, auto-discovery, and community node packs. | [Custom Nodes](docs/custom-nodes.md) |
@@ -130,7 +133,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | [Framework Export](docs/framework-export.md) | Exporting workflows to Python, LangGraph, CrewAI, AutoGen, Swarm, REST, and WebSocket control. |
 | [Python Round-Trip](docs/python-roundtrip.md) | Export Python, import Python back into the editor, and live-sync Python runs into replay. |
 | [Custom Nodes](docs/custom-nodes.md) | Persistent editor-created nodes, auto-discovery, community node packs, and node library extension. |
-| [NVIDIA GPU Blocks](docs/nvidia-gpu-blocks.md) | Real CUDA/GPU nodes: curated ops, custom NVRTC kernels, capability detection, and preflight, with measured speedups. |
+| [NVIDIA GPU Blocks](docs/nvidia-gpu-blocks.md) | Real CUDA/GPU nodes: curated ops, image workflows, custom NVRTC kernels, capability detection, and preflight, with measured speedups. |
 | [Learned Nodes](docs/learned-nodes.md) | MCP-created reusable nodes, opt-in behavior, editor behavior, and user workflow. |
 | [Learned Nodes Test Plan](docs/learned-nodes-test-plan.md) | Step-by-step commands for validating Docker, MCP, editor refresh, consent, and the camera demo dry run. |
 | [Learned Nodes Internals](docs/learned-nodes-internals.md) | Registry wiring, manifest schema, execution wrapper, and SSE events. |
@@ -151,6 +154,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 
 | Preview | Link |
 |---|---|
+| CUDA custom kernel image workflow | [docs/images/blacknode-cuda-custom-kernels.jpg](docs/images/blacknode-cuda-custom-kernels.jpg) |
 | MCP + NVIDIA NIM editor demo | [docs/images/blacknode-mcp-nim-editor-demo.png](docs/images/blacknode-mcp-nim-editor-demo.png) |
 | Claude Desktop MCP connector | [docs/images/blacknode-mcp-claude-connector.png](docs/images/blacknode-mcp-claude-connector.png) |
 | Research pipeline template | [docs/images/blacknode-research-pipeline.png](docs/images/blacknode-research-pipeline.png) |

@@ -436,6 +436,18 @@ def _error(op: str, message: str, device: str = "") -> dict:
 CUSTOM_SIGNATURES = ["auto", "map", "binary", "image_rgb"]   # auto | (in,out,n) | (a,b,out,n) | image pixels
 CUSTOM_INITS = ["arange", "random", "zeros", "ones"]
 CUSTOM_OUTPUT_MODES = ["auto", "same", "summary", "list", "image"]
+CUSTOM_KERNEL_TEMPLATES = [
+    "custom",
+    "image_invert",
+    "cinematic_teal_orange",
+    "neon_edge_glow_2d",
+    "comic_ink_2d",
+    "thermal_vision",
+    "dream_glow_2d",
+    "grayscale",
+    "channel_swap",
+    "vignette",
+]
 
 DEFAULT_CUSTOM_SOURCE = '''extern "C" __global__
 void user_kernel(const float* in, float* out, int n) {
@@ -465,10 +477,291 @@ void user_kernel(const float* in, float* out, int width, int height, int channel
     out[p + 2] = 1.0f - b;
 }'''
 
+DEFAULT_CINEMATIC_SOURCE = '''extern "C" __global__
+void user_kernel(const float* in, float* out, int width, int height, int channels) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    int pixels = width * height;
+    if (i >= pixels) return;
+
+    int p = i * channels;
+
+    float r = in[p + 0];
+    float g = in[p + 1];
+    float b = in[p + 2];
+
+    // cinematic contrast
+    r = powf(r, 0.85f);
+    g = powf(g, 0.90f);
+    b = powf(b, 1.05f);
+
+    // teal-orange grade
+    r *= 1.15f;
+    g *= 1.00f;
+    b *= 0.90f;
+
+    // vignette
+    int x = i % width;
+    int y = i / width;
+
+    float nx = (x / (float)width) * 2.0f - 1.0f;
+    float ny = (y / (float)height) * 2.0f - 1.0f;
+
+    float dist = sqrtf(nx * nx + ny * ny);
+    float vignette = 1.0f - fminf(dist * 0.4f, 0.4f);
+
+    r *= vignette;
+    g *= vignette;
+    b *= vignette;
+
+    out[p + 0] = fminf(fmaxf(r, 0.0f), 1.0f);
+    out[p + 1] = fminf(fmaxf(g, 0.0f), 1.0f);
+    out[p + 2] = fminf(fmaxf(b, 0.0f), 1.0f);
+
+    if (channels == 4)
+        out[p + 3] = in[p + 3];
+}'''
+
+DEFAULT_GRAYSCALE_IMAGE_SOURCE = '''extern "C" __global__
+void user_kernel(const float* in, float* out, int width, int height, int channels) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    int n = width * height;
+    if (i >= n) return;
+
+    int p = i * channels;
+    float y = in[p + 0] * 0.2126f + in[p + 1] * 0.7152f + in[p + 2] * 0.0722f;
+    out[p + 0] = y;
+    out[p + 1] = y;
+    out[p + 2] = y;
+}'''
+
+DEFAULT_CHANNEL_SWAP_SOURCE = '''extern "C" __global__
+void user_kernel(const float* in, float* out, int width, int height, int channels) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    int n = width * height;
+    if (i >= n) return;
+
+    int p = i * channels;
+    out[p + 0] = in[p + 2];
+    out[p + 1] = in[p + 1];
+    out[p + 2] = in[p + 0];
+}'''
+
+DEFAULT_VIGNETTE_SOURCE = '''extern "C" __global__
+void user_kernel(const float* in, float* out, int width, int height, int channels) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    int n = width * height;
+    if (i >= n) return;
+
+    int x = i % width;
+    int y = i / width;
+    float nx = (x / (float)width) * 2.0f - 1.0f;
+    float ny = (y / (float)height) * 2.0f - 1.0f;
+    float dist = sqrtf(nx * nx + ny * ny);
+    float v = 1.0f - fminf(dist * 0.45f, 0.55f);
+
+    int p = i * channels;
+    out[p + 0] = in[p + 0] * v;
+    out[p + 1] = in[p + 1] * v;
+    out[p + 2] = in[p + 2] * v;
+}'''
+
+DEFAULT_NEON_EDGE_GLOW_2D_SOURCE = '''extern "C" __global__
+void user_kernel(const float* in, float* out, int width, int height, int channels)
+{
+    int x = blockDim.x * blockIdx.x + threadIdx.x;
+    int y = blockDim.y * blockIdx.y + threadIdx.y;
+
+    if (x >= width || y >= height) return;
+
+    int i = y * width + x;
+    int p = i * channels;
+
+    float r = in[p + 0];
+    float g = in[p + 1];
+    float b = in[p + 2];
+
+    float lum = 0.299f * r + 0.587f * g + 0.114f * b;
+
+    int xl = x > 0 ? x - 1 : 0;
+    int xr = x + 1 < width ? x + 1 : width - 1;
+    int yu = y > 0 ? y - 1 : 0;
+    int yd = y + 1 < height ? y + 1 : height - 1;
+
+    int pl = (y * width + xl) * channels;
+    int pr = (y * width + xr) * channels;
+    int pu = (yu * width + x) * channels;
+    int pd = (yd * width + x) * channels;
+
+    float lumL = 0.299f * in[pl] + 0.587f * in[pl + 1] + 0.114f * in[pl + 2];
+    float lumR = 0.299f * in[pr] + 0.587f * in[pr + 1] + 0.114f * in[pr + 2];
+    float lumU = 0.299f * in[pu] + 0.587f * in[pu + 1] + 0.114f * in[pu + 2];
+    float lumD = 0.299f * in[pd] + 0.587f * in[pd + 1] + 0.114f * in[pd + 2];
+
+    float edge = fabsf(lumR - lumL) + fabsf(lumD - lumU);
+    edge = fminf(edge * 4.0f, 1.0f);
+
+    float nx = (x / (float)width)  * 2.0f - 1.0f;
+    float ny = (y / (float)height) * 2.0f - 1.0f;
+    float dist = sqrtf(nx * nx + ny * ny);
+    float vignette = 1.0f - fminf(dist * 0.55f, 0.55f);
+
+    r = powf(r, 0.95f) * 1.08f;
+    g = powf(g, 1.00f) * 1.02f;
+    b = powf(b, 1.08f) * 0.95f;
+
+    r += edge * 0.95f;
+    g += edge * 0.35f;
+    b += edge * 0.10f;
+
+    r *= vignette;
+    g *= vignette;
+    b *= vignette;
+
+    out[p + 0] = fminf(fmaxf(r, 0.0f), 1.0f);
+    out[p + 1] = fminf(fmaxf(g, 0.0f), 1.0f);
+    out[p + 2] = fminf(fmaxf(b, 0.0f), 1.0f);
+
+    if (channels == 4)
+        out[p + 3] = in[p + 3];
+}'''
+
+DEFAULT_COMIC_INK_2D_SOURCE = '''extern "C" __global__
+void user_kernel(const float* in, float* out, int width, int height, int channels)
+{
+    int x = blockDim.x * blockIdx.x + threadIdx.x;
+    int y = blockDim.y * blockIdx.y + threadIdx.y;
+    if (x >= width || y >= height) return;
+
+    int i = y * width + x;
+    int p = i * channels;
+
+    int xl = x > 0 ? x - 1 : 0;
+    int xr = x + 1 < width ? x + 1 : width - 1;
+    int yu = y > 0 ? y - 1 : 0;
+    int yd = y + 1 < height ? y + 1 : height - 1;
+
+    int pl = (y * width + xl) * channels;
+    int pr = (y * width + xr) * channels;
+    int pu = (yu * width + x) * channels;
+    int pd = (yd * width + x) * channels;
+
+    float lumL = 0.299f * in[pl] + 0.587f * in[pl + 1] + 0.114f * in[pl + 2];
+    float lumR = 0.299f * in[pr] + 0.587f * in[pr + 1] + 0.114f * in[pr + 2];
+    float lumU = 0.299f * in[pu] + 0.587f * in[pu + 1] + 0.114f * in[pu + 2];
+    float lumD = 0.299f * in[pd] + 0.587f * in[pd + 1] + 0.114f * in[pd + 2];
+    float edge = fminf((fabsf(lumR - lumL) + fabsf(lumD - lumU)) * 5.5f, 1.0f);
+
+    float levels = 5.0f;
+    float r = floorf(in[p + 0] * levels) / levels;
+    float g = floorf(in[p + 1] * levels) / levels;
+    float b = floorf(in[p + 2] * levels) / levels;
+
+    r = powf(fminf(r * 1.22f, 1.0f), 0.82f);
+    g = powf(fminf(g * 1.12f, 1.0f), 0.86f);
+    b = powf(fminf(b * 1.05f, 1.0f), 0.90f);
+
+    float ink = 1.0f - fminf(edge * 0.9f, 0.9f);
+    out[p + 0] = r * ink;
+    out[p + 1] = g * ink;
+    out[p + 2] = b * ink;
+
+    if (channels == 4)
+        out[p + 3] = in[p + 3];
+}'''
+
+DEFAULT_THERMAL_SOURCE = '''extern "C" __global__
+void user_kernel(const float* in, float* out, int width, int height, int channels)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    int n = width * height;
+    if (i >= n) return;
+
+    int p = i * channels;
+    float lum = 0.299f * in[p + 0] + 0.587f * in[p + 1] + 0.114f * in[p + 2];
+    float hotT = fminf(fmaxf((lum - 0.50f) / 0.50f, 0.0f), 1.0f);
+    float hot = hotT * hotT * (3.0f - 2.0f * hotT);
+    float mid = 1.0f - fabsf(lum - 0.52f) * 2.1f;
+    mid = fminf(fmaxf(mid, 0.0f), 1.0f);
+    float coldT = fminf(fmaxf((lum - 0.10f) / 0.65f, 0.0f), 1.0f);
+    float cold = 1.0f - coldT * coldT * (3.0f - 2.0f * coldT);
+
+    out[p + 0] = fminf(fmaxf(hot * 1.15f + mid * 0.65f, 0.0f), 1.0f);
+    out[p + 1] = fminf(fmaxf(mid * 1.05f + cold * 0.15f, 0.0f), 1.0f);
+    out[p + 2] = fminf(fmaxf(cold * 0.95f + (1.0f - hot) * 0.20f, 0.0f), 1.0f);
+
+    if (channels == 4)
+        out[p + 3] = in[p + 3];
+}'''
+
+DEFAULT_DREAM_GLOW_2D_SOURCE = '''extern "C" __global__
+void user_kernel(const float* in, float* out, int width, int height, int channels)
+{
+    int x = blockDim.x * blockIdx.x + threadIdx.x;
+    int y = blockDim.y * blockIdx.y + threadIdx.y;
+    if (x >= width || y >= height) return;
+
+    int i = y * width + x;
+    int p = i * channels;
+
+    int xl = x > 0 ? x - 1 : 0;
+    int xr = x + 1 < width ? x + 1 : width - 1;
+    int yu = y > 0 ? y - 1 : 0;
+    int yd = y + 1 < height ? y + 1 : height - 1;
+
+    int pl = (y * width + xl) * channels;
+    int pr = (y * width + xr) * channels;
+    int pu = (yu * width + x) * channels;
+    int pd = (yd * width + x) * channels;
+
+    float blurR = (in[p + 0] * 4.0f + in[pl] + in[pr] + in[pu] + in[pd]) * 0.125f;
+    float blurG = (in[p + 1] * 4.0f + in[pl + 1] + in[pr + 1] + in[pu + 1] + in[pd + 1]) * 0.125f;
+    float blurB = (in[p + 2] * 4.0f + in[pl + 2] + in[pr + 2] + in[pu + 2] + in[pd + 2]) * 0.125f;
+
+    float r = in[p + 0] * 0.70f + blurR * 0.45f + 0.04f;
+    float g = in[p + 1] * 0.70f + blurG * 0.38f + 0.03f;
+    float b = in[p + 2] * 0.72f + blurB * 0.50f + 0.08f;
+
+    out[p + 0] = fminf(fmaxf(powf(r, 0.82f), 0.0f), 1.0f);
+    out[p + 1] = fminf(fmaxf(powf(g, 0.86f), 0.0f), 1.0f);
+    out[p + 2] = fminf(fmaxf(powf(b, 0.78f), 0.0f), 1.0f);
+
+    if (channels == 4)
+        out[p + 3] = in[p + 3];
+}'''
+
 DEFAULT_CUSTOM_SOURCES = {
     DEFAULT_CUSTOM_SOURCE.strip(),
     DEFAULT_BINARY_SOURCE.strip(),
     DEFAULT_IMAGE_SOURCE.strip(),
+}
+
+CUSTOM_KERNEL_TEMPLATE_INFO = {
+    "custom": {"source": "", "signature": "auto", "output_mode": "auto"},
+    "image_invert": {"source": DEFAULT_IMAGE_SOURCE, "signature": "image_rgb", "output_mode": "image"},
+    "cinematic_teal_orange": {"source": DEFAULT_CINEMATIC_SOURCE, "signature": "image_rgb", "output_mode": "image"},
+    "neon_edge_glow_2d": {
+        "source": DEFAULT_NEON_EDGE_GLOW_2D_SOURCE,
+        "signature": "image_rgb",
+        "output_mode": "image",
+        "launch": "image_2d",
+    },
+    "comic_ink_2d": {
+        "source": DEFAULT_COMIC_INK_2D_SOURCE,
+        "signature": "image_rgb",
+        "output_mode": "image",
+        "launch": "image_2d",
+    },
+    "thermal_vision": {"source": DEFAULT_THERMAL_SOURCE, "signature": "image_rgb", "output_mode": "image"},
+    "dream_glow_2d": {
+        "source": DEFAULT_DREAM_GLOW_2D_SOURCE,
+        "signature": "image_rgb",
+        "output_mode": "image",
+        "launch": "image_2d",
+    },
+    "grayscale": {"source": DEFAULT_GRAYSCALE_IMAGE_SOURCE, "signature": "image_rgb", "output_mode": "image"},
+    "channel_swap": {"source": DEFAULT_CHANNEL_SWAP_SOURCE, "signature": "image_rgb", "output_mode": "image"},
+    "vignette": {"source": DEFAULT_VIGNETTE_SOURCE, "signature": "image_rgb", "output_mode": "image"},
 }
 
 
@@ -620,9 +913,23 @@ def _custom_output_value(host: Any, data: dict[str, Any], output_mode: str) -> t
     return _summary(arr), "summary"
 
 
+def _custom_launch_mode(
+    source: str,
+    signature: str,
+    template_info: dict[str, Any] | None = None,
+) -> str:
+    launch = str((template_info or {}).get("launch") or "").strip()
+    if launch in {"linear", "image_2d"}:
+        return launch
+    if signature == "image_rgb" and re.search(r"\b(?:blockIdx|blockDim|threadIdx)\s*\.\s*y\b", source):
+        return "image_2d"
+    return "linear"
+
+
 @node(
     inputs={
         "input": AnyPort,
+        "template": Enum(CUSTOM_KERNEL_TEMPLATES, default="image_invert"),
         "code": Text(DEFAULT_IMAGE_SOURCE),
         "kernel": Text("user_kernel"),
         "signature": Enum(CUSTOM_SIGNATURES, default="auto"),
@@ -640,6 +947,8 @@ def _custom_output_value(host: Any, data: dict[str, Any], output_mode: str) -> t
 )
 def cuda_custom_kernel(ctx: dict) -> dict:
     input_value = ctx.get("input")
+    template = str(ctx.get("template") or "custom").strip()
+    template_info: dict[str, Any] | None = None
     source = str(ctx.get("code") or "").strip()
     kernel = str(ctx.get("kernel") or "user_kernel").strip()
     sig = str(ctx.get("signature") or "auto").strip()
@@ -655,6 +964,14 @@ def cuda_custom_kernel(ctx: dict) -> dict:
             f"unknown signature '{sig}'; use auto, map (in,out,n), "
             "binary (a,b,out,n), or image_rgb (in,out,width,height,channels)"
         )
+    if template not in CUSTOM_KERNEL_TEMPLATES:
+        return _custom_error(f"unknown template '{template}'; choose one of {CUSTOM_KERNEL_TEMPLATES}")
+    if template != "custom":
+        template_info = CUSTOM_KERNEL_TEMPLATE_INFO[template]
+        source = str(template_info["source"]).strip()
+        sig = str(template_info["signature"])
+        if output_mode == "auto":
+            output_mode = str(template_info["output_mode"])
     if dtype not in _CTYPE:
         return _custom_error(f"unknown dtype '{dtype}'; use float32 or float64")
     if output_mode not in CUSTOM_OUTPUT_MODES:
@@ -704,6 +1021,9 @@ def cuda_custom_kernel(ctx: dict) -> dict:
         return _custom_error(f"could not adapt input ({type(exc).__name__}: {exc})", device=name)
 
     try:
+        launch_mode = _custom_launch_mode(source, effective_sig, template_info)
+        block_shape: tuple[int, ...] = (block,)
+        grid_shape: tuple[int, ...]
         if effective_sig == "image_rgb":
             arr = np.asarray(data["a"], dtype=np_dtype)
             if arr.ndim == 2:
@@ -715,9 +1035,15 @@ def cuda_custom_kernel(ctx: dict) -> dict:
             out = cp.empty_like(a)
             n = h * w
             args = (a, out, np.int32(w), np.int32(h), np.int32(channels))
-            grid = (n + block - 1) // block
+            if launch_mode == "image_2d":
+                side = max(1, min(32, int(math.sqrt(block))))
+                block_shape = (side, side)
+                grid_shape = ((w + side - 1) // side, (h + side - 1) // side)
+            else:
+                grid_shape = ((n + block - 1) // block,)
             output_shape = arr.shape
         elif effective_sig == "binary":
+            launch_mode = "linear"
             a_host = np.asarray(data["a"], dtype=np_dtype).ravel()
             if "b" in data:
                 b_host = np.asarray(data["b"], dtype=np_dtype).ravel()
@@ -730,27 +1056,28 @@ def cuda_custom_kernel(ctx: dict) -> dict:
             out = cp.empty_like(a)
             n = a_host.size
             args = (a, b, out, np.int32(n))
-            grid = (n + block - 1) // block
+            grid_shape = ((n + block - 1) // block,)
             output_shape = data.get("shape", a_host.shape)
         else:
+            launch_mode = "linear"
             a_host = np.asarray(data["a"], dtype=np_dtype)
             output_shape = data.get("shape", a_host.shape)
             a = cp.asarray(a_host.ravel())
             out = cp.empty_like(a)
             n = a.size
             args = (a, out, np.int32(n))
-            grid = (n + block - 1) // block
+            grid_shape = ((n + block - 1) // block,)
     except Exception as exc:  # noqa: BLE001
         return _custom_error(f"could not prepare GPU buffers ({type(exc).__name__}: {exc})", device=name)
 
     try:
         kern = cp.RawKernel(source, kernel)
-        kern((grid,), (block,), args)            # first launch compiles (NVRTC)
+        kern(grid_shape, block_shape, args)            # first launch compiles (NVRTC)
         cp.cuda.Stream.null.synchronize()
         ev0, ev1 = cp.cuda.Event(), cp.cuda.Event()
         ev0.record()
         for _ in range(5):
-            kern((grid,), (block,), args)
+            kern(grid_shape, block_shape, args)
         ev1.record()
         ev1.synchronize()
         gpu_ms = cp.cuda.get_elapsed_time(ev0, ev1) / 5
@@ -769,6 +1096,7 @@ def cuda_custom_kernel(ctx: dict) -> dict:
 
     report = {
         "kernel": kernel,
+        "template": template,
         "signature": effective_sig,
         "requested_signature": sig,
         "size": n,
@@ -776,8 +1104,9 @@ def cuda_custom_kernel(ctx: dict) -> dict:
         "input_kind": data.get("kind", "synthetic"),
         "input_shape": list(data.get("shape", [])),
         "output_kind": output_kind,
-        "block": block,
-        "grid": grid,
+        "launch": launch_mode,
+        "block": list(block_shape) if len(block_shape) > 1 else block_shape[0],
+        "grid": list(grid_shape) if len(grid_shape) > 1 else grid_shape[0],
         "device": name,
         "compute_capability": cc,
         "compiled": True,
