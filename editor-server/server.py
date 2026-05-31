@@ -44,6 +44,28 @@ _WORKFLOW_SCHEMA_VERSION = 1
 _SECRET_FIELD_RE = re.compile(r"(api[_-]?key|token|secret|password|credential)", re.I)
 
 
+def _migrate_legacy_node_meta(meta: dict) -> bool:
+    changed = False
+    if meta.get("type") == "LoadImage":
+        params = meta.setdefault("params", {})
+        defaults = meta.setdefault("input_defaults", {})
+        if params.get("max_size") == 768 and defaults.get("max_size") == 768:
+            params["max_size"] = 0
+            changed = True
+        if defaults.get("max_size") == 768:
+            defaults["max_size"] = 0
+            changed = True
+
+    subgraph = meta.get("subgraph")
+    if isinstance(subgraph, dict):
+        inner_meta = subgraph.get("node_meta")
+        if isinstance(inner_meta, dict):
+            for child in inner_meta.values():
+                if isinstance(child, dict):
+                    changed = _migrate_legacy_node_meta(child) or changed
+    return changed
+
+
 def _save_now() -> None:
     try:
         with open(_SAVE_PATH, "w") as f:
@@ -75,9 +97,11 @@ def _load() -> None:
         meta_map: dict = data.get("node_meta", {})
         edges:    list = data.get("edges",     [])
         # only restore nodes whose type is still registered
+        migrated = False
         for node_id, meta in meta_map.items():
             if meta["type"] not in _NODE_REGISTRY and meta["type"] not in _SUBGRAPH_NODE_TYPES:
                 continue
+            migrated = _migrate_legacy_node_meta(meta) or migrated
             if meta["type"] in _SUBGRAPH_NODE_TYPES:
                 _sync_subgraph_node_ports(meta)
             elif meta["type"] in _TOOLBOX_NODE_TYPES:
@@ -97,6 +121,8 @@ def _load() -> None:
         ]
         print(f"[blacknode] Loaded {len(_session.node_meta)} nodes, "
               f"{len(_session.graph._edges)} edges from {_SAVE_PATH}")
+        if migrated:
+            _save()
     except Exception as e:
         print(f"[blacknode] Could not load saved graph: {e}")
 
@@ -2596,6 +2622,7 @@ def _restore_session(node_meta: dict, edges: list):
     for node_id, meta in node_meta.items():
         if meta["type"] not in _NODE_REGISTRY and meta["type"] not in _SUBGRAPH_NODE_TYPES:
             continue
+        _migrate_legacy_node_meta(meta)
         if meta["type"] in _SUBGRAPH_NODE_TYPES:
             _sync_subgraph_node_ports(meta)
         elif meta["type"] in _TOOLBOX_NODE_TYPES:
@@ -2656,6 +2683,7 @@ def _insert_workflow(node_meta: dict, edges: list):
             "params": dict(meta.get("params", {})),
             "pos": [x + offset_x, y + offset_y],
         }
+        _migrate_legacy_node_meta(next_meta)
         if next_meta["type"] in _SUBGRAPH_NODE_TYPES:
             _sync_subgraph_node_ports(next_meta)
         elif next_meta["type"] in _TOOLBOX_NODE_TYPES:

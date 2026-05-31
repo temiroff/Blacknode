@@ -105,6 +105,12 @@ def test_custom_kernel_default_code_is_image_kernel():
     assert getattr(fn, "_bn_input_defaults")["code"] == DEFAULT_IMAGE_SOURCE
 
 
+def test_custom_kernel_detects_source_signature():
+    assert cuda_nodes._custom_source_signature(DEFAULT_CUSTOM_SOURCE, "user_kernel") == "map"
+    assert cuda_nodes._custom_source_signature(DEFAULT_BINARY_SOURCE, "user_kernel") == "binary"
+    assert cuda_nodes._custom_source_signature(DEFAULT_IMAGE_SOURCE, "user_kernel") == "image_rgb"
+
+
 @pytest.mark.skipif(cuda_nodes.np is None, reason="NumPy unavailable")
 def test_custom_kernel_auto_detects_numeric_array_input():
     data = cuda_nodes._custom_data_from_value([1, 2, 3], cuda_nodes.np.float32)
@@ -155,6 +161,16 @@ def test_custom_binary_kernel_runs():
                             "size": 1 << 14, "init": "random"})
     assert r["report"]["compiled"] is True
     assert r["report"]["signature"] == "binary"
+
+
+@gpu_only
+def test_custom_image_kernel_missing_signature_defaults_auto():
+    img = image_nodes.encode_image(cuda_nodes.np.zeros((8, 8, 3), dtype=cuda_nodes.np.float32))
+    r = cuda_custom_kernel({"input": img, "code": DEFAULT_IMAGE_SOURCE})
+    assert r["report"]["compiled"] is True
+    assert r["report"]["signature"] == "image_rgb"
+    assert isinstance(r["output"], str)
+    assert r["output"].startswith("data:image/")
 
 
 @gpu_only

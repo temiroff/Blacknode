@@ -13,6 +13,7 @@ error instead of raising, so the editor stays usable.
 from __future__ import annotations
 
 import math
+import re
 import subprocess
 import time
 from typing import Any, Callable
@@ -582,6 +583,21 @@ def _default_custom_source_for(signature: str) -> str:
     return DEFAULT_CUSTOM_SOURCE
 
 
+def _custom_source_signature(source: str, kernel: str) -> str | None:
+    match = re.search(rf"\b{re.escape(kernel)}\s*\(([^)]*)\)", source)
+    if not match:
+        return None
+    params = [p.strip().lower() for p in match.group(1).split(",") if p.strip()]
+    joined = " ".join(params)
+    if len(params) == 5 and "width" in joined and "height" in joined and "channels" in joined:
+        return "image_rgb"
+    if len(params) == 4:
+        return "binary"
+    if len(params) == 3:
+        return "map"
+    return None
+
+
 def _custom_output_value(host: Any, data: dict[str, Any], output_mode: str) -> tuple[Any, str]:
     arr = np.asarray(host)
     mode = output_mode if output_mode in CUSTOM_OUTPUT_MODES else "auto"
@@ -626,7 +642,7 @@ def cuda_custom_kernel(ctx: dict) -> dict:
     input_value = ctx.get("input")
     source = str(ctx.get("code") or "").strip()
     kernel = str(ctx.get("kernel") or "user_kernel").strip()
-    sig = str(ctx.get("signature") or "map").strip()
+    sig = str(ctx.get("signature") or "auto").strip()
     size = max(2, int(ctx.get("size") or 1048576))
     dtype = str(ctx.get("dtype") or "float32").strip()
     init = str(ctx.get("init") or "arange").strip()
@@ -677,6 +693,13 @@ def cuda_custom_kernel(ctx: dict) -> dict:
             np_dtype = np.float32
         if not source or source in DEFAULT_CUSTOM_SOURCES:
             source = _default_custom_source_for(effective_sig)
+        source_sig = _custom_source_signature(source, kernel)
+        if source_sig and source_sig != effective_sig:
+            return _custom_error(
+                f"kernel signature mismatch: selected '{effective_sig}' but {kernel} looks like "
+                f"'{source_sig}'. Set signature to {source_sig}, use auto, or update the CUDA function arguments.",
+                device=name,
+            )
     except Exception as exc:  # noqa: BLE001
         return _custom_error(f"could not adapt input ({type(exc).__name__}: {exc})", device=name)
 
