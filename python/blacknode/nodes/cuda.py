@@ -1021,3 +1021,114 @@ def cuda_image_filter(ctx: dict) -> dict:
 
 def _img_error(message: str) -> dict:
     return {"image": "", "gpu_ms": 0.0, "device": "", "report": {"error": message}}
+
+
+# ---------------------------------------------------------------------------
+# Tensor Core GEMM (WMMA) — hand-written Tensor Core kernel via NVRTC.
+# CUTLASS-style: this is the WMMA primitive CUTLASS itself is built on, and it
+# runs through the same NVRTC path as the other kernels (works on Windows).
+# ---------------------------------------------------------------------------
+
+_WMMA_GEMM_SRC = r'''
+#include <mma.h>
+using namespace nvcuda;
+// A: MxK, B: KxN, C: MxN, all row-major; M,N,K multiples of 16. One warp per 16x16 C tile.
+extern "C" __global__ void wmma_gemm(const half* A, const half* B, float* C, int M, int N, int K) {
+    int warp = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
+    int tilesN = N / 16;
+    int tileRow = warp / tilesN;
+    int tileCol = warp % tilesN;
+    if (tileRow * 16 >= M || tileCol * 16 >= N) return;
+
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> af;
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> bf;
+    wmma::fragment<wmma::accumulator, 16, 16, 16, float> cf;
+    wmma::fill_fragment(cf, 0.0f);
+
+    for (int k = 0; k < K; k += 16) {
+        wmma::load_matrix_sync(af, A + (tileRow * 16) * K + k, K);
+        wmma::load_matrix_sync(bf, B + k * N + (tileCol * 16), N);
+        wmma::mma_sync(cf, af, bf, cf);
+    }
+    wmma::store_matrix_sync(C + (tileRow * 16) * N + (tileCol * 16), cf, N, wmma::mem_row_major);
+}
+'''
+
+_WMMA_KERNEL = None
+
+
+def _wmma_kernel():
+    global _WMMA_KERNEL
+    if _WMMA_KERNEL is None:
+        import cupy as cp
+        _WMMA_KERNEL = cp.RawKernel(_WMMA_GEMM_SRC, "wmma_gemm", options=("--std=c++17",))
+    return _WMMA_KERNEL
+
+
+@node(
+    inputs={"size": Int(default=1024), "seed": Int(default=0)},
+    outputs=["result:Any", "gpu_ms:Float", "tflops:Float", "cublas_ms:Float", "device:Text", "report:Dict"],
+    name="TensorCoreGEMM",
+    category="NVIDIA GPU",
+    description="Hand-written Tensor Core (WMMA, fp16) matrix multiply via NVRTC, with TFLOPS and a cuBLAS comparison.",
+)
+def tensor_core_gemm(ctx: dict) -> dict:
+    size = int(ctx.get("size") or 1024)
+    seed = int(ctx.get("seed") or 0)
+    n = max(16, (size // 16) * 16)  # WMMA needs multiples of 16
+
+    if np is None:
+        return _tc_error("NumPy is not installed.")
+    try:
+        import cupy as cp
+    except Exception as exc:  # noqa: BLE001
+        return _tc_error(f"CuPy not available ({type(exc).__name__}: {exc}).")
+    try:
+        props = cp.cuda.runtime.getDeviceProperties(0)
+        name = props["name"].decode() if isinstance(props["name"], bytes) else props["name"]
+        cc = f"{props['major']}.{props['minor']}"
+    except Exception as exc:  # noqa: BLE001
+        return _tc_error(f"no CUDA device ({type(exc).__name__}: {exc}).")
+
+    try:
+        cp.random.seed(seed)
+        a = cp.random.random((n, n), dtype=cp.float32).astype(cp.float16)
+        b = cp.random.random((n, n), dtype=cp.float32).astype(cp.float16)
+        c = cp.zeros((n, n), dtype=cp.float32)
+        kern = _wmma_kernel()
+        warps = (n // 16) * (n // 16)
+        block = 256
+        grid = (warps * 32 + block - 1) // block
+        c16 = cp.empty((n, n), dtype=cp.float16)  # preallocate so cuBLAS timing excludes allocation
+        _, wmma_ms = _time_gpu(cp, lambda: kern((grid,), (block,), (a, b, c, n, n, n)), iters=30)
+        _, cublas_ms = _time_gpu(cp, lambda: cp.matmul(a, b, out=c16), iters=30)
+        ref = a.astype(cp.float32) @ b.astype(cp.float32)
+        rel = float(cp.max(cp.abs(c - ref)) / cp.max(cp.abs(ref)))
+    except Exception as exc:  # noqa: BLE001
+        return _tc_error(f"WMMA GEMM failed ({type(exc).__name__}: {exc}).", device=name)
+
+    flop = 2.0 * n * n * n
+    tflops = round(flop / (wmma_ms * 1e9), 2) if wmma_ms > 0 else 0.0
+    cublas_tflops = round(flop / (cublas_ms * 1e9), 2) if cublas_ms > 0 else 0.0
+    correct = rel < 1e-2
+    report = {
+        "n": n, "dtype": "float16",
+        "wmma_ms": round(wmma_ms, 4), "wmma_tflops": tflops,
+        "cublas_ms": round(cublas_ms, 4), "cublas_tflops": cublas_tflops,
+        "rel_err": round(rel, 8), "correct": correct,
+        "device": name, "compute_capability": cc,
+        "implementation": "WMMA Tensor Cores (CUDA C / NVRTC)",
+    }
+    return {
+        "result": {"n": n, "tflops": tflops, "cublas_tflops": cublas_tflops, "correct": correct},
+        "gpu_ms": round(wmma_ms, 4),
+        "tflops": tflops,
+        "cublas_ms": round(cublas_ms, 4),
+        "device": name,
+        "report": report,
+    }
+
+
+def _tc_error(message: str, device: str = "") -> dict:
+    return {"result": {"error": message}, "gpu_ms": 0.0, "tflops": 0.0,
+            "cublas_ms": 0.0, "device": device, "report": {"error": message, "device": device}}

@@ -197,3 +197,31 @@ def test_gpu_requirement_pass_and_fail():
     fail = gpu_requirement({"min_compute": 99.0, "min_vram_gb": 1.0})
     assert fail["ok"] is False
     assert "compute" in fail["reason"]
+
+
+# --- Tensor Core (WMMA) GEMM ----------------------------------------------------
+
+def test_tensor_core_gemm_never_raises():
+    from blacknode.nodes.cuda import tensor_core_gemm
+    out = tensor_core_gemm({"size": 256})
+    assert isinstance(out, dict)
+    assert set(out) >= {"result", "gpu_ms", "tflops", "cublas_ms", "device", "report"}
+
+
+@gpu_only
+def test_tensor_core_gemm_runs_correctly():
+    from blacknode.nodes.cuda import tensor_core_gemm
+    r = tensor_core_gemm({"size": 512, "seed": 0})
+    rep = r["report"]
+    assert "error" not in rep, rep
+    assert rep["correct"] is True, rep
+    assert r["tflops"] > 0
+    assert rep["cublas_tflops"] > 0
+    assert rep["implementation"].startswith("WMMA")
+
+
+@gpu_only
+def test_tensor_core_gemm_rounds_to_multiple_of_16():
+    from blacknode.nodes.cuda import tensor_core_gemm
+    r = tensor_core_gemm({"size": 100})
+    assert r["report"]["n"] == 96  # 100 -> floor to multiple of 16
