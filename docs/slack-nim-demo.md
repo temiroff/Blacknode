@@ -92,6 +92,18 @@ Options:
   that has a text input feeding an agent and an `Output`. The bot is generic;
   the template is just a good default.
 
+## Is it ready? Other drivers
+
+Slack is one **driver** (a runtime around the graph engine). Check whether it's
+installed and configured — and what else is registered — with:
+
+```bash
+blacknode drivers
+```
+
+See [drivers.md](drivers.md) for the registry, the `ready` / `needs env` /
+`needs install` states, and how to add a driver (Discord, HTTP, …).
+
 ## Notes & limits
 
 - **Memory lives in the driver**, not in the graph — a single process holds the

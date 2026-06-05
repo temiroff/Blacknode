@@ -109,12 +109,15 @@ class ServeAndCliTests(unittest.TestCase):
             sr.serve(runtime, bot_token="xoxb-x", app_token="xapp-x")
         self.assertIn("blacknode[slack]", str(ctx.exception))
 
-    def test_cli_requires_tokens(self):
+    def test_cli_slack_fails_without_setup(self):
+        # Without slack_bolt installed (CI) or tokens set, the slack driver can't
+        # run: exit 1 with a message about the missing extra or env var.
         err = io.StringIO()
         with patch.dict("os.environ", {}, clear=True), redirect_stderr(err):
             code = main(["slack", str(TEMPLATE)])
         self.assertEqual(code, 1)
-        self.assertIn("SLACK_BOT_TOKEN", err.getvalue())
+        message = err.getvalue()
+        self.assertTrue("blacknode[slack]" in message or "SLACK_BOT_TOKEN" in message, message)
 
 
 if __name__ == "__main__":

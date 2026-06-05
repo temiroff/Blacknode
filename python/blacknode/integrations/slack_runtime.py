@@ -20,9 +20,11 @@ only :func:`serve` needs it, imported lazily with a clear install hint.
 from __future__ import annotations
 
 import copy
+import os
 import re
 from typing import Any, Mapping
 
+from blacknode.integrations.registry import DriverSpec, register_driver
 from blacknode.workflow import run_workflow
 
 _MENTION_RE = re.compile(r"<@[A-Z0-9]+>")
@@ -161,3 +163,28 @@ def serve(runtime: SlackAgentRuntime, *, bot_token: str, app_token: str) -> None
         say(text=reply, thread_ts=thread)
 
     SocketModeHandler(app, app_token).start()
+
+
+# A transport-agnostic alias: the runtime knows nothing about Slack, so future
+# drivers (Discord, HTTP, …) reuse it directly.
+AgentRuntime = SlackAgentRuntime
+
+
+def _run_slack(runtime: SlackAgentRuntime) -> None:
+    serve(
+        runtime,
+        bot_token=os.environ.get("SLACK_BOT_TOKEN", ""),
+        app_token=os.environ.get("SLACK_APP_TOKEN", ""),
+    )
+
+
+register_driver(
+    DriverSpec(
+        name="slack",
+        description="Slack bot (Socket Mode): answers @mentions with the agent workflow.",
+        run=_run_slack,
+        required_extra="slack",
+        required_packages=("slack_bolt", "slack_sdk"),
+        required_env=("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"),
+    )
+)

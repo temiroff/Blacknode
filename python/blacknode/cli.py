@@ -35,8 +35,10 @@ def main(argv: list[str] | None = None) -> int:
         return _export_framework(args.workflow, args.target, args.output)
     if args.command == "export-training":
         return _export_training(args)
+    if args.command == "drivers":
+        return _drivers(args)
     if args.command == "slack":
-        return _slack(args)
+        return _run_driver("slack", args)
     if args.command == "demo":
         return _demo(args.workflow, args.json)
     if args.command == "doctor":
@@ -105,6 +107,12 @@ def _parser() -> argparse.ArgumentParser:
     export_training.add_argument(
         "--rated-only", action="store_true", dest="rated_only", help="drop trajectories with no rating"
     )
+
+    drivers = subcommands.add_parser(
+        "drivers",
+        help="list integration drivers and whether each is registered and activated",
+    )
+    drivers.add_argument("--json", action="store_true", help="print machine-readable JSON")
 
     slack = subcommands.add_parser(
         "slack",
@@ -247,28 +255,57 @@ def _export_training(args: argparse.Namespace) -> int:
     return 0
 
 
-def _slack(args: argparse.Namespace) -> int:
+def _drivers(args: argparse.Namespace) -> int:
+    import blacknode.integrations  # noqa: F401 - import side effect registers drivers
+    from .integrations.registry import driver_status, list_drivers
+
+    statuses = [driver_status(spec) for spec in list_drivers()]
+    if getattr(args, "json", False):
+        _write_json({"drivers": statuses}, None)
+        return 0
+    if not statuses:
+        print("No integration drivers registered.")
+        return 0
+
+    use_color = _terminal_color_enabled()
+    print("Blacknode drivers")
+    for st in statuses:
+        color = "green" if st["status"] == "ready" else "yellow"
+        tag = _color_text(f"[{st['status']}]", color, enabled=use_color)
+        print(f"{tag} {st['name']} - {st['description']}")
+        pkg_state = "installed" if st["packages_installed"] else "missing"
+        print(f"    extra: {st['extra']} ({pkg_state})")
+        if st["env"]:
+            env_state = ", ".join(f"{name} ({'set' if present else 'missing'})" for name, present in st["env"].items())
+            print(f"    env:   {env_state}")
+    return 0
+
+
+def _run_driver(name: str, args: argparse.Namespace) -> int:
+    import blacknode.integrations  # noqa: F401 - import side effect registers drivers
+    from .integrations.registry import get_driver, missing_env, packages_installed
     from .integrations.slack_runtime import (
+        AgentRuntime,
         ConversationMemory,
-        SlackAgentRuntime,
         SlackConfigError,
         SlackDependencyError,
-        serve,
     )
 
-    bot_token = os.environ.get("SLACK_BOT_TOKEN")
-    app_token = os.environ.get("SLACK_APP_TOKEN")
-    if not bot_token or not app_token:
-        print(
-            "Set SLACK_BOT_TOKEN (xoxb-…) and SLACK_APP_TOKEN (xapp-…, with "
-            "connections:write) to run the Slack bot.",
-            file=sys.stderr,
-        )
+    spec = get_driver(name)
+    if spec is None:
+        print(f"Unknown driver '{name}'. Run 'blacknode drivers' to list them.", file=sys.stderr)
+        return 2
+    if not packages_installed(spec):
+        print(f"The {name} driver needs its extra. Run: pip install 'blacknode[{spec.required_extra}]'", file=sys.stderr)
+        return 1
+    missing = missing_env(spec)
+    if missing:
+        print(f"Set {', '.join(missing)} to run the {name} driver.", file=sys.stderr)
         return 1
 
     try:
         workflow = load_workflow(args.workflow)
-        runtime = SlackAgentRuntime(
+        runtime = AgentRuntime(
             workflow,
             input_node=args.input_node,
             memory=ConversationMemory(max_turns=args.max_turns),
@@ -277,9 +314,9 @@ def _slack(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
-    print(f"Blacknode Slack bot running ({args.workflow}); input node: {runtime.input_node}. Ctrl-C to stop.")
+    print(f"Blacknode {name} driver running ({args.workflow}); input node: {runtime.input_node}. Ctrl-C to stop.")
     try:
-        serve(runtime, bot_token=bot_token, app_token=app_token)
+        spec.run(runtime)
     except SlackDependencyError as exc:
         print(str(exc), file=sys.stderr)
         return 1
