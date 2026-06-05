@@ -35,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
         return _export_framework(args.workflow, args.target, args.output)
     if args.command == "export-training":
         return _export_training(args)
+    if args.command == "slack":
+        return _slack(args)
     if args.command == "demo":
         return _demo(args.workflow, args.json)
     if args.command == "doctor":
@@ -102,6 +104,20 @@ def _parser() -> argparse.ArgumentParser:
     export_training.add_argument("--tag", help="keep trajectories carrying this tag")
     export_training.add_argument(
         "--rated-only", action="store_true", dest="rated_only", help="drop trajectories with no rating"
+    )
+
+    slack = subcommands.add_parser(
+        "slack",
+        help="run a workflow as a Slack bot (e.g. a NIM agent with tools)",
+    )
+    slack.add_argument("workflow", type=Path, help="agent workflow JSON to drive")
+    slack.add_argument(
+        "--input-node",
+        dest="input_node",
+        help="node id that receives each Slack message (default: auto-detect the agent prompt source)",
+    )
+    slack.add_argument(
+        "--max-turns", type=int, default=6, dest="max_turns", help="conversation turns kept per thread"
     )
 
     demo = subcommands.add_parser("demo", help="run the built-in no-key demo workflow")
@@ -228,6 +244,47 @@ def _export_training(args: argparse.Namespace) -> int:
     if args.output is not None:
         summary += f" -> {args.output}"
     print(summary, file=sys.stderr)
+    return 0
+
+
+def _slack(args: argparse.Namespace) -> int:
+    from .integrations.slack_runtime import (
+        ConversationMemory,
+        SlackAgentRuntime,
+        SlackConfigError,
+        SlackDependencyError,
+        serve,
+    )
+
+    bot_token = os.environ.get("SLACK_BOT_TOKEN")
+    app_token = os.environ.get("SLACK_APP_TOKEN")
+    if not bot_token or not app_token:
+        print(
+            "Set SLACK_BOT_TOKEN (xoxb-…) and SLACK_APP_TOKEN (xapp-…, with "
+            "connections:write) to run the Slack bot.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        workflow = load_workflow(args.workflow)
+        runtime = SlackAgentRuntime(
+            workflow,
+            input_node=args.input_node,
+            memory=ConversationMemory(max_turns=args.max_turns),
+        )
+    except (OSError, json.JSONDecodeError, WorkflowRunError, SlackConfigError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    print(f"Blacknode Slack bot running ({args.workflow}); input node: {runtime.input_node}. Ctrl-C to stop.")
+    try:
+        serve(runtime, bot_token=bot_token, app_token=app_token)
+    except SlackDependencyError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130
     return 0
 
 

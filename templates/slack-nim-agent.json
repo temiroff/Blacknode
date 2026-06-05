@@ -1,0 +1,702 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "Slack NIM Agent",
+  "saved_at": "2026-05-20T00:00:00",
+  "entrypoint": {
+    "node_id": "out",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "NIM-powered Slackbot with web_search + calculator tools. Set SLACK_BOT_TOKEN + SLACK_APP_TOKEN, then run: blacknode slack templates/slack-nim-agent.json",
+    "color": "#76b900"
+  },
+  "node_meta": {
+    "model": {
+      "id": "model",
+      "type": "Model",
+      "params": {
+        "value": "nim:meta/llama-3.1-8b-instruct"
+      },
+      "pos": [
+        60,
+        60
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Model"
+      },
+      "input_defaults": {}
+    },
+    "system": {
+      "id": "system",
+      "type": "Text",
+      "params": {
+        "value": "You are a helpful Slack assistant. Use web_search for facts you may not know, and calculator for arithmetic. Keep replies concise and friendly."
+      },
+      "pos": [
+        60,
+        210
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "task": {
+      "id": "task",
+      "type": "Text",
+      "params": {
+        "value": "Hello!"
+      },
+      "pos": [
+        60,
+        380
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "tool": {
+      "id": "tool",
+      "type": "PythonFn",
+      "params": {
+        "code": "def run(query: str) -> str:\n    import html\n    import json\n    import re\n    import urllib.parse\n    import urllib.request\n\n    encoded = urllib.parse.quote_plus(str(query))\n\n    def fetch(url: str) -> str:\n        req = urllib.request.Request(url, headers={\"User-Agent\": \"Mozilla/5.0 Blacknode/1.0\"})\n        with urllib.request.urlopen(req, timeout=12) as resp:\n            return resp.read().decode(\"utf-8\", errors=\"replace\")\n\n    def clean(value: str) -> str:\n        value = re.sub(r\"<[^>]+>\", \" \", value)\n        value = html.unescape(value)\n        return re.sub(r\"\\s+\", \" \", value).strip()\n\n    try:\n        instant_url = \"https://api.duckduckgo.com/?q=\" + encoded + \"&format=json&no_html=1&skip_disambig=1\"\n        data = json.loads(fetch(instant_url))\n        for key in (\"AbstractText\", \"Definition\", \"Answer\"):\n            text = clean(str(data.get(key) or \"\"))\n            if text:\n                return text\n\n        pending = list(data.get(\"RelatedTopics\", []))\n        while pending:\n            item = pending.pop(0)\n            pending.extend(item.get(\"Topics\", []))\n            text = clean(str(item.get(\"Text\") or \"\"))\n            if text:\n                return text\n    except Exception:\n        pass\n\n    page = fetch(\"https://duckduckgo.com/html/?q=\" + encoded)\n    titles = [clean(match) for match in re.findall(r'<a[^>]+class=\"result__a\"[^>]*>(.*?)</a>', page, re.I | re.S)]\n    snippets = [\n        clean(a or b)\n        for a, b in re.findall(\n            r'<a[^>]+class=\"result__snippet\"[^>]*>(.*?)</a>|<div[^>]+class=\"result__snippet\"[^>]*>(.*?)</div>',\n            page,\n            re.I | re.S,\n        )\n    ]\n    results = []\n    for i, title in enumerate(titles[:3]):\n        if not title:\n            continue\n        snippet = snippets[i] if i < len(snippets) else \"\"\n        results.append(str(i + 1) + \". \" + title + ((\" - \" + snippet) if snippet else \"\"))\n    return \"\\n\".join(results) if results else \"No web snippets found for: \" + str(query)\n",
+        "name": "web_search",
+        "description": "Search DuckDuckGo and return a compact answer or top snippets.",
+        "label": "web_search"
+      },
+      "pos": [
+        360,
+        80
+      ],
+      "inputs": [
+        "code",
+        "name",
+        "description"
+      ],
+      "outputs": [
+        "fn"
+      ],
+      "input_types": {
+        "code": "Text",
+        "name": "Text",
+        "description": "Text"
+      },
+      "output_types": {
+        "fn": "Fn"
+      },
+      "input_defaults": {}
+    },
+    "box": {
+      "id": "box",
+      "type": "ToolBox",
+      "params": {},
+      "pos": [
+        620,
+        110
+      ],
+      "inputs": [
+        "tool_1",
+        "tool_2"
+      ],
+      "outputs": [
+        "tools"
+      ],
+      "input_types": {
+        "tool_1": "Fn",
+        "tool_2": "Fn"
+      },
+      "output_types": {
+        "tools": "List"
+      },
+      "input_defaults": {}
+    },
+    "loop": {
+      "id": "loop",
+      "type": "AgentLoop",
+      "params": {
+        "max_iter": 3
+      },
+      "pos": [
+        620,
+        280
+      ],
+      "inputs": [
+        "prompt",
+        "system",
+        "model",
+        "tools",
+        "max_tokens",
+        "max_iter"
+      ],
+      "outputs": [
+        "result",
+        "steps"
+      ],
+      "input_types": {
+        "prompt": "Text",
+        "system": "Text",
+        "model": "Model",
+        "tools": "List",
+        "max_tokens": "Int",
+        "max_iter": "Int"
+      },
+      "output_types": {
+        "result": "Text",
+        "steps": "List"
+      },
+      "input_defaults": {
+        "model": "claude-sonnet-4-6",
+        "max_tokens": 1024,
+        "max_iter": 5
+      },
+      "subgraph": {
+        "node_meta": {
+          "loop_in": {
+            "id": "loop_in",
+            "type": "SubnetInput",
+            "params": {},
+            "pos": [
+              40,
+              220
+            ],
+            "inputs": [],
+            "outputs": [
+              "prompt",
+              "system",
+              "model",
+              "tools",
+              "max_tokens",
+              "max_iter"
+            ],
+            "input_types": {},
+            "output_types": {
+              "prompt": "Text",
+              "system": "Text",
+              "model": "Model",
+              "tools": "List",
+              "max_tokens": "Int",
+              "max_iter": "Int"
+            },
+            "input_defaults": {}
+          },
+          "messages": {
+            "id": "messages",
+            "type": "AgentMessages",
+            "params": {},
+            "pos": [
+              300,
+              120
+            ],
+            "inputs": [
+              "prompt"
+            ],
+            "outputs": [
+              "messages"
+            ],
+            "input_types": {
+              "prompt": "Text"
+            },
+            "output_types": {
+              "messages": "List"
+            },
+            "input_defaults": {}
+          },
+          "chat": {
+            "id": "chat",
+            "type": "AgentChatStep",
+            "params": {},
+            "pos": [
+              560,
+              100
+            ],
+            "inputs": [
+              "messages",
+              "system",
+              "model",
+              "tools",
+              "max_tokens"
+            ],
+            "outputs": [
+              "assistant_text",
+              "tool_calls",
+              "stop_reason",
+              "step"
+            ],
+            "input_types": {
+              "messages": "List",
+              "system": "Text",
+              "model": "Model",
+              "tools": "List",
+              "max_tokens": "Int"
+            },
+            "output_types": {
+              "assistant_text": "Text",
+              "tool_calls": "List",
+              "stop_reason": "Text",
+              "step": "Dict"
+            },
+            "input_defaults": {
+              "model": "claude-sonnet-4-6",
+              "max_tokens": 1024
+            }
+          },
+          "iteration": {
+            "id": "iteration",
+            "type": "AgentIteration",
+            "params": {
+              "start": 1
+            },
+            "pos": [
+              560,
+              360
+            ],
+            "inputs": [
+              "start"
+            ],
+            "outputs": [
+              "iteration"
+            ],
+            "input_types": {
+              "start": "Int"
+            },
+            "output_types": {
+              "iteration": "Int"
+            },
+            "input_defaults": {
+              "start": 1
+            }
+          },
+          "dispatch": {
+            "id": "dispatch",
+            "type": "ToolDispatch",
+            "params": {},
+            "pos": [
+              840,
+              80
+            ],
+            "inputs": [
+              "tool_calls",
+              "tools"
+            ],
+            "outputs": [
+              "tool_results",
+              "steps"
+            ],
+            "input_types": {
+              "tool_calls": "List",
+              "tools": "List"
+            },
+            "output_types": {
+              "tool_results": "List",
+              "steps": "List"
+            },
+            "input_defaults": {}
+          },
+          "stop": {
+            "id": "stop",
+            "type": "AgentStopCheck",
+            "params": {},
+            "pos": [
+              840,
+              330
+            ],
+            "inputs": [
+              "stop_reason",
+              "tool_calls",
+              "iteration",
+              "max_iter"
+            ],
+            "outputs": [
+              "continue",
+              "done",
+              "reason"
+            ],
+            "input_types": {
+              "stop_reason": "Text",
+              "tool_calls": "List",
+              "iteration": "Int",
+              "max_iter": "Int"
+            },
+            "output_types": {
+              "continue": "Bool",
+              "done": "Bool",
+              "reason": "Text"
+            },
+            "input_defaults": {
+              "iteration": 1,
+              "max_iter": 5
+            }
+          },
+          "append": {
+            "id": "append",
+            "type": "AgentAppendMessages",
+            "params": {},
+            "pos": [
+              1120,
+              120
+            ],
+            "inputs": [
+              "messages",
+              "model",
+              "assistant_text",
+              "tool_calls",
+              "tool_results"
+            ],
+            "outputs": [
+              "messages"
+            ],
+            "input_types": {
+              "messages": "List",
+              "model": "Model",
+              "assistant_text": "Text",
+              "tool_calls": "List",
+              "tool_results": "List"
+            },
+            "output_types": {
+              "messages": "List"
+            },
+            "input_defaults": {
+              "model": "claude-sonnet-4-6"
+            }
+          },
+          "final": {
+            "id": "final",
+            "type": "AgentFinalAnswer",
+            "params": {},
+            "pos": [
+              1400,
+              150
+            ],
+            "inputs": [
+              "messages",
+              "system",
+              "model",
+              "max_tokens",
+              "assistant_text",
+              "stop_reason",
+              "reason",
+              "tool_calls"
+            ],
+            "outputs": [
+              "result",
+              "step"
+            ],
+            "input_types": {
+              "messages": "List",
+              "system": "Text",
+              "model": "Model",
+              "max_tokens": "Int",
+              "assistant_text": "Text",
+              "stop_reason": "Text",
+              "reason": "Text",
+              "tool_calls": "List"
+            },
+            "output_types": {
+              "result": "Text",
+              "step": "Dict"
+            },
+            "input_defaults": {
+              "model": "claude-sonnet-4-6",
+              "max_tokens": 1024
+            }
+          },
+          "loop_out": {
+            "id": "loop_out",
+            "type": "SubnetOutput",
+            "params": {},
+            "pos": [
+              1680,
+              180
+            ],
+            "inputs": [
+              "result",
+              "steps"
+            ],
+            "outputs": [],
+            "input_types": {
+              "result": "Text",
+              "steps": "List"
+            },
+            "output_types": {},
+            "input_defaults": {}
+          }
+        },
+        "edges": [
+          {
+            "from": "loop_in",
+            "from_port": "prompt",
+            "to": "messages",
+            "to_port": "prompt"
+          },
+          {
+            "from": "messages",
+            "from_port": "messages",
+            "to": "chat",
+            "to_port": "messages"
+          },
+          {
+            "from": "loop_in",
+            "from_port": "system",
+            "to": "chat",
+            "to_port": "system"
+          },
+          {
+            "from": "loop_in",
+            "from_port": "model",
+            "to": "chat",
+            "to_port": "model"
+          },
+          {
+            "from": "loop_in",
+            "from_port": "tools",
+            "to": "chat",
+            "to_port": "tools"
+          },
+          {
+            "from": "loop_in",
+            "from_port": "max_tokens",
+            "to": "chat",
+            "to_port": "max_tokens"
+          },
+          {
+            "from": "chat",
+            "from_port": "tool_calls",
+            "to": "dispatch",
+            "to_port": "tool_calls"
+          },
+          {
+            "from": "loop_in",
+            "from_port": "tools",
+            "to": "dispatch",
+            "to_port": "tools"
+          },
+          {
+            "from": "messages",
+            "from_port": "messages",
+            "to": "append",
+            "to_port": "messages"
+          },
+          {
+            "from": "loop_in",
+            "from_port": "model",
+            "to": "append",
+            "to_port": "model"
+          },
+          {
+            "from": "chat",
+            "from_port": "assistant_text",
+            "to": "append",
+            "to_port": "assistant_text"
+          },
+          {
+            "from": "chat",
+            "from_port": "tool_calls",
+            "to": "append",
+            "to_port": "tool_calls"
+          },
+          {
+            "from": "dispatch",
+            "from_port": "tool_results",
+            "to": "append",
+            "to_port": "tool_results"
+          },
+          {
+            "from": "chat",
+            "from_port": "stop_reason",
+            "to": "stop",
+            "to_port": "stop_reason"
+          },
+          {
+            "from": "chat",
+            "from_port": "tool_calls",
+            "to": "stop",
+            "to_port": "tool_calls"
+          },
+          {
+            "from": "iteration",
+            "from_port": "iteration",
+            "to": "stop",
+            "to_port": "iteration"
+          },
+          {
+            "from": "loop_in",
+            "from_port": "max_iter",
+            "to": "stop",
+            "to_port": "max_iter"
+          },
+          {
+            "from": "append",
+            "from_port": "messages",
+            "to": "final",
+            "to_port": "messages"
+          },
+          {
+            "from": "loop_in",
+            "from_port": "system",
+            "to": "final",
+            "to_port": "system"
+          },
+          {
+            "from": "loop_in",
+            "from_port": "model",
+            "to": "final",
+            "to_port": "model"
+          },
+          {
+            "from": "loop_in",
+            "from_port": "max_tokens",
+            "to": "final",
+            "to_port": "max_tokens"
+          },
+          {
+            "from": "chat",
+            "from_port": "assistant_text",
+            "to": "final",
+            "to_port": "assistant_text"
+          },
+          {
+            "from": "chat",
+            "from_port": "stop_reason",
+            "to": "final",
+            "to_port": "stop_reason"
+          },
+          {
+            "from": "chat",
+            "from_port": "tool_calls",
+            "to": "final",
+            "to_port": "tool_calls"
+          },
+          {
+            "from": "stop",
+            "from_port": "reason",
+            "to": "final",
+            "to_port": "reason"
+          },
+          {
+            "from": "final",
+            "from_port": "result",
+            "to": "loop_out",
+            "to_port": "result"
+          },
+          {
+            "from": "dispatch",
+            "from_port": "steps",
+            "to": "loop_out",
+            "to_port": "steps"
+          }
+        ]
+      }
+    },
+    "out": {
+      "id": "out",
+      "type": "Output",
+      "params": {},
+      "pos": [
+        900,
+        280
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "calc": {
+      "id": "calc",
+      "type": "PythonFn",
+      "params": {
+        "code": "def run(expression: str) -> str:\n    import ast, math, operator\n    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,\n           ast.Div: operator.truediv, ast.Pow: operator.pow, ast.Mod: operator.mod,\n           ast.FloorDiv: operator.floordiv, ast.USub: operator.neg, ast.UAdd: operator.pos}\n    funcs = {k: getattr(math, k) for k in\n             (\"sqrt\", \"sin\", \"cos\", \"tan\", \"log\", \"log10\", \"exp\", \"floor\", \"ceil\", \"fabs\")}\n    names = {\"pi\": math.pi, \"e\": math.e, \"tau\": math.tau}\n\n    def ev(node):\n        if isinstance(node, ast.Expression):\n            return ev(node.body)\n        if isinstance(node, ast.Constant):\n            return node.value\n        if isinstance(node, ast.BinOp):\n            return ops[type(node.op)](ev(node.left), ev(node.right))\n        if isinstance(node, ast.UnaryOp):\n            return ops[type(node.op)](ev(node.operand))\n        if isinstance(node, ast.Name):\n            return names[node.id]\n        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):\n            return funcs[node.func.id](*[ev(a) for a in node.args])\n        raise ValueError(\"unsupported expression\")\n\n    try:\n        return str(ev(ast.parse(str(expression), mode=\"eval\")))\n    except Exception as exc:\n        return \"calc error: \" + str(exc)\n",
+        "name": "calculator",
+        "description": "Evaluate a safe arithmetic expression (supports + - * / ** %, sqrt, sin, log, pi, e).",
+        "label": "calculator"
+      },
+      "pos": [
+        60,
+        600
+      ],
+      "inputs": [
+        "code",
+        "name",
+        "description"
+      ],
+      "outputs": [
+        "fn"
+      ],
+      "input_types": {
+        "code": "Text",
+        "name": "Text",
+        "description": "Text"
+      },
+      "output_types": {
+        "fn": "Fn"
+      },
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "model",
+      "from_port": "value",
+      "to": "loop",
+      "to_port": "model"
+    },
+    {
+      "from": "system",
+      "from_port": "value",
+      "to": "loop",
+      "to_port": "system"
+    },
+    {
+      "from": "task",
+      "from_port": "value",
+      "to": "loop",
+      "to_port": "prompt"
+    },
+    {
+      "from": "tool",
+      "from_port": "fn",
+      "to": "box",
+      "to_port": "tool_1"
+    },
+    {
+      "from": "box",
+      "from_port": "tools",
+      "to": "loop",
+      "to_port": "tools"
+    },
+    {
+      "from": "loop",
+      "from_port": "result",
+      "to": "out",
+      "to_port": "value"
+    },
+    {
+      "from": "calc",
+      "from_port": "fn",
+      "to": "box",
+      "to_port": "tool_2"
+    }
+  ]
+}
