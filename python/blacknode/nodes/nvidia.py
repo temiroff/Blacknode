@@ -67,6 +67,66 @@ def _dict_value(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _bool_value(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() not in ("false", "0", "no", "off", "")
+
+
+def _dataset_stats(path_value: Any) -> dict[str, Any] | None:
+    """Report existence and JSONL record count for a local dataset file."""
+    raw = str(path_value or "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.exists():
+        return {"path": raw, "exists": False, "records": 0}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            records = sum(1 for line in handle if line.strip())
+    except OSError:
+        records = 0
+    return {"path": str(path), "exists": True, "records": records}
+
+
+def _post_json(url: str, api_key: str, body: dict, timeout: float) -> tuple[bool, int, dict]:
+    data = json.dumps(body).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    req = urllib_request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib_request.urlopen(req, timeout=timeout) as res:
+            raw = res.read().decode("utf-8", errors="replace")
+            status = int(getattr(res, "status", 200))
+    except urllib_error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = {"error": raw}
+        return False, int(exc.code), parsed if isinstance(parsed, dict) else {"error": raw}
+    except Exception as exc:
+        return False, 0, {"error": f"{type(exc).__name__}: {exc}"}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = {"raw": raw}
+    return 200 <= status < 300, status, parsed if isinstance(parsed, dict) else {"raw": raw}
+
+
+def _customizer_curl(url: str, body: dict) -> str:
+    payload = json.dumps(body)
+    return (
+        f"curl -X POST '{url}' "
+        "-H 'Authorization: Bearer $NVIDIA_API_KEY' "
+        "-H 'Content-Type: application/json' "
+        f"-d '{payload}'"
+    )
+
+
 def _run_check(args: list[str], timeout: float = 2.0) -> tuple[bool, str]:
     executable = args[0]
     if shutil.which(executable) is None:
@@ -605,3 +665,171 @@ def nvidia_blueprint_plan(ctx: dict) -> dict:
     }
     plan = "NVIDIA workflow plan\n" + "\n".join(steps) + "\nStack: " + ", ".join(technologies)
     return {"plan": plan, "technologies": technologies, "blueprint": blueprint}
+
+
+DEFAULT_CUSTOMIZER_CONFIG = "meta/llama-3.1-8b-instruct@v1.0.0+A100"
+
+
+@node(
+    inputs=[
+        "base_url:Text",
+        f"config:Text={DEFAULT_CUSTOMIZER_CONFIG}",
+        "dataset:Text",
+        "dataset_file:Text",
+        "namespace:Text=default",
+        "output_model:Text",
+        "training_type:Text=sft",
+        "finetuning_type:Text=lora",
+        "epochs:Int=3",
+        "batch_size:Int=16",
+        "learning_rate:Float=0.0001",
+        "adapter_dim:Int=16",
+        "api_key:Text",
+        "api_version:Text=v1",
+        "dry_run:Bool=true",
+        "timeout:Float=30",
+    ],
+    outputs=["job_id:Text", "status:Text", "request:Dict", "curl:Text", "response:Dict", "notes:Text"],
+    name="NIMFineTune",
+)
+def nim_fine_tune(ctx: dict) -> dict:
+    """Submit a fine-tuning job to NVIDIA NeMo Customizer (dry-run by default).
+
+    Closes the Blacknode loop: ``export-training`` produces ``dataset.jsonl``,
+    this node launches an ``sft`` or ``dpo`` customization job for it. Defaults
+    to a dry run that returns the exact POST request and a runnable ``curl`` —
+    set ``dry_run=false`` with ``base_url``, ``api_key``, and a registered
+    ``dataset`` to actually launch.
+    """
+    base = str(ctx.get("base_url") or "").strip().rstrip("/")
+    api_version = str(ctx.get("api_version") or "v1").strip().strip("/") or "v1"
+    config = str(ctx.get("config") or DEFAULT_CUSTOMIZER_CONFIG).strip()
+    dataset = str(ctx.get("dataset") or "").strip()
+    namespace = str(ctx.get("namespace") or "default").strip()
+    output_model = str(ctx.get("output_model") or "").strip()
+    training_type = str(ctx.get("training_type") or "sft").strip().lower()
+    finetuning_type = str(ctx.get("finetuning_type") or "lora").strip().lower()
+    epochs = max(1, _int_value(ctx.get("epochs"), 3))
+    batch_size = max(1, _int_value(ctx.get("batch_size"), 16))
+    learning_rate = _float_value(ctx.get("learning_rate"), 1e-4)
+    adapter_dim = max(1, _int_value(ctx.get("adapter_dim"), 16))
+    timeout = max(1.0, min(_float_value(ctx.get("timeout"), 30.0), 600.0))
+    api_key = _nim_api_key(ctx.get("api_key"))
+    dataset_stats = _dataset_stats(ctx.get("dataset_file"))
+
+    hyperparameters: dict[str, Any] = {
+        "training_type": training_type,
+        "finetuning_type": finetuning_type,
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "learning_rate": learning_rate,
+    }
+    if finetuning_type.startswith("lora"):
+        hyperparameters["lora"] = {"adapter_dim": adapter_dim}
+    body: dict[str, Any] = {
+        "config": config,
+        "dataset": {"name": dataset, "namespace": namespace},
+        "hyperparameters": hyperparameters,
+    }
+    if output_model:
+        body["output_model"] = output_model
+
+    url = f"{base}/{api_version}/customization/jobs" if base else f"/{api_version}/customization/jobs"
+    request: dict[str, Any] = {"method": "POST", "url": url, "body": body}
+    if dataset_stats is not None:
+        request["dataset_file"] = dataset_stats
+    curl = _customizer_curl(url, body)
+
+    notes: list[str] = []
+    if dataset_stats is not None:
+        if not dataset_stats["exists"]:
+            notes.append(f"dataset_file '{dataset_stats['path']}' not found")
+        else:
+            notes.append(
+                f"local dataset_file has {dataset_stats['records']} records; register it in the "
+                f"NeMo Data Store as '{namespace}/{dataset or '<dataset>'}' before launching"
+            )
+
+    prerequisites_ok = bool(base and api_key and dataset)
+    wants_live = not _bool_value(ctx.get("dry_run"), True)
+    if wants_live and not prerequisites_ok:
+        missing = [name for name, value in (("base_url", base), ("api_key", api_key), ("dataset", dataset)) if not value]
+        notes.append("cannot launch live: missing " + ", ".join(missing))
+
+    if not wants_live or not prerequisites_ok:
+        notes.insert(0, "dry run: no job submitted")
+        return {
+            "job_id": "",
+            "status": "dry_run",
+            "request": request,
+            "curl": curl,
+            "response": {},
+            "notes": "; ".join(notes),
+        }
+
+    run_logger = ctx.get("__run_logger__")
+    if run_logger:
+        run_logger.model_call(
+            node_id=ctx.get("__node_id__"),
+            model=config,
+            provider="NVIDIA NeMo Customizer",
+            action="customization",
+        )
+    ok, status_code, response = _post_json(url, api_key, body, timeout)
+    job_id = str(response.get("id") or response.get("job_id") or "")
+    status = str(response.get("status") or ("submitted" if ok else "error"))
+    notes.insert(0, f"HTTP {status_code}")
+    return {
+        "job_id": job_id,
+        "status": status,
+        "request": request,
+        "curl": curl,
+        "response": response,
+        "notes": "; ".join(notes),
+    }
+
+
+@node(
+    inputs=[
+        "base_url:Text",
+        "job_id:Text",
+        "api_key:Text",
+        "api_version:Text=v1",
+        "timeout:Float=10",
+    ],
+    outputs=["ok:Bool", "status:Text", "percent:Float", "response:Dict"],
+    name="NIMFineTuneStatus",
+)
+def nim_fine_tune_status(ctx: dict) -> dict:
+    """Poll a NeMo Customizer customization job's status."""
+    base = str(ctx.get("base_url") or "").strip().rstrip("/")
+    api_version = str(ctx.get("api_version") or "v1").strip().strip("/") or "v1"
+    job_id = str(ctx.get("job_id") or "").strip()
+    timeout = max(0.5, min(_float_value(ctx.get("timeout"), 10.0), 60.0))
+    api_key = _nim_api_key(ctx.get("api_key"))
+    if not base or not job_id:
+        return {"ok": False, "status": "missing base_url or job_id", "percent": 0.0, "response": {}}
+
+    url = f"{base}/{api_version}/customization/jobs/{job_id}/status"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    req = urllib_request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib_request.urlopen(req, timeout=timeout) as res:
+            raw = res.read().decode("utf-8", errors="replace")
+            status_code = int(getattr(res, "status", 200))
+    except urllib_error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        return {"ok": False, "status": f"HTTP {exc.code}", "percent": 0.0, "response": {"error": body}}
+    except Exception as exc:
+        return {"ok": False, "status": f"{type(exc).__name__}: {exc}", "percent": 0.0, "response": {}}
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        data = {"raw": raw}
+    data = data if isinstance(data, dict) else {"raw": raw}
+    status = str(data.get("status") or "")
+    percent = _float_value(data.get("percentage_done"), 0.0)
+    return {"ok": 200 <= status_code < 300, "status": status or f"HTTP {status_code}", "percent": percent, "response": data}

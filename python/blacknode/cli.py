@@ -33,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
         return _import_python(args.script, args.output, args.name)
     if args.command == "export-framework":
         return _export_framework(args.workflow, args.target, args.output)
+    if args.command == "export-training":
+        return _export_training(args)
     if args.command == "demo":
         return _demo(args.workflow, args.json)
     if args.command == "doctor":
@@ -82,6 +84,25 @@ def _parser() -> argparse.ArgumentParser:
         help="framework export target",
     )
     export_framework.add_argument("--output", "-o", type=Path, help="write exported code to this path")
+
+    export_training = subcommands.add_parser(
+        "export-training",
+        help="export recorded trajectories as a fine-tuning dataset (TRL / Unsloth / OpenPipe)",
+    )
+    export_training.add_argument("input", type=Path, help="trajectories directory or a single .jsonl file")
+    export_training.add_argument(
+        "--format",
+        "-f",
+        default="chat",
+        help="dataset schema: chat (default, OpenAI messages) | sharegpt | dpo. 'jsonl' aliases chat.",
+    )
+    export_training.add_argument("--output", "-o", type=Path, help="write dataset JSONL here (default: stdout)")
+    export_training.add_argument("--min-score", type=float, dest="min_score", help="keep trajectories scoring >= this")
+    export_training.add_argument("--label", help="keep trajectories with this rating label (e.g. up)")
+    export_training.add_argument("--tag", help="keep trajectories carrying this tag")
+    export_training.add_argument(
+        "--rated-only", action="store_true", dest="rated_only", help="drop trajectories with no rating"
+    )
 
     demo = subcommands.add_parser("demo", help="run the built-in no-key demo workflow")
     demo.add_argument("--workflow", type=Path, help="workflow JSON to run instead of templates/text-pipeline.json")
@@ -175,6 +196,38 @@ def _export_framework(path: Path, target: str, output: Path | None) -> int:
         return 0
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(code, encoding="utf-8")
+    return 0
+
+
+def _export_training(args: argparse.Namespace) -> int:
+    from .training.export import KNOWN_FORMATS, export_dataset, write_jsonl
+
+    fmt = (args.format or "chat").lower()
+    if fmt not in KNOWN_FORMATS:
+        print(f"Unknown --format '{args.format}'. Choose from: chat, sharegpt, dpo.", file=sys.stderr)
+        return 2
+    try:
+        records, stats = export_dataset(
+            args.input,
+            fmt=fmt,
+            min_score=args.min_score,
+            label=args.label,
+            tag=args.tag,
+            rated_only=args.rated_only,
+        )
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    write_jsonl(records, args.output)
+    summary = (
+        f"[{stats['format']}] {stats['records_written']} records "
+        f"from {stats['trajectories_selected']}/{stats['trajectories_found']} trajectories "
+        f"({stats['rated']} rated)"
+    )
+    if args.output is not None:
+        summary += f" -> {args.output}"
+    print(summary, file=sys.stderr)
     return 0
 
 

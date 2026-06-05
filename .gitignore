@@ -44,6 +44,7 @@ editor-server/blacknode_graph.json
 editor-server/api_keys.json
 editor-server/custom_models.json
 editor-server/runs/
+/trajectories/
 /workflows/
 /nodes/learned/*
 !/nodes/learned/.gitkeep
