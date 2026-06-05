@@ -290,3 +290,119 @@ def test_tensor_core_gemm_rounds_to_multiple_of_16():
     from blacknode.nodes.cuda import tensor_core_gemm
     r = tensor_core_gemm({"size": 100})
     assert r["report"]["n"] == 96  # 100 -> floor to multiple of 16
+
+
+# --- CUTLASS GEMM (containerized) -----------------------------------------------
+
+def _cutlass_image_ready() -> bool:
+    import subprocess
+    try:
+        r = subprocess.run(["docker", "image", "inspect", "blacknode-cutlass:latest"],
+                           capture_output=True, timeout=20)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+cutlass_ready = pytest.mark.skipif(
+    not _cutlass_image_ready(),
+    reason="blacknode-cutlass:latest image / Docker not available",
+)
+
+
+def test_cutlass_gemm_registered_and_matches_tensor_core_ports():
+    fn = _NODE_REGISTRY["CUTLASSGemm"]
+    tc = _NODE_REGISTRY["TensorCoreGEMM"]
+    # Drop-in comparable: same output ports as the WMMA node.
+    assert getattr(fn, "_bn_outputs") == getattr(tc, "_bn_outputs")
+    assert getattr(fn, "_bn_category") == "NVIDIA GPU"
+
+
+def test_cutlass_gemm_never_raises_without_docker(monkeypatch):
+    # Force the worker to report Docker missing; the node must still return a
+    # structured error dict rather than raising.
+    from blacknode.sandbox import cutlass_worker
+    monkeypatch.setattr(cutlass_worker, "_WORKER", None)
+    monkeypatch.setenv("BLACKNODE_DOCKER", "definitely-not-a-real-docker-binary")
+    from blacknode.nodes.cuda import cutlass_gemm
+    out = cutlass_gemm({"size": 256})
+    assert isinstance(out, dict)
+    assert set(out) >= {"result", "gpu_ms", "tflops", "cublas_ms", "device", "report"}
+    assert "error" in out["report"]
+    assert out["gpu_ms"] == 0.0
+
+
+@cutlass_ready
+def test_cutlass_gemm_runs_in_container():
+    from blacknode.nodes.cuda import cutlass_gemm
+    from blacknode.sandbox.cutlass_worker import get_worker
+    try:
+        r = cutlass_gemm({"size": 512, "seed": 0})
+        rep = r["report"]
+        assert "error" not in rep, rep
+        assert rep["correct"] is True, rep
+        assert r["tflops"] > 0
+        assert rep["cublas_tflops"] > 0
+        assert rep["implementation"].startswith("CUTLASS")
+        assert r["device"]
+    finally:
+        get_worker().stop()
+
+
+# --- generic CUTLASS node (image / matrices / benchmark, one node) --------------
+
+def test_generic_cutlass_node_declares_any_in_and_out():
+    fn = _NODE_REGISTRY["CUTLASS"]
+    assert getattr(fn, "_bn_input_types")["input"] == "Any"
+    assert getattr(fn, "_bn_output_types")["output"] == "Any"
+    assert getattr(fn, "_bn_category") == "NVIDIA GPU"
+
+
+def test_generic_cutlass_auto_routes_by_input():
+    assert cuda_nodes._cutlass_route(None) == "benchmark"
+    assert cuda_nodes._cutlass_route("   ") == "benchmark"
+    assert cuda_nodes._cutlass_route("data:image/png;base64,xxxx") == "conv2d"
+    assert cuda_nodes._cutlass_route({"a": [[1, 2]], "b": [[1], [2]]}) == "matmul"
+
+
+def test_generic_cutlass_never_raises_without_docker(monkeypatch):
+    from blacknode.sandbox import cutlass_worker
+    monkeypatch.setattr(cutlass_worker, "_WORKER", None)
+    monkeypatch.setenv("BLACKNODE_DOCKER", "definitely-not-a-real-docker-binary")
+    from blacknode.nodes.cuda import cutlass
+    out = cutlass({"op": "benchmark"})
+    assert isinstance(out, dict)
+    assert set(out) >= {"output", "result", "gpu_ms", "tflops", "device", "report"}
+    assert "error" in out["report"]
+
+
+@cutlass_ready
+@pytest.mark.skipif(cuda_nodes.np is None, reason="NumPy unavailable")
+def test_generic_cutlass_convolves_an_image():
+    img = image_nodes.encode_image(cuda_nodes.np.full((48, 48, 3), 0.5, dtype=cuda_nodes.np.float32))
+    from blacknode.nodes.cuda import cutlass
+    from blacknode.sandbox.cutlass_worker import get_worker
+    try:
+        r = cutlass({"input": img, "op": "auto", "filter": "edge"})
+        assert r["report"]["op"] == "conv2d"
+        assert r["report"]["filter"] == "edge"
+        assert isinstance(r["output"], str) and r["output"].startswith("data:image/")
+    finally:
+        get_worker().stop()
+
+
+@cutlass_ready
+@pytest.mark.skipif(cuda_nodes.np is None, reason="NumPy unavailable")
+def test_generic_cutlass_matmul_is_correct():
+    np = cuda_nodes.np
+    a = np.random.rand(64, 32).astype(np.float32)
+    b = np.random.rand(32, 16).astype(np.float32)
+    from blacknode.nodes.cuda import cutlass
+    from blacknode.sandbox.cutlass_worker import get_worker
+    try:
+        r = cutlass({"input": {"a": a, "b": b}, "op": "matmul"})
+        assert r["report"]["op"] == "matmul"
+        assert r["result"]["shape"] == [64, 16]
+        assert r["report"]["correct"] is True
+    finally:
+        get_worker().stop()

@@ -1484,3 +1484,252 @@ def tensor_core_gemm(ctx: dict) -> dict:
 def _tc_error(message: str, device: str = "") -> dict:
     return {"result": {"error": message}, "gpu_ms": 0.0, "tflops": 0.0,
             "cublas_ms": 0.0, "device": device, "report": {"error": message, "device": device}}
+
+
+# ---------------------------------------------------------------------------
+# CUTLASS GEMM (containerized) — the NVIDIA-library sibling of TensorCoreGEMM.
+# Compute runs in a long-running Docker worker (blacknode-cutlass) that holds a
+# warm CUTLASS plan, so this node needs no cupy/cutlass on the host. Same ports
+# as TensorCoreGEMM, so the two are drop-in comparable: hand-written WMMA vs the
+# CUTLASS library, both timed against cuBLAS.
+# ---------------------------------------------------------------------------
+
+@node(
+    inputs={"size": Int(default=512), "seed": Int(default=0)},
+    outputs=["result:Any", "gpu_ms:Float", "tflops:Float", "cublas_ms:Float", "device:Text", "report:Dict"],
+    name="CUTLASSGemm",
+    category="NVIDIA GPU",
+    description="CUTLASS (NVIDIA library) fp16 GEMM run in a Docker GPU worker, with TFLOPS and a cuBLAS comparison.",
+)
+def cutlass_gemm(ctx: dict) -> dict:
+    size = int(ctx.get("size") or 512)
+    seed = int(ctx.get("seed") or 0)
+
+    try:
+        from blacknode.sandbox.cutlass_worker import CutlassWorkerError, gemm
+    except Exception as exc:  # noqa: BLE001 - import shouldn't fail, but never raise from a node
+        return _cl_error(f"CUTLASS worker unavailable ({type(exc).__name__}: {exc}).")
+
+    try:
+        r = gemm(size, seed)
+    except CutlassWorkerError as exc:
+        return _cl_error(str(exc))
+    except Exception as exc:  # noqa: BLE001
+        return _cl_error(f"CUTLASS GEMM failed ({type(exc).__name__}: {exc}).")
+
+    report = {
+        "n": r["n"], "dtype": r.get("dtype", "float16"),
+        "cutlass_ms": r["cutlass_ms"], "cutlass_tflops": r["cutlass_tflops"],
+        "cublas_ms": r["cublas_ms"], "cublas_tflops": r["cublas_tflops"],
+        "rel_err": r["rel_err"], "correct": r["correct"],
+        "device": r["device"], "compute_capability": r.get("compute_capability", ""),
+        "worker_startup_ms": r.get("startup_ms", 0.0),
+        "implementation": "CUTLASS (nvidia-cutlass) in Docker GPU worker",
+    }
+    return {
+        "result": {"n": r["n"], "tflops": r["cutlass_tflops"],
+                   "cublas_tflops": r["cublas_tflops"], "correct": r["correct"]},
+        "gpu_ms": r["cutlass_ms"],
+        "tflops": r["cutlass_tflops"],
+        "cublas_ms": r["cublas_ms"],
+        "device": r["device"],
+        "report": report,
+    }
+
+
+def _cl_error(message: str, device: str = "") -> dict:
+    return {"result": {"error": message}, "gpu_ms": 0.0, "tflops": 0.0,
+            "cublas_ms": 0.0, "device": device, "report": {"error": message, "device": device}}
+
+
+# ---------------------------------------------------------------------------
+# Generic CUTLASS node — one block, routed by what you feed it. Connect an
+# image and it runs a convolution as a CUTLASS GEMM (im2col); connect two
+# matrices and it runs A.B; connect nothing and it runs a synthetic benchmark.
+# All compute is the same containerized CUTLASS worker; the host only handles
+# the image codec.
+# ---------------------------------------------------------------------------
+
+CUTLASS_OPS = ["auto", "conv2d", "matmul", "benchmark"]
+CUTLASS_FILTERS: dict[str, tuple] = {
+    # (3x3 kernel, normalisation divisor)
+    "sharpen":  (((0, -1, 0), (-1, 5, -1), (0, -1, 0)), 1.0),
+    "edge":     (((-1, -1, -1), (-1, 8, -1), (-1, -1, -1)), 1.0),
+    "emboss":   (((-2, -1, 0), (-1, 1, 1), (0, 1, 2)), 1.0),
+    "blur":     (((1, 1, 1), (1, 1, 1), (1, 1, 1)), 9.0),
+    "gaussian": (((1, 2, 1), (2, 4, 2), (1, 2, 1)), 16.0),
+    "outline":  (((0, -1, 0), (-1, 4, -1), (0, -1, 0)), 1.0),
+    "identity": (((0, 0, 0), (0, 1, 0), (0, 0, 0)), 1.0),
+}
+
+
+def _cutlass_route(value: Any) -> str:
+    """Pick an op for op='auto' from the connected value."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return "benchmark"
+    if _is_image_data_url(value):
+        return "conv2d"
+    if isinstance(value, dict):
+        if _is_image_data_url(value.get("image")):
+            return "conv2d"
+        if "a" in value and "b" in value:
+            return "matmul"
+    arr = np.asarray(value) if np is not None else None
+    if arr is not None and arr.ndim == 3 and arr.shape[-1] in (3, 4):
+        return "conv2d"
+    return "matmul"
+
+
+@node(
+    inputs={
+        "input": AnyPort,
+        "op": Enum(CUTLASS_OPS, default="auto"),
+        "filter": Enum(list(CUTLASS_FILTERS), default="sharpen"),
+        "iterations": Int(default=1),
+        "filters": Int(default=1),
+        "size": Int(default=512),
+        "seconds": Float(default=0.0),
+        "seed": Int(default=0),
+    },
+    outputs=["output:Any", "result:Dict", "gpu_ms:Float", "tflops:Float", "device:Text", "report:Dict"],
+    name="CUTLASS",
+    category="NVIDIA GPU",
+    description="Generic CUTLASS GEMM block: image in -> convolution (im2col GEMM) out; "
+                "two matrices in -> A.B out; nothing in -> synthetic benchmark. "
+                "iterations stacks the conv (deep); filters>1 runs a random conv layer (CNN forward pass) "
+                "for heavy compute. Runs in the Docker GPU worker.",
+)
+def cutlass(ctx: dict) -> dict:
+    value = ctx.get("input")
+    op = str(ctx.get("op") or "auto").strip()
+    filt = str(ctx.get("filter") or "sharpen").strip()
+    iterations = max(1, int(ctx.get("iterations") or 1))
+    filters = max(1, int(ctx.get("filters") or 1))
+    size = int(ctx.get("size") or 512)
+    seconds = float(ctx.get("seconds") or 0.0)
+    seed = int(ctx.get("seed") or 0)
+
+    if op not in CUTLASS_OPS:
+        return _cutlass_node_error(f"unknown op '{op}'; choose one of {CUTLASS_OPS}")
+    if filt not in CUTLASS_FILTERS:
+        return _cutlass_node_error(f"unknown filter '{filt}'; choose one of {list(CUTLASS_FILTERS)}")
+    if np is None:
+        return _cutlass_node_error("NumPy is not installed.")
+
+    try:
+        from blacknode.sandbox.cutlass_worker import CutlassWorkerError
+        from blacknode.sandbox import cutlass_worker as cw
+    except Exception as exc:  # noqa: BLE001
+        return _cutlass_node_error(f"CUTLASS worker unavailable ({type(exc).__name__}: {exc}).")
+
+    if op == "auto":
+        op = _cutlass_route(value)
+
+    try:
+        if op == "conv2d":
+            return _cutlass_conv(cw, value, filt, iterations, filters, seed)
+        if op == "matmul":
+            return _cutlass_matmul(cw, value)
+        return _cutlass_benchmark(cw, size, seed, seconds)
+    except CutlassWorkerError as exc:
+        return _cutlass_node_error(str(exc))
+    except ValueError as exc:
+        return _cutlass_node_error(str(exc))
+    except Exception as exc:  # noqa: BLE001
+        return _cutlass_node_error(f"CUTLASS {op} failed ({type(exc).__name__}: {exc}).")
+
+
+def _cutlass_node_error(message: str) -> dict:
+    return {"output": {"error": message}, "result": {"error": message}, "gpu_ms": 0.0,
+            "tflops": 0.0, "device": "", "report": {"error": message, "device": ""}}
+
+
+def _cutlass_benchmark(cw, size: int, seed: int, seconds: float = 0.0) -> dict:
+    r = cw.benchmark(size, seed, seconds=seconds)
+    burn = r.get("mode") == "burn"
+    report = {"op": "benchmark", "mode": r.get("mode", "compare"), "n": r["n"],
+              "dtype": r.get("dtype", "float16"),
+              "cutlass_tflops": r["cutlass_tflops"], "cublas_tflops": r["cublas_tflops"],
+              "rel_err": r["rel_err"], "correct": r["correct"],
+              "worker_startup_ms": r.get("startup_ms", 0.0),
+              "device": r["device"], "compute_capability": r.get("compute_capability", ""),
+              "implementation": "CUTLASS (nvidia-cutlass) in Docker GPU worker"}
+    result = {"n": r["n"], "tflops": r["cutlass_tflops"], "correct": r["correct"]}
+    if burn:
+        report["passes"] = r["passes"]; report["total_flop_T"] = r["total_flop_T"]
+        result["passes"] = r["passes"]; result["total_flop_T"] = r["total_flop_T"]
+    else:
+        result["cublas_tflops"] = r["cublas_tflops"]
+    return {"output": r["cutlass_tflops"], "result": result,
+            "gpu_ms": r.get("gpu_ms", r["cutlass_ms"]), "tflops": r["cutlass_tflops"],
+            "device": r["device"], "report": report}
+
+
+def _cutlass_matmul(cw, value: Any) -> dict:
+    a, b = _matmul_operands(value)
+    r = cw.matmul(a, b)
+    out = np.asarray(r["out"])
+    report = {"op": "matmul", "M": r["M"], "K": r["K"], "N": r["N"],
+              "tflops": r["tflops"], "rel_err": r["rel_err"], "correct": r["correct"],
+              "device": r["device"], "compute_capability": r.get("compute_capability", ""),
+              "implementation": "CUTLASS (nvidia-cutlass) in Docker GPU worker"}
+    return {"output": _summary(out), "result": {"shape": list(out.shape), "tflops": r["tflops"],
+            "correct": r["correct"]}, "gpu_ms": r["gpu_ms"], "tflops": r["tflops"],
+            "device": r["device"], "report": report}
+
+
+def _cutlass_conv(cw, value: Any, filt: str, iterations: int, filters: int, seed: int) -> dict:
+    from blacknode.nodes.image import decode_image, encode_image
+
+    img = _conv_image(value, decode_image)
+    kernel, norm = CUTLASS_FILTERS[filt]
+    # heavy stacks deserve a longer ceiling than the default request timeout
+    timeout = max(60.0, 1.0 + iterations * (0.5 + 0.05 * filters))
+    r = cw.conv2d(img, kernel, norm, iterations=iterations, filters=filters, seed=seed, timeout=timeout)
+    out = np.clip(np.asarray(r["out"], dtype=np.float32), 0.0, 1.0)
+    mode = ("layer x%d filters=%d" % (r["iterations"], r["filters"])) if r["filters"] > 1 \
+        else ("filter '%s' x%d" % (filt, r["iterations"]))
+    report = {"op": "conv2d", "mode": mode, "filter": filt,
+              "iterations": r["iterations"], "filters": r["filters"], "gemms": r["gemms"],
+              "width": r["width"], "height": r["height"], "channels": r["channels"], "ksize": r["ksize"],
+              "gemm_M": r["M"], "gemm_K": r["K"], "gemm_N": r["N"],
+              "tflops": r["tflops"], "device": r["device"],
+              "compute_capability": r.get("compute_capability", ""),
+              "implementation": "convolution as im2col + CUTLASS GEMM in Docker GPU worker"}
+    return {"output": encode_image(out),
+            "result": {"mode": mode, "size": [r["height"], r["width"]], "gemms": r["gemms"],
+                       "gemm": [r["M"], r["K"], r["N"]], "tflops": r["tflops"]},
+            "gpu_ms": r["gpu_ms"], "tflops": r["tflops"], "device": r["device"], "report": report}
+
+
+def _matmul_operands(value: Any):
+    if isinstance(value, dict) and "a" in value and "b" in value:
+        a = np.asarray(value["a"], dtype=np.float32)
+        b = np.asarray(value["b"], dtype=np.float32)
+    elif isinstance(value, str) and value.strip():
+        import json as _json
+        try:
+            return _matmul_operands(_json.loads(value))
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError("matmul input string must be JSON with 2-D 'a' and 'b' arrays") from exc
+    else:
+        a = np.asarray(value, dtype=np.float32)
+        b = a.T  # lone matrix -> A.Aᵀ (always valid, the Gram matrix)
+    if a.ndim != 2 or b.ndim != 2:
+        raise ValueError(f"matmul needs 2-D matrices (got shapes {a.shape} and {b.shape})")
+    if a.shape[1] != b.shape[0]:
+        raise ValueError(f"matmul inner dims differ: {a.shape} . {b.shape}")
+    return a, b
+
+
+def _conv_image(value: Any, decode_image) -> Any:
+    if _is_image_data_url(value):
+        return decode_image(value).astype(np.float32)
+    if isinstance(value, dict) and _is_image_data_url(value.get("image")):
+        return decode_image(value["image"]).astype(np.float32)
+    arr = np.asarray(value, dtype=np.float32)
+    if arr.ndim == 2:
+        arr = arr[:, :, None]
+    if arr.ndim != 3:
+        raise ValueError("conv2d needs an image (data URL) or an HxWxC array")
+    return arr

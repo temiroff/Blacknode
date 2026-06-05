@@ -1,0 +1,29 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "CUTLASS GPU Burn",
+  "saved_at": "2026-05-31T00:00:00",
+  "entrypoint": {
+    "node_id": "burn",
+    "port": "report"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Peg your NVIDIA GPU with sustained large CUTLASS GEMMs. Cook the report port: it fires back-to-back 8192x8192 fp16 GEMMs for ~60s and reports sustained TFLOPS (an RTX 4090 hits ~140-150 of its ~165 peak). Lower 'seconds' for a shorter run, raise 'size' (multiple of 16) for bigger matrices. First cook adds ~15-20s to start the Docker CUTLASS worker. Requires Docker running and the blacknode-cutlass image.",
+    "color": "#76b900"
+  },
+  "node_meta": {
+    "burn": {
+      "id": "burn",
+      "type": "CUTLASS",
+      "params": { "op": "benchmark", "size": 8192, "seconds": 60, "seed": 0, "iterations": 1, "filters": 1, "filter": "sharpen" },
+      "pos": [320, 200],
+      "inputs": ["input", "op", "filter", "iterations", "filters", "size", "seconds", "seed"],
+      "outputs": ["output", "result", "gpu_ms", "tflops", "device", "report"],
+      "input_types": { "input": "Any", "op": "Text", "filter": "Text", "iterations": "Int", "filters": "Int", "size": "Int", "seconds": "Float", "seed": "Int" },
+      "output_types": { "output": "Any", "result": "Dict", "gpu_ms": "Float", "tflops": "Float", "device": "Text", "report": "Dict" },
+      "input_defaults": { "op": "auto", "filter": "sharpen", "iterations": 1, "filters": 1, "size": 512, "seconds": 0.0, "seed": 0 }
+    }
+  },
+  "edges": []
+}

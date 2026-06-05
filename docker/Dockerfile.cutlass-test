@@ -1,0 +1,21 @@
+# Feasibility gate for the containerized CUTLASS GEMM path.
+# Built explicitly so every layer is visible and cached (the hidden
+# `-devel` pull is the slow step; isolating it here means a failed
+# pip step never forces re-pulling CUDA).
+FROM nvidia/cuda:12.6.2-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# cupy provides the device arrays + fp32 reference; nvidia-cutlass provides
+# the `cutlass_cppgen` JIT emitter used by the feasibility script.
+# cuda-python is pinned <13: nvidia-cutlass 4.2.0 still reads the deprecated
+# `cuda.__version__`, which the 13.x package restructuring removed.
+RUN pip3 install --no-cache-dir cupy-cuda12x nvidia-cutlass \
+    'cuda-python<13' 'cuda-bindings<13'
+
+WORKDIR /workspace
+CMD ["python3"]

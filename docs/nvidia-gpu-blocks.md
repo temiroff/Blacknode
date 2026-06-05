@@ -22,6 +22,9 @@ of failing the graph, so the editor stays usable on any machine.
 | **CUDAKernelLab** | Pick a curated GPU op from a dropdown; runs it on the GPU and reports GPU vs CPU timing, speedup, and a correctness check against NumPy. |
 | **CUDACustomKernel** | Write your own CUDA C kernel; it is compiled at runtime with NVRTC through CuPy `RawKernel` and executed on the local NVIDIA GPU. Compile and launch errors are returned as node results. |
 | **CUDAImageFilter** | Apply curated GPU image filters such as grayscale, blur, sharpen, sobel edges, and invert to an `Image` input. |
+| **TensorCoreGEMM** | Hand-written WMMA fp16 GEMM (Tensor Cores) compiled with NVRTC, timed against cuBLAS with a TFLOPS report. |
+| **CUTLASSGemm** | The NVIDIA-library sibling of TensorCoreGEMM: an fp16 GEMM run through `nvidia-cutlass` in a long-running Docker GPU worker, timed against cuBLAS. Same ports, so the two are drop-in comparable. |
+| **CUTLASS** | Generic CUTLASS GEMM block routed by its input: an image runs a convolution (im2col GEMM), two matrices run `A·B`, nothing runs a synthetic benchmark. All compute lives in the Docker worker. |
 | **GPUCapability** | Reports the GPU name, compute capability, total/free VRAM, and CUDA version. |
 | **GPURequirement** | Preflight gate: passes only if the GPU meets a minimum compute capability and VRAM, with a readable reason. |
 | **LoadImage** | Loads a file path or browser-selected image into the graph as an `Image` data URL. `max_size = 0` preserves the original dimensions; set `max_size` only when you want downscaling. |
@@ -33,6 +36,8 @@ of failing the graph, so the editor stays usable on any machine.
 |---|---|
 | Run curated CUDA ops on the GPU (CuPy / cuBLAS / cuFFT) | ✅ Real |
 | Compile & run custom CUDA C kernels (NVRTC) | ✅ Real |
+| Hand-written WMMA Tensor Core GEMM vs cuBLAS (TensorCoreGEMM) | ✅ Real |
+| CUTLASS-library GEMM in a containerized GPU worker (CUTLASSGemm / CUTLASS) | ✅ Real (needs Docker + NVIDIA Container Toolkit) |
 | Measured GPU-vs-CPU timing + correctness check | ✅ Real |
 | GPU capability detection + requirement preflight | ✅ Real |
 | Browser image loading, drag/drop, node preview, and image copy | ✅ Real |
@@ -249,6 +254,43 @@ outputs `ok` (Bool) and a `reason`:
 
 Wire `GPURequirement` ahead of GPU work to fail fast with a clear message on
 machines that cannot run it.
+
+## CUTLASS GEMM (containerized)
+
+`TensorCoreGEMM` and the CUTLASS nodes are siblings: both run an fp16
+Tensor-Core GEMM and time it against cuBLAS, but `TensorCoreGEMM` is a
+hand-written WMMA kernel compiled on the host with NVRTC, while `CUTLASSGemm`
+and `CUTLASS` use NVIDIA's **CUTLASS** library. Wire both with the same ports to
+compare a hand-rolled kernel against the vendor library on identical inputs.
+
+CUTLASS's JIT costs ~18 s per process, which is unusable for an interactive
+graph. So the CUTLASS nodes do **not** run in the editor server: they talk to a
+long-running Docker worker (`blacknode-cutlass`) that holds a warm CUTLASS plan
+and streams JSON requests over stdin/stdout. The first call pays a one-time
+container start (~9–20 s, dropping after the JIT cache warms on a host volume);
+repeat GEMMs then run at GPU speed (~1 ms). The editor-server Python (3.11) needs
+no `cupy`/`cutlass` — all GPU work lives in the container, reached through the
+`docker` CLI. Every failure surfaces as a structured node error, never a crash.
+
+**Requirements:** Docker, the NVIDIA Container Toolkit, and the worker image.
+Build it once from `docker/cutlass/`:
+
+```bash
+docker build -t blacknode-cutlass:latest docker/cutlass/
+```
+
+The generic **CUTLASS** node has one input port (`op = auto`) and routes by what
+you connect:
+
+- an **image** → 3×3 convolution as an im2col GEMM (`filter` picks the kernel;
+  `iterations` stacks it deep; `filters > 1` runs a random conv layer for heavy
+  compute) → returns the filtered image
+- **two matrices** (`{"a": …, "b": …}`, or a lone matrix → `A·Aᵀ`) → returns `A·B`
+- **nothing** → a synthetic benchmark at `size` (or a timed burn with `seconds`)
+
+Templates: `templates/cutlass-image-showcase.json` (convolution path) and
+`templates/cutlass-gpu-burn.json` (sustained benchmark). The `scripts/_cutlass_*.py`
+helpers drive the worker directly for benchmarking and container smoke tests.
 
 ## Try it
 

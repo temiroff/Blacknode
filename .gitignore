@@ -34,6 +34,7 @@ docs/release-v0.1.0-preview.md
 
 # Blacknode artifacts
 *.bn.cache
+/.cutlass-cache/
 /workflow.py
 /workflow.*.py
 /imported.workflow.json
