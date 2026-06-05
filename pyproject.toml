@@ -43,6 +43,12 @@ package-dir = { "" = "python" }
 [tool.setuptools.packages.find]
 where = ["python"]
 
+[tool.pytest.ini_options]
+# Collect only the real suite. Without this, a bare `pytest` (as CI runs) also
+# globs stray `*_test.py` dev scripts under scripts/, whose top-level code can
+# abort collection.
+testpaths = ["tests"]
+
 # When the Rust core ships (roadmap milestone 2), restore the maturin backend:
 #   [build-system]
 #   requires = ["maturin>=1.0,<2.0"]
