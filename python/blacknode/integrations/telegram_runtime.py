@@ -9,8 +9,9 @@ injection); only the transport here is Telegram-specific.
 ```
 blacknode telegram templates/telegram-nim-agent.json
   └─ python-telegram-bot long-polls getUpdates (no public URL needed)
-  └─ per-chat ConversationMemory keyed by chat_id
-  └─ each message: inject text → run_workflow → reply in the chat
+  └─ injects text, photos, and Telegram IDs into TelegramMessage
+  └─ cooks the current graph; TelegramReply sends text or a photo
+  └─ optional per-chat ConversationMemory keyed by chat_id
 ```
 """
 from __future__ import annotations
@@ -25,7 +26,7 @@ class TelegramDependencyError(DriverDependencyError):
 
 
 def serve(runtime: AgentRuntime, *, bot_token: str) -> None:
-    """Long-poll Telegram and answer text messages via ``runtime``.
+    """Long-poll Telegram and process text or photo messages via ``runtime``.
 
     Long polling needs no public webhook — only a bot token from @BotFather.
     """
@@ -57,20 +58,35 @@ def serve(runtime: AgentRuntime, *, bot_token: str) -> None:
 
     async def _on_message(update: "Update", context) -> None:  # pragma: no cover - needs live Telegram
         message = update.effective_message
-        if message is None or not (message.text or "").strip():
+        if message is None:
             return
-        text = message.text
+        photo = message.photo[-1] if message.photo else None
+        text = (message.text or message.caption or "")
+        if not text.strip() and photo is None:
+            return
         username = context.bot.username
-        if username:
+        if username and text:
             text = text.replace(f"@{username}", "").strip()
         chat_id = str(message.chat_id)
         user = update.effective_user
+
+        image_url = ""
+        if photo is not None:
+            try:
+                import base64
+                tg_file = await context.bot.get_file(photo.file_id)
+                raw = await tg_file.download_as_bytearray()
+                image_url = "data:image/jpeg;base64," + base64.b64encode(bytes(raw)).decode("ascii")
+            except Exception as exc:  # noqa: BLE001
+                print(f"[telegram] !! image download failed: {exc}", flush=True)
+
         fields = {
             "user_id": str(user.id) if user else "",
             "chat_id": chat_id,
             "message_id": str(message.message_id),
+            "image": image_url,
         }
-        print(f"[telegram] <- chat {chat_id}: {text!r}", flush=True)
+        print(f"[telegram] <- chat {chat_id}: {text!r}{' +photo' if photo else ''}", flush=True)
         # Graph-introspection commands (/tools, /model, /graph, /help) answer
         # directly from the live graph — no agent run.
         command = runtime.command_reply(text)
@@ -92,8 +108,8 @@ def serve(runtime: AgentRuntime, *, bot_token: str) -> None:
                 pass
         status.mark_listening()
 
-    # Include commands (filters.TEXT alone) so /tools, /model, /graph reach us.
-    app.add_handler(MessageHandler(filters.TEXT, _on_message))
+    # Text (incl. commands) + photos so /tools etc. and image messages reach us.
+    app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, _on_message))
     print(f"[telegram] connected as {label or '(unknown)'} — long-polling (DM the bot; groups need @mention)", flush=True)
     try:
         app.run_polling()

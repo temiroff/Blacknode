@@ -976,6 +976,28 @@ def cuda_custom_kernel(ctx: dict) -> dict:
         return _custom_error(f"unknown dtype '{dtype}'; use float32 or float64")
     if output_mode not in CUSTOM_OUTPUT_MODES:
         return _custom_error(f"unknown output_mode '{output_mode}'; choose one of {CUSTOM_OUTPUT_MODES}")
+
+    source_sig = _custom_source_signature(source, kernel)
+    image_input_required = (
+        sig == "image_rgb"
+        or output_mode == "image"
+        or (sig == "auto" and source_sig == "image_rgb")
+    )
+    if image_input_required and not _has_custom_input(input_value):
+        skipped = {
+            "skipped": True,
+            "reason": "no image input",
+            "template": template,
+            "signature": "image_rgb",
+        }
+        return {
+            "output": "",
+            "result": skipped,
+            "gpu_ms": 0.0,
+            "device": "",
+            "report": skipped,
+        }
+
     if np is None:
         return _custom_error("NumPy is not installed; install numpy and cupy-cuda12x.")
 

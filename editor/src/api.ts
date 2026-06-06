@@ -191,13 +191,20 @@ function parseCookEventLine(line: string, label: string): CookEvent {
   }
 }
 
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetchBackend(path, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
-  return responseJson<T>(res, path)
+async function req<T>(method: string, path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+  const controller = timeoutMs ? new AbortController() : null
+  const timeout = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null
+  try {
+    const res = await fetchBackend(path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller?.signal,
+    })
+    return responseJson<T>(res, path)
+  } finally {
+    if (timeout !== null) window.clearTimeout(timeout)
+  }
 }
 
 export const api = {
@@ -291,11 +298,11 @@ export const api = {
     req<{ ok: boolean; loaded: Array<Record<string, unknown>>; failed: Array<Record<string, unknown>> }>('POST', '/custom-nodes/reload'),
   listCustomNodes: () =>
     req<{ directory: string; files: string[]; registered: BnNodeDef[] }>('GET', '/custom-nodes'),
-  getDriverStatus:  () => req<Record<string, DriverStatus>>('GET', '/drivers/status'),
+  getDriverStatus:  () => req<Record<string, DriverStatus>>('GET', '/drivers/status', undefined, 3000),
   listDrivers:      () => req<DriverInfo[]>('GET', '/drivers'),
   installDriver:    (name: string) => req<DriverInstallResult>('POST', `/drivers/${name}/install`),
   startDriver:      (name: string) => req<{ ok: boolean; pid?: number }>('POST', `/drivers/${name}/start`),
-  stopDriver:       (name: string) => req<{ ok: boolean }>('POST', `/drivers/${name}/stop`),
+  stopDriver:       (name: string) => req<{ ok: boolean }>('POST', `/drivers/${name}/stop`, undefined, 8000),
   getDriverLogs:    (name: string) => req<{ running: boolean; lines: string[] }>('GET', `/drivers/${name}/logs`),
   getApiKeys:       () => req<Record<string, string>>('GET', '/settings/api-keys'),
   setApiKey:        (provider: string, key: string) => req('POST', '/settings/api-key', { provider, key }),

@@ -1,10 +1,12 @@
 # Integration Drivers
 
-A **driver** connects an outside event source (Slack, and future ones like
-Discord or an HTTP webhook) to a Blacknode agent workflow. Drivers are runtimes
+A **driver** connects an outside event source (currently Slack and Telegram,
+with possible future transports such as Discord or HTTP webhooks) to a
+Blacknode agent workflow. Drivers are runtimes
 *around* the graph engine, not graph nodes: the cook stays synchronous and
 pull-based, and the driver runs one cook per incoming message. See
-[slack-nim-demo.md](slack-nim-demo.md) for the Slack walkthrough.
+[slack-nim-demo.md](slack-nim-demo.md) for Slack and
+[telegram-nim-demo.md](telegram-nim-demo.md) for the local Telegram agent.
 
 ## See what's registered and activated
 
@@ -20,6 +22,9 @@ Blacknode drivers
 [needs install] slack - Slack bot (Socket Mode): answers @mentions with the agent workflow.
     extra: blacknode[slack] (missing)
     env:   SLACK_BOT_TOKEN (missing), SLACK_APP_TOKEN (missing)
+[ready] telegram - Telegram bot (long polling): answers messages with the agent workflow.
+    extra: blacknode[telegram]
+    env:   TELEGRAM_BOT_TOKEN (set)
 ```
 
 Status is one of:
@@ -37,12 +42,22 @@ extra, `packages_installed`, per-var `env` map, `missing_env`) for scripting.
 
 Only the transport differs between drivers. The runtime engine is reusable:
 
-- `ConversationMemory` — per-conversation history, keyed by a thread/channel id
+- `ConversationMemory` — optional per-conversation history, keyed by a
+  thread/channel id; set `max_turns = 0` to disable it
 - `detect_input_node` / `inject_input` — write the incoming text into the graph
 - `AgentRuntime.handle_message(text, thread_id) -> reply` — the universal call
 
 `AgentRuntime` (aliased from `SlackAgentRuntime`) knows nothing about Slack; a
 new driver only provides a transport that calls `handle_message`.
+
+The editor can install an optional driver package, save its token in the local
+key store, start and stop its subprocess, display heartbeat state, and show a
+tail of its logs. Drivers started by the editor cook the graph currently open,
+so most workflow edits take effect on the next message without restarting.
+
+Long polling and Socket Mode are local-friendly outbound connections. Webhook
+transport is a separate hosted-deployment design and is not currently a switch
+in the built-in Telegram driver.
 
 ## Add a driver
 

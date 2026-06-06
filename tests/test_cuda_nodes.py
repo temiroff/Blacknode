@@ -134,6 +134,14 @@ def test_custom_kernel_detects_2d_launch_from_source():
     assert cuda_nodes._custom_launch_mode(DEFAULT_CINEMATIC_SOURCE, "image_rgb") == "linear"
 
 
+def test_custom_image_kernel_without_input_emits_no_image():
+    result = cuda_custom_kernel({"template": "cinematic_teal_orange", "input": ""})
+    assert result["output"] == ""
+    assert result["gpu_ms"] == 0.0
+    assert result["report"]["skipped"] is True
+    assert result["report"]["reason"] == "no image input"
+
+
 @pytest.mark.skipif(cuda_nodes.np is None, reason="NumPy unavailable")
 def test_custom_kernel_auto_detects_numeric_array_input():
     data = cuda_nodes._custom_data_from_value([1, 2, 3], cuda_nodes.np.float32)

@@ -2,8 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
-
-const WIRE_ONLY = new Set(['List', 'Dict', 'Fn', 'Embedding'])
+import { isWireOnlyInput } from '../inputControls'
 
 // Bot tokens for chat-driver nodes. Saved to the local key store (api_keys.json,
 // keyed by env-var name) — never into the graph — so templates stay shareable.
@@ -458,6 +457,7 @@ export default function Inspector() {
                 return (
                   <ParamRow
                     key={`${node.id}-${inp}`}
+                    nodeType={data.type}
                     label={inp}
                     type={type}
                     value={data.params[inp]}
@@ -836,7 +836,8 @@ function SecretField({ label, placeholder, value, onCommit }: {
   )
 }
 
-function ParamRow({ label, type, value, defaultValue, choices, connected, onChange }: {
+function ParamRow({ nodeType, label, type, value, defaultValue, choices, connected, onChange }: {
+  nodeType: string
   label: string
   type: string
   value: unknown
@@ -846,7 +847,7 @@ function ParamRow({ label, type, value, defaultValue, choices, connected, onChan
   onChange: (v: unknown) => void
 }) {
   const color = portColor(type)
-  const wireOnly = WIRE_ONLY.has(type)
+  const wireOnly = isWireOnlyInput(nodeType, label, type)
 
   return (
     <div style={{ marginBottom: 12 }}>

@@ -1,6 +1,6 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib
+import uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -2446,14 +2446,38 @@ def _driver_running(name: str) -> bool:
     return proc is not None and proc.poll() is None
 
 
+def _terminate_driver_process(proc: "subprocess.Popen") -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
+            )
+        else:
+            os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=5)
+        return
+    except Exception:
+        pass
+    try:
+        if os.name != "nt":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+        proc.wait(timeout=3)
+    except Exception:
+        pass
+
+
 def _stop_driver_proc(name: str) -> None:
     proc = _driver_procs.pop(name, None)
-    if proc is not None and proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+    if proc is not None:
+        _terminate_driver_process(proc)
     _driver_status.pop(name, None)  # flip the badge offline immediately
 
 
@@ -2484,10 +2508,16 @@ def _spawn_driver(name: str) -> tuple[bool, str]:
     env["BLACKNODE_SYNC_URL"] = "http://127.0.0.1:7777"
     env["BLACKNODE_EDITOR_URL"] = "http://127.0.0.1:7777"
     env["PYTHONIOENCODING"] = "utf-8"  # bot logs may contain unicode/emoji (Windows)
+    process_group: dict[str, Any] = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        if os.name == "nt"
+        else {"start_new_session": True}
+    )
     proc = subprocess.Popen(
         [sys.executable, "-u", "-m", "blacknode.cli", name, path],
         cwd=_REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, bufsize=1, encoding="utf-8", errors="replace", env=env,
+        **process_group,
     )
     _driver_procs[name] = proc
     _driver_logs[name] = collections.deque(maxlen=300)
@@ -2539,9 +2569,8 @@ import atexit
 
 @atexit.register
 def _stop_all_drivers() -> None:
-    for proc in _driver_procs.values():
-        if proc.poll() is None:
-            proc.terminate()
+    for proc in list(_driver_procs.values()):
+        _terminate_driver_process(proc)
 
 
 @app.post("/drivers/{name}/install")

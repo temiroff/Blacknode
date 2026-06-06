@@ -1,9 +1,52 @@
 from __future__ import annotations
+import ast
 import json
 import os
 import re
 from typing import Any
 from .base import BaseProvider, CompletionResponse, ToolCall, ToolDef, ToolResult
+
+
+def _salvage_text_tool_call(text: str, tools: list[ToolDef]) -> ToolCall | None:
+    """Recover a tool call a weak model emitted as plain text instead of using the
+    function-calling API, e.g. ``{'name': 'calculator', 'parameters': {...}}``.
+
+    Returns a ToolCall if the text contains a JSON/dict object whose name matches
+    a known tool, else None.
+    """
+    if not text or not tools:
+        return None
+    names = {t.name for t in tools}
+    # Candidate brace spans: the largest (handles nested args) and each minimal one.
+    candidates: list[str] = []
+    biggest = re.search(r"\{.*\}", text, re.S)
+    if biggest:
+        candidates.append(biggest.group(0))
+    candidates.extend(re.findall(r"\{[^{}]*\}", text, re.S))
+    for raw in candidates:
+        obj = None
+        for loader in (json.loads, ast.literal_eval):
+            try:
+                obj = loader(raw)
+                break
+            except Exception:
+                continue
+        if not isinstance(obj, dict):
+            continue
+        name = obj.get("name") or obj.get("tool") or obj.get("function")
+        args = obj.get("arguments")
+        if args is None:
+            args = obj.get("parameters", obj.get("args", {}))
+        if isinstance(args, str):
+            for loader in (json.loads, ast.literal_eval):
+                try:
+                    args = loader(args)
+                    break
+                except Exception:
+                    args = {}
+        if name in names and isinstance(args, dict):
+            return ToolCall(id=f"text_{name}", name=str(name), arguments=args)
+    return None
 
 
 _CONTEXT_LENGTH_RE = re.compile(
@@ -112,6 +155,15 @@ class OpenAIProvider(BaseProvider):
             tool_calls = tool_calls[:1]
 
         finish = choice.finish_reason
+        # Weak models (e.g. NIM llama-3.1) sometimes emit the tool call as text
+        # instead of via the API — recover it so the agent actually runs the tool.
+        if self.single_tool_call and not tool_calls and tools:
+            salvaged = _salvage_text_tool_call(text, tools)
+            if salvaged is not None:
+                tool_calls = [salvaged]
+                text = ""
+                finish = "tool_calls"
+
         stop_reason = "tool_use" if finish == "tool_calls" else ("length" if finish == "length" else "end_turn")
         return CompletionResponse(text=text, tool_calls=tool_calls, stop_reason=stop_reason)
 

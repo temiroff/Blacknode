@@ -61,6 +61,7 @@ execution, and export the result as code.
 | Agent control surface | MCP, HTTP, and WebSocket APIs for agents to create, connect, validate, run, save, inspect, and export workflows. | [Agent Guide](docs/agent-guide.md), [MCP Quickstart](docs/quickstart-mcp.md) |
 | NVIDIA workflow surface | Hosted NIM, local NIM launch planning, NIM benchmarks, AI-Q/NeMo Agent Toolkit integration, and streamable HTTP MCP. | [NVIDIA Mission Control](docs/nvidia-mission-control.md), [NVIDIA NIM Demo](docs/nvidia-nim-demo.md), [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) |
 | GPU/CUDA blocks | Real CUDA kernels, custom NVRTC-compiled kernels, GPU image nodes, and capability/preflight nodes that run on your local NVIDIA GPU. | [NVIDIA GPU Blocks](docs/nvidia-gpu-blocks.md) |
+| Local chat agents | Control a local Blacknode workflow through Telegram long polling or Slack Socket Mode, with editor start/stop, live status, tools, images, and replay. | [Local Telegram Agent](docs/telegram-nim-demo.md), [Slack Agent](docs/slack-nim-demo.md) |
 | Typed ports and validation | Text, Int, Float, Bool, List, Dict, Embedding, Fn, Model, Number, Any, cycle checks, and MCP repair suggestions. | [Workflow Schema](docs/workflow-schema.md), [Agent Skill](.agents/skills/blacknode-workflow/SKILL.md) |
 | Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md), [Presentation Checklist](docs/presentation-checklist.md) |
 | Custom nodes | Persistent editor-created nodes, Python decorator nodes, auto-discovery, and community node packs. | [Custom Nodes](docs/custom-nodes.md) |
@@ -121,6 +122,8 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 
 | Guide | Use it for |
 |---|---|
+| [Local Telegram Agent](docs/telegram-nim-demo.md) | Exposing a locally controlled workflow through Telegram, including tools, images, memory, long polling, lifecycle controls, security, and troubleshooting. |
+| [Integration Drivers](docs/drivers.md) | Driver architecture, readiness states, editor lifecycle, and adding another transport. |
 | [Docker Compose](docs/docker-compose.md) | Running the editor, backend, and HTTP MCP server as a self-hosted stack. |
 | [Docker Publishing](docs/docker-publish.md) | Publishing prebuilt server/editor images to GHCR and running without local builds. |
 

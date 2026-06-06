@@ -1,8 +1,20 @@
+import re
+
 from blacknode.node import node
 from blacknode.providers import resolve, ToolCall, ToolDef, ToolResult
 
 DEFAULT_MAX_TOKENS = 1024
 NIM_CONTEXT_SAFE_MAX_TOKENS = 1024
+_FINAL_ANSWER_RE = re.compile(r"\b(?:the\s+)?final answer is\s*:?\s*", re.IGNORECASE)
+_TOOL_PROCESS_ONLY_RE = re.compile(
+    r"^(?:"
+    r"this response shows that .+ function was called.+"
+    r"|the final answer is in the output of .+ tool call"
+    r"|this is the result of .+ function call(?: with .+)?"
+    r"|this is the final answer to (?:the )?user(?:'s)? prompt"
+    r")\.?$",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def _int_value(value, default: int) -> int:
@@ -19,6 +31,24 @@ def _max_tokens_for_model(model: str, value) -> int:
     if str(model).startswith("nim:") and requested >= 4096:
         return NIM_CONTEXT_SAFE_MAX_TOKENS
     return requested
+
+
+def _user_facing_answer(text: str) -> str:
+    """Return only answer content, never a model's tool-processing narration."""
+    value = str(text or "").strip()
+    matches = list(_FINAL_ANSWER_RE.finditer(value))
+    if matches:
+        answer = value[matches[-1].end():].strip()
+        if answer.lower().startswith(("in the output of ", "in the result of ")):
+            return ""
+        return answer
+    if _TOOL_PROCESS_ONLY_RE.fullmatch(value):
+        return ""
+    return value
+
+
+def _answer_or_tool_output(text: str, tool_output: str = "") -> str:
+    return _user_facing_answer(text) or str(tool_output or "").strip()
 
 
 def _tool_defs(tools: list) -> list[ToolDef]:
@@ -152,6 +182,10 @@ def _agent_loop_run(ctx: dict) -> dict:
 
     messages: list[dict] = [{"role": "user", "content": prompt}]
     steps: list[dict] = []
+    last_tool_output = ""
+
+    if not str(prompt or "").strip():
+        return {"result": "", "steps": steps}
 
     for _ in range(max_iter):
         _, resp, step = _chat_step(
@@ -172,7 +206,7 @@ def _agent_loop_run(ctx: dict) -> dict:
             "tool_calls": [{"name": tc.name, "arguments": tc.arguments} for tc in resp.tool_calls],
         })
         if resp.stop_reason == "end_turn" or not resp.tool_calls:
-            return {"result": resp.text, "steps": steps}
+            return {"result": _answer_or_tool_output(resp.text, last_tool_output), "steps": steps}
 
         tool_results, tool_steps = _dispatch_tools(
             [_tool_call_dict(tc) for tc in resp.tool_calls],
@@ -180,6 +214,8 @@ def _agent_loop_run(ctx: dict) -> dict:
             run_logger=run_logger,
             node_id=node_id,
         )
+        if tool_results:
+            last_tool_output = tool_results[-1].output
         steps.extend(tool_steps)
         messages = _append_tool_messages(
             messages,
@@ -219,7 +255,7 @@ def _agent_loop_run(ctx: dict) -> dict:
         tools=None,
     )
     steps.append({"role": "assistant", "text": final.text, "tool_calls": []})
-    return {"result": final.text or "max iterations reached", "steps": steps}
+    return {"result": _answer_or_tool_output(final.text, last_tool_output), "steps": steps}
 
 
 @node(
@@ -380,7 +416,7 @@ def agent_final_answer(ctx: dict) -> dict:
     tool_calls = ctx.get("tool_calls") or []
     if reason == "final" or ctx.get("stop_reason") == "end_turn" or not tool_calls:
         step = {"role": "assistant", "text": assistant_text, "tool_calls": [], "reason": reason or "final"}
-        return {"result": assistant_text, "step": step}
+        return {"result": _user_facing_answer(assistant_text), "step": step}
 
     provider, clean_model = resolve(
         model,
@@ -410,7 +446,7 @@ def agent_final_answer(ctx: dict) -> dict:
         tools=None,
     )
     step = {"role": "assistant", "text": final.text, "tool_calls": [], "reason": reason or "max_iter"}
-    return {"result": final.text or "max iterations reached", "step": step}
+    return {"result": _user_facing_answer(final.text), "step": step}
 
 
 @node(inputs=["fn:Fn", "args:Dict"], outputs=["result:Any"], name="ToolCall")

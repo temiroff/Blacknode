@@ -44,6 +44,63 @@ def _telegram_send(chat_id: str, text: str, message_id: str = "") -> bool:
     return _post_json(f"https://api.telegram.org/bot{token}/sendMessage", payload)
 
 
+def _decode_data_url(data_url: str) -> tuple[bytes, str, str] | None:
+    """Return (bytes, mime, ext) for a ``data:image/...;base64,...`` URL, else None."""
+    import base64
+    if not data_url.startswith("data:image"):
+        return None
+    try:
+        header, b64 = data_url.split(",", 1)
+        raw = base64.b64decode(b64)
+    except Exception:
+        return None
+    mime = header.split(":", 1)[1].split(";", 1)[0] if ":" in header else "image/jpeg"
+    ext = {"image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
+           "image/gif": "gif", "image/webp": "webp"}.get(mime, "jpg")
+    return raw, mime, ext
+
+
+def _telegram_send_photo(chat_id: str, data_url: str, caption: str = "", message_id: str = "") -> bool:
+    """Send an image (data URL) to a chat via Telegram sendPhoto (multipart upload)."""
+    import uuid
+    token = secret("TELEGRAM_BOT_TOKEN")
+    decoded = _decode_data_url(data_url) if data_url else None
+    if not (token and chat_id and decoded):
+        return False
+    raw, mime, ext = decoded
+    boundary = "----blacknode" + uuid.uuid4().hex
+    chunks: list[bytes] = []
+
+    def field(name: str, value: str) -> None:
+        chunks.append(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode("utf-8")
+        )
+
+    field("chat_id", str(chat_id))
+    if caption:
+        field("caption", caption)
+    if message_id.isdigit():
+        field("reply_to_message_id", message_id)
+    chunks.append(
+        (f"--{boundary}\r\nContent-Disposition: form-data; name=\"photo\"; "
+         f"filename=\"image.{ext}\"\r\nContent-Type: {mime}\r\n\r\n").encode("utf-8")
+    )
+    chunks.append(raw)
+    chunks.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendPhoto",
+        data=b"".join(chunks),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+        return True
+    except Exception:
+        return False
+
+
 def _slack_send(channel: str, text: str, thread_ts: str = "") -> bool:
     token = secret("SLACK_BOT_TOKEN")
     if not (token and channel and text):
@@ -128,19 +185,20 @@ def slack_reply(ctx: dict) -> dict:
 
 @node(
     inputs=[],
-    outputs=["text:Text", "user_id:Text", "chat_id:Text", "message_id:Text"],
+    outputs=["text:Text", "image:Image", "user_id:Text", "chat_id:Text", "message_id:Text"],
     name="TelegramMessage",
     category="Integrations",
 )
 def telegram_message(ctx: dict) -> dict:
     """Inbound Telegram message.
 
-    The driver fills these from the live update before each cook; the same params
-    double as sample values for a manual editor run. (Telegram keys a
-    conversation by ``chat_id``, the way Slack keys by ``thread_ts``.)
+    The driver fills these from the live update before each cook. ``image`` is a
+    data URL when the user sent a photo (empty otherwise) — wire it into image
+    nodes. (Telegram keys a conversation by ``chat_id``, like Slack ``thread_ts``.)
     """
     return {
         "text": str(ctx.get("text", "")),
+        "image": str(ctx.get("image", "")),
         "user_id": str(ctx.get("user_id", "")),
         "chat_id": str(ctx.get("chat_id", "")),
         "message_id": str(ctx.get("message_id", "")),
@@ -148,7 +206,7 @@ def telegram_message(ctx: dict) -> dict:
 
 
 @node(
-    inputs=["text:Text", "chat_id:Text", "user_id:Text", "message_id:Text"],
+    inputs=["text:Text", "image:Image", "chat_id:Text", "user_id:Text", "message_id:Text"],
     outputs=["text:Text", "chat_id:Text", "user_id:Text", "message_id:Text"],
     name="TelegramReply",
     category="Integrations",
@@ -156,16 +214,20 @@ def telegram_message(ctx: dict) -> dict:
 def telegram_reply(ctx: dict) -> dict:
     """Outbound Telegram reply — **sends** the message when cooked.
 
-    Cooking this node posts ``text`` to ``chat_id`` (as a reply to ``message_id``)
-    via the Telegram API, using the bot token from the key store. ``chat_id`` /
-    ``user_id`` / ``message_id`` come wired from the ``TelegramMessage`` node.
-    Sending is gated on a real ``chat_id`` + token, so cooking in the editor
-    without a live chat does nothing.
+    Cooking this node sends to ``chat_id`` via the Telegram API (bot token from
+    the key store): if ``image`` is a data URL it sends a **photo** (with ``text``
+    as the caption — so image, or image+text); otherwise it sends ``text``.
+    ``chat_id`` / ``user_id`` / ``message_id`` come wired from ``TelegramMessage``.
+    Gated on a real ``chat_id`` + token, so editor cooks without a live chat do nothing.
     """
     text = str(ctx.get("text", ""))
+    image = str(ctx.get("image", ""))
     chat_id = str(ctx.get("chat_id", ""))
     message_id = str(ctx.get("message_id", ""))
-    _telegram_send(chat_id, text, message_id)
+    if image.startswith("data:image") and chat_id:
+        _telegram_send_photo(chat_id, image, caption=text, message_id=message_id)
+    elif text and chat_id:
+        _telegram_send(chat_id, text, message_id)
     return {
         "text": text,
         "chat_id": chat_id,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -81,3 +82,36 @@ def test_run_snapshot_secret_redaction():
     assert params["token"] == "[redacted]"
     assert params["nested"][0]["password"] == "[redacted]"
     assert params["nested"][0]["value"] == "visible"
+
+
+def test_stop_driver_clears_status_and_terminates_process_tree(monkeypatch):
+    class FakeProc:
+        pid = 1234
+
+        def __init__(self):
+            self.waited = False
+
+        def poll(self):
+            return None
+
+        def wait(self, timeout):
+            self.waited = True
+            return 0
+
+    proc = FakeProc()
+    calls = []
+    monkeypatch.setattr(server.os, "name", "nt")
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda args, **kwargs: calls.append((args, kwargs)),
+    )
+    server._driver_procs["telegram"] = proc
+    server._driver_status["telegram"] = {"state": "listening"}
+
+    server._stop_driver_proc("telegram")
+
+    assert "telegram" not in server._driver_procs
+    assert "telegram" not in server._driver_status
+    assert calls[0][0] == ["taskkill", "/PID", "1234", "/T", "/F"]
+    assert proc.waited is True

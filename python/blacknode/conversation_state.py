@@ -24,6 +24,8 @@ def turns(conversation: str) -> list[tuple[str, str]]:
 
 def build_prompt(conversation: str, message: str, max_turns: int = 6) -> str:
     """Prefix the last ``max_turns`` turns of ``conversation`` before ``message``."""
+    if not str(message or "").strip():
+        return ""
     history = turns(conversation)
     if max_turns <= 0:
         history = []

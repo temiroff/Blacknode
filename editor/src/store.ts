@@ -1113,6 +1113,11 @@ export const useStore = create<Store>((set, get) => ({
       await api.stopDriver(name)
     } catch {}
     await get().loadDriverStatus()
+    set(s => {
+      const driverStatus = { ...s.driverStatus }
+      delete driverStatus[name]
+      return { driverStatus }
+    })
   },
 
   loadCustomModels: async () => {

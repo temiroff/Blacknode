@@ -86,6 +86,18 @@ def _has_memory_node(workflow: Mapping[str, Any]) -> bool:
     )
 
 
+def _memory_enabled(workflow: Mapping[str, Any]) -> bool:
+    node_meta = workflow.get("node_meta") or {}
+    for meta in node_meta.values():
+        if isinstance(meta, Mapping) and meta.get("type") == "ConversationMemory":
+            params = meta.get("params") or {}
+            try:
+                return int(params.get("max_turns", 6)) > 0
+            except (TypeError, ValueError):
+                return True
+    return False
+
+
 def _run_graph(workflow: Mapping[str, Any]) -> str:
     """Cook the workflow and return the reply text.
 
@@ -305,10 +317,11 @@ class SlackAgentRuntime:
             fields = {"user_id": user_id, "channel": channel, "thread_ts": conv_id}
         workflow = inject_input(workflow, input_node, prompt, fields=fields)
         reply = _run_graph(workflow)
-        if has_memory:
-            conversation_state.record(conv_id, message, reply)
-        else:
-            self.memory.add(conv_id, message, reply)
+        if message.strip() and reply.strip():
+            if has_memory and _memory_enabled(workflow):
+                conversation_state.record(conv_id, message, reply)
+            elif not has_memory:
+                self.memory.add(conv_id, message, reply)
         return reply
 
 

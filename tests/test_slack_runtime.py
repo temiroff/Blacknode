@@ -192,6 +192,15 @@ class MemoryNodeTests(unittest.TestCase):
         self.assertIn("Assistant: hello", second["prompt"])
         self.assertTrue(second["prompt"].endswith("User: again"))
 
+    def test_blank_message_does_not_replay_history(self):
+        from blacknode.node import _NODE_REGISTRY
+
+        conversation_state.record("c1", "old question", "old answer")
+        result = _NODE_REGISTRY["ConversationMemory"](
+            {"message": "", "conversation": "c1", "max_turns": 6}
+        )
+        self.assertEqual(result["prompt"], "")
+
     def test_driver_with_memory_node_records_to_shared_store(self):
         seen = []
 
@@ -210,6 +219,12 @@ class MemoryNodeTests(unittest.TestCase):
         # Turns land in the shared store, not the driver's private memory.
         self.assertEqual(conversation_state.turns("t"), [("first", "a1"), ("second", "a2")])
         self.assertEqual(runtime.memory.history("t"), [])
+
+    def test_driver_does_not_record_blank_image_only_turn(self):
+        runtime = sr.SlackAgentRuntime(_template())
+        with patch.object(sr, "run_workflow", return_value={"value": ""}):
+            self.assertEqual(runtime.handle_message("", "image-chat"), "")
+        self.assertEqual(conversation_state.turns("image-chat"), [])
 
 
 class MessagingNodeTests(unittest.TestCase):

@@ -9,7 +9,7 @@
   },
   "metadata": {
     "template": true,
-    "description": "NIM-powered Telegram bot with web_search + calculator tools. Set TELEGRAM_BOT_TOKEN (+ NVIDIA_API_KEY), then run: blacknode telegram templates/telegram-nim-agent.json",
+    "description": "Locally controlled Telegram agent workflow using NVIDIA NIM, web_search, and calculator tools. Set TELEGRAM_BOT_TOKEN (+ NVIDIA_API_KEY), then run: blacknode telegram templates/telegram-nim-agent.json",
     "color": "#76b900"
   },
   "node_meta": {
@@ -66,6 +66,7 @@
       "inputs": [],
       "outputs": [
         "text",
+        "image",
         "user_id",
         "chat_id",
         "message_id"
@@ -73,6 +74,7 @@
       "input_types": {},
       "output_types": {
         "text": "Text",
+        "image": "Image",
         "user_id": "Text",
         "chat_id": "Text",
         "message_id": "Text"
@@ -83,7 +85,7 @@
       "id": "memory",
       "type": "ConversationMemory",
       "params": {
-        "max_turns": 6
+        "max_turns": 0
       },
       "pos": [
         360,
@@ -108,7 +110,7 @@
         "conversation": "Text"
       },
       "input_defaults": {
-        "max_turns": 6
+        "max_turns": 0
       }
     },
     "tool": {
@@ -653,6 +655,7 @@
       ],
       "inputs": [
         "text",
+        "image",
         "chat_id",
         "user_id",
         "message_id"
@@ -665,6 +668,7 @@
       ],
       "input_types": {
         "text": "Text",
+        "image": "Image",
         "chat_id": "Text",
         "user_id": "Text",
         "message_id": "Text"

@@ -5,6 +5,7 @@ import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { headerColor } from '../categories'
+import { isWireOnlyInput } from '../inputControls'
 import NodeFrame from './NodeFrame'
 import type { NodeCookState } from '../types'
 
@@ -350,9 +351,11 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   }
   const onStopDriver = async () => {
     setDriverPending('stop')
-    await stopDriver(driverName!)
-    await pollDriverUntil(false)
-    setDriverPending(null)
+    try {
+      await stopDriver(driverName!)
+    } finally {
+      setDriverPending(null)
+    }
   }
 
   const fitNodeToImage = (naturalWidth: number, naturalHeight: number, extraControls = 0) => {
@@ -514,7 +517,9 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         {visibleInputs.map(inp => {
           const type = effectivePortType(inp, 'input')
           const connected = edges.some(e => e.target === id && e.targetHandle === inp)
-          const showImageInput = type === 'Image' && !connected
+          const showImageInput = type === 'Image'
+            && !connected
+            && !isWireOnlyInput(data.type, inp, type)
           const hasImageInputPreview = showImageInput && isImageDataUrl(data.params?.[inp])
           return (
             <div
