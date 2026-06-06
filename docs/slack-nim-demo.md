@@ -12,31 +12,50 @@ and remembers the conversation per thread.
 
 ## How it works
 
-Slack is wired as a **driver** around a normal Blacknode agent workflow, not as
-graph nodes. Blacknode's graph cook is synchronous and pull-based; a Slack
-webhook is push-based and long-lived, so the driver owns the event loop and runs
-one workflow execution per message — exactly like the CLI `run` and the editor
-`/cook` are drivers around the same engine.
+Slack is wired as a **driver** around a normal Blacknode agent workflow.
+Blacknode's graph cook is synchronous and pull-based; a Slack webhook is
+push-based and long-lived, so the driver — not a "trigger node" — owns the event
+loop and runs one workflow execution per message, exactly like the CLI `run` and
+the editor `/cook` are drivers around the same engine.
 
 ```
 blacknode slack templates/slack-nim-agent.json
   └─ Slack Bolt (Socket Mode) owns the event loop
-  └─ ConversationMemory keyed by thread_ts   (per-thread history)
-  └─ each @mention: inject text → run_workflow → post reply in thread
+  └─ heartbeat → editor (the SlackMessage node shows a live/offline badge)
+  └─ each @mention: fill SlackMessage → run_workflow → post SlackReply in thread
 ```
 
-The workflow is a plain visual graph you can open and edit in the Blacknode
-editor:
+The conversation's endpoints — and its memory — appear as nodes so the workflow
+reads top-to-bottom in the editor:
 
 ```
-[Text: message] → [AgentLoop: nim:meta/llama-3.1-8b-instruct] → [Output]
-                         ↑
-                  [ToolBox] ← web_search (PythonFn)
-                            ← calculator (PythonFn)
+[SlackMessage] → [ConversationMemory] → [AgentLoop: nim] → [SlackReply]
+   (auth + IDs)     (per-thread history)      ↑
+       │                              [ToolBox] ← web_search (PythonFn)
+       │                                        ← calculator (PythonFn)
+       └─ channel, thread_ts, user_id ───────────────────────────────┘
 ```
 
-The driver overwrites the `Text` input node with each incoming message (prefixed
-with the thread's recent turns) and posts the agent's result back to the thread.
+`ConversationMemory` prepends the thread's recent turns to the prompt; history
+persists in a process-global store across the per-message cooks (the driver
+records each completed turn). The only thing still "under the hood" is the event
+loop itself — which can't be a cook node (it waits for pushes; a cook returns
+once).
+
+`SlackMessage` is the main node: it holds the integration's auth (entered in the
+editor) and emits the conversation context — `channel`, `thread_ts`, `user_id` —
+which all wire into `SlackReply` so the reply node knows where, in which thread,
+and to whom it is answering. The driver performs the send using the bot token
+stored on the message node.
+
+`SlackMessage` and `SlackReply` are **cosmetic**: they do no Slack I/O
+themselves. Before each cook the driver fills the `SlackMessage` node with the
+incoming message (prefixed with the thread's recent turns) plus its `user_id`,
+`channel`, and `thread_ts`; after the cook it posts whatever reached
+`SlackReply` back to the thread. The graph stays a plain pull-based cook that
+runs and tests with no Slack connection. Because `channel` / `thread_ts` /
+`user_id` are real ports, downstream nodes (e.g. a trajectory recorder) can key
+off the live conversation.
 
 ## Prerequisites
 
@@ -72,12 +91,32 @@ export SLACK_APP_TOKEN="xapp-…"
 blacknode slack templates/slack-nim-agent.json
 ```
 
+**Tokens** can come from the environment (above) *or* the editor: select the
+`SlackMessage` node and fill **Bot token** / **App token** in the Inspector's
+**Connection · Slack** panel. The message node is the main node — it holds the
+auth, and its outputs wire into `SlackReply`. Those are saved to the local key store
+(`editor-server/api_keys.json`), never into the graph, so templates stay
+shareable. Environment variables override the store. The `NVIDIA_API_KEY` works
+the same way (set it, or fill it on the `Model` node). Run `blacknode drivers`
+to see whether the Slack driver is `ready`, `needs env`, or `needs install`.
+
 Then in Slack: `@yourbot what is 17 * 23, and what is NVIDIA NIM?`
+
+## Run it from the editor (one-click)
+
+Same as the [Telegram demo](telegram-nim-demo.md#run-it-from-the-editor-one-click):
+select the `SlackMessage` node → **Install** the extra if needed → fill the **Bot
+token** + **App token** → press **▶ Start bot**. The node badge turns green and
+shows the connected bot; changing a token **auto-restarts** the running bot. Keep
+the graph open and `@mention` the bot to **watch the real run animate** on the
+canvas (per-node status circles, output values on hover), with each message
+cooking the current graph — no restart on edits.
 
 Options:
 
 - `--input-node ID` — the node that receives each message. Defaults to
-  auto-detecting the node that feeds the agent's `prompt` (here, `task`).
+  auto-detecting the `SlackMessage` node (or, in a graph without one, whatever
+  Text node feeds the agent's `prompt`).
 - `--max-turns N` — how many turns of per-thread history to keep (default 6).
 
 ## Customize
@@ -89,8 +128,9 @@ Options:
   more by dropping another `PythonFn` and wiring it to a new `ToolBox` port.
 - **System prompt** — edit the `Text` node feeding `system`.
 - **Any workflow** — `blacknode slack <your-workflow.json>` works for any graph
-  that has a text input feeding an agent and an `Output`. The bot is generic;
-  the template is just a good default.
+  whose result is text. The driver auto-detects a `SlackMessage` node, or falls
+  back to a plain Text node feeding the agent's `prompt` with an `Output`. The
+  bot is generic; the template is just a good default.
 
 ## Is it ready? Other drivers
 
@@ -106,9 +146,14 @@ See [drivers.md](drivers.md) for the registry, the `ready` / `needs env` /
 
 ## Notes & limits
 
-- **Memory lives in the driver**, not in the graph — a single process holds the
-  per-thread history. Restarting the bot clears it. (This is by design: the cook
-  is stateless per run.)
+- **Memory is a node** (`ConversationMemory`) backed by a process-global store,
+  so per-thread history is visible in the graph yet survives across the
+  one-cook-per-message runs. Restarting the bot clears it.
+- **Live status**: while a driver runs it heartbeats the editor, so the
+  `SlackMessage` node's badge shows **listening** (green) when a bot is actually
+  connected, **processing** while handling a message, and **offline** (grey)
+  when nothing is running. It needs the editor-server up; the heartbeat is
+  best-effort and never blocks the bot.
 - **Socket Mode** is used for zero-config local runs. For a hosted deployment
   you'd front it with the HTTP events endpoint and Slack request-signature
   verification instead.

@@ -3,6 +3,13 @@ import { useStore } from '../store'
 import NodeStatus from './NodeStatus'
 import type { NodeCookState } from '../types'
 
+// Trigger ("hook") node types → the driver that listens for them. The badge
+// reflects that driver's real heartbeat (live/processing/offline).
+const TRIGGER_DRIVER: Record<string, string> = {
+  SlackMessage: 'slack',
+  TelegramMessage: 'telegram',
+}
+
 interface NodeFrameProps {
   id: string
   data: NodeCookState
@@ -11,6 +18,7 @@ interface NodeFrameProps {
   children: ReactNode
   style?: CSSProperties
   selectedRingAlpha?: string
+  nodeType?: string
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }
@@ -23,13 +31,21 @@ export default function NodeFrame({
   children,
   style,
   selectedRingAlpha = '55',
+  nodeType,
   onMouseEnter,
   onMouseLeave,
 }: NodeFrameProps) {
   const selectNode = useStore(s => s.selectNode)
+  const driverStatus = useStore(s => s.driverStatus)
+  const drivers = useStore(s => s.drivers)
   const replayActive = Boolean(data.replayRunId)
   const replayColor = replayStatusColor(data.replayStatus)
   const replayBadge = replayActive ? replayBadgeText(data) : ''
+  const driverName = nodeType ? TRIGGER_DRIVER[nodeType] : undefined
+  const driver = driverName ? driverStatus[driverName] : undefined
+  const driverInfo = driverName ? drivers[driverName] : undefined
+  const driverLive = Boolean(driver?.live)
+  const notInstalled = driverInfo ? !driverInfo.packages_installed : false
 
   return (
     <div
@@ -57,6 +73,39 @@ export default function NodeFrame({
       }}
     >
       <NodeStatus data={data} />
+      {driverName && (() => {
+        const label = notInstalled
+          ? 'needs install'
+          : driverLive
+            ? (driver?.state === 'processing' ? 'processing' : (driver?.label || 'listening'))
+            : 'offline'
+        const color = notInstalled ? 'var(--warn)' : driverLive ? 'var(--ok)' : 'var(--tx3)'
+        const title = notInstalled
+          ? `Hook node — the ${driverName} package isn't installed. Select this node to install it.`
+          : driverLive
+            ? `Hook node — live as ${driver?.label || '(unknown bot)'} (${driver?.processed ?? 0} processed). Runs this graph once per message.`
+            : `Hook node — no ${driverName} driver running. Start it with the Start button.`
+        return (
+          <div
+            title={title}
+            style={{
+              position: 'absolute', right: 8, top: -24, zIndex: 19,
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '3px 7px', background: 'var(--panel)',
+              border: `1px solid ${color}`, borderRadius: 5, color,
+              boxShadow: '0 4px 12px rgba(0,0,0,.24)',
+              fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+              lineHeight: 1.2, whiteSpace: 'nowrap',
+            }}
+          >
+            <span
+              className={driverLive ? 'bn-hook-dot' : undefined}
+              style={driverLive ? undefined : { width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }}
+            />
+            <span>{label}</span>
+          </div>
+        )
+      })()}
       {replayActive && replayBadge && (
         <div
           title={replayBadge}

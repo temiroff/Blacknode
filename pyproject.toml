@@ -31,6 +31,9 @@ slack = [
     "slack_bolt>=1.18",
     "slack_sdk>=3.27",
 ]
+telegram = [
+    "python-telegram-bot>=20",
+]
 # Real GPU compute blocks (CUDAKernelLab). Requires an NVIDIA GPU + CUDA 12.x.
 gpu = [
     "cupy-cuda12x>=13",

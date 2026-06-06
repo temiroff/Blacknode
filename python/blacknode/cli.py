@@ -39,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
         return _drivers(args)
     if args.command == "slack":
         return _run_driver("slack", args)
+    if args.command == "telegram":
+        return _run_driver("telegram", args)
     if args.command == "demo":
         return _demo(args.workflow, args.json)
     if args.command == "doctor":
@@ -126,6 +128,20 @@ def _parser() -> argparse.ArgumentParser:
     )
     slack.add_argument(
         "--max-turns", type=int, default=6, dest="max_turns", help="conversation turns kept per thread"
+    )
+
+    telegram = subcommands.add_parser(
+        "telegram",
+        help="run a workflow as a Telegram bot (e.g. a NIM agent with tools)",
+    )
+    telegram.add_argument("workflow", type=Path, help="agent workflow JSON to drive")
+    telegram.add_argument(
+        "--input-node",
+        dest="input_node",
+        help="node id that receives each Telegram message (default: auto-detect the agent prompt source)",
+    )
+    telegram.add_argument(
+        "--max-turns", type=int, default=6, dest="max_turns", help="conversation turns kept per chat"
     )
 
     demo = subcommands.add_parser("demo", help="run the built-in no-key demo workflow")
@@ -287,8 +303,8 @@ def _run_driver(name: str, args: argparse.Namespace) -> int:
     from .integrations.slack_runtime import (
         AgentRuntime,
         ConversationMemory,
+        DriverDependencyError,
         SlackConfigError,
-        SlackDependencyError,
     )
 
     spec = get_driver(name)
@@ -317,7 +333,7 @@ def _run_driver(name: str, args: argparse.Namespace) -> int:
     print(f"Blacknode {name} driver running ({args.workflow}); input node: {runtime.input_node}. Ctrl-C to stop.")
     try:
         spec.run(runtime)
-    except SlackDependencyError as exc:
+    except DriverDependencyError as exc:
         print(str(exc), file=sys.stderr)
         return 1
     except KeyboardInterrupt:

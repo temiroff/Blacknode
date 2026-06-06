@@ -39,3 +39,19 @@ def api_key_for_provider(provider: str, env_var: str | None = None, explicit: st
             return value
 
     return load_shared_api_keys().get(provider, "")
+
+
+def secret(name: str, explicit: str | None = None) -> str:
+    """Resolve a named secret (e.g. a bot token): explicit > env var > key store.
+
+    Drivers use this so a token can come from the environment *or* the same
+    ``editor-server/api_keys.json`` store the editor writes when you fill a key
+    in the UI — keyed by the env-var name, e.g. ``"SLACK_BOT_TOKEN"``. Secrets
+    never live in the workflow graph, so templates stay shareable.
+    """
+    if explicit:
+        return explicit
+    value = os.environ.get(name)
+    if value:
+        return value
+    return load_shared_api_keys().get(name, "")

@@ -3,7 +3,7 @@ import {
   Node, Edge, addEdge, applyNodeChanges, applyEdgeChanges,
   NodeChange, EdgeChange, Connection,
 } from 'reactflow'
-import { api, type CookEvent, type LearnedNodeSummary, type RunRecord } from './api'
+import { api, type CookEvent, type DriverInfo, type DriverStatus, type LearnedNodeSummary, type RunRecord } from './api'
 import { BnNodeDef, BnNodeMeta, ConnectionDraft, NodeCookState, SubnetFrame } from './types'
 import { VALUE_NODE_TYPES } from './categories'
 import { portsCompatible, portColor } from './portColors'
@@ -85,6 +85,8 @@ interface Store {
   serverOk: boolean
   serverError: string | null
   apiKeys: Record<string, string>
+  driverStatus: Record<string, DriverStatus>
+  drivers: Record<string, DriverInfo>
   customModels: string[]
   learnedNodes: LearnedNodeSummary[]
   learnedNodeHighlight: string | null
@@ -101,6 +103,11 @@ interface Store {
   loadGraph: () => Promise<void>
   loadApiKeys: () => Promise<void>
   setApiKey: (provider: string, key: string) => Promise<void>
+  loadDriverStatus: () => Promise<void>
+  loadDrivers: () => Promise<void>
+  installDriver: (name: string) => Promise<boolean>
+  startDriver: (name: string) => Promise<{ ok: boolean; error?: string }>
+  stopDriver: (name: string) => Promise<void>
   loadCustomModels: () => Promise<void>
   addCustomModel: (value: string) => Promise<void>
   removeCustomModel: (value: string) => Promise<void>
@@ -300,6 +307,7 @@ function clearReplayData(data: NodeData): NodeData {
     replayTotal: _replayTotal,
     replayModelCalls: _replayModelCalls,
     replayToolCalls: _replayToolCalls,
+    portResults: _portResults,
     ...rest
   } = data
   return rest
@@ -532,6 +540,7 @@ type ReplayNodePatch = Pick<
   | 'replayTotal'
   | 'replayModelCalls'
   | 'replayToolCalls'
+  | 'portResults'
 >
 
 function buildReplayPatches(record: RunRecord, cursor: number): Map<string, ReplayNodePatch> {
@@ -573,6 +582,9 @@ function buildReplayPatches(record: RunRecord, cursor: number): Map<string, Repl
       next.replayStatus = cached ? 'cached' : 'success'
       next.replayDurationMs = eventDurationMs(event, startTimes.get(key))
       next.replayResult = event.value ?? outputValueForPort(event.outputs, port)
+      if (event.outputs && typeof event.outputs === 'object' && !Array.isArray(event.outputs)) {
+        next.portResults = { ...(previous?.portResults ?? {}), ...(event.outputs as Record<string, unknown>) }
+      }
       next.replayError = undefined
       next.replayLabel = cached ? 'cache hit' : 'finished'
     } else if (event.type === 'error') {
@@ -969,6 +981,8 @@ export const useStore = create<Store>((set, get) => ({
   serverOk: false,
   serverError: null,
   apiKeys: {},
+  driverStatus: {},
+  drivers: {},
   customModels: [],
   learnedNodes: [],
   learnedNodeHighlight: null,
@@ -1059,6 +1073,46 @@ export const useStore = create<Store>((set, get) => ({
   setApiKey: async (provider, key) => {
     await api.setApiKey(provider, key)
     set(s => ({ apiKeys: { ...s.apiKeys, [provider]: key } }))
+  },
+
+  loadDriverStatus: async () => {
+    try {
+      set({ driverStatus: await api.getDriverStatus() })
+    } catch {}
+  },
+
+  loadDrivers: async () => {
+    try {
+      const list = await api.listDrivers()
+      set({ drivers: Object.fromEntries(list.map(d => [d.name, d])) })
+    } catch {}
+  },
+
+  installDriver: async (name) => {
+    try {
+      const result = await api.installDriver(name)
+      set(s => ({ drivers: { ...s.drivers, [name]: result.status } }))
+      return result.ok
+    } catch {
+      return false
+    }
+  },
+
+  startDriver: async (name) => {
+    try {
+      await api.startDriver(name)
+      await get().loadDriverStatus()
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  },
+
+  stopDriver: async (name) => {
+    try {
+      await api.stopDriver(name)
+    } catch {}
+    await get().loadDriverStatus()
   },
 
   loadCustomModels: async () => {

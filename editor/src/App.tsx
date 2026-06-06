@@ -111,7 +111,7 @@ export default function App() {
     nodes, edges, nodeTypes, nodeDefs, serverOk, serverError, cookLog, cookActive, cookStatusHidden,
     tabs, activeTabId,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
-    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels, loadLearnedNodes,
+    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels, loadLearnedNodes, loadDriverStatus, loadDrivers,
     addNodeFromConnection, copySelection, pasteClipboard,
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
@@ -246,9 +246,13 @@ export default function App() {
       loadLearnedNodes()
       loadNodeTypes()
       loadGraph()
+      loadDriverStatus()
+      loadDrivers()
     })
     const id = setInterval(checkServer, 5000)
-    return () => clearInterval(id)
+    // Poll running-driver heartbeats so trigger nodes show live/offline truthfully.
+    const driverId = setInterval(loadDriverStatus, 4000)
+    return () => { clearInterval(id); clearInterval(driverId) }
   }, [])
 
   useEffect(() => {

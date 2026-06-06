@@ -1,8 +1,32 @@
 import { useState, useEffect, useRef } from 'react'
+import { api } from '../api'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 
 const WIRE_ONLY = new Set(['List', 'Dict', 'Fn', 'Embedding'])
+
+// Bot tokens for chat-driver nodes. Saved to the local key store (api_keys.json,
+// keyed by env-var name) — never into the graph — so templates stay shareable.
+const DRIVER_TOKENS: Record<string, { name: string; label: string; placeholder: string }[]> = {
+  Slack: [
+    { name: 'SLACK_BOT_TOKEN', label: 'Bot token', placeholder: 'xoxb-…' },
+    { name: 'SLACK_APP_TOKEN', label: 'App token', placeholder: 'xapp-…' },
+  ],
+  Telegram: [
+    { name: 'TELEGRAM_BOT_TOKEN', label: 'Bot token', placeholder: '123456:ABC-…' },
+  ],
+}
+
+// Auth lives on the message ("main") node for each integration; its outputs wire
+// into the reply so the reply lands in the right conversation.
+const DRIVER_MESSAGE_TYPES = new Set(['SlackMessage', 'TelegramMessage'])
+
+function driverFor(type: string): keyof typeof DRIVER_TOKENS | null {
+  if (!DRIVER_MESSAGE_TYPES.has(type)) return null
+  if (type.startsWith('Slack')) return 'Slack'
+  if (type.startsWith('Telegram')) return 'Telegram'
+  return null
+}
 const TOP_BAR_H = 44
 const RAIL_W = 78
 const PANEL_DEFAULT_W = 260
@@ -383,6 +407,9 @@ export default function Inspector() {
           </div>
         </div>
 
+        {/* driver connection (bot tokens) for chat trigger/reply nodes */}
+        {driverFor(data.type) && <DriverConnection driver={driverFor(data.type)!} />}
+
         {/* params */}
         <div style={{ padding: '12px 16px', flex: 1, overflowY: 'auto' }}>
           {visibleInputs.length > 0 ? (
@@ -609,6 +636,202 @@ export default function Inspector() {
           </span>
         </button>
       </div>
+    </div>
+  )
+}
+
+function DriverConnection({ driver }: { driver: keyof typeof DRIVER_TOKENS }) {
+  const apiKeys = useStore(s => s.apiKeys)
+  const setApiKey = useStore(s => s.setApiKey)
+  const loadApiKeys = useStore(s => s.loadApiKeys)
+  const drivers = useStore(s => s.drivers)
+  const driverStatus = useStore(s => s.driverStatus)
+  const installDriver = useStore(s => s.installDriver)
+  const loadDrivers = useStore(s => s.loadDrivers)
+  const loadDriverStatus = useStore(s => s.loadDriverStatus)
+  const [installing, setInstalling] = useState(false)
+  const [installError, setInstallError] = useState<string | null>(null)
+
+  useEffect(() => { void loadApiKeys(); void loadDrivers() }, [loadApiKeys, loadDrivers])
+
+  const name = driver.toLowerCase()  // registry name: 'slack' | 'telegram'
+  const info = drivers[name]
+  const installed = info ? info.packages_installed : true
+  const status = driverStatus[name]
+
+  const onInstall = async () => {
+    setInstalling(true)
+    setInstallError(null)
+    const ok = await installDriver(name)
+    setInstalling(false)
+    if (!ok) setInstallError(`Install failed — try in a terminal: pip install -e ".[${name}]"`)
+    void loadDrivers()
+    void loadDriverStatus()
+  }
+
+  return (
+    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+      <div style={{
+        color: 'var(--tx2)', fontSize: 12, fontWeight: 700,
+        letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10,
+      }}>
+        Connection · {driver}
+      </div>
+
+      {info && !installed && (
+        <div style={{
+          background: 'var(--lift)', border: '1px solid var(--warn)', borderRadius: 6,
+          padding: '8px 10px', marginBottom: 10,
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--tx1)', lineHeight: 1.45, marginBottom: 7 }}>
+            ⚠ <b>{info.extra}</b> isn’t installed — the bot can’t run yet.
+          </div>
+          <button
+            onClick={onInstall}
+            disabled={installing}
+            style={{
+              width: '100%', padding: '6px 10px', borderRadius: 6,
+              border: '1px solid var(--warn)',
+              background: installing ? 'transparent' : 'var(--warn)',
+              color: installing ? 'var(--warn)' : '#1a1a1a',
+              fontWeight: 600, fontSize: 12, fontFamily: 'var(--font-ui)',
+              cursor: installing ? 'default' : 'pointer',
+            }}
+          >
+            {installing ? 'Installing…' : `Install ${info.extra}`}
+          </button>
+          {installError && (
+            <div style={{ fontSize: 10, color: 'var(--err)', marginTop: 6, lineHeight: 1.4 }}>
+              {installError}
+            </div>
+          )}
+        </div>
+      )}
+      {info && installed && (
+        <div style={{ fontSize: 10, color: 'var(--ok)', marginBottom: 10, fontFamily: 'var(--font-mono)' }}>
+          ✓ {info.extra} installed
+        </div>
+      )}
+      {status?.live && (
+        <div style={{
+          fontSize: 11, marginBottom: 10, fontFamily: 'var(--font-mono)',
+          color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <span className="bn-hook-dot" />
+          {status.state === 'processing' ? 'Processing…' : 'Live'} as {status.label || '(unknown bot)'}
+        </div>
+      )}
+
+      {DRIVER_TOKENS[driver].map(t => (
+        <SecretField
+          key={t.name}
+          label={t.label}
+          placeholder={t.placeholder}
+          value={apiKeys[t.name] ?? ''}
+          onCommit={v => { void setApiKey(t.name, v) }}
+        />
+      ))}
+      <div style={{ fontSize: 10, color: 'var(--tx3)', marginTop: 2, lineHeight: 1.45 }}>
+        Saved to the local key store (api_keys.json), never in the graph. Environment variables override.
+      </div>
+
+      <DriverLog name={name} />
+    </div>
+  )
+}
+
+function DriverLog({ name }: { name: string }) {
+  const [lines, setLines] = useState<string[]>([])
+  const [running, setRunning] = useState(false)
+  const boxRef = useRef<HTMLPreElement>(null)
+
+  useEffect(() => {
+    let alive = true
+    const tick = async () => {
+      try {
+        const r = await api.getDriverLogs(name)
+        if (!alive) return
+        setLines(r.lines)
+        setRunning(r.running)
+      } catch {}
+    }
+    void tick()
+    const id = setInterval(tick, 2000)  // live tail while this node is selected
+    return () => { alive = false; clearInterval(id) }
+  }, [name])
+
+  useEffect(() => {
+    if (boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight
+  }, [lines])
+
+  if (lines.length === 0) return null
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5,
+      }}>
+        <span style={{ color: 'var(--tx2)', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          Bot log
+        </span>
+        <span style={{ fontSize: 10, color: running ? 'var(--ok)' : 'var(--tx3)', fontFamily: 'var(--font-mono)' }}>
+          {running ? '● running' : 'stopped'}
+        </span>
+      </div>
+      <pre
+        ref={boxRef}
+        style={{
+          background: 'var(--lift)', border: '1px solid var(--line2)', borderRadius: 6,
+          padding: '6px 8px', margin: 0, fontSize: 10, lineHeight: 1.5,
+          fontFamily: 'var(--font-mono)', color: 'var(--tx2)',
+          maxHeight: 160, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        }}
+      >
+        {lines.slice(-40).join('\n')}
+      </pre>
+    </div>
+  )
+}
+
+function SecretField({ label, placeholder, value, onCommit }: {
+  label: string
+  placeholder: string
+  value: string
+  onCommit: (v: string) => void
+}) {
+  const [draft, setDraft] = useState(value)
+  const [show, setShow] = useState(false)
+  useEffect(() => { setDraft(value) }, [value])
+
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+        <span style={{ color: 'var(--tx1)', fontSize: 12, fontWeight: 500 }}>
+          {label}{value ? ' ✓' : ''}
+        </span>
+        <button
+          onClick={() => setShow(s => !s)}
+          style={{
+            background: 'transparent', border: 'none', color: 'var(--tx3)',
+            cursor: 'pointer', fontSize: 10, fontFamily: 'var(--font-mono)', padding: 0,
+          }}
+        >
+          {show ? 'hide' : 'show'}
+        </button>
+      </div>
+      <input
+        type={show ? 'text' : 'password'}
+        value={draft}
+        placeholder={placeholder}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={() => onCommit(draft)}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onCommit(draft) } }}
+        style={{
+          width: '100%', background: 'var(--lift)', border: '1px solid var(--line)',
+          borderRadius: 6, color: 'var(--tx1)', fontFamily: 'var(--font-mono)',
+          fontSize: 12, padding: '5px 8px', outline: 'none', boxSizing: 'border-box',
+        }}
+      />
     </div>
   )
 }

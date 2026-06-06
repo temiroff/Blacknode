@@ -192,6 +192,22 @@ body {
   animation: bn-learned-pulse 2.1s ease-out;
 }
 
+/* Trigger/"hook" node: a live entry point a driver listens on. */
+.bn-hook-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex-shrink: 0;
+  animation: bn-hook-pulse 1.6s ease-out infinite;
+}
+
+@keyframes bn-hook-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent); }
+  70%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--ok) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
 @keyframes bn-learned-pulse {
   0% {
     color: var(--tx1);

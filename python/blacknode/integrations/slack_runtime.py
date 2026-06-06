@@ -24,13 +24,55 @@ import os
 import re
 from typing import Any, Mapping
 
+from blacknode import conversation_state
 from blacknode.integrations.registry import DriverSpec, register_driver
+from blacknode.providers.keys import secret
 from blacknode.workflow import run_workflow
+
+
+def _has_memory_node(workflow: Mapping[str, Any]) -> bool:
+    node_meta = workflow.get("node_meta") or {}
+    return any(
+        isinstance(m, Mapping) and m.get("type") == "ConversationMemory"
+        for m in node_meta.values()
+    )
+
+
+def _run_graph(workflow: Mapping[str, Any]) -> str:
+    """Cook the workflow and return the reply text.
+
+    When the editor is reachable (``BLACKNODE_SYNC_URL`` set — the editor-server
+    sets it for bots it launches), cook through the live-sync path so the editor
+    animates the **real** run on the canvas, node by node, for this message.
+    Otherwise (e.g. run from a bare terminal) cook headless.
+    """
+    sync_url = os.environ.get("BLACKNODE_SYNC_URL", "")
+    if sync_url:
+        try:
+            from blacknode.live_sync import run_graph_live
+            from blacknode.workflow import graph_from_workflow, infer_entrypoint
+
+            node_id, port = infer_entrypoint(workflow)
+            graph = graph_from_workflow(workflow)
+            # workflow omitted → animate the already-open graph, no new tab.
+            return _stringify(run_graph_live(graph, node_id, port, editor_url=sync_url))
+        except Exception:
+            pass  # editor unreachable / sync failed → fall back to a headless run
+    return _stringify(run_workflow(workflow).get("value"))
 
 _MENTION_RE = re.compile(r"<@[A-Z0-9]+>")
 
+# Cosmetic chat-message nodes a driver injects into. Their inbound text lands on
+# the ``text`` param (a plain Text node uses ``value``). Shared so every driver
+# (Slack, Telegram, …) detects the same family.
+_MESSAGE_NODE_TYPES = {"SlackMessage", "TelegramMessage"}
 
-class SlackDependencyError(RuntimeError):
+
+class DriverDependencyError(RuntimeError):
+    """Raised when a driver's optional packages are not installed."""
+
+
+class SlackDependencyError(DriverDependencyError):
     """Raised when slack_bolt / slack_sdk are not installed."""
 
 
@@ -68,10 +110,14 @@ class ConversationMemory:
 def detect_input_node(workflow: Mapping[str, Any]) -> str:
     """Find the node whose value should be replaced with the Slack message.
 
-    Prefers the node feeding an agent's ``prompt`` port; falls back to a node
-    named ``task``. Raises :class:`SlackConfigError` if neither is found.
+    Prefers an explicit ``SlackMessage`` node, then the node feeding an agent's
+    ``prompt`` port, then a node named ``task``. Raises :class:`SlackConfigError`
+    if none is found.
     """
     node_meta = workflow.get("node_meta") or {}
+    for node_id, meta in node_meta.items():
+        if isinstance(meta, Mapping) and meta.get("type") in _MESSAGE_NODE_TYPES:
+            return str(node_id)
     for edge in workflow.get("edges") or []:
         if edge.get("to_port") == "prompt":
             source = edge.get("from")
@@ -80,20 +126,39 @@ def detect_input_node(workflow: Mapping[str, Any]) -> str:
     if "task" in node_meta:
         return "task"
     raise SlackConfigError(
-        "Could not find an input node. Pass --input-node with the id of the Text "
-        "node that feeds the agent's prompt."
+        "Could not find an input node. Pass --input-node with the id of the "
+        "SlackMessage (or Text) node that feeds the agent's prompt."
     )
 
 
-def inject_input(workflow: Mapping[str, Any], input_node: str, text: str) -> dict[str, Any]:
-    """Return a copy of ``workflow`` with ``input_node``'s value set to ``text``."""
+def inject_input(
+    workflow: Mapping[str, Any],
+    input_node: str,
+    text: str,
+    *,
+    fields: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Return a copy of ``workflow`` with the Slack message written into ``input_node``.
+
+    The message text goes to ``text`` on a ``SlackMessage`` node, else ``value``
+    on a plain Text node. Optional ``fields`` (``user_id`` / ``channel`` /
+    ``thread_ts``) are set only when the node actually declares them, so
+    downstream nodes can read the conversation metadata.
+    """
     node_meta = workflow.get("node_meta") or {}
     if input_node not in node_meta:
         raise SlackConfigError(f"Input node '{input_node}' is not in the workflow.")
     clone = copy.deepcopy(dict(workflow))
-    params = dict(clone["node_meta"][input_node].get("params") or {})
-    params["value"] = text
-    clone["node_meta"][input_node]["params"] = params
+    node = clone["node_meta"][input_node]
+    params = dict(node.get("params") or {})
+    prompt_field = "text" if node.get("type") in _MESSAGE_NODE_TYPES else "value"
+    params[prompt_field] = text
+    if fields:
+        declared = set(node.get("outputs") or []) | set(node.get("inputs") or [])
+        for key, value in fields.items():
+            if key != prompt_field and key in declared:
+                params[key] = value
+    node["params"] = params
     return clone
 
 
@@ -127,13 +192,69 @@ class SlackAgentRuntime:
         self.workflow = dict(workflow)
         self.input_node = input_node or detect_input_node(self.workflow)
         self.memory = memory or ConversationMemory()
+        # If the graph carries a ConversationMemory node, memory is visible there:
+        # the node prepends history, and we record completed turns to the shared
+        # store instead of the driver's private memory.
+        self.memory_node = _has_memory_node(self.workflow)
 
-    def handle_message(self, text: str, thread_ts: str) -> str:
+    def _live_workflow(self) -> dict[str, Any]:
+        """Fetch the editor's *current* graph so edits take effect per-message.
+
+        When launched by the editor (``BLACKNODE_SYNC_URL`` set), each message
+        cooks the graph as it is **right now** — change a wire and the next
+        message cooks the new shape, no restart. Falls back to the graph the
+        driver was started with if the editor isn't reachable.
+        """
+        url = os.environ.get("BLACKNODE_SYNC_URL", "")
+        if url:
+            try:
+                import json as _json
+                import urllib.request as _ur
+
+                with _ur.urlopen(url.rstrip("/") + "/drivers/workflow", timeout=5) as r:
+                    wf = _json.loads(r.read().decode("utf-8"))
+                if isinstance(wf, dict) and wf.get("node_meta"):
+                    return wf
+            except Exception:
+                pass
+        return self.workflow
+
+    def handle_message(
+        self,
+        text: str,
+        conv_id: str,
+        *,
+        user_id: str = "",
+        channel: str = "",
+        fields: Mapping[str, str] | None = None,
+    ) -> str:
+        """Run one message through the workflow, keyed by ``conv_id`` for memory.
+
+        ``conv_id`` is the conversation key — Slack ``thread_ts`` or Telegram
+        ``chat_id``. ``fields`` lets a transport pass its own metadata ports
+        (e.g. Telegram ``chat_id`` / ``message_id``); when omitted, the Slack
+        shape (``user_id`` / ``channel`` / ``thread_ts``) is used.
+        """
         message = strip_mention(text)
-        prompt = self.memory.build_prompt(thread_ts, message)
-        result = run_workflow(inject_input(self.workflow, self.input_node, prompt))
-        reply = _stringify(result.get("value"))
-        self.memory.add(thread_ts, message, reply)
+        # Cook the editor's CURRENT graph (so edits take effect without restart);
+        # the data connections decide what gets cooked — no special trigger wire.
+        workflow = self._live_workflow()
+        try:
+            input_node = detect_input_node(workflow)
+        except SlackConfigError:
+            input_node = self.input_node
+        has_memory = _has_memory_node(workflow)
+        # With a memory node, inject the raw message — the node prepends history.
+        # Without one, the driver prepends here, as before.
+        prompt = message if has_memory else self.memory.build_prompt(conv_id, message)
+        if fields is None:
+            fields = {"user_id": user_id, "channel": channel, "thread_ts": conv_id}
+        workflow = inject_input(workflow, input_node, prompt, fields=fields)
+        reply = _run_graph(workflow)
+        if has_memory:
+            conversation_state.record(conv_id, message, reply)
+        else:
+            self.memory.add(conv_id, message, reply)
         return reply
 
 
@@ -151,18 +272,52 @@ def serve(runtime: SlackAgentRuntime, *, bot_token: str, app_token: str) -> None
             "slack_bolt is not installed. Run: pip install 'blacknode[slack]'"
         ) from exc
 
+    import json as _json
+    import urllib.request as _ur
+
+    from blacknode.integrations.status import DriverStatus
+
+    def _bot_label() -> str:
+        try:
+            req = _ur.Request(
+                "https://slack.com/api/auth.test",
+                headers={"Authorization": f"Bearer {bot_token}"}, method="POST",
+            )
+            with _ur.urlopen(req, timeout=8) as r:
+                data = _json.load(r)
+                return "@" + str(data.get("user")) if data.get("ok") else ""
+        except Exception:
+            return ""
+
+    label = _bot_label()
     app = App(token=bot_token)
+    status = DriverStatus("slack", str(runtime.workflow.get("name") or ""), label=label).start()
 
     @app.event("app_mention")
     def _on_mention(event: dict, say: Any) -> None:  # pragma: no cover - needs live Slack
         thread = event.get("thread_ts") or event.get("ts")
+        print(f"[slack] <- channel {event.get('channel')}: {str(event.get('text',''))!r}", flush=True)
+        status.mark_processing()
+        # The graph drives the send: cooking the reply node posts the answer.
+        # The driver only reports errors that prevented a reply.
         try:
-            reply = runtime.handle_message(event.get("text", ""), thread)
+            reply = runtime.handle_message(
+                event.get("text", ""),
+                thread,
+                user_id=event.get("user", ""),
+                channel=event.get("channel", ""),
+            )
+            print(f"[slack] -> sent reply: {str(reply)[:80]!r}", flush=True)
         except Exception as exc:  # noqa: BLE001 - never let one message kill the bot
-            reply = f"[error] {type(exc).__name__}: {exc}"
-        say(text=reply, thread_ts=thread)
+            print(f"[slack] !! error: {type(exc).__name__}: {exc}", flush=True)
+            say(text=f"[error] {type(exc).__name__}: {exc}", thread_ts=thread)
+        status.mark_listening()
 
-    SocketModeHandler(app, app_token).start()
+    print(f"[slack] connected as {label or '(unknown)'} — listening for @mentions", flush=True)
+    try:
+        SocketModeHandler(app, app_token).start()
+    finally:
+        status.stop()
 
 
 # A transport-agnostic alias: the runtime knows nothing about Slack, so future
@@ -173,8 +328,8 @@ AgentRuntime = SlackAgentRuntime
 def _run_slack(runtime: SlackAgentRuntime) -> None:
     serve(
         runtime,
-        bot_token=os.environ.get("SLACK_BOT_TOKEN", ""),
-        app_token=os.environ.get("SLACK_APP_TOKEN", ""),
+        bot_token=secret("SLACK_BOT_TOKEN"),
+        app_token=secret("SLACK_APP_TOKEN"),
     )
 
 

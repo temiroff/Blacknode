@@ -32,20 +32,27 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
   const [visible, setVisible] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  if (!data.cookError && data.cookResult === undefined && !data.cooking) return null
+  // Reflect either an editor cook (cook*) or a live driver run (replay*), so the
+  // circle + result show whether you cooked it here or a bot just ran it.
+  const replayRunning = data.replayStatus === 'running' || data.replayStatus === 'model' || data.replayStatus === 'tool'
+  const isCooking = !!data.cooking || replayRunning
+  const errorText = data.cookError ?? (data.replayStatus === 'error' ? data.replayError : undefined)
+  const isError = !!errorText
+  const result = data.cookResult !== undefined ? data.cookResult : data.replayResult
+  const port = data.cookPort ?? data.replayPort
 
-  const isError = !!data.cookError
-  const isCooking = !!data.cooking
+  if (!isError && result === undefined && !isCooking) return null
+
   const dotColor = isCooking ? 'var(--warn)' : isError ? 'var(--err)' : 'var(--ok)'
   const dotHex = isCooking ? '#facc15' : isError ? '#ef4444' : '#22c55e'
   const title = isCooking
-    ? `Cooking${data.cookPort ? ` ${data.cookPort}` : ''}...`
+    ? `Cooking${port ? ` ${port}` : ''}...`
     : isError
       ? 'Error'
-      : data.cookPort
-        ? `Result: ${data.cookPort}`
+      : port
+        ? `Result: ${port}`
         : 'Result'
-  const label = isCooking ? title : isError ? data.cookError! : previewValue(data.cookResult)
+  const label = isCooking ? title : isError ? errorText! : previewValue(result)
   const copyLabel = copied ? 'Copied' : title
   const copyValue = isCooking ? title : label
 
@@ -117,9 +124,9 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
             {copyLabel}
           </div>
           {!isCooking && (
-            !isError && isImageDataUrl(data.cookResult) ? (
+            !isError && isImageDataUrl(result) ? (
               <img
-                src={data.cookResult as string}
+                src={result as string}
                 alt="result"
                 style={{ maxWidth: '100%', borderRadius: 4, display: 'block' }}
               />

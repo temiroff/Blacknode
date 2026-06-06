@@ -20,6 +20,33 @@ export interface TemplateMeta {
   node_count: number
 }
 
+export interface DriverStatus {
+  name: string
+  workflow: string
+  label: string        // connected bot identity, e.g. '@BlacknodeAgentBot'
+  state: string        // 'listening' | 'processing' | 'starting' | 'stopped'
+  processed: number
+  live: boolean        // computed server-side from heartbeat freshness
+}
+
+export interface DriverInfo {
+  name: string
+  description: string
+  status: string       // 'ready' | 'needs env' | 'needs install'
+  extra: string        // e.g. 'blacknode[telegram]'
+  packages_installed: boolean
+  required_packages: string[]
+  env: Record<string, boolean>
+  missing_env: string[]
+}
+
+export interface DriverInstallResult {
+  ok: boolean
+  returncode: number
+  log: string
+  status: DriverInfo
+}
+
 export type RunStatus = 'success' | 'error' | 'running'
 
 export interface RunSummary {
@@ -264,6 +291,12 @@ export const api = {
     req<{ ok: boolean; loaded: Array<Record<string, unknown>>; failed: Array<Record<string, unknown>> }>('POST', '/custom-nodes/reload'),
   listCustomNodes: () =>
     req<{ directory: string; files: string[]; registered: BnNodeDef[] }>('GET', '/custom-nodes'),
+  getDriverStatus:  () => req<Record<string, DriverStatus>>('GET', '/drivers/status'),
+  listDrivers:      () => req<DriverInfo[]>('GET', '/drivers'),
+  installDriver:    (name: string) => req<DriverInstallResult>('POST', `/drivers/${name}/install`),
+  startDriver:      (name: string) => req<{ ok: boolean; pid?: number }>('POST', `/drivers/${name}/start`),
+  stopDriver:       (name: string) => req<{ ok: boolean }>('POST', `/drivers/${name}/stop`),
+  getDriverLogs:    (name: string) => req<{ running: boolean; lines: string[] }>('GET', `/drivers/${name}/logs`),
   getApiKeys:       () => req<Record<string, string>>('GET', '/settings/api-keys'),
   setApiKey:        (provider: string, key: string) => req('POST', '/settings/api-key', { provider, key }),
   getCustomModels:  () => req<string[]>('GET', '/settings/custom-models'),

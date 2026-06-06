@@ -9,9 +9,10 @@ dependencies installed and its required environment variables present.
 from __future__ import annotations
 
 import importlib.util
-import os
 from dataclasses import dataclass
 from typing import Any, Callable
+
+from blacknode.providers.keys import secret
 
 # A driver's transport entrypoint: run(runtime) starts the listener and blocks.
 RunFn = Callable[[Any], None]
@@ -46,7 +47,8 @@ def packages_installed(spec: DriverSpec) -> bool:
 
 
 def missing_env(spec: DriverSpec) -> list[str]:
-    return [name for name in spec.required_env if not os.environ.get(name)]
+    """Required secrets not resolvable from the environment or the key store."""
+    return [name for name in spec.required_env if not secret(name)]
 
 
 def driver_status(spec: DriverSpec) -> dict[str, Any]:
@@ -66,6 +68,6 @@ def driver_status(spec: DriverSpec) -> dict[str, Any]:
         "extra": f"blacknode[{spec.required_extra}]",
         "packages_installed": installed,
         "required_packages": list(spec.required_packages),
-        "env": {name: bool(os.environ.get(name)) for name in spec.required_env},
+        "env": {name: bool(secret(name)) for name in spec.required_env},
         "missing_env": missing,
     }

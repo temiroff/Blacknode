@@ -1,6 +1,6 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import uuid, os, sys, json, threading, re, queue, io, contextlib
+import uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -11,7 +11,9 @@ from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import blacknode as bn
+import blacknode.integrations  # noqa: F401  registers chat drivers (slack/telegram)
 from blacknode.discovery import discover_node_modules, load_node_file
+from blacknode.integrations import registry as driver_registry
 from blacknode.exporters import export_workflow as export_framework_workflow
 from blacknode.exporters import list_export_targets
 from blacknode.learned import registry as learned_registry
@@ -2335,9 +2337,233 @@ def set_api_key(req: SetApiKeyReq):
             os.environ[env_var] = req.key
         elif env_var in os.environ:
             del os.environ[env_var]
+    changed = _api_keys.get(req.provider) != req.key
     _api_keys[req.provider] = req.key
     _save_api_keys()
+    # If this is a bot token and that driver is running, restart it so the new
+    # token takes effect (a running bot reads its token only at startup).
+    restarted = _restart_running_driver_for(req.provider) if changed else None
+    return {"ok": True, "restarted": restarted}
+
+
+# ── Driver status bridge ──────────────────────────────────────────────────
+# Running drivers (blacknode slack/telegram, separate processes) POST heartbeats
+# here so the canvas can show a truthful live/offline badge on trigger nodes.
+_driver_status: dict[str, dict] = {}
+_DRIVER_STALE_S = 15.0  # no heartbeat within this window → considered offline
+
+
+class DriverStatusReq(BaseModel):
+    name: str
+    workflow: str = ""
+    label: str = ""
+    state: str = "listening"
+    processed: int = 0
+    pid: int = 0
+    ts: float = 0.0
+
+
+@app.post("/drivers/status")
+def post_driver_status(req: DriverStatusReq):
+    _driver_status[req.name] = {
+        "name": req.name,
+        "workflow": req.workflow,
+        "label": req.label,
+        "state": req.state,
+        "processed": req.processed,
+        "pid": req.pid,
+        "ts": req.ts,
+        "received": time.time(),
+    }
     return {"ok": True}
+
+
+@app.get("/drivers/status")
+def get_driver_status():
+    now = time.time()
+    out: dict[str, dict] = {}
+    for name, st in _driver_status.items():
+        live = (now - st.get("received", 0.0)) < _DRIVER_STALE_S
+        out[name] = {**st, "live": live and st.get("state") != "stopped"}
+    return out
+
+
+@app.get("/drivers")
+def list_drivers():
+    """Readiness of each registered driver: ready / needs env / needs install."""
+    return [driver_registry.driver_status(s) for s in driver_registry.list_drivers()]
+
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Driver subprocesses started from the editor (name -> Popen). Launched with the
+# server's own interpreter, so they inherit the env the Install button uses.
+_driver_procs: dict[str, "subprocess.Popen"] = {}
+import collections
+_driver_logs: dict[str, "collections.deque[str]"] = {}
+_RUNTIME_KEYS = {"cookResult", "cookError", "cooking", "cookPort"}
+
+
+def _drain_driver_output(name: str, proc: "subprocess.Popen") -> None:
+    buf = _driver_logs[name]
+    try:
+        for line in proc.stdout:  # type: ignore[union-attr]
+            buf.append(line.rstrip("\n"))
+    except Exception:
+        pass
+    buf.append(f"[process exited, code {proc.poll()}]")
+
+
+def _current_workflow() -> tuple[dict, dict | None]:
+    """Build a runnable workflow from the live editor graph + pick an entrypoint."""
+    node_meta = {
+        nid: {k: v for k, v in meta.items() if k not in _RUNTIME_KEYS}
+        for nid, meta in _session.node_meta.items()
+    }
+    entry = None
+    for nid, meta in node_meta.items():
+        if meta.get("type") in ("SlackReply", "TelegramReply"):
+            entry = {"node_id": nid, "port": "text"}
+            break
+    if entry is None:
+        for nid, meta in node_meta.items():
+            if meta.get("type") == "Output":
+                entry = {"node_id": nid, "port": "value"}
+                break
+    wf = {
+        "kind": "blacknode.workflow",
+        "schema_version": 1,
+        "name": "Editor graph",
+        "node_meta": node_meta,
+        "edges": [dict(e) for e in _session.graph._edges],
+        "entrypoint": entry,
+    }
+    return wf, entry
+
+
+def _driver_running(name: str) -> bool:
+    proc = _driver_procs.get(name)
+    return proc is not None and proc.poll() is None
+
+
+def _stop_driver_proc(name: str) -> None:
+    proc = _driver_procs.pop(name, None)
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    _driver_status.pop(name, None)  # flip the badge offline immediately
+
+
+def _spawn_driver(name: str) -> tuple[bool, str]:
+    """Launch a driver subprocess on the current graph. Returns (ok, detail)."""
+    spec = driver_registry.get_driver(name)
+    if spec is None:
+        return False, f"Unknown driver '{name}'"
+    if not driver_registry.packages_installed(spec):
+        return False, f"{spec.required_extra} is not installed — install it first."
+    missing = driver_registry.missing_env(spec)
+    if missing:
+        return False, f"Set {', '.join(missing)} on the node first."
+    if _driver_running(name):
+        return True, "already running"
+    wf, entry = _current_workflow()
+    if entry is None:
+        return False, "Graph needs a reply node (or Output) to drive."
+    if not validate_bn_workflow(wf).ok:
+        return False, "Graph is invalid; fix errors before starting."
+    path = os.path.join(os.path.dirname(__file__), f".driver-{name}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(wf, f, indent=2)
+    # Tell the bot where the editor is, so each message cooks through live-sync
+    # and the real run animates on the canvas (BLACKNODE_SYNC_URL), and so its
+    # heartbeat reaches us (BLACKNODE_EDITOR_URL).
+    env = dict(os.environ)
+    env["BLACKNODE_SYNC_URL"] = "http://127.0.0.1:7777"
+    env["BLACKNODE_EDITOR_URL"] = "http://127.0.0.1:7777"
+    proc = subprocess.Popen(
+        [sys.executable, "-u", "-m", "blacknode.cli", name, path],
+        cwd=_REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, bufsize=1, encoding="utf-8", errors="replace", env=env,
+    )
+    _driver_procs[name] = proc
+    _driver_logs[name] = collections.deque(maxlen=300)
+    threading.Thread(target=_drain_driver_output, args=(name, proc), daemon=True).start()
+    return True, str(proc.pid)
+
+
+def _restart_running_driver_for(provider: str) -> str | None:
+    """If ``provider`` is a token for a *running* driver, restart it so the new
+    value takes effect. Returns the restarted driver name, or None."""
+    for spec in driver_registry.list_drivers():
+        if provider in spec.required_env:
+            if _driver_running(spec.name):
+                _stop_driver_proc(spec.name)
+                ok, _ = _spawn_driver(spec.name)
+                return spec.name if ok else None
+            return None
+    return None
+
+
+@app.post("/drivers/{name}/start")
+def start_driver(name: str):
+    ok, detail = _spawn_driver(name)
+    if not ok:
+        raise HTTPException(status_code=404 if detail.startswith("Unknown") else 400, detail=detail)
+    return {"ok": True, "detail": detail}
+
+
+@app.get("/drivers/{name}/logs")
+def driver_logs(name: str):
+    return {"running": _driver_running(name), "lines": list(_driver_logs.get(name, []))}
+
+
+@app.get("/drivers/workflow")
+def driver_current_workflow():
+    """The live editor graph, so a running bot cooks the current shape per message."""
+    wf, _ = _current_workflow()
+    return wf
+
+
+@app.post("/drivers/{name}/stop")
+def stop_driver(name: str):
+    _stop_driver_proc(name)
+    return {"ok": True}
+
+
+import atexit
+
+
+@atexit.register
+def _stop_all_drivers() -> None:
+    for proc in _driver_procs.values():
+        if proc.poll() is None:
+            proc.terminate()
+
+
+@app.post("/drivers/{name}/install")
+def install_driver(name: str):
+    """Install a registered driver's optional extra (pip install -e .[extra])."""
+    spec = driver_registry.get_driver(name)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown driver '{name}'")
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", f".[{spec.required_extra}]"],
+            cwd=_REPO_ROOT, capture_output=True, text=True, timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="pip install timed out")
+    importlib.invalidate_caches()  # so the next readiness check sees the new package
+    log = ((proc.stdout or "") + (proc.stderr or ""))[-2000:]
+    return {
+        "ok": proc.returncode == 0,
+        "returncode": proc.returncode,
+        "log": log,
+        "status": driver_registry.driver_status(spec),
+    }
 
 
 @app.get("/settings/custom-models")

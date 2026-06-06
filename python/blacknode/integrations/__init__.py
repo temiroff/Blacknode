@@ -8,3 +8,4 @@ so ``blacknode drivers`` can report what is registered and activated.
 """
 from . import registry  # noqa: F401
 from . import slack_runtime  # noqa: F401  (registers the "slack" driver)
+from . import telegram_runtime  # noqa: F401  (registers the "telegram" driver)

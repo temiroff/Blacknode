@@ -14,6 +14,7 @@ import blacknode.nodes.database  # noqa: F401
 import blacknode.nodes.flow    # noqa: F401
 import blacknode.nodes.io      # noqa: F401
 import blacknode.nodes.math    # noqa: F401
+import blacknode.nodes.messaging  # noqa: F401
 import blacknode.nodes.rag     # noqa: F401
 import blacknode.nodes.routing  # noqa: F401
 import blacknode.nodes.search  # noqa: F401

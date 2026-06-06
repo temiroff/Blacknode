@@ -1,7 +1,7 @@
 {
   "kind": "blacknode.workflow",
   "schema_version": 1,
-  "name": "Slack NIM Agent",
+  "name": "Telegram NIM Agent",
   "saved_at": "2026-05-20T00:00:00",
   "entrypoint": {
     "node_id": "reply",
@@ -9,7 +9,7 @@
   },
   "metadata": {
     "template": true,
-    "description": "NIM-powered Slackbot with web_search + calculator tools. Set SLACK_BOT_TOKEN + SLACK_APP_TOKEN, then run: blacknode slack templates/slack-nim-agent.json",
+    "description": "NIM-powered Telegram bot with web_search + calculator tools. Set TELEGRAM_BOT_TOKEN (+ NVIDIA_API_KEY), then run: blacknode telegram templates/telegram-nim-agent.json",
     "color": "#76b900"
   },
   "node_meta": {
@@ -55,7 +55,7 @@
     },
     "message": {
       "id": "message",
-      "type": "SlackMessage",
+      "type": "TelegramMessage",
       "params": {
         "text": "Hello!"
       },
@@ -67,15 +67,15 @@
       "outputs": [
         "text",
         "user_id",
-        "channel",
-        "thread_ts"
+        "chat_id",
+        "message_id"
       ],
       "input_types": {},
       "output_types": {
         "text": "Text",
         "user_id": "Text",
-        "channel": "Text",
-        "thread_ts": "Text"
+        "chat_id": "Text",
+        "message_id": "Text"
       },
       "input_defaults": {}
     },
@@ -645,7 +645,7 @@
     },
     "reply": {
       "id": "reply",
-      "type": "SlackReply",
+      "type": "TelegramReply",
       "params": {},
       "pos": [
         900,
@@ -653,27 +653,27 @@
       ],
       "inputs": [
         "text",
-        "channel",
-        "thread_ts",
-        "user_id"
+        "chat_id",
+        "user_id",
+        "message_id"
       ],
       "outputs": [
         "text",
-        "channel",
-        "thread_ts",
-        "user_id"
+        "chat_id",
+        "user_id",
+        "message_id"
       ],
       "input_types": {
         "text": "Text",
-        "channel": "Text",
-        "thread_ts": "Text",
-        "user_id": "Text"
+        "chat_id": "Text",
+        "user_id": "Text",
+        "message_id": "Text"
       },
       "output_types": {
         "text": "Text",
-        "channel": "Text",
-        "thread_ts": "Text",
-        "user_id": "Text"
+        "chat_id": "Text",
+        "user_id": "Text",
+        "message_id": "Text"
       },
       "input_defaults": {}
     },
@@ -741,24 +741,6 @@
       "to_port": "text"
     },
     {
-      "from": "message",
-      "from_port": "channel",
-      "to": "reply",
-      "to_port": "channel"
-    },
-    {
-      "from": "message",
-      "from_port": "thread_ts",
-      "to": "reply",
-      "to_port": "thread_ts"
-    },
-    {
-      "from": "message",
-      "from_port": "user_id",
-      "to": "reply",
-      "to_port": "user_id"
-    },
-    {
       "from": "calc",
       "from_port": "fn",
       "to": "box",
@@ -771,16 +753,34 @@
       "to_port": "message"
     },
     {
-      "from": "message",
-      "from_port": "thread_ts",
-      "to": "memory",
-      "to_port": "conversation"
-    },
-    {
       "from": "memory",
       "from_port": "prompt",
       "to": "loop",
       "to_port": "prompt"
+    },
+    {
+      "from": "message",
+      "from_port": "chat_id",
+      "to": "memory",
+      "to_port": "conversation"
+    },
+    {
+      "from": "message",
+      "from_port": "chat_id",
+      "to": "reply",
+      "to_port": "chat_id"
+    },
+    {
+      "from": "message",
+      "from_port": "user_id",
+      "to": "reply",
+      "to_port": "user_id"
+    },
+    {
+      "from": "message",
+      "from_port": "message_id",
+      "to": "reply",
+      "to_port": "message_id"
     }
   ]
 }

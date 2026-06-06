@@ -10,6 +10,28 @@ import type { NodeCookState } from '../types'
 
 const TOOLBOX_NEW_HANDLE_COLOR = '#ef444488'
 
+// Chat trigger node types → the driver the Start/Stop buttons control.
+const TRIGGER_DRIVER: Record<string, string> = {
+  SlackMessage: 'slack',
+  TelegramMessage: 'telegram',
+}
+
+function driverBtn(color: string, disabled = false): React.CSSProperties {
+  return {
+    flex: 1,
+    padding: '3px 8px',
+    borderRadius: 5,
+    border: `1px solid ${color}`,
+    background: 'transparent',
+    color,
+    fontSize: 11,
+    fontWeight: 600,
+    fontFamily: 'var(--font-ui)',
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.6 : 1,
+  }
+}
+
 interface NodeData extends NodeCookState {
   id: string
   type: string
@@ -20,20 +42,29 @@ interface NodeData extends NodeCookState {
   params: Record<string, unknown>
 }
 
+function previewPortValue(v: unknown): string {
+  if (v === undefined || v === null) return ''
+  const s = typeof v === 'object' ? JSON.stringify(v) : String(v)
+  return s.length > 160 ? s.slice(0, 160) + '…' : s
+}
+
 function PortRow({
   name,
   type,
   dir,
+  result,
   onRemove,
 }: {
   name: string
   type: string
   dir: 'input' | 'output'
+  result?: unknown
   onRemove?: () => void
 }) {
   const [hovering, setHovering] = useState(false)
   const color   = portColor(type)
   const isInput = dir === 'input'
+  const resultText = result !== undefined ? previewPortValue(result) : ''
 
   return (
     <div
@@ -101,6 +132,25 @@ function PortRow({
           whiteSpace: 'nowrap',
         }}>
           {type}
+        </span>
+      )}
+      {hovering && resultText && (
+        <span
+          title={resultText}
+          style={{
+            fontSize: 11,
+            padding: '1px 6px',
+            borderRadius: 4,
+            background: 'var(--ok)22',
+            color: 'var(--ok)',
+            fontFamily: 'var(--font-mono)',
+            maxWidth: 220,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          = {resultText}
         </span>
       )}
     </div>
@@ -216,6 +266,15 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const disconnectEdge = useStore(s => s.disconnectEdge)
   const edges       = useStore(s => s.edges)
   const nodes       = useStore(s => s.nodes)
+  const driverStatus = useStore(s => s.driverStatus)
+  const drivers     = useStore(s => s.drivers)
+  const startDriver = useStore(s => s.startDriver)
+  const stopDriver  = useStore(s => s.stopDriver)
+  const loadDriverStatus = useStore(s => s.loadDriverStatus)
+  const driverName  = TRIGGER_DRIVER[data.type]
+  const driverLive  = driverName ? Boolean(driverStatus[driverName]?.live) : false
+  const driverNotInstalled = driverName ? drivers[driverName]?.packages_installed === false : false
+  const [driverPending, setDriverPending] = useState<null | 'start' | 'stop'>(null)
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
   const isToolBox   = data.type === 'ToolBox'
@@ -267,6 +326,35 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     if (edge) await disconnectEdge(edge.id)
   }
 
+  // Poll status quickly until the driver reaches the wanted live state (the
+  // subprocess takes a couple seconds to boot + connect before it heartbeats).
+  const pollDriverUntil = async (live: boolean) => {
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 1000))
+      await loadDriverStatus()
+      if (Boolean(useStore.getState().driverStatus[driverName!]?.live) === live) return
+    }
+  }
+  const onStartDriver = async () => {
+    setDriverPending('start')
+    const r = await startDriver(driverName!)
+    if (!r.ok) {
+      setDriverPending(null)
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: { kind: 'error', title: `Could not start ${driverName}`, message: r.error ?? '' },
+      }))
+      return
+    }
+    await pollDriverUntil(true)
+    setDriverPending(null)
+  }
+  const onStopDriver = async () => {
+    setDriverPending('stop')
+    await stopDriver(driverName!)
+    await pollDriverUntil(false)
+    setDriverPending(null)
+  }
+
   const fitNodeToImage = (naturalWidth: number, naturalHeight: number, extraControls = 0) => {
     if (!naturalWidth || !naturalHeight) return
     const portRows = visibleInputs.length + (data.outputs?.length ?? 0) + (isToolBox ? 1 : 0)
@@ -288,6 +376,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       data={data}
       selected={selected}
       color={color}
+      nodeType={data.type}
       style={{
         width: '100%',
         height: '100%',
@@ -368,6 +457,33 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </button>
       </div>
 
+      {/* Start/Stop for chat trigger nodes — the server launches the driver. */}
+      {driverName && (
+        <div className="nodrag" style={{ display: 'flex', gap: 6, padding: '6px 10px 2px' }} onMouseDown={e => e.stopPropagation()}>
+          {driverPending ? (
+            <button disabled style={driverBtn('var(--tx2)', true)}>
+              {driverPending === 'start' ? '⏳ Starting…' : '⏳ Stopping…'}
+            </button>
+          ) : driverLive ? (
+            <button
+              onClick={e => { e.stopPropagation(); void onStopDriver() }}
+              style={driverBtn('var(--err)')}
+            >
+              ■ Stop bot
+            </button>
+          ) : (
+            <button
+              disabled={driverNotInstalled}
+              title={driverNotInstalled ? 'Install the package first (select the node)' : `Start the ${driverName} bot`}
+              onClick={e => { e.stopPropagation(); void onStartDriver() }}
+              style={driverBtn(driverNotInstalled ? 'var(--tx3)' : 'var(--ok)', driverNotInstalled)}
+            >
+              ▶ Start bot
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ports */}
       <div style={{ flex: 1, padding: '6px 0', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {isToolBox && (
@@ -427,7 +543,13 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           )
         })}
         {data.outputs.map(out => (
-          <PortRow key={out} name={out} type={effectivePortType(out, 'output')} dir="output" />
+          <PortRow
+            key={out}
+            name={out}
+            type={effectivePortType(out, 'output')}
+            dir="output"
+            result={data.portResults?.[out]}
+          />
         ))}
         {showImageResult && (
           <div style={imageResultWrap}>

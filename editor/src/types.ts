@@ -41,6 +41,7 @@ export interface NodeCookState {
   replayTotal?: number
   replayModelCalls?: number
   replayToolCalls?: number
+  portResults?: Record<string, unknown>  // per-output-port values from the live run (for port hover)
 }
 
 export interface BnNodeDef {
