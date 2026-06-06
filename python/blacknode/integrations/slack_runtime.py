@@ -30,6 +30,54 @@ from blacknode.providers.keys import secret
 from blacknode.workflow import run_workflow
 
 
+def describe_command(workflow: Mapping[str, Any], text: str) -> str | None:
+    """Answer a ``/command`` from the live graph (no LLM). Returns None if not a command."""
+    stripped = (text or "").strip()
+    if not stripped.startswith("/"):
+        return None
+    cmd = stripped[1:].split()[0].split("@")[0].lower() if len(stripped) > 1 else ""
+    node_meta = workflow.get("node_meta") or {}
+    metas = [m for m in node_meta.values() if isinstance(m, Mapping)]
+
+    if cmd in ("tools", "tool"):
+        tools = []
+        for m in metas:
+            params = m.get("params") or {}
+            if m.get("type") == "PythonFn":
+                tools.append((str(params.get("name") or params.get("label") or "(unnamed)"),
+                              str(params.get("description") or "")))
+            elif m.get("type") == "SubnetAsTool":
+                tools.append((str(params.get("name") or "subnet_tool"),
+                              str(params.get("description") or "")))
+        if not tools:
+            return "No tools are wired into this graph."
+        lines = ["🛠 Tools the agent can use:"]
+        lines += [f"• {n}" + (f" — {d}" if d else "") for n, d in tools]
+        return "\n".join(lines)
+
+    if cmd in ("model", "models"):
+        models = [str((m.get("params") or {}).get("value"))
+                  for m in metas if m.get("type") == "Model" and (m.get("params") or {}).get("value")]
+        return "🧠 Model: " + ", ".join(models) if models else "No Model node found in this graph."
+
+    if cmd in ("graph", "nodes"):
+        counts: dict[str, int] = {}
+        for m in metas:
+            counts[str(m.get("type"))] = counts.get(str(m.get("type")), 0) + 1
+        lines = [f"📊 Graph: {len(metas)} nodes"]
+        lines += [f"• {c}× {t}" for t, c in sorted(counts.items())]
+        return "\n".join(lines)
+
+    if cmd in ("help", "start"):
+        return (
+            "I'm a Blacknode agent. Just message me to chat. Commands:\n"
+            "/tools — tools I can use\n"
+            "/model — the model I'm running\n"
+            "/graph — a summary of my node graph"
+        )
+    return f"Unknown command /{cmd}. Try /help."
+
+
 def _has_memory_node(workflow: Mapping[str, Any]) -> bool:
     node_meta = workflow.get("node_meta") or {}
     return any(
@@ -219,6 +267,12 @@ class SlackAgentRuntime:
                 pass
         return self.workflow
 
+    def command_reply(self, text: str) -> str | None:
+        """If ``text`` is a ``/command``, answer it from the live graph; else None."""
+        if not (text or "").strip().startswith("/"):
+            return None
+        return describe_command(self._live_workflow(), text)
+
     def handle_message(
         self,
         text: str,
@@ -297,6 +351,11 @@ def serve(runtime: SlackAgentRuntime, *, bot_token: str, app_token: str) -> None
     def _on_mention(event: dict, say: Any) -> None:  # pragma: no cover - needs live Slack
         thread = event.get("thread_ts") or event.get("ts")
         print(f"[slack] <- channel {event.get('channel')}: {str(event.get('text',''))!r}", flush=True)
+        # Graph-introspection commands (/tools, /model, /graph) answer directly.
+        command = runtime.command_reply(strip_mention(event.get("text", "")))
+        if command is not None:
+            say(text=command, thread_ts=thread)
+            return
         status.mark_processing()
         # The graph drives the send: cooking the reply node posts the answer.
         # The driver only reports errors that prevented a reply.

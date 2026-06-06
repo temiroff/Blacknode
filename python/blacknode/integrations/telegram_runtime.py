@@ -71,6 +71,13 @@ def serve(runtime: AgentRuntime, *, bot_token: str) -> None:
             "message_id": str(message.message_id),
         }
         print(f"[telegram] <- chat {chat_id}: {text!r}", flush=True)
+        # Graph-introspection commands (/tools, /model, /graph, /help) answer
+        # directly from the live graph — no agent run.
+        command = runtime.command_reply(text)
+        if command is not None:
+            await message.reply_text(command)
+            print(f"[telegram] -> command reply ({text!r})", flush=True)
+            return
         status.mark_processing()
         # The graph drives the send: cooking the reply node posts the answer.
         # The driver only reports errors that prevented a reply.
@@ -85,7 +92,8 @@ def serve(runtime: AgentRuntime, *, bot_token: str) -> None:
                 pass
         status.mark_listening()
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _on_message))
+    # Include commands (filters.TEXT alone) so /tools, /model, /graph reach us.
+    app.add_handler(MessageHandler(filters.TEXT, _on_message))
     print(f"[telegram] connected as {label or '(unknown)'} — long-polling (DM the bot; groups need @mention)", flush=True)
     try:
         app.run_polling()

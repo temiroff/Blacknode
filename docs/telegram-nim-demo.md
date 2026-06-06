@@ -110,6 +110,20 @@ node and the next message uses the new shape, no restart. The data connections
 decide what's cooked: cooking the reply pulls everything wired into it
 (`TelegramMessage → ConversationMemory → AgentLoop → tools → TelegramReply`).
 
+## Commands
+
+The bot answers a few `/commands` **directly from the live graph** — no LLM call,
+instant, and free (they reflect the current graph, so editing it updates them):
+
+| Command | Reply |
+|---|---|
+| `/tools` | the tools the agent can use (name + description) |
+| `/model` | the model the graph is running |
+| `/graph` | a summary of the node graph |
+| `/help` | the command list |
+
+Anything not starting with `/` goes to the agent as usual.
+
 ## Customize
 
 Everything from the Slack demo applies — the graph is identical apart from the
@@ -125,6 +139,10 @@ whose result is text.
 - **Live status**: while running, the driver heartbeats the editor, so the
   `TelegramMessage` node badge shows **listening** / **processing** / **offline**
   truthfully. Best-effort; never blocks the bot.
+- **NIM tool calls** run in single-tool-call mode — NIM models (e.g.
+  `llama-3.1-8b`) reject parallel tool calls, so the driver requests one at a
+  time. Small models still narrate tools at times; a stricter `system` prompt or
+  a larger model (e.g. `nim:meta/llama-3.1-70b-instruct`) behaves better.
 - **Long polling** is used for zero-config local runs; for a hosted deployment
   you'd switch to a webhook.
 - The bot runs the agent with tool access on external input — only deploy it

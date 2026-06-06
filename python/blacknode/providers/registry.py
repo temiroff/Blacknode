@@ -90,4 +90,5 @@ def _make_nim(api_key):
     return OpenAIProvider(
         api_key=api_key_for_provider("NVIDIA NIM", "NVIDIA_API_KEY", api_key),
         base_url=_NIM_BASE_URL,
+        single_tool_call=True,  # NIM models reject parallel tool calls
     )

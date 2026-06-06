@@ -112,6 +112,10 @@ the graph open and `@mention` the bot to **watch the real run animate** on the
 canvas (per-node status circles, output values on hover), with each message
 cooking the current graph — no restart on edits.
 
+**Commands:** `@mention` the bot with `/tools`, `/model`, `/graph`, or `/help` and
+it answers **directly from the live graph** (no LLM) — handy to see what's wired
+in. Anything else goes to the agent.
+
 Options:
 
 - `--input-node ID` — the node that receives each message. Defaults to

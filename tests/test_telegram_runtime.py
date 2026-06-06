@@ -114,6 +114,29 @@ class TelegramDriverTests(unittest.TestCase):
         self.assertEqual(conversation_state.turns("chat-7"), [("@bot ping", "pong")])
 
 
+class CommandTests(unittest.TestCase):
+    def test_tools_command_lists_graph_tools(self):
+        out = sr.describe_command(_template(), "/tools")
+        self.assertIn("web_search", out)
+        self.assertIn("calculator", out)
+
+    def test_model_command_reports_model(self):
+        out = sr.describe_command(_template(), "/model")
+        self.assertIn("nim:meta/llama-3.1-8b-instruct", out)
+
+    def test_graph_command_summarizes(self):
+        out = sr.describe_command(_template(), "/graph")
+        self.assertIn("nodes", out)
+        self.assertIn("TelegramMessage", out)
+
+    def test_help_and_unknown(self):
+        self.assertIn("/tools", sr.describe_command(_template(), "/help"))
+        self.assertIn("Unknown", sr.describe_command(_template(), "/nope"))
+
+    def test_non_command_returns_none(self):
+        self.assertIsNone(sr.describe_command(_template(), "hello there"))
+
+
 class TelegramCliTests(unittest.TestCase):
     def test_cli_fails_without_setup(self):
         # Without python-telegram-bot installed (CI) or a token, the driver can't

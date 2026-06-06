@@ -2483,6 +2483,7 @@ def _spawn_driver(name: str) -> tuple[bool, str]:
     env = dict(os.environ)
     env["BLACKNODE_SYNC_URL"] = "http://127.0.0.1:7777"
     env["BLACKNODE_EDITOR_URL"] = "http://127.0.0.1:7777"
+    env["PYTHONIOENCODING"] = "utf-8"  # bot logs may contain unicode/emoji (Windows)
     proc = subprocess.Popen(
         [sys.executable, "-u", "-m", "blacknode.cli", name, path],
         cwd=_REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

@@ -34,8 +34,12 @@ def _context_safe_max_tokens(exc: Exception, requested_max_tokens: int) -> int |
 class OpenAIProvider(BaseProvider):
     """Covers OpenAI, Ollama, LM Studio, llama.cpp — anything with an OpenAI-compatible API."""
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, *, single_tool_call: bool = False):
         from openai import OpenAI
+        # Some models (e.g. NVIDIA NIM llama-3.1) only accept ONE tool call per
+        # turn — parallel calls make their prompt template 500. When set, we ask
+        # for non-parallel calls and keep only the first if more come back.
+        self.single_tool_call = single_tool_call
         self._client = OpenAI(
             api_key=api_key or os.environ.get("OPENAI_API_KEY", "sk-local"),
             base_url=base_url,
@@ -76,15 +80,23 @@ class OpenAIProvider(BaseProvider):
                 for t in tools
             ]
             call_kwargs["tool_choice"] = "auto"
+            if self.single_tool_call:
+                call_kwargs["parallel_tool_calls"] = False
 
         try:
             resp = self._client.chat.completions.create(**call_kwargs)
         except Exception as exc:
             safe_max_tokens = _context_safe_max_tokens(exc, max_tokens)
-            if safe_max_tokens is None:
+            if safe_max_tokens is not None:
+                call_kwargs["max_tokens"] = safe_max_tokens
+                resp = self._client.chat.completions.create(**call_kwargs)
+            elif "parallel_tool_calls" in call_kwargs and "parallel_tool_calls" in str(exc).lower():
+                # Provider doesn't accept the param — retry without it; the
+                # response truncation below still guarantees a single tool call.
+                call_kwargs.pop("parallel_tool_calls", None)
+                resp = self._client.chat.completions.create(**call_kwargs)
+            else:
                 raise
-            call_kwargs["max_tokens"] = safe_max_tokens
-            resp = self._client.chat.completions.create(**call_kwargs)
         choice = resp.choices[0]
         msg = choice.message
 
@@ -94,6 +106,10 @@ class OpenAIProvider(BaseProvider):
             for tc in msg.tool_calls:
                 args = json.loads(tc.function.arguments) if tc.function.arguments else {}
                 tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args))
+        if self.single_tool_call and len(tool_calls) > 1:
+            # Keep one call so history never carries parallel tool_use; the agent
+            # loop will issue any further calls on subsequent turns.
+            tool_calls = tool_calls[:1]
 
         finish = choice.finish_reason
         stop_reason = "tool_use" if finish == "tool_calls" else ("length" if finish == "length" else "end_turn")
