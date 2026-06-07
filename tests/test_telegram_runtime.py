@@ -182,6 +182,13 @@ class UserFacingAnswerTests(unittest.TestCase):
             ),
             "4",
         )
+        self.assertEqual(
+            _answer_or_tool_output(
+                "The output JSON is too long to be included here.",
+                "NVIDIA is a technology company.",
+            ),
+            "NVIDIA is a technology company.",
+        )
 
     def test_agent_loop_returns_calculator_output_for_generic_final_text(self):
         from blacknode.nodes import ai
@@ -219,6 +226,54 @@ class UserFacingAnswerTests(unittest.TestCase):
             result = ai._agent_loop_run({"prompt": "2+2", "tools": [lambda: None]})
 
         self.assertEqual(result["result"], "4")
+
+    def test_agent_loop_stops_repeated_identical_tool_call(self):
+        from blacknode.nodes import ai
+        from blacknode.providers.base import CompletionResponse, ToolCall, ToolResult
+
+        repeated_call = ToolCall(
+            id="search-1",
+            name="web_search",
+            arguments={"query": "what is nvidia"},
+        )
+        responses = [
+            CompletionResponse(text="", tool_calls=[repeated_call], stop_reason="tool_use"),
+            CompletionResponse(text="", tool_calls=[repeated_call], stop_reason="tool_use"),
+        ]
+
+        def fake_step(*args, **kwargs):
+            return None, responses.pop(0), {}
+
+        with (
+            patch.object(ai, "_chat_step", side_effect=fake_step),
+            patch.object(
+                ai,
+                "_dispatch_tools",
+                return_value=(
+                    [
+                        ToolResult(
+                            tool_call_id="search-1",
+                            name="web_search",
+                            output="NVIDIA is a technology company.",
+                        )
+                    ],
+                    [
+                        {
+                            "role": "tool",
+                            "name": "web_search",
+                            "output": "NVIDIA is a technology company.",
+                        }
+                    ],
+                ),
+            ) as dispatch,
+            patch.object(ai, "_append_tool_messages", return_value=[]),
+        ):
+            result = ai._agent_loop_run(
+                {"prompt": "what is nvidia", "tools": [lambda: None]}
+            )
+
+        self.assertEqual(result["result"], "NVIDIA is a technology company.")
+        dispatch.assert_called_once()
 
 
 class TelegramImageTests(unittest.TestCase):

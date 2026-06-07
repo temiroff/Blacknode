@@ -1,3 +1,4 @@
+import json
 import re
 
 from blacknode.node import node
@@ -12,6 +13,7 @@ _TOOL_PROCESS_ONLY_RE = re.compile(
     r"|the final answer is in the output of .+ tool call"
     r"|this is the result of .+ function call(?: with .+)?"
     r"|this is the final answer to (?:the )?user(?:'s)? prompt"
+    r"|the output json is too long to be included here"
     r")\.?$",
     re.IGNORECASE | re.DOTALL,
 )
@@ -65,6 +67,16 @@ def _tool_defs(tools: list) -> list[ToolDef]:
 
 def _tool_call_dict(tc: ToolCall) -> dict:
     return {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+
+
+def _tool_call_signature(tool_calls: list) -> tuple:
+    return tuple(
+        (
+            tc.name,
+            json.dumps(tc.arguments, sort_keys=True, separators=(",", ":"), default=str),
+        )
+        for tc in (_tool_call(value) for value in tool_calls)
+    )
 
 
 def _tool_call(value) -> ToolCall:
@@ -183,6 +195,7 @@ def _agent_loop_run(ctx: dict) -> dict:
     messages: list[dict] = [{"role": "user", "content": prompt}]
     steps: list[dict] = []
     last_tool_output = ""
+    last_tool_signature: tuple = ()
 
     if not str(prompt or "").strip():
         return {"result": "", "steps": steps}
@@ -208,6 +221,10 @@ def _agent_loop_run(ctx: dict) -> dict:
         if resp.stop_reason == "end_turn" or not resp.tool_calls:
             return {"result": _answer_or_tool_output(resp.text, last_tool_output), "steps": steps}
 
+        tool_signature = _tool_call_signature(resp.tool_calls)
+        if tool_signature == last_tool_signature and last_tool_output:
+            return {"result": last_tool_output, "steps": steps}
+
         tool_results, tool_steps = _dispatch_tools(
             [_tool_call_dict(tc) for tc in resp.tool_calls],
             tools,
@@ -216,6 +233,7 @@ def _agent_loop_run(ctx: dict) -> dict:
         )
         if tool_results:
             last_tool_output = tool_results[-1].output
+            last_tool_signature = tool_signature
         steps.extend(tool_steps)
         messages = _append_tool_messages(
             messages,
