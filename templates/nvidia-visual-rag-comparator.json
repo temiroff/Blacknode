@@ -1,0 +1,402 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "NVIDIA Visual RAG Comparator",
+  "saved_at": "2026-06-07T00:00:00",
+  "entrypoint": {
+    "node_id": "out_answer",
+    "port": "value"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Compare original-query and Q2E retrieval using NVIDIA Nemotron embedding, reranking, cited generation, and visual replay.",
+    "color": "#76b900"
+  },
+  "node_meta": {
+    "corpus": {
+      "id": "corpus",
+      "type": "Text",
+      "params": {
+        "value": "NVIDIA NIM packages optimized inference software into portable microservices with standard APIs. Teams can use hosted endpoints for evaluation or deploy NIM containers on NVIDIA-accelerated infrastructure for greater data control.\n\nNVIDIA NeMo Retriever provides modular extraction, embedding, indexing, retrieval, and reranking components for retrieval-augmented generation. Query embeddings and passage embeddings must use the correct input type for accurate semantic search.\n\nThe NVIDIA Llama Nemotron reasoning family can analyze ambiguous questions and expand them with related terminology. Query-to-Expansion, or Q2E, improves recall when users and documents describe the same concept with different vocabulary.\n\nNeMo Retriever reranking models evaluate each query and candidate passage together. Reranking is applied after fast vector retrieval to move the most relevant evidence to the top before answer generation.\n\nBlacknode represents an agent workflow as a typed visual graph. It records model calls, node timings, retrieval outputs, tool calls, and errors so developers can inspect why a RAG answer succeeded or failed.\n\nBlacknode can expose the same workflow through Slack Socket Mode and Telegram long polling. The messaging integrations are delivery channels around the shared workflow rather than separate agent implementations."
+      },
+      "pos": [40, 80],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "chunk": {
+      "id": "chunk",
+      "type": "TextChunker",
+      "params": {
+        "chunk_size": 420,
+        "overlap": 0
+      },
+      "pos": [300, 80],
+      "inputs": ["text", "chunk_size", "overlap"],
+      "outputs": ["chunks", "count"],
+      "input_types": {
+        "text": "Text",
+        "chunk_size": "Int",
+        "overlap": "Int"
+      },
+      "output_types": {
+        "chunks": "List",
+        "count": "Int"
+      },
+      "input_defaults": {
+        "chunk_size": 900,
+        "overlap": 120
+      }
+    },
+    "embed_docs": {
+      "id": "embed_docs",
+      "type": "NVIDIAEmbedding",
+      "params": {
+        "input_type": "passage"
+      },
+      "pos": [580, 80],
+      "inputs": ["content", "input_type", "model", "endpoint_url", "api_key", "dimensions", "timeout"],
+      "outputs": ["embedding", "embeddings", "items", "metrics"],
+      "input_types": {
+        "content": "Any",
+        "input_type": "Text",
+        "model": "Text",
+        "endpoint_url": "Text",
+        "api_key": "Text",
+        "dimensions": "Int",
+        "timeout": "Float"
+      },
+      "output_types": {
+        "embedding": "Embedding",
+        "embeddings": "List",
+        "items": "List",
+        "metrics": "Dict"
+      },
+      "input_defaults": {
+        "input_type": "passage",
+        "model": "nvidia/llama-nemotron-embed-1b-v2",
+        "endpoint_url": "https://integrate.api.nvidia.com/v1",
+        "dimensions": 0,
+        "timeout": 30.0
+      }
+    },
+    "question": {
+      "id": "question",
+      "type": "Text",
+      "params": {
+        "value": "How can I improve search when users describe the same topic with different words?"
+      },
+      "pos": [40, 430],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Text"
+      },
+      "input_defaults": {}
+    },
+    "rewrite": {
+      "id": "rewrite",
+      "type": "NIMQueryRewrite",
+      "params": {
+        "strategy": "Q2E"
+      },
+      "pos": [300, 500],
+      "inputs": ["query", "strategy", "model", "endpoint_url", "api_key", "max_tokens"],
+      "outputs": ["core_query", "rewritten_query", "terms", "analysis", "latency_ms"],
+      "input_types": {
+        "query": "Text",
+        "strategy": "Text",
+        "model": "Model",
+        "endpoint_url": "Text",
+        "api_key": "Text",
+        "max_tokens": "Int"
+      },
+      "output_types": {
+        "core_query": "Text",
+        "rewritten_query": "Text",
+        "terms": "List",
+        "analysis": "Dict",
+        "latency_ms": "Float"
+      },
+      "input_defaults": {
+        "strategy": "Q2E",
+        "model": "nim:nvidia/nemotron-mini-4b-instruct",
+        "endpoint_url": "https://integrate.api.nvidia.com/v1",
+        "max_tokens": 512
+      }
+    },
+    "embed_original": {
+      "id": "embed_original",
+      "type": "NVIDIAEmbedding",
+      "params": {
+        "input_type": "query"
+      },
+      "pos": [580, 360],
+      "inputs": ["content", "input_type", "model", "endpoint_url", "api_key", "dimensions", "timeout"],
+      "outputs": ["embedding", "embeddings", "items", "metrics"],
+      "input_types": {
+        "content": "Any",
+        "input_type": "Text",
+        "model": "Text",
+        "endpoint_url": "Text",
+        "api_key": "Text",
+        "dimensions": "Int",
+        "timeout": "Float"
+      },
+      "output_types": {
+        "embedding": "Embedding",
+        "embeddings": "List",
+        "items": "List",
+        "metrics": "Dict"
+      },
+      "input_defaults": {
+        "input_type": "passage",
+        "model": "nvidia/llama-nemotron-embed-1b-v2",
+        "endpoint_url": "https://integrate.api.nvidia.com/v1",
+        "dimensions": 0,
+        "timeout": 30.0
+      }
+    },
+    "embed_rewritten": {
+      "id": "embed_rewritten",
+      "type": "NVIDIAEmbedding",
+      "params": {
+        "input_type": "query"
+      },
+      "pos": [580, 570],
+      "inputs": ["content", "input_type", "model", "endpoint_url", "api_key", "dimensions", "timeout"],
+      "outputs": ["embedding", "embeddings", "items", "metrics"],
+      "input_types": {
+        "content": "Any",
+        "input_type": "Text",
+        "model": "Text",
+        "endpoint_url": "Text",
+        "api_key": "Text",
+        "dimensions": "Int",
+        "timeout": "Float"
+      },
+      "output_types": {
+        "embedding": "Embedding",
+        "embeddings": "List",
+        "items": "List",
+        "metrics": "Dict"
+      },
+      "input_defaults": {
+        "input_type": "passage",
+        "model": "nvidia/llama-nemotron-embed-1b-v2",
+        "endpoint_url": "https://integrate.api.nvidia.com/v1",
+        "dimensions": 0,
+        "timeout": 30.0
+      }
+    },
+    "search_original": {
+      "id": "search_original",
+      "type": "NVIDIAVectorSearch",
+      "params": {
+        "top_k": 3
+      },
+      "pos": [880, 310],
+      "inputs": ["documents", "embeddings", "query_embedding", "top_k"],
+      "outputs": ["results", "metrics"],
+      "input_types": {
+        "documents": "List",
+        "embeddings": "List",
+        "query_embedding": "Embedding",
+        "top_k": "Int"
+      },
+      "output_types": {
+        "results": "List",
+        "metrics": "Dict"
+      },
+      "input_defaults": {
+        "top_k": 10
+      }
+    },
+    "search_rewritten": {
+      "id": "search_rewritten",
+      "type": "NVIDIAVectorSearch",
+      "params": {
+        "top_k": 3
+      },
+      "pos": [880, 570],
+      "inputs": ["documents", "embeddings", "query_embedding", "top_k"],
+      "outputs": ["results", "metrics"],
+      "input_types": {
+        "documents": "List",
+        "embeddings": "List",
+        "query_embedding": "Embedding",
+        "top_k": "Int"
+      },
+      "output_types": {
+        "results": "List",
+        "metrics": "Dict"
+      },
+      "input_defaults": {
+        "top_k": 10
+      }
+    },
+    "rerank": {
+      "id": "rerank",
+      "type": "NVIDIARerank",
+      "params": {
+        "top_k": 3
+      },
+      "pos": [1160, 570],
+      "inputs": ["query", "results", "model", "endpoint_url", "api_key", "top_k", "timeout"],
+      "outputs": ["results", "metrics"],
+      "input_types": {
+        "query": "Text",
+        "results": "List",
+        "model": "Text",
+        "endpoint_url": "Text",
+        "api_key": "Text",
+        "top_k": "Int",
+        "timeout": "Float"
+      },
+      "output_types": {
+        "results": "List",
+        "metrics": "Dict"
+      },
+      "input_defaults": {
+        "model": "nvidia/llama-nemotron-rerank-1b-v2",
+        "endpoint_url": "https://ai.api.nvidia.com/v1/retrieval/nvidia/llama-nemotron-rerank-1b-v2/reranking",
+        "top_k": 5,
+        "timeout": 30.0
+      }
+    },
+    "compare": {
+      "id": "compare",
+      "type": "RetrievalCompare",
+      "params": {},
+      "pos": [1160, 300],
+      "inputs": ["original_results", "rewritten_results", "reranked_results"],
+      "outputs": ["comparison", "report"],
+      "input_types": {
+        "original_results": "List",
+        "rewritten_results": "List",
+        "reranked_results": "List"
+      },
+      "output_types": {
+        "comparison": "Dict",
+        "report": "Text"
+      },
+      "input_defaults": {}
+    },
+    "answer": {
+      "id": "answer",
+      "type": "NIMCitationAnswer",
+      "params": {},
+      "pos": [1450, 570],
+      "inputs": ["query", "results", "model", "endpoint_url", "api_key", "max_tokens"],
+      "outputs": ["answer", "citations", "context", "metrics"],
+      "input_types": {
+        "query": "Text",
+        "results": "List",
+        "model": "Model",
+        "endpoint_url": "Text",
+        "api_key": "Text",
+        "max_tokens": "Int"
+      },
+      "output_types": {
+        "answer": "Text",
+        "citations": "List",
+        "context": "Text",
+        "metrics": "Dict"
+      },
+      "input_defaults": {
+        "model": "nim:nvidia/nemotron-mini-4b-instruct",
+        "endpoint_url": "https://integrate.api.nvidia.com/v1",
+        "max_tokens": 384
+      }
+    },
+    "out_rewrite": {
+      "id": "out_rewrite",
+      "type": "Output",
+      "params": {
+        "label": "Q2E Rewritten Query"
+      },
+      "pos": [880, 770],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_compare": {
+      "id": "out_compare",
+      "type": "Output",
+      "params": {
+        "label": "Retrieval Comparison"
+      },
+      "pos": [1450, 300],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_answer": {
+      "id": "out_answer",
+      "type": "Output",
+      "params": {
+        "label": "Cited Answer"
+      },
+      "pos": [1730, 570],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "out_citations": {
+      "id": "out_citations",
+      "type": "Output",
+      "params": {
+        "label": "Citations"
+      },
+      "pos": [1730, 760],
+      "inputs": ["value"],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {"from": "corpus", "from_port": "value", "to": "chunk", "to_port": "text"},
+    {"from": "chunk", "from_port": "chunks", "to": "embed_docs", "to_port": "content"},
+    {"from": "question", "from_port": "value", "to": "rewrite", "to_port": "query"},
+    {"from": "question", "from_port": "value", "to": "embed_original", "to_port": "content"},
+    {"from": "rewrite", "from_port": "rewritten_query", "to": "embed_rewritten", "to_port": "content"},
+    {"from": "embed_docs", "from_port": "items", "to": "search_original", "to_port": "documents"},
+    {"from": "embed_docs", "from_port": "embeddings", "to": "search_original", "to_port": "embeddings"},
+    {"from": "embed_original", "from_port": "embedding", "to": "search_original", "to_port": "query_embedding"},
+    {"from": "embed_docs", "from_port": "items", "to": "search_rewritten", "to_port": "documents"},
+    {"from": "embed_docs", "from_port": "embeddings", "to": "search_rewritten", "to_port": "embeddings"},
+    {"from": "embed_rewritten", "from_port": "embedding", "to": "search_rewritten", "to_port": "query_embedding"},
+    {"from": "rewrite", "from_port": "rewritten_query", "to": "rerank", "to_port": "query"},
+    {"from": "search_rewritten", "from_port": "results", "to": "rerank", "to_port": "results"},
+    {"from": "search_original", "from_port": "results", "to": "compare", "to_port": "original_results"},
+    {"from": "search_rewritten", "from_port": "results", "to": "compare", "to_port": "rewritten_results"},
+    {"from": "rerank", "from_port": "results", "to": "compare", "to_port": "reranked_results"},
+    {"from": "question", "from_port": "value", "to": "answer", "to_port": "query"},
+    {"from": "rerank", "from_port": "results", "to": "answer", "to_port": "results"},
+    {"from": "rewrite", "from_port": "rewritten_query", "to": "out_rewrite", "to_port": "value"},
+    {"from": "compare", "from_port": "report", "to": "out_compare", "to_port": "value"},
+    {"from": "answer", "from_port": "answer", "to": "out_answer", "to_port": "value"},
+    {"from": "answer", "from_port": "citations", "to": "out_citations", "to_port": "value"}
+  ]
+}

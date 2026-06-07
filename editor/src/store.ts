@@ -3,12 +3,13 @@ import {
   Node, Edge, addEdge, applyNodeChanges, applyEdgeChanges,
   NodeChange, EdgeChange, Connection,
 } from 'reactflow'
-import { api, type CookEvent, type DriverInfo, type DriverStatus, type LearnedNodeSummary, type RunRecord } from './api'
+import { api, type ApiKeyStatus, type CookEvent, type DriverInfo, type DriverStatus, type LearnedNodeSummary, type RunRecord } from './api'
 import { BnNodeDef, BnNodeMeta, ConnectionDraft, NodeCookState, SubnetFrame } from './types'
 import { VALUE_NODE_TYPES } from './categories'
 import { portsCompatible, portColor } from './portColors'
 import { organizeFlowNodes } from './graphLayout'
 import { createVisualAgentLoopSubgraph } from './defaultSubgraphs'
+import type { GraphRunTarget } from './graphRun'
 
 const MODEL_NODE_TYPES  = new Set(['Model'])
 const OUTPUT_NODE_TYPES = new Set(['Output'])
@@ -85,6 +86,7 @@ interface Store {
   serverOk: boolean
   serverError: string | null
   apiKeys: Record<string, string>
+  apiKeyStatus: Record<string, ApiKeyStatus>
   driverStatus: Record<string, DriverStatus>
   drivers: Record<string, DriverInfo>
   customModels: string[]
@@ -102,6 +104,7 @@ interface Store {
   loadNodeTypes: () => Promise<void>
   loadGraph: () => Promise<void>
   loadApiKeys: () => Promise<void>
+  loadApiKeyStatus: () => Promise<void>
   setApiKey: (provider: string, key: string) => Promise<void>
   loadDriverStatus: () => Promise<void>
   loadDrivers: () => Promise<void>
@@ -176,7 +179,7 @@ interface Store {
     copyIdMap: Record<string, string> | null,
   ) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
-  cookNode: (id: string, port?: string) => Promise<void>
+  cookNode: (id: string, port?: string, graphTargets?: GraphRunTarget[]) => Promise<void>
   stopCook: () => void
   dismissCookStatus: () => void
   applyRunReplay: (record: RunRecord, cursor: number, playing: boolean) => void
@@ -981,6 +984,7 @@ export const useStore = create<Store>((set, get) => ({
   serverOk: false,
   serverError: null,
   apiKeys: {},
+  apiKeyStatus: {},
   driverStatus: {},
   drivers: {},
   customModels: [],
@@ -1070,9 +1074,20 @@ export const useStore = create<Store>((set, get) => ({
     } catch {}
   },
 
+  loadApiKeyStatus: async () => {
+    try {
+      set({ apiKeyStatus: await api.getApiKeyStatus() })
+    } catch {}
+  },
+
   setApiKey: async (provider, key) => {
-    await api.setApiKey(provider, key)
-    set(s => ({ apiKeys: { ...s.apiKeys, [provider]: key } }))
+    const result = await api.setApiKey(provider, key)
+    set(s => ({
+      apiKeys: { ...s.apiKeys, [provider]: key },
+      apiKeyStatus: result.credential
+        ? { ...s.apiKeyStatus, [provider]: result.credential }
+        : s.apiKeyStatus,
+    }))
   },
 
   loadDriverStatus: async () => {
@@ -2407,11 +2422,20 @@ export const useStore = create<Store>((set, get) => ({
     }))
   },
 
-  cookNode: async (id, port = 'output') => {
+  cookNode: async (id, port = 'output', graphTargets) => {
     const cookTabId = get().activeTabId
     const stack = get().subnetStack
     const activeSubnetId = stack.length > 0 ? stack[stack.length - 1].subnetId : null
     const cookNodes = get().nodes
+    const targets = graphTargets?.length ? graphTargets : [{ id, port }]
+    const graphRun = Boolean(graphTargets?.length)
+    const targetIds = new Set(targets.map(target => target.id))
+    const targetPorts = new Map(targets.map(target => [target.id, target.port]))
+    const runNodeId = graphRun ? '__graph__' : id
+    const runPort = graphRun ? 'leaves' : port
+    const runLabel = graphRun
+      ? `Graph (${targets.length} terminal node${targets.length === 1 ? '' : 's'})`
+      : nodeRunLabel(cookNodes, id)
     const startNode = cookNodes.find(n => n.id === id)
     const liveRunId = `live-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
     const liveStartedAt = new Date().toISOString()
@@ -2419,7 +2443,7 @@ export const useStore = create<Store>((set, get) => ({
     let liveReplayDelay = 0
     const queueLiveReplay = (event: CookEvent) => {
       const stamped = { ...replayCookEvent(event), ts: new Date().toISOString() }
-      const finalSuccess = stamped.type === 'success' && stamped.node_id === id && stamped.port === port
+      const finalSuccess = !graphRun && stamped.type === 'success' && stamped.node_id === id && stamped.port === port
       liveEvents.push(stamped)
       const eventIndex = liveEvents.length - 1
       const record: RunRecord = {
@@ -2432,9 +2456,9 @@ export const useStore = create<Store>((set, get) => ({
           : finalSuccess
             ? 'success'
             : 'running',
-        node_id: id,
-        port,
-        node_type: startNode?.data.type ?? '',
+        node_id: runNodeId,
+        port: runPort,
+        node_type: graphRun ? 'Graph' : startNode?.data.type ?? '',
         node_count: new Set(liveEvents.map(e => stringValue(e.node_id)).filter(Boolean)).size,
         model_calls: liveEvents.filter(e => e.type === 'model_call').length,
         tool_calls: liveEvents.filter(e => e.type === 'tool_call').length,
@@ -2475,7 +2499,7 @@ export const useStore = create<Store>((set, get) => ({
         }))
         return
       }
-      const finalSuccess = event.type === 'success' && event.node_id === id && event.port === port
+      const finalSuccess = !graphRun && event.type === 'success' && event.node_id === id && event.port === port
       set(s => ({
         ...syncTabCookState(s, cookTabId, {
           cookActive: event.type === 'start' || (event.type === 'success' && !finalSuccess),
@@ -2525,6 +2549,9 @@ export const useStore = create<Store>((set, get) => ({
                   cookResult: event.value,
                   cookError: undefined,
                   cookPort: event.port,
+                  portResults: event.outputs
+                    ? { ...(n.data.portResults ?? {}), ...event.outputs }
+                    : n.data.portResults,
                 },
               }
             }
@@ -2545,10 +2572,10 @@ export const useStore = create<Store>((set, get) => ({
     const queuedLog: CookLogEntry[] = [{
       id: `${Date.now()}-${id}-queued`,
       kind: 'start',
-      label: nodeRunLabel(cookNodes, id),
-      message: `Queued ${nodeRunLabel(cookNodes, id)}.${port}`,
-      nodeId: id,
-      port,
+      label: runLabel,
+      message: graphRun ? `Queued all ${targets.length} terminal nodes` : `Queued ${runLabel}.${port}`,
+      nodeId: graphRun ? undefined : id,
+      port: runPort,
       ts: Date.now(),
     }]
     set(s => ({
@@ -2562,19 +2589,19 @@ export const useStore = create<Store>((set, get) => ({
         cursor: -1,
         total: 0,
         playing: true,
-        currentNodeId: id,
+        currentNodeId: graphRun ? undefined : id,
         currentEventType: 'queued',
-        message: `Queued ${nodeRunLabel(cookNodes, id)}.${port}`,
+        message: graphRun ? `Queued all ${targets.length} terminal nodes` : `Queued ${runLabel}.${port}`,
       },
       nodes: s.nodes.map(n => ({
         ...n,
-        data: n.id === id
+        data: targetIds.has(n.id)
           ? {
               ...clearReplayData(n.data),
               cooking: true,
               cookError: undefined,
               cookResult: undefined,
-              cookPort: port,
+              cookPort: targetPorts.get(n.id) ?? port,
             }
           : {
               ...clearReplayData(n.data),
@@ -2586,8 +2613,12 @@ export const useStore = create<Store>((set, get) => ({
     cookAbort = new AbortController()
     const signal = cookAbort.signal
     try {
-      if (activeSubnetId) {
+      if (activeSubnetId && graphRun) {
+        await api.cookSubgraphGraphStream(activeSubnetId, targets, applyCookEvent, signal)
+      } else if (activeSubnetId) {
         await api.cookSubgraphStream(activeSubnetId, id, port, applyCookEvent, signal)
+      } else if (graphRun) {
+        await api.cookGraphStream(targets, applyCookEvent, signal)
       } else {
         await api.cookStream(id, port, applyCookEvent, signal)
       }
@@ -2601,12 +2632,12 @@ export const useStore = create<Store>((set, get) => ({
           cookLog: appendCookLog(tabCookLog(s, cookTabId), {
             id: `${Date.now()}-${id}-${stopped ? 'stopped' : 'client-error'}`,
             kind: stopped ? 'start' : 'error',
-            label: nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id),
+            label: runLabel,
             message: stopped
-              ? `Stopped ${nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id)}.${port}`
-              : `${nodeRunLabel(s.activeTabId === cookTabId ? s.nodes : cookNodes, id)}.${port} error: ${message}`,
-            nodeId: id,
-            port,
+              ? `Stopped ${runLabel}`
+              : `${runLabel} error: ${message}`,
+            nodeId: graphRun ? undefined : id,
+            port: runPort,
             ts: Date.now(),
           }),
         }),
@@ -2614,8 +2645,8 @@ export const useStore = create<Store>((set, get) => ({
         nodes: s.activeTabId === cookTabId
           ? s.nodes.map(n => {
               const data = { ...n.data, cooking: false }
-              return n.id === id
-                ? { ...n, data: { ...data, cookError: stopped ? undefined : message, cookPort: port } }
+              return targetIds.has(n.id)
+                ? { ...n, data: { ...data, cookError: stopped ? undefined : message, cookPort: targetPorts.get(n.id) ?? port } }
                 : { ...n, data }
             })
           : s.nodes,

@@ -21,6 +21,7 @@ import { portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
 import { api, type FrameworkExportTarget } from './api'
+import { inferGraphRunTargets } from './graphRun'
 
 const NODE_TYPES = {
   blacknode: BlackNode,
@@ -111,7 +112,7 @@ export default function App() {
     nodes, edges, nodeTypes, nodeDefs, serverOk, serverError, cookLog, cookActive, cookStatusHidden,
     tabs, activeTabId,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
-    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadCustomModels, loadLearnedNodes, loadDriverStatus, loadDrivers,
+    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadApiKeyStatus, loadCustomModels, loadLearnedNodes, loadDriverStatus, loadDrivers,
     addNodeFromConnection, copySelection, pasteClipboard,
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
@@ -242,6 +243,7 @@ export default function App() {
   useEffect(() => {
     checkServer().then(() => {
       loadApiKeys()
+      loadApiKeyStatus()
       loadCustomModels()
       loadLearnedNodes()
       loadNodeTypes()
@@ -891,20 +893,20 @@ export default function App() {
   }, [fitCurrentCanvas, organizeNodes])
 
   const handleRunGraph = useCallback(async () => {
-    const target = inferGraphRunTarget(nodes)
-    if (!target) {
+    const targets = inferGraphRunTargets(nodes, edges)
+    if (targets.length === 0) {
       window.dispatchEvent(new CustomEvent('blacknode:notice', {
         detail: {
           kind: 'warning',
           title: 'Run',
-          message: 'No runnable output found in the current graph.',
+          message: 'No runnable terminal node found in the current graph.',
         },
       }))
       return
     }
     fitCurrentCanvas(220)
-    await cookNode(target.id, target.port)
-  }, [cookNode, fitCurrentCanvas, nodes])
+    await cookNode(targets[0].id, targets[0].port, targets)
+  }, [cookNode, edges, fitCurrentCanvas, nodes])
 
   const handleResetRun = useCallback(() => {
     stopCook()
@@ -1026,7 +1028,7 @@ export default function App() {
             className="bn-top-button bn-top-run-button"
             onClick={() => (cookActive ? stopCook() : void handleRunGraph())}
             disabled={!serverOk || (!cookActive && nodes.length === 0)}
-            title={cookActive ? 'Stop the running cook' : 'Run current graph'}
+            title={cookActive ? 'Stop the running cook' : 'Run every terminal node in the current graph'}
           >
             {cookActive ? '■ Stop' : 'Run'}
           </button>
@@ -1660,30 +1662,6 @@ function findToolBoxAtScreenPoint(nodes: any[], point: { x: number; y: number })
     }
   }
   return null
-}
-
-function inferGraphRunTarget(nodes: any[]): { id: string; port: string } | null {
-  const outputNodes = nodes
-    .filter(node => node.data?.type === 'Output')
-    .sort((a, b) => (b.position?.x ?? 0) - (a.position?.x ?? 0))
-  const output = outputNodes[0]
-  if (output) return { id: output.id, port: 'value' }
-
-  const subnetOutput = nodes.find(node => {
-    const inputs = node.data?.inputs
-    return node.data?.type === 'SubnetOutput' && Array.isArray(inputs) && inputs.length > 0
-  })
-  if (subnetOutput) return { id: subnetOutput.id, port: subnetOutput.data.inputs[0] }
-
-  const rightmostRunnable = nodes
-    .filter(node => Array.isArray(node.data?.outputs) && node.data.outputs.length > 0)
-    .sort((a, b) => (b.position?.x ?? 0) - (a.position?.x ?? 0))[0]
-  if (!rightmostRunnable) return null
-
-  return {
-    id: rightmostRunnable.id,
-    port: rightmostRunnable.data.outputs[0],
-  }
 }
 
 function CookStatusPanel({

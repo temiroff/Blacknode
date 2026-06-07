@@ -14,6 +14,8 @@ export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
     'CUDAKernelLab', 'CUDACustomKernel', 'CUDAImageFilter', 'TensorCoreGEMM', 'GPUCapability', 'GPURequirement',
     'NVIDIASystemCheck', 'NIMDockerCommand',
     'NIMHealthCheck', 'NIMAgent', 'NIMBenchmark', 'NIMFineTune', 'NIMFineTuneStatus', 'VideoFolderInput',
+    'NIMQueryRewrite', 'NVIDIAEmbedding', 'NVIDIAVectorSearch', 'NVIDIARerank',
+    'NIMCitationAnswer', 'RetrievalCompare',
   ] },
   // Advisory nodes design/plan an NVIDIA pipeline as text — they run no
   // inference (no Cosmos/VLM, NeMo Retriever, or NIM call). Muted green so the

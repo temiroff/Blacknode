@@ -3,6 +3,7 @@ import { api } from '../api'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { isWireOnlyInput } from '../inputControls'
+import { NVIDIA_API_KEY_PROVIDER, usesNvidiaCredential } from '../credentials'
 
 // Bot tokens for chat-driver nodes. Saved to the local key store (api_keys.json,
 // keyed by env-var name) — never into the graph — so templates stay shareable.
@@ -392,7 +393,8 @@ export default function Inspector() {
     const connectedPorts = new Set(
       edges.filter(e => e.target === node.id).map(e => e.targetHandle).filter(Boolean)
     )
-    const visibleInputs = data.inputs
+    const nvidiaCredential = usesNvidiaCredential(data.type)
+    const visibleInputs = data.inputs.filter(inp => !(nvidiaCredential && inp === 'api_key'))
 
     return (
       <>
@@ -408,6 +410,8 @@ export default function Inspector() {
 
         {/* driver connection (bot tokens) for chat trigger/reply nodes */}
         {driverFor(data.type) && <DriverConnection driver={driverFor(data.type)!} />}
+
+        {nvidiaCredential && <SharedNvidiaCredential />}
 
         {/* params */}
         <div style={{ padding: '12px 16px', flex: 1, overflowY: 'auto' }}>
@@ -636,6 +640,78 @@ export default function Inspector() {
           </span>
         </button>
       </div>
+    </div>
+  )
+}
+
+function SharedNvidiaCredential() {
+  const apiKeys = useStore(s => s.apiKeys)
+  const apiKeyStatus = useStore(s => s.apiKeyStatus)
+  const setApiKey = useStore(s => s.setApiKey)
+  const loadApiKeys = useStore(s => s.loadApiKeys)
+  const loadApiKeyStatus = useStore(s => s.loadApiKeyStatus)
+  const [editing, setEditing] = useState(false)
+  const status = apiKeyStatus[NVIDIA_API_KEY_PROVIDER]
+  const configured = Boolean(status?.configured)
+  const source = status?.source === 'saved'
+    ? 'saved editor key'
+    : status?.source === 'environment'
+      ? status.env_var || 'environment variable'
+      : 'not configured'
+
+  useEffect(() => {
+    void loadApiKeys()
+    void loadApiKeyStatus()
+  }, [loadApiKeys, loadApiKeyStatus])
+
+  return (
+    <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+      <div style={{
+        color: 'var(--tx2)', fontSize: 12, fontWeight: 700,
+        letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10,
+      }}>
+        Shared Credential · NVIDIA NIM
+      </div>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 7,
+        padding: '7px 9px', borderRadius: 6,
+        background: configured ? 'var(--ok)12' : 'var(--warn)12',
+        border: `1px solid ${configured ? 'var(--ok)' : 'var(--warn)'}`,
+        color: configured ? 'var(--ok)' : 'var(--warn)',
+        fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700,
+      }}>
+        <span>{configured ? '✓' : '!'}</span>
+        <span>{configured ? `Key found: ${source}` : 'NVIDIA NIM key missing'}</span>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--tx3)', marginTop: 7, lineHeight: 1.45 }}>
+        This node automatically reuses the shared key. Configure it once and every NVIDIA service node can use it.
+        Wire the <code>api_key</code> port only when you need a per-node override.
+      </div>
+      {(!configured || editing) && (
+        <div style={{ marginTop: 10 }}>
+          <SecretField
+            label="Shared NVIDIA API key"
+            placeholder="nvapi-..."
+            value={apiKeys[NVIDIA_API_KEY_PROVIDER] ?? ''}
+            onCommit={value => {
+              void setApiKey(NVIDIA_API_KEY_PROVIDER, value)
+              setEditing(false)
+            }}
+          />
+        </div>
+      )}
+      {configured && !editing && status?.source === 'saved' && (
+        <button
+          onClick={() => setEditing(true)}
+          style={{
+            marginTop: 9, background: 'transparent', border: '1px solid var(--line2)',
+            borderRadius: 5, color: 'var(--tx2)', cursor: 'pointer',
+            fontSize: 10, fontFamily: 'var(--font-ui)', padding: '4px 7px',
+          }}
+        >
+          Replace shared key
+        </button>
+      )}
     </div>
   )
 }

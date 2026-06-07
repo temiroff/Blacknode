@@ -40,7 +40,7 @@ function lastModelsFromParam(value: unknown): Record<string, string> {
 }
 
 function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
-  const { updateParam, apiKeys, setApiKey, customModels, addCustomModel, removeCustomModel } = useStore()
+  const { updateParam, apiKeys, apiKeyStatus, setApiKey, customModels, addCustomModel, removeCustomModel } = useStore()
 
   const current = String(data.params.value ?? DEFAULT_MODEL)
   const [providerId, setProviderId] = useState(providerIdForModelValue(current))
@@ -71,6 +71,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
   const showApiKey = shouldShowApiKeyForProvider(providerId)
   const keyName = modelProviderApiKeyNameById(providerId)
   const apiKey = apiKeys[keyName] ?? ''
+  const keyStatus = apiKeyStatus[keyName]
 
   useEffect(() => {
     const nextProvider = providerIdForModelValue(current)
@@ -475,50 +476,60 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         </div>
 
         {showApiKey ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <input
-              className="nodrag nopan"
-              value={apiKey}
-              placeholder={`${keyName} API key`}
-              onPointerDownCapture={stopPointer}
-              onMouseDownCapture={stopPointer}
-              onPointerDown={stopPointer}
-              onMouseDown={stopPointer}
-              onClick={stopPointer}
-              onDoubleClick={stopPointer}
-              onDragStart={e => e.preventDefault()}
-              onChange={e => updateKey(e.target.value)}
-              type={showKey ? 'text' : 'password'}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                background: 'transparent',
-                border: 'none',
-                borderBottom: `1px solid ${apiKey ? color + '80' : 'var(--line2)'}`,
-                color: apiKey ? 'var(--tx1)' : 'var(--tx3)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 11,
-                outline: 'none',
-                padding: '3px 2px',
-              }}
-            />
-            <button
-              className="nodrag nopan"
-              onClick={e => { e.stopPropagation(); setShowKey(s => !s) }}
-              onPointerDownCapture={stopPointer}
-              onMouseDown={e => e.stopPropagation()}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: showKey ? color : 'var(--tx3)',
-                cursor: 'pointer',
-                fontSize: 10,
-                padding: '2px 3px',
-                flexShrink: 0,
-              }}
-            >
-              {showKey ? 'hide' : 'show'}
-            </button>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <input
+                className="nodrag nopan"
+                value={apiKey}
+                placeholder={`${keyName} API key`}
+                onPointerDownCapture={stopPointer}
+                onMouseDownCapture={stopPointer}
+                onPointerDown={stopPointer}
+                onMouseDown={stopPointer}
+                onClick={stopPointer}
+                onDoubleClick={stopPointer}
+                onDragStart={e => e.preventDefault()}
+                onChange={e => updateKey(e.target.value)}
+                type={showKey ? 'text' : 'password'}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: `1px solid ${keyStatus?.configured ? color + '80' : 'var(--line2)'}`,
+                  color: keyStatus?.configured ? 'var(--tx1)' : 'var(--tx3)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 11,
+                  outline: 'none',
+                  padding: '3px 2px',
+                }}
+              />
+              <button
+                className="nodrag nopan"
+                onClick={e => { e.stopPropagation(); setShowKey(s => !s) }}
+                onPointerDownCapture={stopPointer}
+                onMouseDown={e => e.stopPropagation()}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: showKey ? color : 'var(--tx3)',
+                  cursor: 'pointer',
+                  fontSize: 10,
+                  padding: '2px 3px',
+                  flexShrink: 0,
+                }}
+              >
+                {showKey ? 'hide' : 'show'}
+              </button>
+            </div>
+            <div style={{
+              marginTop: 4, fontSize: 9, fontFamily: 'var(--font-mono)',
+              color: keyStatus?.configured ? 'var(--ok)' : 'var(--warn)',
+            }}>
+              {keyStatus?.configured
+                ? `✓ Shared key ready (${keyStatus.source === 'saved' ? 'saved in editor' : keyStatus.env_var || 'environment'})`
+                : '! Key missing'}
+            </div>
           </div>
         ) : (
           <div style={{ color: 'var(--tx3)', fontSize: 10 }}>

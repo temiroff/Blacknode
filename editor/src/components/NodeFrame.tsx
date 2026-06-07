@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { useStore } from '../store'
 import NodeStatus from './NodeStatus'
 import type { NodeCookState } from '../types'
+import { NVIDIA_API_KEY_PROVIDER, usesNvidiaCredential } from '../credentials'
 
 // Trigger ("hook") node types → the driver that listens for them. The badge
 // reflects that driver's real heartbeat (live/processing/offline).
@@ -38,6 +39,7 @@ export default function NodeFrame({
   const selectNode = useStore(s => s.selectNode)
   const driverStatus = useStore(s => s.driverStatus)
   const drivers = useStore(s => s.drivers)
+  const apiKeyStatus = useStore(s => s.apiKeyStatus)
   const replayActive = Boolean(data.replayRunId)
   const replayColor = replayStatusColor(data.replayStatus)
   const replayBadge = replayActive ? replayBadgeText(data) : ''
@@ -46,6 +48,8 @@ export default function NodeFrame({
   const driverInfo = driverName ? drivers[driverName] : undefined
   const driverLive = Boolean(driver?.live)
   const notInstalled = driverInfo ? !driverInfo.packages_installed : false
+  const usesNvidiaKey = usesNvidiaCredential(nodeType)
+  const nvidiaKeyConfigured = Boolean(apiKeyStatus[NVIDIA_API_KEY_PROVIDER]?.configured)
 
   return (
     <div
@@ -106,6 +110,26 @@ export default function NodeFrame({
           </div>
         )
       })()}
+      {usesNvidiaKey && (
+        <div
+          title={nvidiaKeyConfigured
+            ? 'This node automatically reuses the shared NVIDIA NIM API key.'
+            : 'No shared NVIDIA NIM API key was found. Select the node to configure it once.'}
+          style={{
+            position: 'absolute', right: 8, top: -24, zIndex: 19,
+            display: 'flex', alignItems: 'center', gap: 5,
+            padding: '3px 7px', background: 'var(--panel)',
+            border: `1px solid ${nvidiaKeyConfigured ? 'var(--ok)' : 'var(--warn)'}`,
+            borderRadius: 5, color: nvidiaKeyConfigured ? 'var(--ok)' : 'var(--warn)',
+            boxShadow: '0 4px 12px rgba(0,0,0,.24)',
+            fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+            lineHeight: 1.2, whiteSpace: 'nowrap',
+          }}
+        >
+          <span>{nvidiaKeyConfigured ? '✓' : '!'}</span>
+          <span>{nvidiaKeyConfigured ? 'NIM key shared' : 'NIM key missing'}</span>
+        </div>
+      )}
       {replayActive && replayBadge && (
         <div
           title={replayBadge}

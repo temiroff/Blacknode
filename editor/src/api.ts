@@ -1,4 +1,5 @@
 import type { BnNodeDef, BnNodeMeta } from './types'
+import type { GraphRunTarget } from './graphRun'
 
 const BASE = (import.meta.env.VITE_BLACKNODE_API_BASE ?? '/api').replace(/\/$/, '')
 
@@ -45,6 +46,12 @@ export interface DriverInstallResult {
   returncode: number
   log: string
   status: DriverInfo
+}
+
+export interface ApiKeyStatus {
+  configured: boolean
+  source: 'saved' | 'environment' | 'missing' | 'local'
+  env_var: string
 }
 
 export type RunStatus = 'success' | 'error' | 'running'
@@ -207,6 +214,42 @@ async function req<T>(method: string, path: string, body?: unknown, timeoutMs?: 
   }
 }
 
+async function streamCook(
+  path: string,
+  body: unknown,
+  label: string,
+  onEvent: (event: CookEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetchBackend(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (!res.ok) await responseJson<never>(res, path)
+  if (!res.body) return
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.trim()) continue
+      onEvent(parseCookEventLine(line, label))
+    }
+  }
+
+  buffer += decoder.decode()
+  if (buffer.trim()) onEvent(parseCookEventLine(buffer, label))
+}
+
 export const api = {
   nodeTypes: ()                              => req<string[]>('GET', '/node-types'),
   nodeDefs:  ()                              => req<Record<string, BnNodeDef>>('GET', '/node-defs'),
@@ -228,68 +271,14 @@ export const api = {
   cook:       (node_id: string, port = 'output') =>
     req<{ value: unknown; port: string }>('POST', '/cook', { node_id, port }),
   stopCook:   () => req<{ ok: boolean }>('POST', '/cook/stop'),
-  cookStream: async (node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) => {
-    const path = '/cook-stream'
-    const label = `${node_id}.${port}`
-    const res = await fetchBackend(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ node_id, port }),
-      signal,
-    })
-    if (!res.ok) await responseJson<never>(res, path)
-    if (!res.body) return
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        if (!line.trim()) continue
-        onEvent(parseCookEventLine(line, label))
-      }
-    }
-
-    buffer += decoder.decode()
-    if (buffer.trim()) onEvent(parseCookEventLine(buffer, label))
-  },
-  cookSubgraphStream: async (subnet_id: string, node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) => {
-    const path = `/nodes/${subnet_id}/cook-stream`
-    const label = `${node_id}.${port}`
-    const res = await fetchBackend(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ node_id, port }),
-      signal,
-    })
-    if (!res.ok) await responseJson<never>(res, path)
-    if (!res.body) return
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        if (!line.trim()) continue
-        onEvent(parseCookEventLine(line, label))
-      }
-    }
-
-    buffer += decoder.decode()
-    if (buffer.trim()) onEvent(parseCookEventLine(buffer, label))
-  },
+  cookStream: (node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
+    streamCook('/cook-stream', { node_id, port }, `${node_id}.${port}`, onEvent, signal),
+  cookGraphStream: (targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
+    streamCook('/cook-graph-stream', { targets: targets.map(target => ({ node_id: target.id, port: target.port })) }, `${targets.length} terminal nodes`, onEvent, signal),
+  cookSubgraphStream: (subnet_id: string, node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
+    streamCook(`/nodes/${subnet_id}/cook-stream`, { node_id, port }, `${node_id}.${port}`, onEvent, signal),
+  cookSubgraphGraphStream: (subnet_id: string, targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
+    streamCook(`/nodes/${subnet_id}/cook-graph-stream`, { targets: targets.map(target => ({ node_id: target.id, port: target.port })) }, `${targets.length} subnet terminal nodes`, onEvent, signal),
   reset:      ()                             => req('POST', '/reset'),
   execNode:   (code: string)                 => req<{ ok: boolean; new_types: string[] }>('POST', '/exec-node', { code }),
   saveCustomNode: (filename: string, code: string) =>
@@ -305,7 +294,9 @@ export const api = {
   stopDriver:       (name: string) => req<{ ok: boolean }>('POST', `/drivers/${name}/stop`, undefined, 8000),
   getDriverLogs:    (name: string) => req<{ running: boolean; lines: string[] }>('GET', `/drivers/${name}/logs`),
   getApiKeys:       () => req<Record<string, string>>('GET', '/settings/api-keys'),
-  setApiKey:        (provider: string, key: string) => req('POST', '/settings/api-key', { provider, key }),
+  getApiKeyStatus:  () => req<Record<string, ApiKeyStatus>>('GET', '/settings/api-key-status'),
+  setApiKey:        (provider: string, key: string) =>
+    req<{ ok: boolean; restarted?: string | null; credential?: ApiKeyStatus }>('POST', '/settings/api-key', { provider, key }),
   getCustomModels:  () => req<string[]>('GET', '/settings/custom-models'),
   addCustomModel:   (value: string) => req('POST', '/settings/custom-models', { value }),
   removeCustomModel:(value: string) => req('DELETE', `/settings/custom-models?value=${encodeURIComponent(value)}`),

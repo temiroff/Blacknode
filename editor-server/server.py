@@ -168,6 +168,13 @@ class CookReq(BaseModel):
     node_id: str
     port: str = "output"
 
+class CookTargetReq(BaseModel):
+    node_id: str
+    port: str = "output"
+
+class CookGraphReq(BaseModel):
+    targets: list[CookTargetReq]
+
 class SetGraphReq(BaseModel):
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -312,6 +319,20 @@ def _save_api_keys() -> None:
             json.dump(_api_keys, f, indent=2)
     except Exception as e:
         print(f"[blacknode] Could not save api_keys.json: {e}")
+
+
+def _api_key_status() -> dict[str, dict[str, Any]]:
+    status: dict[str, dict[str, Any]] = {}
+    for provider, env_var in _PROVIDER_ENV.items():
+        saved = bool(_api_keys.get(provider))
+        environment = bool(env_var and os.environ.get(env_var))
+        source = "saved" if saved else "environment" if environment else "missing"
+        status[provider] = {
+            "configured": saved or environment or not env_var,
+            "source": source if env_var else "local",
+            "env_var": env_var,
+        }
+    return status
 
 
 _load_api_keys()
@@ -1499,6 +1520,57 @@ def _node_event(payload: dict[str, Any]) -> str:
     return _json_line(payload)
 
 
+def _cook_target_batch_trace(cook_one, targets: list[tuple[str, str]]):
+    """Cook every requested terminal while sharing the current graph cache."""
+    import traceback
+
+    if len(targets) == 1:
+        node_id, port = targets[0]
+        try:
+            final_value = yield from cook_one(node_id, port)
+            yield _json_line({"type": "done", "port": port, "value": _event_value(final_value)})
+        except _CookStopped:
+            yield _json_line({"type": "done", "port": port, "error": "stopped"})
+        except Exception:
+            yield _json_line({"type": "done", "port": port, "error": traceback.format_exc()})
+        return
+
+    values: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    target_status: list[dict[str, str]] = []
+    try:
+        for node_id, port in targets:
+            key = f"{node_id}.{port}"
+            try:
+                values[key] = yield from cook_one(node_id, port)
+                target_status.append({"node_id": node_id, "port": port, "status": "success"})
+            except _CookStopped:
+                raise
+            except Exception:
+                errors[key] = traceback.format_exc()
+                target_status.append({"node_id": node_id, "port": port, "status": "error"})
+
+        done: dict[str, Any] = {
+            "type": "done",
+            "port": "leaves",
+            "value": _event_value(values),
+            "targets": target_status,
+        }
+        if errors:
+            done["error"] = "\n\n".join(
+                f"{key}:\n{error}" for key, error in errors.items()
+            )
+        yield _json_line(done)
+    except _CookStopped:
+        yield _json_line({
+            "type": "done",
+            "port": "leaves",
+            "value": _event_value(values),
+            "targets": target_status,
+            "error": "stopped",
+        })
+
+
 class _CookStreamLogger:
     """RunLogger-shaped adapter that forwards model/tool events into the cook stream.
 
@@ -1540,7 +1612,12 @@ class _CookStreamLogger:
         })
 
 
-def _cook_trace(node_id: str, port: str, stop_event: threading.Event | None = None):
+def _cook_trace(
+    node_id: str,
+    port: str,
+    stop_event: threading.Event | None = None,
+    targets: list[tuple[str, str]] | None = None,
+):
     import traceback
     emitted_cached: set[tuple[str, str]] = set()
     logger = _CookStreamLogger()
@@ -1688,21 +1765,21 @@ def _cook_trace(node_id: str, port: str, stop_event: threading.Event | None = No
             })
             raise
 
-    try:
-        final_value = yield from cook_one(node_id, port)
-        yield _json_line({"type": "done", "port": port, "value": _event_value(final_value)})
-    except _CookStopped:
-        yield _json_line({"type": "done", "port": port, "error": "stopped"})
-    except Exception:
-        yield _json_line({"type": "done", "port": port, "error": traceback.format_exc()})
+    yield from _cook_target_batch_trace(cook_one, targets or [(node_id, port)])
 
 
-def _captured_cook_trace(node_id: str, port: str, run_id: str, stop_event: threading.Event | None = None):
+def _captured_cook_trace(
+    node_id: str,
+    port: str,
+    run_id: str,
+    stop_event: threading.Event | None = None,
+    targets: list[tuple[str, str]] | None = None,
+):
     """Wrap _cook_trace so every emitted event is also persisted to the run store."""
     final_value: Any = None
     final_error: str | None = None
     try:
-        for line in _cook_trace(node_id, port, stop_event):
+        for line in _cook_trace(node_id, port, stop_event, targets=targets):
             try:
                 event = json.loads(line)
             except (ValueError, TypeError):
@@ -1772,6 +1849,55 @@ def cook_stream(req: CookReq):
             lambda: _captured_cook_trace(req.node_id, req.port, run_id, stop_event),
             stop_event,
             req.port,
+        ),
+        media_type="application/x-ndjson",
+        headers=headers,
+    )
+
+
+def _graph_cook_targets(req: CookGraphReq) -> list[tuple[str, str]]:
+    if not req.targets:
+        raise HTTPException(400, "Graph run requires at least one terminal target")
+    if len(req.targets) > 256:
+        raise HTTPException(400, "Graph run supports at most 256 terminal targets")
+
+    targets: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for target in req.targets:
+        item = (target.node_id.strip(), target.port.strip())
+        if not item[0] or not item[1]:
+            raise HTTPException(400, "Each graph run target needs a node_id and port")
+        if item not in seen:
+            seen.add(item)
+            targets.append(item)
+    return targets
+
+
+@app.post("/cook-graph-stream")
+def cook_graph_stream(req: CookGraphReq):
+    targets = _graph_cook_targets(req)
+    workflow = _run_graph_workflow_snapshot(targets)
+    run_id = _run_store.begin(
+        node_id="__graph__",
+        port="leaves",
+        node_type="Graph",
+        workflow=workflow,
+    )
+    stop_event = _prepare_cook()
+    _begin_fresh_cook()
+    headers = {"X-Blacknode-Run-Id": run_id}
+    first_node, first_port = targets[0]
+    return StreamingResponse(
+        _stream_in_worker(
+            lambda: _captured_cook_trace(
+                first_node,
+                first_port,
+                run_id,
+                stop_event,
+                targets=targets,
+            ),
+            stop_event,
+            "leaves",
         ),
         media_type="application/x-ndjson",
         headers=headers,
@@ -2042,10 +2168,17 @@ def internal_learned_node_deleted(req: LearnedNodeEventReq):
     return {"ok": True, "event": event}
 
 
-def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str, stop_event: threading.Event | None = None):
+def _subgraph_cook_trace(
+    subnet_id: str,
+    node_id: str,
+    port: str,
+    stop_event: threading.Event | None = None,
+    targets: list[tuple[str, str]] | None = None,
+):
     import traceback
 
     logger = _CookStreamLogger()
+    resolved_targets = targets or [(node_id, port)]
 
     def drain_logger():
         for event in logger.drain():
@@ -2057,8 +2190,9 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str, stop_event: th
         subgraph = _session.node_meta[subnet_id].get("subgraph", {})
         inner_meta = subgraph.get("node_meta", {})
         inner_edges = subgraph.get("edges", [])
-        if node_id not in inner_meta:
-            raise KeyError(f"Node {node_id} not found inside subnet")
+        for target_id, _target_port in resolved_targets:
+            if target_id not in inner_meta:
+                raise KeyError(f"Node {target_id} not found inside subnet")
 
         inner = bn.Graph.__new__(bn.Graph)
         inner._edges = inner_edges
@@ -2302,12 +2436,11 @@ def _subgraph_cook_trace(subnet_id: str, node_id: str, port: str, stop_event: th
                 })
                 raise
 
-        final_value = yield from cook_one(node_id, port)
-        yield _json_line({"type": "done", "port": port, "value": _event_value(final_value)})
+        yield from _cook_target_batch_trace(cook_one, resolved_targets)
     except _CookStopped:
-        yield _json_line({"type": "done", "port": port, "error": "stopped"})
+        yield _json_line({"type": "done", "port": "leaves" if len(resolved_targets) > 1 else port, "error": "stopped"})
     except Exception:
-        yield _json_line({"type": "done", "port": port, "error": traceback.format_exc()})
+        yield _json_line({"type": "done", "port": "leaves" if len(resolved_targets) > 1 else port, "error": traceback.format_exc()})
 
 
 @app.post("/nodes/{subnet_id}/cook-stream")
@@ -2324,9 +2457,37 @@ def cook_subgraph_stream(subnet_id: str, req: CookReq):
     )
 
 
+@app.post("/nodes/{subnet_id}/cook-graph-stream")
+def cook_subgraph_graph_stream(subnet_id: str, req: CookGraphReq):
+    targets = _graph_cook_targets(req)
+    stop_event = _prepare_cook()
+    _begin_fresh_cook()
+    first_node, first_port = targets[0]
+    return StreamingResponse(
+        _stream_in_worker(
+            lambda: _subgraph_cook_trace(
+                subnet_id,
+                first_node,
+                first_port,
+                stop_event,
+                targets=targets,
+            ),
+            stop_event,
+            "leaves",
+        ),
+        media_type="application/x-ndjson",
+    )
+
+
 @app.get("/settings/api-keys")
 def get_api_keys():
     return _api_keys
+
+
+@app.get("/settings/api-key-status")
+def get_api_key_status():
+    """Return credential availability without exposing secret values."""
+    return _api_key_status()
 
 
 @app.post("/settings/api-key")
@@ -2343,7 +2504,11 @@ def set_api_key(req: SetApiKeyReq):
     # If this is a bot token and that driver is running, restart it so the new
     # token takes effect (a running bot reads its token only at startup).
     restarted = _restart_running_driver_for(req.provider) if changed else None
-    return {"ok": True, "restarted": restarted}
+    return {
+        "ok": True,
+        "restarted": restarted,
+        "credential": _api_key_status().get(req.provider),
+    }
 
 
 # ── Driver status bridge ──────────────────────────────────────────────────
@@ -2804,6 +2969,21 @@ def _run_workflow_snapshot(node_id: str, port: str) -> dict[str, Any]:
         f"Run: {node_type}.{port}",
         entrypoint={"node_id": node_id, "port": port},
         metadata={"source": "run_history"},
+    )
+    return _redact_run_snapshot_secrets(workflow)
+
+
+def _run_graph_workflow_snapshot(targets: list[tuple[str, str]]) -> dict[str, Any]:
+    workflow = _workflow_payload(
+        f"Run Graph: {len(targets)} terminal node{'s' if len(targets) != 1 else ''}",
+        metadata={
+            "source": "run_history",
+            "run_scope": "terminal_nodes",
+            "targets": [
+                {"node_id": node_id, "port": port}
+                for node_id, port in targets
+            ],
+        },
     )
     return _redact_run_snapshot_secrets(workflow)
 
