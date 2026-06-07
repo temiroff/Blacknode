@@ -1,0 +1,36 @@
+# Blacknode production front door — TLS + Basic Auth.
+#
+# Enabled by the `proxy` profile in docker-compose.published.yml. Caddy is the
+# ONLY service exposed to the public interface; it terminates TLS, requires
+# Basic Auth on every request, and reverse-proxies to the internal editor and
+# MCP services over the compose network.
+#
+# Configure via .env:
+#   BLACKNODE_DOMAIN            public hostname (a real domain gets an automatic
+#                              Let's Encrypt cert; `localhost` uses Caddy's
+#                              internal CA for local testing)
+#   BLACKNODE_BASICAUTH_USER   username (default: admin)
+#   BLACKNODE_BASICAUTH_HASH   bcrypt hash of the password. Generate with:
+#     docker run --rm caddy:2.8-alpine caddy hash-password --plaintext 'your-password'
+
+{$BLACKNODE_DOMAIN:localhost} {
+	# Require Basic Auth for everything behind the proxy (editor, /api, and MCP).
+	basic_auth {
+		{$BLACKNODE_BASICAUTH_USER:admin} {$BLACKNODE_BASICAUTH_HASH}
+	}
+
+	# Streamable HTTP MCP endpoint (AI-Q / NeMo Agent Toolkit clients).
+	# Rewrite Host to an allowed value so the MCP server's DNS-rebind guard
+	# (--allowed-host blacknode-mcp:*) accepts the proxied request.
+	@mcp path /mcp /mcp/*
+	handle @mcp {
+		reverse_proxy blacknode-mcp:9901 {
+			header_up Host blacknode-mcp:9901
+		}
+	}
+
+	# Visual editor + /api backend (served by the editor nginx container).
+	handle {
+		reverse_proxy editor:3000
+	}
+}

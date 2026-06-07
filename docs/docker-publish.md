@@ -35,25 +35,26 @@ docker push ghcr.io/temiroff/blacknode-editor:latest
 
 ## Run Published Images
 
-Download `docker-compose.published.yml`, then run:
+Download `docker-compose.published.yml` and the `docker/Caddyfile`, copy
+`.env.example` to `.env`, then choose a mode.
+
+**Local / single trusted operator** (editor on loopback only):
 
 ```powershell
-docker compose -f docker-compose.published.yml up
+docker compose -f docker-compose.published.yml up -d
 ```
 
-Optional `.env`:
+Open `http://127.0.0.1:3000`.
 
-```text
-NVIDIA_API_KEY=
-OPENAI_API_KEY=
-ANTHROPIC_API_KEY=
+**Remote users** (LAN IP or VM): the editor-server runs arbitrary code and has
+no auth, so it is never exposed directly. Set `BLACKNODE_DOMAIN` and the
+`BLACKNODE_BASICAUTH_*` values in `.env`, then start the Caddy TLS + Basic Auth
+front door:
+
+```powershell
+docker compose -f docker-compose.published.yml --profile proxy up -d
 ```
 
-Open:
-
-```text
-http://127.0.0.1:3000
-```
-
-The editor serves browser traffic and proxies `/api` to the backend container,
-so the same compose file works from localhost, a LAN IP, or a remote VM.
+Open `https://<your-domain>/`. See
+[Docker Compose § Production deployment](docker-compose.md#production-deployment-self-hosted-real-users)
+for the full security boundary, secrets, persistence, and backup guidance.

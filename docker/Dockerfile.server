@@ -18,6 +18,13 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install -e ".[mcp]" \
     && python -m pip install -r editor-server/requirements.txt
 
+# Run as an unprivileged user. Pre-create the writable state dirs and hand the
+# app tree to appuser so named volumes mounted here inherit writable ownership.
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /app/workflows /app/editor-server/runs \
+    && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 7777 9901
 
 CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "7777", "--app-dir", "editor-server"]

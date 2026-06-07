@@ -1,26 +1,83 @@
+# Blacknode self-hosted production stack (prebuilt GHCR images).
+#
+# ┌─ SECURITY ──────────────────────────────────────────────────────────────┐
+# │ The editor-server runs user-authored Python during a cook (PythonFn /    │
+# │ Script nodes) and ships with NO built-in authentication. Treat it as a   │
+# │ trusted-operator tool. NEVER publish ports 7777 / 3000 / 9901 to a public │
+# │ interface. This file binds the editor and MCP to loopback only; expose    │
+# │ the stack to real users ONLY through the `proxy` profile (Caddy: TLS +    │
+# │ Basic Auth). See docs/docker-compose.md § Production deployment.          │
+# └───────────────────────────────────────────────────────────────────────────┘
+#
+# Quickstart (behind the auth proxy, recommended):
+#   cp .env.example .env   # set keys, BLACKNODE_DOMAIN, BLACKNODE_BASICAUTH_*
+#   docker compose -f docker-compose.published.yml --profile proxy up -d
+#
+# Local / trusted-network only (no proxy, loopback editor at 127.0.0.1:3000):
+#   docker compose -f docker-compose.published.yml up -d
+#
+# Pin a reproducible build instead of :latest by setting BLACKNODE_IMAGE_TAG to a
+# published 12-char commit SHA in .env.
+
+x-server-image: &server_image ${BLACKNODE_SERVER_IMAGE:-ghcr.io/temiroff/blacknode-server}:${BLACKNODE_IMAGE_TAG:-latest}
+
 services:
   editor-server:
-    image: ${BLACKNODE_SERVER_IMAGE:-ghcr.io/temiroff/blacknode-server:latest}
-    ports:
-      - "7777:7777"
+    image: *server_image
+    restart: unless-stopped
+    # Internal only — reached by the editor (nginx /api proxy) and Caddy over the
+    # compose network. Never published to the host.
+    expose:
+      - "7777"
     env_file:
       - path: .env
         required: false
     environment:
       BLACKNODE_EDITOR_URL: http://editor-server:7777
     volumes:
-      - ./workflows:/app/workflows
-      - ./runs:/app/editor-server/runs
+      - blacknode_workflows:/app/workflows
+      - blacknode_runs:/app/editor-server/runs
+    networks:
+      - blacknode
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7777/node-types"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
 
   editor:
-    image: ${BLACKNODE_EDITOR_IMAGE:-ghcr.io/temiroff/blacknode-editor:latest}
+    image: ${BLACKNODE_EDITOR_IMAGE:-ghcr.io/temiroff/blacknode-editor}:${BLACKNODE_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # Loopback only: reachable at http://127.0.0.1:3000 on the host for local use,
+    # and by Caddy internally. Not bound to 0.0.0.0.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
-      - editor-server
+      editor-server:
+        condition: service_healthy
+    networks:
+      - blacknode
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
 
   blacknode-mcp:
-    image: ${BLACKNODE_SERVER_IMAGE:-ghcr.io/temiroff/blacknode-server:latest}
+    image: *server_image
+    restart: unless-stopped
     command:
       - blacknode
       - mcp
@@ -40,15 +97,62 @@ services:
       - "blacknode-mcp:*"
       - --allowed-host
       - "host.docker.internal:*"
+    # Loopback only on the host; Caddy reaches it internally over the network.
     ports:
-      - "9901:9901"
+      - "127.0.0.1:9901:9901"
     env_file:
       - path: .env
         required: false
     environment:
       BLACKNODE_EDITOR_URL: http://editor-server:7777
     volumes:
-      - ./workflows:/app/workflows
-      - ./runs:/app/editor-server/runs
+      - blacknode_workflows:/app/workflows
+      - blacknode_runs:/app/editor-server/runs
+    networks:
+      - blacknode
     depends_on:
-      - editor-server
+      editor-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://localhost:9901/mcp"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1g
+
+  # Production front door — HTTPS + Basic Auth. Enabled with `--profile proxy`.
+  # The only service that should ever bind a public interface.
+  caddy:
+    image: caddy:2.8-alpine
+    profiles: ["proxy"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - blacknode
+    depends_on:
+      - editor
+      - blacknode-mcp
+
+networks:
+  blacknode:
+    driver: bridge
+
+volumes:
+  blacknode_workflows:
+  blacknode_runs:
+  caddy_data:
+  caddy_config:

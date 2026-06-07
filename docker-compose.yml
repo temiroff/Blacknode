@@ -25,6 +25,14 @@ services:
     volumes:
       - ./workflows:/app/workflows
       - ./editor-server/runs:/app/editor-server/runs
+    networks:
+      - blacknode
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7777/node-types"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
   editor:
     image: blacknode-editor:local
@@ -34,7 +42,16 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - editor-server
+      editor-server:
+        condition: service_healthy
+    networks:
+      - blacknode
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   blacknode-mcp:
     image: blacknode-server:local
@@ -67,5 +84,18 @@ services:
     volumes:
       - ./workflows:/app/workflows
       - ./editor-server/runs:/app/editor-server/runs
+    networks:
+      - blacknode
     depends_on:
-      - editor-server
+      editor-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://localhost:9901/mcp"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+networks:
+  blacknode:
+    driver: bridge
