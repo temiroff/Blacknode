@@ -240,6 +240,8 @@ def video_folder_input(ctx: dict) -> dict:
     ],
     outputs=["route:Text", "endpoint_url:Text", "stack:List", "requirements:List", "blueprint:Dict"],
     name="NVIDIADeploymentChoice",
+    category="NVIDIA Advisory",
+    description="Advisory: pick a hosted/local/hybrid NIM route and emit the endpoint, stack, and requirements. Plans deployment — runs no inference.",
 )
 def nvidia_deployment_choice(ctx: dict) -> dict:
     """Select a hosted, local, or hybrid NVIDIA NIM deployment route."""
@@ -289,6 +291,8 @@ def nvidia_deployment_choice(ctx: dict) -> dict:
     inputs=["manifest:Dict", "goal:Text", "deployment:Dict"],
     outputs=["plan:Text", "cosmos_path:Text", "vlm_path:Text", "blueprint:Dict"],
     name="NVIDIAVideoSummaryPlan",
+    category="NVIDIA Advisory",
+    description="Advisory: describe a Cosmos or VLM NIM video-understanding stage as text. Plans the step — does NOT call Cosmos/VLM or process video.",
 )
 def nvidia_video_summary_plan(ctx: dict) -> dict:
     """Plan the video understanding stage for Cosmos or VLM NIM services."""
@@ -329,6 +333,8 @@ def nvidia_video_summary_plan(ctx: dict) -> dict:
     inputs=["manifest:Dict", "video_plan:Text", "query:Text"],
     outputs=["index_plan:Text", "retriever_stack:List", "blueprint:Dict"],
     name="NVIDIARetrieverIndexPlan",
+    category="NVIDIA Advisory",
+    description="Advisory: describe a NeMo Retriever index + rerank stage as text. Plans the step — does NOT embed, index, or rerank anything.",
 )
 def nvidia_retriever_index_plan(ctx: dict) -> dict:
     """Plan a NeMo Retriever-style index and rerank stage for video segments."""
@@ -373,6 +379,8 @@ def nvidia_retriever_index_plan(ctx: dict) -> dict:
     ],
     outputs=["answer_plan:Text", "prompt:Text", "blueprint:Dict"],
     name="NVIDIAQuestionAnswerPlan",
+    category="NVIDIA Advisory",
+    description="Advisory: build a NIM/Nemotron QA plan and prompt. Plans the step and emits a prompt — does NOT send it; wire NIMAgent to actually answer.",
 )
 def nvidia_question_answer_plan(ctx: dict) -> dict:
     """Plan a NIM/Nemotron question-answer step over retrieved video segments."""
@@ -415,6 +423,8 @@ def nvidia_question_answer_plan(ctx: dict) -> dict:
     ],
     outputs=["report:Text", "checklist:List", "blueprint:Dict"],
     name="NVIDIAMissionReport",
+    category="NVIDIA Advisory",
+    description="Advisory: assemble the planning stages into one written mission-control report. Summarizes the plan — runs no inference.",
 )
 def nvidia_mission_report(ctx: dict) -> dict:
     """Assemble the visual NVIDIA AI mission-control report."""
@@ -434,7 +444,10 @@ def nvidia_mission_report(ctx: dict) -> dict:
         "Workflow can export to Python",
     ]
     report = "\n\n".join([
-        "Blacknode NVIDIA AI Mission Control",
+        "Blacknode NVIDIA AI Mission Control (Advisory Plan)",
+        "This is an advisory plan: it designs the pipeline but runs no Cosmos/VLM, "
+        "NeMo Retriever, or NIM inference. Wire NIMAgent/NIMBenchmark and real "
+        "retrieval nodes to execute it.",
         f"Goal:\n{goal}",
         f"Input:\n{folder_summary}",
         f"Deployment:\n{deployment_route}",
@@ -626,6 +639,8 @@ def nim_benchmark(ctx: dict) -> dict:
     inputs=["goal:Text"],
     outputs=["plan:Text", "technologies:List", "blueprint:Dict"],
     name="NVIDIABlueprintPlan",
+    category="NVIDIA Advisory",
+    description="Advisory: map a product goal to an NVIDIA technology stack and workflow plan. Plans the architecture — runs no inference.",
 )
 def nvidia_blueprint_plan(ctx: dict) -> dict:
     """Map a product goal to NVIDIA technologies that can be represented as a workflow."""

@@ -12,11 +12,15 @@ export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
   Image:    { color: '#fb7185', nodes: ['LoadImage', 'OutputImage'] },
   NVIDIA:   { color: '#76b900', nodes: [
     'CUDAKernelLab', 'CUDACustomKernel', 'CUDAImageFilter', 'TensorCoreGEMM', 'GPUCapability', 'GPURequirement',
-    'NVIDIASystemCheck', 'NVIDIABlueprintPlan', 'NIMDockerCommand',
+    'NVIDIASystemCheck', 'NIMDockerCommand',
     'NIMHealthCheck', 'NIMAgent', 'NIMBenchmark', 'NIMFineTune', 'NIMFineTuneStatus', 'VideoFolderInput',
-    'NVIDIADeploymentChoice', 'NVIDIAVideoSummaryPlan',
-    'NVIDIARetrieverIndexPlan', 'NVIDIAQuestionAnswerPlan',
-    'NVIDIAMissionReport',
+  ] },
+  // Advisory nodes design/plan an NVIDIA pipeline as text — they run no
+  // inference (no Cosmos/VLM, NeMo Retriever, or NIM call). Muted green so the
+  // palette reads them as planning aids, distinct from the executing NVIDIA nodes.
+  'NVIDIA Advisory': { color: '#5a7d1e', nodes: [
+    'NVIDIABlueprintPlan', 'NVIDIADeploymentChoice', 'NVIDIAVideoSummaryPlan',
+    'NVIDIARetrieverIndexPlan', 'NVIDIAQuestionAnswerPlan', 'NVIDIAMissionReport',
   ] },
   Tools:    { color: '#14b8a6', nodes: ['PythonFn', 'SubnetAsTool', 'ToolBox', 'ToolCall'] },
   PythonTools: { color: '#0ea5e9', nodes: PYTHON_TOOL_TYPES },

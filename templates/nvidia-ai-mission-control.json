@@ -1,7 +1,7 @@
 {
   "kind": "blacknode.workflow",
   "schema_version": 1,
-  "name": "NVIDIA AI Mission Control",
+  "name": "NVIDIA AI Mission Control (Advisory Plan)",
   "saved_at": "2026-05-22T00:00:00",
   "entrypoint": {
     "node_id": "out_plan",
@@ -9,7 +9,8 @@
   },
   "metadata": {
     "template": true,
-    "description": "Plan an NVIDIA-backed AI workflow, inspect local readiness, and prepare a NIM endpoint path.",
+    "advisory": true,
+    "description": "ADVISORY PLAN (no inference): maps a goal to an NVIDIA stack and prepares a NIM endpoint path. Inspects local readiness but runs no model — pair with the executing NVIDIA NIM/CUDA templates to run it.",
     "color": "#76b900"
   },
   "node_meta": {

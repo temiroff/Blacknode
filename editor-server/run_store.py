@@ -41,6 +41,7 @@ class _RunBuffer:
     node_type: str
     started_at: str
     started_perf: float
+    seq: int = 0
     events: list[dict[str, Any]] = field(default_factory=list)
     status: str = "running"
     error: str | None = None
@@ -62,6 +63,10 @@ class RunStore:
         self.max_runs = max_runs
         self._lock = threading.RLock()
         self._pending: dict[str, _RunBuffer] = {}
+        # Monotonic ordering key. Filesystem mtime is too coarse to order runs
+        # created within the same tick, so each run gets an increasing seq at
+        # begin(). Seed from disk so the order survives a process restart.
+        self._seq = self._max_seq_on_disk()
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -74,16 +79,18 @@ class RunStore:
         workflow: dict[str, Any] | None = None,
     ) -> str:
         run_id = str(uuid.uuid4())
-        buf = _RunBuffer(
-            run_id=run_id,
-            node_id=node_id,
-            port=port,
-            node_type=node_type,
-            started_at=_iso_now(),
-            started_perf=time.perf_counter(),
-            workflow=workflow,
-        )
         with self._lock:
+            self._seq += 1
+            buf = _RunBuffer(
+                run_id=run_id,
+                node_id=node_id,
+                port=port,
+                node_type=node_type,
+                started_at=_iso_now(),
+                started_perf=time.perf_counter(),
+                seq=self._seq,
+                workflow=workflow,
+            )
             self._pending[run_id] = buf
             self._write_record(self._summary(buf, include_events=True))
         return run_id
@@ -106,7 +113,10 @@ class RunStore:
 
     def list_runs(self, *, limit: int = 50) -> list[dict[str, Any]]:
         records = self._read_all_records_with_mtime()
-        records.sort(key=lambda item: (item[0].get("started_at", ""), item[1]), reverse=True)
+        records.sort(
+            key=lambda item: (item[0].get("seq", -1), item[0].get("started_at", ""), item[1]),
+            reverse=True,
+        )
         return [self._summary_dict(record) for record, _mtime_ns in records[:limit]]
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
@@ -174,6 +184,7 @@ class RunStore:
     def _summary(self, buf: _RunBuffer, *, include_events: bool) -> dict[str, Any]:
         record: dict[str, Any] = {
             "run_id": buf.run_id,
+            "seq": buf.seq,
             "started_at": buf.started_at,
             "finished_at": buf.finished_at,
             "duration_ms": buf.duration_ms,
@@ -258,7 +269,7 @@ class RunStore:
         return records
 
     def _prune(self) -> None:
-        finished: list[tuple[float, Path]] = []
+        finished: list[tuple[int, int, Path]] = []
         for path in self.root.glob(_RUN_FILE_GLOB):
             try:
                 stat = path.stat()
@@ -267,16 +278,29 @@ class RunStore:
                 continue
             if data.get("status") == "running":
                 continue
-            finished.append((stat.st_mtime, path))
+            finished.append((int(data.get("seq", -1)), stat.st_mtime_ns, path))
         if len(finished) <= self.max_runs:
             return
-        finished.sort(key=lambda item: item[0])
+        # Oldest first: ascending seq, then mtime for legacy files without a seq.
+        finished.sort(key=lambda item: (item[0], item[1]))
         excess = len(finished) - self.max_runs
-        for _, path in finished[:excess]:
+        for _seq, _mtime_ns, path in finished[:excess]:
             try:
                 path.unlink()
             except OSError:
                 continue
+
+    def _max_seq_on_disk(self) -> int:
+        highest = 0
+        for path in self.root.glob(_RUN_FILE_GLOB):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            seq = data.get("seq")
+            if isinstance(seq, int) and seq > highest:
+                highest = seq
+        return highest
 
 
 def derive_status_from_events(events: Iterable[dict[str, Any]]) -> str:

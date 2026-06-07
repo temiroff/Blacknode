@@ -1,7 +1,7 @@
 {
   "kind": "blacknode.workflow",
   "schema_version": 1,
-  "name": "NVIDIA Video Intelligence Mission Control",
+  "name": "NVIDIA Video Intelligence Mission Control (Advisory Plan)",
   "saved_at": "2026-05-22T00:00:00",
   "entrypoint": {
     "node_id": "out_report",
@@ -9,7 +9,8 @@
   },
   "metadata": {
     "template": true,
-    "description": "Plan a video intelligence workflow across Cosmos or VLM NIM, NeMo Retriever, NIM/Nemotron QA, local NIM deployment, and run replay.",
+    "advisory": true,
+    "description": "ADVISORY PLAN (no inference): designs a video-intelligence workflow across Cosmos/VLM NIM, NeMo Retriever, NIM/Nemotron QA, and local NIM deployment, and emits a written mission report. It does not run Cosmos/VLM, retrieval, or NIM — wire NIMAgent and real retrieval nodes to execute it.",
     "color": "#76b900"
   },
   "node_meta": {
