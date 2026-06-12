@@ -21,7 +21,9 @@ from blacknode.mcp import tools as mcp_tools
 from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
 from blacknode.packages import discover_packages as discover_bn_packages
+from blacknode.packages import install_from_git as bn_install_from_git
 from blacknode.packages import installed_packages, package_category_colors, package_template_dirs
+from blacknode.packages import remove_package as bn_remove_package
 from blacknode.python_importer import import_workflow_python
 from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
@@ -2843,6 +2845,33 @@ def list_packages():
 def reload_packages():
     report = discover_bn_packages()
     return {"ok": not report["failed"], **report}
+
+
+class InstallPackageReq(BaseModel):
+    url: str
+    install_deps: bool = True
+
+
+@app.post("/packages/install")
+def install_package(req: InstallPackageReq):
+    url = req.url.strip()
+    if not url:
+        raise HTTPException(400, "Git URL is required")
+    log: list[str] = []
+    # Blocking on purpose: clone + pip + docker pulls can take minutes and the
+    # panel shows a busy state. Progress lines come back in the response.
+    result = bn_install_from_git(url, install_deps=req.install_deps, progress=log.append)
+    return {**result, "log": log}
+
+
+@app.delete("/packages/{name}")
+def delete_package(name: str):
+    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", name):
+        raise HTTPException(400, "Invalid package name")
+    result = bn_remove_package(name)
+    if not result["ok"]:
+        raise HTTPException(400, result["error"])
+    return result
 
 
 @app.post("/custom-nodes/reload")

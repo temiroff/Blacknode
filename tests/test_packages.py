@@ -1,12 +1,19 @@
 """Extension package discovery: folder packages register nodes, gate on the
 core version, and report failures without breaking startup."""
+import subprocess
 import textwrap
 
 import pytest
 
 import blacknode  # noqa: F401  triggers built-in + package discovery
 from blacknode.node import _NODE_REGISTRY
-from blacknode.packages import _PACKAGE_REGISTRY, discover_packages, load_package
+from blacknode.packages import (
+    _PACKAGE_REGISTRY,
+    discover_packages,
+    install_from_git,
+    load_package,
+    remove_package,
+)
 
 
 def _write_package(tmp_path, name="bn-test-pkg", node_name="_PkgProbe", requires=""):
@@ -69,6 +76,38 @@ def test_reload_reregisters_nodes(tmp_path):
     assert "_PkgReload" in load_package(pkg).node_types
     # a reload must re-execute the modules and report the same node types
     assert "_PkgReload" in load_package(pkg).node_types
+
+
+def test_install_from_git_and_remove(tmp_path):
+    # a local git repo stands in for the remote package repository
+    src = _write_package(tmp_path / "src", name="bn-git-pkg", node_name="_PkgGit")
+    git = ["git", "-C", str(src), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git[:3], "init", "-q"], check=True)
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "init"], check=True)
+
+    root = tmp_path / "root"
+    result = install_from_git(str(src), root=root, install_deps=False, progress=lambda _line: None)
+    assert result["ok"], result["error"]
+    assert result["package"]["name"] == "bn-git-pkg"
+    assert "_PkgGit" in _NODE_REGISTRY
+
+    # cloning the same package twice is rejected
+    again = install_from_git(str(src), root=root, install_deps=False, progress=lambda _line: None)
+    assert not again["ok"]
+    assert "already exists" in again["error"]
+
+    removed = remove_package("bn-git-pkg", root=root)
+    assert removed["ok"], removed["error"]
+    assert "_PkgGit" not in _NODE_REGISTRY
+    assert "bn-git-pkg" not in _PACKAGE_REGISTRY
+    assert not (root / "src").exists()
+
+
+def test_remove_unknown_package_is_structured_error():
+    result = remove_package("bn-does-not-exist")
+    assert not result["ok"]
+    assert "No package named" in result["error"]
 
 
 def test_blacknode_cuda_loads_as_package():

@@ -218,79 +218,32 @@ def _packages_list() -> int:
 
 
 def _packages_install(url: str, directory: Path | None, no_deps: bool) -> int:
-    from .packages import MANIFEST_NAME, load_package, packages_root
+    from .packages import install_from_git
 
-    root = (directory or packages_root()).expanduser().resolve()
-    root.mkdir(parents=True, exist_ok=True)
-    name = url.rstrip("/").removesuffix(".git").rsplit("/", 1)[-1]
-    dest = root / name
-    if dest.exists():
-        print(f"error: {dest} already exists", file=sys.stderr)
-        return 1
-
-    print(f"Cloning {url} -> {dest}")
-    clone = subprocess.run(["git", "clone", "--depth", "1", url, str(dest)])
-    if clone.returncode != 0:
-        return clone.returncode
-
-    if not (dest / MANIFEST_NAME).exists():
-        print(f"warning: no {MANIFEST_NAME} found; Blacknode will not load this folder", file=sys.stderr)
-        return 1
-
-    if not no_deps:
-        _install_prerequisites(dest)
-
-    info = load_package(dest)
-    if info.ok:
-        print(f"Installed {info.name} {info.version or ''}: {len(info.node_types)} nodes")
-        print("Restart Blacknode (or press Reload in the editor Packages tab) to use them.")
+    result = install_from_git(url, root=directory, install_deps=not no_deps)
+    if result["ok"]:
+        print("Restart Blacknode (or press Reload in the editor Packages tab) to use the new nodes.")
         return 0
-    print(f"Package cloned but failed to load:\n{info.error}", file=sys.stderr)
+    print(f"error: {result['error']}", file=sys.stderr)
     return 1
 
 
 def _packages_setup(name: str, directory: Path | None) -> int:
     """(Re)install the prerequisites of an already-cloned package."""
-    from .packages import MANIFEST_NAME, load_package, packages_root
+    from .packages import MANIFEST_NAME, install_prerequisites, load_package, packages_root
 
     root = (directory or packages_root()).expanduser().resolve()
     dest = root / name
     if not (dest / MANIFEST_NAME).exists():
         print(f"error: {dest} is not a Blacknode package (no {MANIFEST_NAME})", file=sys.stderr)
         return 1
-    _install_prerequisites(dest)
+    install_prerequisites(dest)
     info = load_package(dest)
     if info.ok:
         print(f"{info.name} {info.version or ''} loads OK: {len(info.node_types)} nodes")
         return 0
     print(f"Package still fails to load:\n{info.error}", file=sys.stderr)
     return 1
-
-
-def _install_prerequisites(pkg_dir: Path) -> None:
-    """Install a package's pip requirements and pull its Docker images."""
-    from .packages import load_package
-
-    requirements = pkg_dir / "requirements.txt"
-    if requirements.exists():
-        print(f"Installing pip dependencies from {requirements}")
-        pip = subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(requirements)])
-        if pip.returncode != 0:
-            print("warning: pip install failed; the package may not load until deps are installed", file=sys.stderr)
-
-    info = load_package(pkg_dir)
-    for image in info.docker_images:
-        if not shutil.which("docker"):
-            print(f"warning: package wants Docker image '{image}' but docker is not on PATH", file=sys.stderr)
-            break
-        print(f"Pulling Docker image {image}")
-        pull = subprocess.run(["docker", "pull", image])
-        if pull.returncode != 0:
-            print(
-                f"warning: could not pull {image} (is Docker running?); "
-                f"pull it later with: docker pull {image}",
-                file=sys.stderr,
-            )
 
 
 def _validate(path: Path) -> int:

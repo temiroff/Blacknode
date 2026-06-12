@@ -34,6 +34,11 @@ everything it declares — pip requirements and Docker images — with:
 blacknode packages setup blacknode-ros2
 ```
 
+The editor's **Packages** tab can do all of this too: paste a git URL and
+press **Install** (clones the repo and installs its prerequisites), or expand
+a package and press **Delete** to remove its folder and deregister its nodes —
+no restart needed.
+
 Extra search folders can be added with the `BLACKNODE_PACKAGE_PATH`
 environment variable (separated by the platform path separator).
 

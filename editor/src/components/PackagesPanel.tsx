@@ -3,11 +3,38 @@ import { api } from '../api'
 import { useStore } from '../store'
 import type { BnPackage } from '../types'
 
+const inputStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  background: 'var(--bg)',
+  border: '1px solid var(--line2)',
+  borderRadius: 5,
+  color: 'var(--tx1)',
+  fontSize: 11,
+  fontFamily: 'var(--font-mono)',
+  padding: '4px 8px',
+}
+
+const buttonStyle = (busy: boolean): React.CSSProperties => ({
+  background: 'transparent',
+  border: '1px solid var(--line2)',
+  borderRadius: 5,
+  color: 'var(--tx2)',
+  cursor: busy ? 'wait' : 'pointer',
+  fontSize: 11,
+  fontFamily: 'var(--font-ui)',
+  padding: '3px 10px',
+  whiteSpace: 'nowrap',
+})
+
 export default function PackagesPanel() {
   const [packages, setPackages] = useState<BnPackage[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [gitUrl, setGitUrl] = useState('')
+  const [installing, setInstalling] = useState(false)
+  const [installLog, setInstallLog] = useState<string | null>(null)
   const loadNodeTypes = useStore(s => s.loadNodeTypes)
 
   const refresh = async () => {
@@ -34,40 +61,104 @@ export default function PackagesPanel() {
     }
   }
 
+  const install = async () => {
+    const url = gitUrl.trim()
+    if (!url || installing) return
+    setInstalling(true)
+    setInstallLog(null)
+    setError(null)
+    try {
+      const result = await api.installPackage(url)
+      setInstallLog(result.log?.length ? result.log.join('\n') : null)
+      if (result.ok) {
+        setGitUrl('')
+        await refresh()
+        await loadNodeTypes()
+      } else {
+        setError(result.error || 'Install failed')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setInstalling(false)
+    }
+  }
+
+  const remove = async (name: string) => {
+    if (!window.confirm(`Delete package '${name}'?\n\nThis removes its folder (and any local changes in it) from packages/.`)) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.deletePackage(name)
+      setExpanded(null)
+      await refresh()
+      await loadNodeTypes()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center' }}>
-        <span style={{ flex: 1, fontSize: 11, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>
-          {packages.length} installed
-        </span>
-        <button
-          onClick={reload}
-          disabled={busy}
-          style={{
-            background: 'transparent',
-            border: '1px solid var(--line2)',
-            borderRadius: 5,
-            color: 'var(--tx2)',
-            cursor: busy ? 'wait' : 'pointer',
-            fontSize: 11,
-            fontFamily: 'var(--font-ui)',
-            padding: '3px 10px',
-          }}
-        >
-          {busy ? 'Reloading…' : 'Reload'}
-        </button>
+      <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            value={gitUrl}
+            onChange={e => setGitUrl(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') install() }}
+            placeholder="git URL, e.g. git@github.com:user/blacknode-pkg.git"
+            disabled={installing}
+            style={inputStyle}
+          />
+          <button onClick={install} disabled={installing || !gitUrl.trim()} style={buttonStyle(installing)}>
+            {installing ? 'Installing…' : 'Install'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ flex: 1, fontSize: 11, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>
+            {packages.length} installed
+          </span>
+          <button onClick={reload} disabled={busy} style={buttonStyle(busy)}>
+            {busy ? 'Working…' : 'Reload'}
+          </button>
+        </div>
       </div>
 
+      {installing && (
+        <div style={{ padding: '8px 12px', color: 'var(--tx3)', fontSize: 11, fontFamily: 'var(--font-ui)' }}>
+          Cloning and installing prerequisites — large Docker images can take a few minutes…
+        </div>
+      )}
+
+      {installLog && !installing && (
+        <pre style={{
+          margin: 0,
+          padding: '8px 12px',
+          borderBottom: '1px solid var(--line)',
+          color: 'var(--tx3)',
+          fontSize: 10,
+          fontFamily: 'var(--font-mono)',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          maxHeight: 120,
+          overflowY: 'auto',
+        }}>
+          {installLog}
+        </pre>
+      )}
+
       {error && (
-        <div style={{ padding: '8px 12px', color: 'var(--err)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+        <div style={{ padding: '8px 12px', color: 'var(--err)', fontSize: 11, fontFamily: 'var(--font-mono)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
           {error}
         </div>
       )}
 
       {!error && packages.length === 0 && (
         <div style={{ padding: '14px 12px', color: 'var(--tx3)', fontSize: 12, fontFamily: 'var(--font-ui)', lineHeight: 1.5 }}>
-          No extension packages installed. Clone one into the <code>packages/</code> folder
-          (or run <code>blacknode packages install &lt;git-url&gt;</code>) and restart.
+          No extension packages installed. Paste a git URL above, or clone one
+          into the <code>packages/</code> folder and press Reload.
         </div>
       )}
 
@@ -138,6 +229,17 @@ export default function PackagesPanel() {
                   }}>
                     {pkg.error.trim().split('\n').slice(-12).join('\n')}
                   </pre>
+                )}
+                {pkg.source === 'folder' && (
+                  <div style={{ marginTop: 8 }}>
+                    <button
+                      onClick={() => remove(pkg.name)}
+                      disabled={busy}
+                      style={{ ...buttonStyle(busy), color: 'var(--err)', borderColor: 'var(--err)' }}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 )}
               </div>
             )}

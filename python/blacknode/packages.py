@@ -19,13 +19,16 @@ import importlib
 import importlib.metadata
 import importlib.util
 import os
+import shutil
+import stat
+import subprocess
 import sys
 import tomllib
 import traceback
 import types
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ._version import __version__ as _CORE_VERSION
 from .node import _NODE_REGISTRY
@@ -250,6 +253,108 @@ def _load_entry_point_packages() -> list[PackageInfo]:
     return infos
 
 
+def install_from_git(
+    url: str,
+    root: str | Path | None = None,
+    install_deps: bool = True,
+    progress: Callable[[str], None] = print,
+) -> dict[str, Any]:
+    """Clone a package repo into the packages folder, install its
+    prerequisites, and load it. Returns {ok, package, error}."""
+    target_root = Path(root).expanduser().resolve() if root else packages_root()
+    target_root.mkdir(parents=True, exist_ok=True)
+    # handles https URLs, scp-style git@host:user/repo.git, and local paths
+    cleaned = url.replace("\\", "/").rstrip("/").removesuffix(".git")
+    name = cleaned.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+    if not name:
+        return {"ok": False, "package": None, "error": f"Could not derive a folder name from '{url}'"}
+    dest = target_root / name
+    if dest.exists():
+        return {"ok": False, "package": None, "error": f"{dest} already exists"}
+
+    progress(f"Cloning {url} -> {dest}")
+    clone = subprocess.run(["git", "clone", "--depth", "1", url, str(dest)], capture_output=True, text=True)
+    if clone.returncode != 0:
+        return {"ok": False, "package": None, "error": clone.stderr.strip() or "git clone failed"}
+    if not (dest / MANIFEST_NAME).exists():
+        _rmtree_force(dest)
+        return {"ok": False, "package": None, "error": f"Repository has no {MANIFEST_NAME}; not a Blacknode package"}
+
+    if install_deps:
+        install_prerequisites(dest, progress=progress)
+    info = load_package(dest)
+    if info.ok:
+        progress(f"Installed {info.name} {info.version}: {len(info.node_types)} nodes")
+        return {"ok": True, "package": info.to_dict(), "error": ""}
+    return {"ok": False, "package": info.to_dict(), "error": info.error}
+
+
+def install_prerequisites(pkg_dir: str | Path, progress: Callable[[str], None] = print) -> list[str]:
+    """Install a package's pip requirements and pull its declared Docker
+    images. Returns warning strings; never raises."""
+    pkg_path = Path(pkg_dir).expanduser().resolve()
+    warnings: list[str] = []
+
+    requirements = pkg_path / "requirements.txt"
+    if requirements.exists():
+        progress(f"Installing pip dependencies from {requirements}")
+        pip = subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(requirements)])
+        if pip.returncode != 0:
+            warnings.append("pip install failed; the package may not load until deps are installed")
+
+    info = load_package(pkg_path)
+    for image in info.docker_images:
+        if not shutil.which("docker"):
+            warnings.append(f"package wants Docker image '{image}' but docker is not on PATH")
+            break
+        progress(f"Pulling Docker image {image}")
+        pull = subprocess.run(["docker", "pull", image])
+        if pull.returncode != 0:
+            warnings.append(f"could not pull {image} (is Docker running?); pull it later with: docker pull {image}")
+    for warning in warnings:
+        progress(f"warning: {warning}")
+    return warnings
+
+
+def remove_package(name: str, root: str | Path | None = None) -> dict[str, Any]:
+    """Delete a folder package and deregister its nodes. Returns {ok, error}."""
+    info = _PACKAGE_REGISTRY.get(name)
+    if info is None:
+        return {"ok": False, "error": f"No package named '{name}' is installed"}
+    if info.source != "folder":
+        return {"ok": False, "error": f"'{name}' was installed via pip; remove it with: pip uninstall {name}"}
+
+    path = Path(info.path).resolve()
+    allowed_roots = [Path(root).expanduser().resolve()] if root else [Path(p).resolve() for p in default_package_dirs()]
+    if not any(allowed in path.parents for allowed in allowed_roots):
+        return {"ok": False, "error": f"{path} is outside the packages folders; delete it manually"}
+    if not (path / MANIFEST_NAME).exists():
+        return {"ok": False, "error": f"{path} does not look like a package (no {MANIFEST_NAME}); delete it manually"}
+
+    try:
+        _rmtree_force(path)
+    except Exception as exc:
+        return {"ok": False, "error": f"Could not delete {path}: {exc}"}
+
+    for node_name, fn in list(_NODE_REGISTRY.items()):
+        if getattr(fn, "_bn_package", "") == name:
+            del _NODE_REGISTRY[node_name]
+    del _PACKAGE_REGISTRY[name]
+    return {"ok": True, "error": ""}
+
+
+def _rmtree_force(path: Path) -> None:
+    """rmtree that clears read-only flags (git objects on Windows)."""
+    def _onerror(func, target, _exc_info):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=lambda func, target, _exc: _onerror(func, target, None))
+    else:
+        shutil.rmtree(path, onerror=_onerror)
+
+
 def _version_satisfied(spec: str, current: str) -> bool:
     spec = spec.strip()
     op = ">="
@@ -282,9 +387,12 @@ __all__ = [
     "PackageInfo",
     "default_package_dirs",
     "discover_packages",
+    "install_from_git",
+    "install_prerequisites",
     "installed_packages",
     "load_package",
     "package_category_colors",
     "package_template_dirs",
     "packages_root",
+    "remove_package",
 ]

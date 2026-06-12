@@ -255,6 +255,8 @@ export const api = {
   nodeDefs:  ()                              => req<Record<string, BnNodeDef>>('GET', '/node-defs'),
   packages:  ()                              => req<{ packages: BnPackage[] }>('GET', '/packages'),
   reloadPackages: ()                         => req<{ ok: boolean }>('POST', '/packages/reload'),
+  installPackage: (url: string)              => req<{ ok: boolean; package: BnPackage | null; error: string; log: string[] }>('POST', '/packages/install', { url }),
+  deletePackage: (name: string)              => req<{ ok: boolean }>('DELETE', `/packages/${encodeURIComponent(name)}`),
   getGraph:  ()                              => req<{ nodes: any[]; edges: any[] }>('GET', '/graph'),
   setGraph:  (nodes: any[], edges: any[])    => req<{ nodes: any[]; edges: any[] }>('POST', '/graph', { nodes, edges }),
   addNode:   (type_name: string, pos: [number,number], params = {}) =>
