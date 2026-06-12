@@ -160,7 +160,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     packages_install.add_argument("url", help="git URL of the package repository")
     packages_install.add_argument("--directory", type=Path, help="override the packages/ root folder")
-    packages_install.add_argument("--no-deps", action="store_true", help="skip pip installing requirements.txt")
+    packages_install.add_argument("--no-deps", action="store_true", help="skip installing pip deps and Docker images")
+    packages_setup = packages_sub.add_parser(
+        "setup", help="install the prerequisites (pip deps, Docker images) of an already-cloned package"
+    )
+    packages_setup.add_argument("name", help="package folder name under packages/")
+    packages_setup.add_argument("--directory", type=Path, help="override the packages/ root folder")
 
     mcp = subcommands.add_parser("mcp", help="run the Blacknode MCP server")
     mcp.add_argument(
@@ -187,7 +192,9 @@ def _packages(args: Any) -> int:
         return _packages_list()
     if args.packages_command == "install":
         return _packages_install(args.url, args.directory, args.no_deps)
-    print("usage: blacknode packages {list,install}", file=sys.stderr)
+    if args.packages_command == "setup":
+        return _packages_setup(args.name, args.directory)
+    print("usage: blacknode packages {list,install,setup}", file=sys.stderr)
     return 2
 
 
@@ -230,12 +237,8 @@ def _packages_install(url: str, directory: Path | None, no_deps: bool) -> int:
         print(f"warning: no {MANIFEST_NAME} found; Blacknode will not load this folder", file=sys.stderr)
         return 1
 
-    requirements = dest / "requirements.txt"
-    if requirements.exists() and not no_deps:
-        print(f"Installing pip dependencies from {requirements}")
-        pip = subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(requirements)])
-        if pip.returncode != 0:
-            print("warning: pip install failed; the package may not load until deps are installed", file=sys.stderr)
+    if not no_deps:
+        _install_prerequisites(dest)
 
     info = load_package(dest)
     if info.ok:
@@ -244,6 +247,50 @@ def _packages_install(url: str, directory: Path | None, no_deps: bool) -> int:
         return 0
     print(f"Package cloned but failed to load:\n{info.error}", file=sys.stderr)
     return 1
+
+
+def _packages_setup(name: str, directory: Path | None) -> int:
+    """(Re)install the prerequisites of an already-cloned package."""
+    from .packages import MANIFEST_NAME, load_package, packages_root
+
+    root = (directory or packages_root()).expanduser().resolve()
+    dest = root / name
+    if not (dest / MANIFEST_NAME).exists():
+        print(f"error: {dest} is not a Blacknode package (no {MANIFEST_NAME})", file=sys.stderr)
+        return 1
+    _install_prerequisites(dest)
+    info = load_package(dest)
+    if info.ok:
+        print(f"{info.name} {info.version or ''} loads OK: {len(info.node_types)} nodes")
+        return 0
+    print(f"Package still fails to load:\n{info.error}", file=sys.stderr)
+    return 1
+
+
+def _install_prerequisites(pkg_dir: Path) -> None:
+    """Install a package's pip requirements and pull its Docker images."""
+    from .packages import load_package
+
+    requirements = pkg_dir / "requirements.txt"
+    if requirements.exists():
+        print(f"Installing pip dependencies from {requirements}")
+        pip = subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(requirements)])
+        if pip.returncode != 0:
+            print("warning: pip install failed; the package may not load until deps are installed", file=sys.stderr)
+
+    info = load_package(pkg_dir)
+    for image in info.docker_images:
+        if not shutil.which("docker"):
+            print(f"warning: package wants Docker image '{image}' but docker is not on PATH", file=sys.stderr)
+            break
+        print(f"Pulling Docker image {image}")
+        pull = subprocess.run(["docker", "pull", image])
+        if pull.returncode != 0:
+            print(
+                f"warning: could not pull {image} (is Docker running?); "
+                f"pull it later with: docker pull {image}",
+                file=sys.stderr,
+            )
 
 
 def _validate(path: Path) -> int:

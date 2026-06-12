@@ -27,6 +27,13 @@ its workflow templates show in the Templates tab.
 `blacknode packages list` shows what is installed and whether each package
 loaded. The editor's **Packages** tab shows the same, including load errors.
 
+If you cloned a package by hand (or a pull added new prerequisites), install
+everything it declares — pip requirements and Docker images — with:
+
+```bash
+blacknode packages setup blacknode-ros2
+```
+
 Extra search folders can be added with the `BLACKNODE_PACKAGE_PATH`
 environment variable (separated by the platform path separator).
 
@@ -66,7 +73,8 @@ requires-blacknode = ">=0.1.0"   # load is skipped (with a clear error) if too o
 "ROS 2" = "#22314e"
 
 [dependencies]
-pip = ["rclpy>=3.0"]   # informational; installed via requirements.txt
+pip = ["pyyaml>=6"]        # informational; installed via requirements.txt
+docker = ["ros:jazzy"]     # images pulled by `blacknode packages install` / `setup`
 ```
 
 A failing package (missing deps, bad code, version mismatch) never breaks

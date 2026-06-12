@@ -112,6 +112,11 @@ export default function PackagesPanel() {
                   {pkg.node_types.length} nodes · {pkg.source}
                   {pkg.templates_dir ? ' · templates' : ''}
                 </div>
+                {pkg.docker_images?.length > 0 && (
+                  <div style={{ marginTop: 2, color: 'var(--tx3)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
+                    docker: {pkg.docker_images.join(', ')}
+                  </div>
+                )}
                 {pkg.node_types.length > 0 && (
                   <div style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--tx3)', wordBreak: 'break-word' }}>
                     {pkg.node_types.join(', ')}

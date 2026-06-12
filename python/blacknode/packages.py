@@ -48,6 +48,7 @@ class PackageInfo:
     requires_blacknode: str = ""
     categories: dict[str, str] = field(default_factory=dict)  # category -> hex color
     pip_dependencies: list[str] = field(default_factory=list)
+    docker_images: list[str] = field(default_factory=list)
     node_types: list[str] = field(default_factory=list)
     templates_dir: str = ""
     ok: bool = True
@@ -124,6 +125,7 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
     info.categories = {str(k): str(v) for k, v in (manifest.get("categories", {}) or {}).items()}
     deps = manifest.get("dependencies", {}) or {}
     info.pip_dependencies = [str(d) for d in (deps.get("pip", []) or [])]
+    info.docker_images = [str(d) for d in (deps.get("docker", []) or [])]
 
     templates_dir = pkg_path / "templates"
     if templates_dir.is_dir():
