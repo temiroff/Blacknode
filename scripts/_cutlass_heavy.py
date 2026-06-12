@@ -1,7 +1,7 @@
 """Find heavy CUTLASS conv configs and save the evolving image."""
 import base64, time, numpy as np
 from pathlib import Path
-from blacknode.nodes.cuda import cutlass
+from blacknode.pkg.blacknode_cuda.cuda import cutlass
 from blacknode.nodes.image import encode_image
 from blacknode.sandbox.cutlass_worker import get_worker
 

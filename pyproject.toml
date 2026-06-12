@@ -34,7 +34,8 @@ slack = [
 telegram = [
     "python-telegram-bot>=20",
 ]
-# Real GPU compute blocks (CUDAKernelLab). Requires an NVIDIA GPU + CUDA 12.x.
+# Deps for the packages/blacknode-cuda extension package (CUDAKernelLab etc.).
+# Requires an NVIDIA GPU + CUDA 12.x. Same as its requirements.txt.
 gpu = [
     "cupy-cuda12x>=13",
     "numpy>=1.24",
@@ -53,8 +54,11 @@ where = ["python"]
 [tool.pytest.ini_options]
 # Collect only the real suite. Without this, a bare `pytest` (as CI runs) also
 # globs stray `*_test.py` dev scripts under scripts/, whose top-level code can
-# abort collection.
-testpaths = ["tests"]
+# abort collection. The glob picks up the test suite of every extension
+# package cloned into packages/, so `pytest` from the repo root tests core and
+# installed packages together. Package test filenames must be unique across
+# packages (prefix them with the package name).
+testpaths = ["tests", "packages/*/tests"]
 
 # When the Rust core ships (roadmap milestone 2), restore the maturin backend:
 #   [build-system]

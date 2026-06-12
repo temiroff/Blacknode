@@ -5,6 +5,14 @@ Blacknode runs **real CUDA work on a local NVIDIA GPU** through
 and execute on the device and report measured timings. This page documents what
 is real today, with numbers you can reproduce, and what is not yet built.
 
+These nodes ship in the
+[blacknode-cuda](https://github.com/temiroff/blacknode-cuda)
+[extension package](packages.md). Install it with
+`blacknode packages install https://github.com/temiroff/blacknode-cuda`
+(or clone it into `packages/`). Its nodes appear under the **NVIDIA GPU**
+palette category and its templates load from the Templates tab like any
+built-in.
+
 ## Requirements
 
 - An NVIDIA GPU and a recent driver
@@ -288,13 +296,13 @@ you connect:
 - **two matrices** (`{"a": …, "b": …}`, or a lone matrix → `A·Aᵀ`) → returns `A·B`
 - **nothing** → a synthetic benchmark at `size` (or a timed burn with `seconds`)
 
-Templates: `templates/cutlass-image-showcase.json` (convolution path) and
-`templates/cutlass-gpu-burn.json` (sustained benchmark). The `scripts/_cutlass_*.py`
+Templates: `packages/blacknode-cuda/templates/cutlass-image-showcase.json` (convolution path) and
+`packages/blacknode-cuda/templates/cutlass-gpu-burn.json` (sustained benchmark). The `scripts/_cutlass_*.py`
 helpers drive the worker directly for benchmarking and container smoke tests.
 
 ## Try it
 
-- Open the **NVIDIA CUDA Lab** template (`templates/nvidia-cuda-lab.json`), or add
+- Open the **NVIDIA CUDA Lab** template (`packages/blacknode-cuda/templates/nvidia-cuda-lab.json`), or add
   a **CUDAKernelLab** node, pick an op, and press Cook.
 - For an image test, add **LoadImage**, **CUDACustomKernel**, and
   **OutputImage**. Load or drop an image onto `LoadImage`, connect
@@ -303,4 +311,4 @@ helpers drive the worker directly for benchmarking and container smoke tests.
 - For curated image filters, use **CUDAImageFilter** between **LoadImage** and
   **OutputImage** and choose `grayscale`, `invert`, `gaussian_blur`,
   `sharpen`, or `sobel_edges`.
-- Run from the CLI: `blacknode run templates/nvidia-cuda-lab.json`.
+- Run from the CLI: `blacknode run packages/blacknode-cuda/templates/nvidia-cuda-lab.json`.

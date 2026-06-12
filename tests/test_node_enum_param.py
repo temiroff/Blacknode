@@ -24,12 +24,3 @@ def test_enum_defaults_to_first_choice():
     spec = Enum(["x", "y"])
     assert spec.default == "x"
     assert spec.choices == ("x", "y")
-
-
-def test_cuda_node_exposes_op_dropdown():
-    import blacknode  # noqa: F401 - ensure built-in nodes are registered
-    fn = _NODE_REGISTRY["CUDAKernelLab"]
-    choices = fn._bn_input_choices
-    assert "vector_add" in choices["op"]
-    assert "mandelbrot" in choices["op"]
-    assert choices["dtype"] == ["float32", "float64"]

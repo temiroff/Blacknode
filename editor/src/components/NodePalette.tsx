@@ -4,6 +4,7 @@ import { CATEGORIES } from '../categories'
 import { isPythonToolPreset, resolvePythonToolPreset } from '../pythonToolPresets'
 import McpPanel from './McpPanel'
 import LearnedNodesPanel from './LearnedNodesPanel'
+import PackagesPanel from './PackagesPanel'
 import RunsPanel from './RunsPanel'
 import ScriptEditor from './ScriptEditor'
 import TemplateGallery from './TemplateGallery'
@@ -11,7 +12,7 @@ import WorkflowManager from './WorkflowManager'
 
 const ALL_CATEGORISED = Object.values(CATEGORIES).flatMap(c => c.nodes)
 
-type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs' | 'learned' | 'mcp'
+type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs' | 'learned' | 'mcp' | 'packages'
 
 const TOP_BAR_H = 44
 const RAIL_W = 78
@@ -61,6 +62,12 @@ const ICON_LEARNED = (
     <path d="M15.5 6.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
   </svg>
 )
+const ICON_PACKAGES = (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <path d="M9 2l6 3v8l-6 3-6-3V5l6-3z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+    <path d="M3 5l6 3 6-3M9 8v8" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+  </svg>
+)
 const ICON_MCP = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
     <rect x="3" y="6" width="12" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.3"/>
@@ -76,6 +83,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'script',    label: 'Script',    icon: ICON_SCRIPT    },
   { id: 'runs',      label: 'Runs',      icon: ICON_RUNS      },
   { id: 'learned',   label: 'Learned',   icon: ICON_LEARNED   },
+  { id: 'packages',  label: 'Packages',  icon: ICON_PACKAGES  },
   { id: 'mcp',       label: 'MCP',       icon: ICON_MCP       },
 ]
 
@@ -135,7 +143,7 @@ export default function NodePalette() {
   for (const type of ungrouped) {
     const category = nodeDefs[type]?.category || 'Custom'
     const known = CATEGORIES[category]
-    const color = known?.color || 'var(--tx3)'
+    const color = known?.color || nodeDefs[type]?.color || 'var(--tx3)'
     let group = groups.find(item => item.group === category)
     if (!group) {
       group = { group: category, color, types: [] }
@@ -448,6 +456,9 @@ export default function NodePalette() {
 
             {/* ── LEARNED ── */}
             {activeTab === 'learned' && <LearnedNodesPanel />}
+
+            {/* ── PACKAGES ── */}
+            {activeTab === 'packages' && <PackagesPanel />}
 
             {/* ── MCP ── */}
             {activeTab === 'mcp' && <McpPanel />}

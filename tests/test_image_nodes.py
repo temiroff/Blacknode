@@ -1,14 +1,14 @@
-"""Image I/O nodes + GPU image filter.
+"""Image I/O nodes.
 
-PIL/GPU-dependent checks skip cleanly when Pillow / an NVIDIA GPU is absent.
-The "no image" contract always holds.
+PIL-dependent checks skip cleanly when Pillow is absent. The "no image"
+contract always holds. GPU image filter tests live in the blacknode-cuda
+package (packages/blacknode-cuda/tests/).
 """
 import os
 import tempfile
 
 import pytest
 
-from blacknode.nodes.cuda import IMAGE_FILTERS, cuda_image_filter
 from blacknode.nodes.image import load_image, output_image
 
 
@@ -21,28 +21,11 @@ def _has_pil() -> bool:
         return False
 
 
-def _has_gpu() -> bool:
-    try:
-        import cupy as cp
-        cp.cuda.runtime.getDeviceProperties(0)
-        return True
-    except Exception:
-        return False
-
-
 HAS_PIL = _has_pil()
-HAS_GPU = _has_gpu()
 pil_only = pytest.mark.skipif(not HAS_PIL, reason="Pillow/NumPy not installed")
-gpu_only = pytest.mark.skipif(not (HAS_PIL and HAS_GPU), reason="no Pillow / NVIDIA GPU")
 
 
 # --- contracts that always hold -------------------------------------------------
-
-def test_cuda_image_filter_no_image_errors():
-    r = cuda_image_filter({"op": "grayscale"})
-    assert r["image"] == ""
-    assert "error" in r["report"]
-
 
 def test_output_image_passthrough():
     url = "data:image/png;base64,AAAA"
@@ -86,15 +69,3 @@ def test_load_image_reads_file():
     r = load_image({"source": path, "max_size": 0})
     assert r["width"] == 32 and r["height"] == 24
     assert r["image"].startswith("data:image/png;base64,")
-
-
-# --- GPU image filter -----------------------------------------------------------
-
-@gpu_only
-@pytest.mark.parametrize("op", IMAGE_FILTERS)
-def test_each_filter_returns_image(op):
-    loaded = load_image({"source": _make_test_image(), "max_size": 0})
-    r = cuda_image_filter({"image": loaded["image"], "op": op, "amount": 0.5})
-    assert "error" not in r["report"], r["report"]
-    assert r["image"].startswith("data:image/png;base64,")
-    assert r["device"]

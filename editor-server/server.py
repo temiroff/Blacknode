@@ -20,6 +20,8 @@ from blacknode.learned import registry as learned_registry
 from blacknode.mcp import tools as mcp_tools
 from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
+from blacknode.packages import discover_packages as discover_bn_packages
+from blacknode.packages import installed_packages, package_category_colors, package_template_dirs
 from blacknode.python_importer import import_workflow_python
 from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
@@ -756,9 +758,12 @@ def _category_for_node(fn: Any) -> str:
 
 def _node_def_payload(name: str, fn: Any) -> dict[str, Any]:
     doc = (getattr(fn, "_bn_description", None) or fn.__doc__ or "").strip()
+    category = _category_for_node(fn)
     return {
         "type": name,
-        "category": _category_for_node(fn),
+        "category": category,
+        "color": package_category_colors().get(category, ""),
+        "package": getattr(fn, "_bn_package", ""),
         "inputs": getattr(fn, "_bn_inputs", []),
         "outputs": getattr(fn, "_bn_outputs", ["output"]),
         "input_types": getattr(fn, "_bn_input_types", {}),
@@ -2829,6 +2834,17 @@ def list_custom_nodes():
     return {"directory": str(custom_dir), "files": files, "registered": registered}
 
 
+@app.get("/packages")
+def list_packages():
+    return {"packages": [info.to_dict() for info in installed_packages()]}
+
+
+@app.post("/packages/reload")
+def reload_packages():
+    report = discover_bn_packages()
+    return {"ok": not report["failed"], **report}
+
+
 @app.post("/custom-nodes/reload")
 def reload_custom_nodes():
     report = discover_node_modules()
@@ -3002,9 +3018,18 @@ def _workflow_path(slug: str) -> str:
     return os.path.join(_WORKFLOWS_DIR, f"{slug}.json")
 
 
+def _template_dirs() -> list[str]:
+    # Root templates first so they win slug collisions with package templates.
+    return [_TEMPLATES_DIR, *package_template_dirs()]
+
+
 def _template_path(slug: str) -> str:
     if not re.fullmatch(r"[a-zA-Z0-9_-]{1,60}", slug):
         raise HTTPException(400, "Invalid template slug")
+    for templates_dir in _template_dirs():
+        path = os.path.join(templates_dir, f"{slug}.json")
+        if os.path.exists(path):
+            return path
     return os.path.join(_TEMPLATES_DIR, f"{slug}.json")
 
 
@@ -3176,18 +3201,23 @@ def list_workflows():
 
 @app.get("/templates")
 def list_templates():
-    if not os.path.isdir(_TEMPLATES_DIR):
-        return []
     result = []
-    for fname in sorted(os.listdir(_TEMPLATES_DIR)):
-        if not fname.endswith(".json"):
+    seen: set[str] = set()
+    for templates_dir in _template_dirs():
+        if not os.path.isdir(templates_dir):
             continue
-        slug = fname[:-5]
-        try:
-            data = _read_workflow_file(_template_path(slug))
-            result.append(_workflow_summary(slug, data))
-        except Exception:
-            pass
+        for fname in sorted(os.listdir(templates_dir)):
+            if not fname.endswith(".json"):
+                continue
+            slug = fname[:-5]
+            if slug in seen:
+                continue
+            try:
+                data = _read_workflow_file(os.path.join(templates_dir, fname))
+                result.append(_workflow_summary(slug, data))
+                seen.add(slug)
+            except Exception:
+                pass
     return result
 
 

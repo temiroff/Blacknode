@@ -1,6 +1,6 @@
 import base64
 import numpy as np
-from blacknode.nodes.cuda import cutlass
+from blacknode.pkg.blacknode_cuda.cuda import cutlass
 from blacknode.nodes.image import encode_image
 from blacknode.sandbox.cutlass_worker import get_worker
 

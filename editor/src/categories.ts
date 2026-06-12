@@ -10,8 +10,9 @@ export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
     'TrajectoryRecorder', 'RateOutput', 'EmbedText', 'LLMModelRouter',
   ] },
   Image:    { color: '#fb7185', nodes: ['LoadImage', 'OutputImage'] },
+  // CUDA compute nodes (CUDAKernelLab, TensorCoreGEMM, ...) ship in the
+  // blacknode-cuda extension package and color themselves via its manifest.
   NVIDIA:   { color: '#76b900', nodes: [
-    'CUDAKernelLab', 'CUDACustomKernel', 'CUDAImageFilter', 'TensorCoreGEMM', 'GPUCapability', 'GPURequirement',
     'NVIDIASystemCheck', 'NIMDockerCommand',
     'NIMHealthCheck', 'NIMAgent', 'NIMBenchmark', 'NIMFineTune', 'NIMFineTuneStatus', 'VideoFolderInput',
     'NIMQueryRewrite', 'NVIDIAEmbedding', 'NVIDIAVectorSearch', 'NVIDIARerank',
@@ -57,6 +58,18 @@ const VALUE_HEADER_COLORS: Record<string, string> = {
   Dict:  '#a855f7',
 }
 
+// Colors for node types that arrive from extension packages, populated from
+// /node-defs at runtime (def.color comes from the package manifest).
+const _dynamicNodeColor: Record<string, string> = {}
+
+export function registerDynamicColors(defs: Record<string, { category?: string; color?: string }>) {
+  for (const [type, def] of Object.entries(defs)) {
+    if (_nodeColor[type]) continue
+    const color = def.color || (def.category ? CATEGORIES[def.category]?.color : undefined)
+    if (color) _dynamicNodeColor[type] = color
+  }
+}
+
 export function headerColor(type: string): string {
-  return VALUE_HEADER_COLORS[type] ?? _nodeColor[type] ?? '#1f2937'
+  return VALUE_HEADER_COLORS[type] ?? _nodeColor[type] ?? _dynamicNodeColor[type] ?? '#1f2937'
 }

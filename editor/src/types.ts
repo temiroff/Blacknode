@@ -55,6 +55,23 @@ export interface BnNodeDef {
   input_choices?: Record<string, string[]>
   doc?: string
   source?: string
+  color?: string    // category color declared by the owning extension package
+  package?: string  // extension package name, '' for built-ins
+}
+
+export interface BnPackage {
+  name: string
+  version: string
+  description: string
+  path: string
+  source: string  // 'folder' | 'entry-point'
+  requires_blacknode: string
+  categories: Record<string, string>
+  pip_dependencies: string[]
+  node_types: string[]
+  templates_dir: string
+  ok: boolean
+  error: string
 }
 
 export interface BnEdge {

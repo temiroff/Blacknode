@@ -50,3 +50,8 @@ editor-server/.driver-*.json
 /workflows/
 /nodes/learned/*
 !/nodes/learned/.gitkeep
+
+# Extension packages — each is its own git repo cloned in place; only the
+# folder README is tracked here.
+/packages/*
+!/packages/README.md

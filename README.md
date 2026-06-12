@@ -65,6 +65,7 @@ execution, and export the result as code.
 | Typed ports and validation | Text, Int, Float, Bool, List, Dict, Embedding, Fn, Model, Number, Any, cycle checks, and MCP repair suggestions. | [Workflow Schema](docs/workflow-schema.md), [Agent Skill](.agents/skills/blacknode-workflow/SKILL.md) |
 | Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md), [Presentation Checklist](docs/presentation-checklist.md) |
 | Custom nodes | Persistent editor-created nodes, Python decorator nodes, auto-discovery, and community node packs. | [Custom Nodes](docs/custom-nodes.md) |
+| Extension packages | Modular node libraries in separate git repos (`blacknode-cuda`, ...) cloned into `packages/` — install, remove, or write your own without touching the core app. | [Extension Packages](docs/packages.md) |
 | Learned nodes | MCP agents can create reusable Docker-sandboxed node types that appear live in the editor palette. | [Learned Nodes](docs/learned-nodes.md) |
 | Python round-trip | Export readable Python, import it back into the editor, and live-sync Python runs into replay. | [Python Round-Trip](docs/python-roundtrip.md) |
 | Framework export | Turn a visual graph into Python, LangGraph, CrewAI, AutoGen, OpenAI Swarm, or an NVIDIA Agent Stack manifest. | [Framework Export](docs/framework-export.md) |
@@ -137,6 +138,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | [Framework Export](docs/framework-export.md) | Exporting workflows to Python, LangGraph, CrewAI, AutoGen, Swarm, REST, and WebSocket control. |
 | [Python Round-Trip](docs/python-roundtrip.md) | Export Python, import Python back into the editor, and live-sync Python runs into replay. |
 | [Custom Nodes](docs/custom-nodes.md) | Persistent editor-created nodes, auto-discovery, community node packs, and node library extension. |
+| [Extension Packages](docs/packages.md) | Modular node libraries as separate git repos: manifest format, install via CLI or clone, package-shipped templates. |
 | [NVIDIA GPU Blocks](docs/nvidia-gpu-blocks.md) | Real CUDA/GPU nodes: curated ops, image workflows, custom NVRTC kernels, capability detection, and preflight, with measured speedups. |
 | [Learned Nodes](docs/learned-nodes.md) | MCP-created reusable nodes, opt-in behavior, editor behavior, and user workflow. |
 | [Learned Nodes Test Plan](docs/learned-nodes-test-plan.md) | Step-by-step commands for validating Docker, MCP, editor refresh, consent, and the camera demo dry run. |
@@ -173,6 +175,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | `editor-server/` | FastAPI backend for the visual editor, cook API, workflows, and runs. |
 | `editor/` | React visual workflow editor. |
 | `templates/` | Tracked starter workflows. |
+| `packages/` | Extension packages — separate git repos cloned in place (e.g. `blacknode-cuda`). |
 | `workflows/` | Local saved workflows, ignored by git. |
 | `docs/` | Walkthroughs, integration guides, workflow schema, and demo assets. |
 | `docker-compose.yml` | Self-hosted editor, backend, and streamable HTTP MCP stack. |

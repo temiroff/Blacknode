@@ -12,6 +12,7 @@ RUN apt-get update \
 COPY pyproject.toml README.md LICENSE ./
 COPY python ./python
 COPY templates ./templates
+COPY packages ./packages
 COPY editor-server ./editor-server
 
 RUN python -m pip install --upgrade pip \

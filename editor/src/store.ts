@@ -5,7 +5,7 @@ import {
 } from 'reactflow'
 import { api, type ApiKeyStatus, type CookEvent, type DriverInfo, type DriverStatus, type LearnedNodeSummary, type RunRecord } from './api'
 import { BnNodeDef, BnNodeMeta, ConnectionDraft, NodeCookState, SubnetFrame } from './types'
-import { VALUE_NODE_TYPES } from './categories'
+import { VALUE_NODE_TYPES, registerDynamicColors } from './categories'
 import { portsCompatible, portColor } from './portColors'
 import { organizeFlowNodes } from './graphLayout'
 import { createVisualAgentLoopSubgraph } from './defaultSubgraphs'
@@ -1040,6 +1040,7 @@ export const useStore = create<Store>((set, get) => ({
   loadNodeTypes: async () => {
     try {
       const defs = await api.nodeDefs()
+      registerDynamicColors(defs)
       set({ nodeTypes: Object.keys(defs).sort(), nodeDefs: defs })
     } catch {
       const types = await api.nodeTypes()

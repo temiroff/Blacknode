@@ -16,3 +16,6 @@ editor-server/custom_models.json
 workflows
 .local-logs
 .local-notes
+
+# nested package repos: exclude their git metadata from images
+packages/*/.git

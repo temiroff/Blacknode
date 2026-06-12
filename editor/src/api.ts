@@ -1,4 +1,4 @@
-import type { BnNodeDef, BnNodeMeta } from './types'
+import type { BnNodeDef, BnNodeMeta, BnPackage } from './types'
 import type { GraphRunTarget } from './graphRun'
 
 const BASE = (import.meta.env.VITE_BLACKNODE_API_BASE ?? '/api').replace(/\/$/, '')
@@ -253,6 +253,8 @@ async function streamCook(
 export const api = {
   nodeTypes: ()                              => req<string[]>('GET', '/node-types'),
   nodeDefs:  ()                              => req<Record<string, BnNodeDef>>('GET', '/node-defs'),
+  packages:  ()                              => req<{ packages: BnPackage[] }>('GET', '/packages'),
+  reloadPackages: ()                         => req<{ ok: boolean }>('POST', '/packages/reload'),
   getGraph:  ()                              => req<{ nodes: any[]; edges: any[] }>('GET', '/graph'),
   setGraph:  (nodes: any[], edges: any[])    => req<{ nodes: any[]; edges: any[] }>('POST', '/graph', { nodes, edges }),
   addNode:   (type_name: string, pos: [number,number], params = {}) =>

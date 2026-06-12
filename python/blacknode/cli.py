@@ -45,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
         return _demo(args.workflow, args.json)
     if args.command == "doctor":
         return _doctor()
+    if args.command == "packages":
+        return _packages(args)
     if args.command == "mcp":
         return _mcp(args)
     parser.print_help()
@@ -150,6 +152,16 @@ def _parser() -> argparse.ArgumentParser:
 
     subcommands.add_parser("doctor", help="check the local Blacknode development environment")
 
+    packages = subcommands.add_parser("packages", help="list or install Blacknode extension packages")
+    packages_sub = packages.add_subparsers(dest="packages_command")
+    packages_sub.add_parser("list", help="show installed extension packages")
+    packages_install = packages_sub.add_parser(
+        "install", help="git clone a package repo into packages/ and install its pip deps"
+    )
+    packages_install.add_argument("url", help="git URL of the package repository")
+    packages_install.add_argument("--directory", type=Path, help="override the packages/ root folder")
+    packages_install.add_argument("--no-deps", action="store_true", help="skip pip installing requirements.txt")
+
     mcp = subcommands.add_parser("mcp", help="run the Blacknode MCP server")
     mcp.add_argument(
         "--transport",
@@ -168,6 +180,70 @@ def _parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def _packages(args: Any) -> int:
+    if args.packages_command == "list":
+        return _packages_list()
+    if args.packages_command == "install":
+        return _packages_install(args.url, args.directory, args.no_deps)
+    print("usage: blacknode packages {list,install}", file=sys.stderr)
+    return 2
+
+
+def _packages_list() -> int:
+    import blacknode  # noqa: F401  triggers package discovery
+
+    from .packages import installed_packages
+
+    packages = installed_packages()
+    if not packages:
+        print("No extension packages installed.")
+        print("Clone one into packages/ or run: blacknode packages install <git-url>")
+        return 0
+    for info in packages:
+        status = "ok" if info.ok else "FAILED"
+        print(f"{info.name} {info.version or '?'} [{status}] {len(info.node_types)} nodes  {info.path}")
+        if not info.ok:
+            last_line = info.error.strip().splitlines()[-1] if info.error.strip() else "unknown error"
+            print(f"  {last_line}")
+    return 0
+
+
+def _packages_install(url: str, directory: Path | None, no_deps: bool) -> int:
+    from .packages import MANIFEST_NAME, load_package, packages_root
+
+    root = (directory or packages_root()).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    name = url.rstrip("/").removesuffix(".git").rsplit("/", 1)[-1]
+    dest = root / name
+    if dest.exists():
+        print(f"error: {dest} already exists", file=sys.stderr)
+        return 1
+
+    print(f"Cloning {url} -> {dest}")
+    clone = subprocess.run(["git", "clone", "--depth", "1", url, str(dest)])
+    if clone.returncode != 0:
+        return clone.returncode
+
+    if not (dest / MANIFEST_NAME).exists():
+        print(f"warning: no {MANIFEST_NAME} found; Blacknode will not load this folder", file=sys.stderr)
+        return 1
+
+    requirements = dest / "requirements.txt"
+    if requirements.exists() and not no_deps:
+        print(f"Installing pip dependencies from {requirements}")
+        pip = subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(requirements)])
+        if pip.returncode != 0:
+            print("warning: pip install failed; the package may not load until deps are installed", file=sys.stderr)
+
+    info = load_package(dest)
+    if info.ok:
+        print(f"Installed {info.name} {info.version or ''}: {len(info.node_types)} nodes")
+        print("Restart Blacknode (or press Reload in the editor Packages tab) to use them.")
+        return 0
+    print(f"Package cloned but failed to load:\n{info.error}", file=sys.stderr)
+    return 1
 
 
 def _validate(path: Path) -> int:

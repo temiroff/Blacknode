@@ -38,9 +38,14 @@ Blacknode loads node files from:
 | `custom-nodes/` | Local nodes saved from the editor or written by hand. |
 | `community-nodes/` | Repository-reviewed nodes, the marketplace MVP. |
 | `nodes/` | Optional project-local node folder. |
+| `packages/` | [Extension packages](packages.md) — multi-file node libraries in their own git repos, with deps and templates. |
 
 You can also set `BLACKNODE_NODE_PATH` to one or more folders separated by the
 platform path separator.
+
+For anything bigger than a single file — a node library with pip dependencies,
+its own templates, versioning, and its own repository — write an
+[extension package](packages.md) instead.
 
 ## Decorator Formats
 
