@@ -53,6 +53,22 @@ workflow state. Blacknode gives agents a typed workflow editor: they can create
 nodes, connect ports, validate the graph, run it, debug failures, replay the
 execution, and export the result as code.
 
+## Extension Packages
+
+The base app stays small. Node libraries ship as **extension packages** —
+separate git repositories cloned into `packages/`:
+
+```bash
+blacknode packages install git@github.com:temiroff/blacknode-cuda.git
+```
+
+Blacknode discovers each package at startup and registers its nodes, palette
+categories, and workflow templates. Delete the folder to remove it; a broken
+or missing package never breaks the core. Manage everything from the editor's
+**Packages** tab, and write your own package by copying
+[blacknode-cuda](https://github.com/temiroff/blacknode-cuda) — see
+[Extension Packages](docs/packages.md).
+
 ## Feature Map
 
 | Feature | What it gives you | Read more |
@@ -60,7 +76,7 @@ execution, and export the result as code.
 | Visual workflow editor | Build and inspect typed node graphs with visible execution state. | [Beginner Walkthrough](docs/walkthrough.md) |
 | Agent control surface | MCP, HTTP, and WebSocket APIs for agents to create, connect, validate, run, save, inspect, and export workflows. | [Agent Guide](docs/agent-guide.md), [MCP Quickstart](docs/quickstart-mcp.md) |
 | NVIDIA workflow surface | Hosted/local NIM, Nemotron query rewriting, NeMo Retriever embedding and reranking, visual RAG comparison, benchmarks, AI-Q/NeMo Agent Toolkit integration, and streamable HTTP MCP. | [NVIDIA Mission Control](docs/nvidia-mission-control.md), [NVIDIA Visual RAG](docs/nvidia-visual-rag.md), [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) |
-| GPU/CUDA blocks | Real CUDA kernels, custom NVRTC-compiled kernels, GPU image nodes, and capability/preflight nodes that run on your local NVIDIA GPU. | [NVIDIA GPU Blocks](docs/nvidia-gpu-blocks.md) |
+| GPU/CUDA blocks | Real CUDA kernels, custom NVRTC-compiled kernels, GPU image nodes, and capability/preflight nodes that run on your local NVIDIA GPU — shipped as the [blacknode-cuda](https://github.com/temiroff/blacknode-cuda) extension package. | [NVIDIA GPU Blocks](docs/nvidia-gpu-blocks.md) |
 | Local chat agents | Control a local Blacknode workflow through Telegram long polling or Slack Socket Mode, with editor start/stop, live status, tools, images, and replay. | [Local Telegram Agent](docs/telegram-nim-demo.md), [Slack Agent](docs/slack-nim-demo.md) |
 | Typed ports and validation | Text, Int, Float, Bool, List, Dict, Embedding, Fn, Model, Number, Any, cycle checks, and MCP repair suggestions. | [Workflow Schema](docs/workflow-schema.md), [Agent Skill](.agents/skills/blacknode-workflow/SKILL.md) |
 | Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md), [Presentation Checklist](docs/presentation-checklist.md) |
