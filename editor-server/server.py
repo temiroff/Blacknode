@@ -20,6 +20,7 @@ from blacknode.learned import registry as learned_registry
 from blacknode.mcp import tools as mcp_tools
 from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
+from blacknode.package_index import package_index_payload, resolve_workflow_dependencies
 from blacknode.packages import discover_packages as discover_bn_packages
 from blacknode.packages import install_from_git as bn_install_from_git
 from blacknode.packages import installed_packages, package_category_colors, package_template_dirs
@@ -2841,6 +2842,11 @@ def list_packages():
     return {"packages": [info.to_dict() for info in installed_packages()]}
 
 
+@app.get("/packages/index")
+def get_package_index():
+    return package_index_payload()
+
+
 @app.post("/packages/reload")
 def reload_packages():
     report = discover_bn_packages()
@@ -3083,6 +3089,18 @@ def _workflow_summary(slug: str, data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _workflow_dependency_report(data: dict[str, Any]) -> dict[str, Any]:
+    package_states = {
+        info.name: {"ok": info.ok, "error": info.error}
+        for info in installed_packages()
+    }
+    return resolve_workflow_dependencies(
+        data,
+        available_node_types={*_NODE_REGISTRY, *_SUBGRAPH_NODE_TYPES},
+        installed_packages=package_states,
+    )
+
+
 def _unique_workflow_slug(base_slug: str) -> str:
     slug = base_slug
     i = 2
@@ -3264,6 +3282,9 @@ def load_template(slug: str):
     if not os.path.exists(path):
         raise HTTPException(404, f"Template '{slug}' not found")
     data = _read_workflow_file(path)
+    dependencies = _workflow_dependency_report(data)
+    if not dependencies["ok"]:
+        raise HTTPException(409, dependencies)
     report = validate_bn_workflow(data)
     if not report.ok:
         raise HTTPException(400, report.to_dict())

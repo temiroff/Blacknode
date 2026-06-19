@@ -26,6 +26,7 @@
     },
     "metadata": {
       "type": "object",
+      "description": "Extra JSON metadata. Templates may declare extension dependencies in metadata.required_packages.",
       "additionalProperties": {
         "$ref": "#/$defs/jsonValue"
       }

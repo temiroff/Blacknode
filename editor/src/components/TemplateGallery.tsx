@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
-import { api, type TemplateMeta } from '../api'
+import {
+  api,
+  templateDependencyError,
+  type MissingTemplatePackage,
+  type TemplateDependencyError,
+  type TemplateMeta,
+} from '../api'
 import { useStore } from '../store'
 
 export default function TemplateGallery() {
@@ -7,6 +13,8 @@ export default function TemplateGallery() {
   const [templates, setTemplates] = useState<TemplateMeta[]>([])
   const [loading, setLoading] = useState<string | null>(null)
   const [loaded, setLoaded] = useState<string | null>(null)
+  const [installing, setInstalling] = useState<{ slug: string; packageName: string } | null>(null)
+  const [missing, setMissing] = useState<Record<string, TemplateDependencyError>>({})
   const [error, setError] = useState<string | null>(null)
 
   const refreshTemplates = async () => {
@@ -33,8 +41,18 @@ export default function TemplateGallery() {
       await organizeNodes()
       window.dispatchEvent(new Event('blacknode:fit-view'))
       setLoaded(template.slug)
+      setMissing(current => {
+        const next = { ...current }
+        delete next[template.slug]
+        return next
+      })
     } catch (err) {
       console.error(err)
+      const dependencyError = templateDependencyError(err)
+      if (dependencyError) {
+        setMissing(current => ({ ...current, [template.slug]: dependencyError }))
+        return
+      }
       if (previousGraph) {
         await api.setGraph(previousGraph.nodes, previousGraph.edges).catch(console.error)
         await loadGraph().catch(console.error)
@@ -48,6 +66,33 @@ export default function TemplateGallery() {
       }))
     } finally {
       setLoading(null)
+    }
+  }
+
+  const installPackage = async (
+    event: React.MouseEvent,
+    template: TemplateMeta,
+    pkg: MissingTemplatePackage,
+  ) => {
+    event.stopPropagation()
+    if (!pkg.git_url || installing) return
+    setInstalling({ slug: template.slug, packageName: pkg.name })
+    try {
+      const result = await api.installPackage(pkg.git_url)
+      if (!result.ok) throw new Error(result.error || `Could not install ${pkg.name}`)
+      await loadNodeTypes()
+      await refreshTemplates()
+      await loadTemplate(template)
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: `Could not install ${pkg.name}`,
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
+    } finally {
+      setInstalling(null)
     }
   }
 
@@ -84,24 +129,29 @@ export default function TemplateGallery() {
       {templates.map(template => {
         const isLoading = loading === template.slug
         const wasLoaded = loaded === template.slug
+        const dependencyError = missing[template.slug]
+        const isInstalling = installing?.slug === template.slug
+        const isBusy = isLoading || isInstalling
         return (
           <div
             key={template.slug}
             style={{
               background: 'var(--lift)',
-              border: `1px solid ${wasLoaded ? template.color : 'var(--line2)'}`,
+              border: `1px solid ${dependencyError ? 'var(--warn)' : wasLoaded ? template.color : 'var(--line2)'}`,
               borderRadius: 8,
               padding: '10px 12px',
-              cursor: isLoading ? 'default' : 'pointer',
+              cursor: isBusy ? 'default' : 'pointer',
               transition: 'border-color 0.2s',
             }}
             onMouseEnter={e => {
-              if (!isLoading) (e.currentTarget as HTMLElement).style.borderColor = template.color
+              if (!isBusy && !dependencyError) (e.currentTarget as HTMLElement).style.borderColor = template.color
             }}
             onMouseLeave={e => {
-              if (!wasLoaded) (e.currentTarget as HTMLElement).style.borderColor = 'var(--line2)'
+              if (!wasLoaded) {
+                (e.currentTarget as HTMLElement).style.borderColor = dependencyError ? 'var(--warn)' : 'var(--line2)'
+              }
             }}
-            onClick={() => !isLoading && loadTemplate(template)}
+            onClick={() => !isBusy && loadTemplate(template)}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
               <span style={{
@@ -117,15 +167,88 @@ export default function TemplateGallery() {
               <span style={{
                 flex: '0 0 auto',
                 fontSize: 11,
-                color: wasLoaded ? template.color : 'var(--tx3)',
+                color: dependencyError ? 'var(--warn)' : wasLoaded ? template.color : 'var(--tx3)',
                 fontFamily: 'var(--font-ui)',
               }}>
-                {isLoading ? 'loading...' : wasLoaded ? 'loaded' : `${template.node_count} nodes`}
+                {isLoading
+                  ? 'loading...'
+                  : isInstalling
+                    ? 'installing...'
+                    : dependencyError
+                      ? 'missing nodes'
+                      : wasLoaded
+                        ? 'loaded'
+                        : `${template.node_count} nodes`}
               </span>
             </div>
             <div style={{ color: 'var(--tx2)', fontSize: 12, lineHeight: 1.4 }}>
               {template.description}
             </div>
+            {dependencyError && (
+              <div
+                onClick={event => event.stopPropagation()}
+                style={{
+                  marginTop: 9,
+                  paddingTop: 8,
+                  borderTop: '1px solid color-mix(in srgb, var(--warn) 45%, transparent)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 7,
+                }}
+              >
+                {dependencyError.missing_packages.map(pkg => {
+                  const packageInstalling = installing?.packageName === pkg.name
+                  return (
+                    <div key={pkg.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ flex: 1, minWidth: 0, color: 'var(--warn)', fontSize: 11, lineHeight: 1.35 }}>
+                        {pkg.installed
+                          ? pkg.load_error ? 'Package failed to load: ' : 'Installed package is missing nodes: '
+                          : 'Missing package: '}
+                        <strong>{pkg.name}</strong>
+                        {pkg.node_types.length > 0 && (
+                          <div style={{ color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+                            {pkg.node_types.join(', ')}
+                          </div>
+                        )}
+                        {pkg.load_error && (
+                          <div style={{ color: 'var(--err)', fontSize: 10 }}>
+                            {pkg.load_error.trim().split('\n').slice(-1)[0]}
+                          </div>
+                        )}
+                        {!pkg.installed && !pkg.git_url && (
+                          <div style={{ color: 'var(--err)', fontSize: 10 }}>
+                            No install URL was provided.
+                          </div>
+                        )}
+                      </div>
+                      {!pkg.installed && pkg.git_url && (
+                        <button
+                          onClick={event => installPackage(event, template, pkg)}
+                          disabled={Boolean(installing)}
+                          style={{
+                            background: 'transparent',
+                            border: '1px solid var(--warn)',
+                            borderRadius: 5,
+                            color: 'var(--warn)',
+                            cursor: installing ? 'wait' : 'pointer',
+                            fontFamily: 'var(--font-ui)',
+                            fontSize: 11,
+                            padding: '3px 9px',
+                          }}
+                        >
+                          {packageInstalling ? 'Installing...' : 'Install'}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+                {dependencyError.unresolved_node_types.length > 0 && (
+                  <div style={{ color: 'var(--err)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
+                    No package mapping: {dependencyError.unresolved_node_types.join(', ')}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )
       })}

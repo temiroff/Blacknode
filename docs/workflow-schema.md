@@ -73,10 +73,33 @@ Reusable editor templates live in `templates/*.json` and use this same workflow 
   "metadata": {
     "template": true,
     "description": "Concatenate two strings and print",
-    "color": "#0891b2"
+    "color": "#0891b2",
+    "required_packages": ["blacknode-cuda"]
   }
 }
 ```
+
+`required_packages` is optional. Official packages in the core index can be
+named with a string. Third-party templates can embed their install resolution:
+
+```json
+{
+  "metadata": {
+    "required_packages": [
+      {
+        "name": "blacknode-acme",
+        "git_url": "https://github.com/acme/blacknode-acme.git",
+        "node_types": ["AcmeNode"]
+      }
+    ]
+  }
+}
+```
+
+When the editor loads a template, the backend scans root and nested node types
+before semantic validation. Missing indexed nodes or declared packages are
+shown on the template card with an **Install** action. After installation, the
+editor refreshes the node registry and retries the original template load.
 
 Because templates are ordinary workflow files, they can be checked with:
 

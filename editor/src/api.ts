@@ -21,6 +21,24 @@ export interface TemplateMeta {
   node_count: number
 }
 
+export interface MissingTemplatePackage {
+  name: string
+  git_url: string
+  node_types: string[]
+  source: 'core_index' | 'template'
+  installed: boolean
+  load_error: string
+}
+
+export interface TemplateDependencyError {
+  ok: false
+  code: 'missing_packages' | 'missing_node_types'
+  message: string
+  missing_node_types: string[]
+  missing_packages: MissingTemplatePackage[]
+  unresolved_node_types: string[]
+}
+
 export interface DriverStatus {
   name: string
   workflow: string
@@ -152,6 +170,27 @@ function backendRequestError(path: string, err: unknown): Error {
   )
 }
 
+export class ApiError extends Error {
+  status: number
+  detail: unknown
+
+  constructor(message: string, status: number, detail: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.detail = detail
+  }
+}
+
+export function templateDependencyError(err: unknown): TemplateDependencyError | null {
+  if (!(err instanceof ApiError) || err.status !== 409 || !err.detail || typeof err.detail !== 'object') {
+    return null
+  }
+  const detail = err.detail as Partial<TemplateDependencyError>
+  if (detail.code !== 'missing_packages' && detail.code !== 'missing_node_types') return null
+  return detail as TemplateDependencyError
+}
+
 async function fetchBackend(path: string, init: RequestInit): Promise<Response> {
   try {
     return await fetch(`${BASE}${path}`, init)
@@ -170,12 +209,22 @@ async function responseJson<T>(res: Response, path: string): Promise<T> {
     let detail: unknown = res.statusText
     if (text.trim()) {
       try {
-        detail = JSON.parse(text).detail ?? bodyPreview(text)
+        const payload = JSON.parse(text)
+        detail = payload.detail ?? payload
       } catch {
         detail = bodyPreview(text) || res.statusText
       }
     }
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+    const message = typeof detail === 'string'
+      ? detail
+      : (
+          detail
+          && typeof detail === 'object'
+          && typeof (detail as { message?: unknown }).message === 'string'
+        )
+        ? String((detail as { message: string }).message)
+        : JSON.stringify(detail)
+    throw new ApiError(message, res.status, detail)
   }
 
   if (!text.trim()) return undefined as T
@@ -254,6 +303,7 @@ export const api = {
   nodeTypes: ()                              => req<string[]>('GET', '/node-types'),
   nodeDefs:  ()                              => req<Record<string, BnNodeDef>>('GET', '/node-defs'),
   packages:  ()                              => req<{ packages: BnPackage[] }>('GET', '/packages'),
+  packageIndex: ()                           => req<Record<string, unknown>>('GET', '/packages/index'),
   reloadPackages: ()                         => req<{ ok: boolean }>('POST', '/packages/reload'),
   installPackage: (url: string)              => req<{ ok: boolean; package: BnPackage | null; error: string; log: string[] }>('POST', '/packages/install', { url }),
   deletePackage: (name: string)              => req<{ ok: boolean }>('DELETE', `/packages/${encodeURIComponent(name)}`),

@@ -35,6 +35,9 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
   const { cooking, cookResult, cookError, replayResult, replayError, replayStatus } = data
   const replayHasResult = replayResult !== undefined || !!replayError
   const hasResult = cookResult !== undefined || !!cookError || replayHasResult
+  const label = typeof data.params.label === 'string' && data.params.label.trim()
+    ? data.params.label.trim()
+    : 'Output'
 
   const displayText = cooking
     ? null
@@ -84,7 +87,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
         flexShrink: 0,
       }}>
         <span style={{ fontWeight: 700, fontSize: 12, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em' }}>
-          OUTPUT
+          {label}
         </span>
         <button
           onClick={e => { e.stopPropagation(); cookNode(id, 'value') }}

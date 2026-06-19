@@ -42,6 +42,51 @@ no restart needed.
 Extra search folders can be added with the `BLACKNODE_PACKAGE_PATH`
 environment variable (separated by the platform path separator).
 
+## Missing-node resolution
+
+Blacknode ships a small core index that maps official extension node types to
+their package name and Git URL. The editor backend exposes it at:
+
+```text
+GET /packages/index
+```
+
+Template loading scans every root and nested node type before validation. When
+a type is unavailable, the loader combines the core index with the template's
+optional `metadata.required_packages` declaration. The Templates tab then
+shows the missing package, installs it through the existing package installer,
+refreshes node definitions, and retries the load.
+
+Indexed packages only need their name:
+
+```json
+{
+  "metadata": {
+    "template": true,
+    "required_packages": ["blacknode-cuda"]
+  }
+}
+```
+
+Third-party templates can carry their own resolution:
+
+```json
+{
+  "metadata": {
+    "required_packages": [
+      {
+        "name": "blacknode-ros-extra",
+        "git_url": "https://github.com/example/blacknode-ros-extra.git",
+        "node_types": ["ROS2BagPlay"]
+      }
+    ]
+  }
+}
+```
+
+The install still requires an explicit click. Templates do not clone or execute
+package code automatically.
+
 ## Package layout
 
 ```
