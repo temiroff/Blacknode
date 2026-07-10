@@ -84,6 +84,22 @@ export default function PackagesPanel() {
     }
   }
 
+  const setup = async (name: string) => {
+    setBusy(true)
+    setError(null)
+    setInstallLog(null)
+    try {
+      const result = await api.setupPackage(name)
+      setInstallLog(result.log?.length ? result.log.join('\n') : 'Prerequisites installed.')
+      await refresh()
+      await loadNodeTypes()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const remove = async (name: string) => {
     if (!window.confirm(`Delete package '${name}'?\n\nThis removes its folder (and any local changes in it) from packages/.`)) return
     setBusy(true)
@@ -164,6 +180,20 @@ export default function PackagesPanel() {
 
       {packages.map(pkg => {
         const open = expanded === pkg.name
+        const hasWarnings = (pkg.warnings?.length ?? 0) > 0
+        const prereqsMet = pkg.ok && !hasWarnings
+        const dotTitle = !pkg.ok
+          ? 'Package failed to load — see the error below'
+          : hasWarnings
+            ? 'Prerequisites missing — press "Install prerequisites"'
+            : 'Loaded; declared prerequisites satisfied'
+        const setupTitle = hasWarnings
+          ? pkg.warnings.join('\n')
+          : pkg.import_dependencies.length
+            ? `Python prerequisites installed (${pkg.import_dependencies.join(', ')}).`
+              + (pkg.docker_images.length ? ` Docker image ${pkg.docker_images.join(', ')} pulls on first use.` : '')
+              + ' Click to re-run setup (e.g. to pre-pull Docker images).'
+            : 'No prerequisites declared. Click to re-run setup.'
         return (
           <div key={pkg.name} style={{ borderBottom: '1px solid var(--line)' }}>
             <button
@@ -182,11 +212,11 @@ export default function PackagesPanel() {
                 fontFamily: 'var(--font-ui)',
               }}
             >
-              <span style={{
+              <span title={dotTitle} style={{
                 width: 7,
                 height: 7,
                 borderRadius: '50%',
-                background: pkg.ok ? 'var(--ok)' : 'var(--err)',
+                background: !pkg.ok ? 'var(--err)' : (hasWarnings ? '#e0a000' : 'var(--ok)'),
                 flexShrink: 0,
               }} />
               <span style={{ flex: 1, fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -230,8 +260,41 @@ export default function PackagesPanel() {
                     {pkg.error.trim().split('\n').slice(-12).join('\n')}
                   </pre>
                 )}
+                {pkg.ok && pkg.warnings?.length > 0 && (
+                  <pre style={{
+                    marginTop: 6,
+                    padding: 8,
+                    background: 'var(--hover)',
+                    borderRadius: 5,
+                    color: '#e0a000',
+                    fontSize: 10,
+                    fontFamily: 'var(--font-mono)',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word',
+                    maxHeight: 200,
+                    overflowY: 'auto',
+                  }}>
+                    {pkg.warnings.join('\n')}
+                  </pre>
+                )}
                 {pkg.source === 'folder' && (
-                  <div style={{ marginTop: 8 }}>
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={() => setup(pkg.name)}
+                      disabled={busy}
+                      title={setupTitle}
+                      style={hasWarnings
+                        ? { ...buttonStyle(busy), color: '#e0a000', borderColor: '#e0a000' }
+                        : prereqsMet
+                          ? { ...buttonStyle(busy), color: 'var(--ok)', borderColor: 'var(--ok)' }
+                          : buttonStyle(busy)}
+                    >
+                      {busy
+                        ? 'Working…'
+                        : hasWarnings
+                          ? 'Install prerequisites'
+                          : 'Prerequisites ✓'}
+                    </button>
                     <button
                       onClick={() => remove(pkg.name)}
                       disabled={busy}

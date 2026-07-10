@@ -7,26 +7,78 @@ SERVER_OUT="$LOG_DIR/server.out.log"
 SERVER_ERR="$LOG_DIR/server.err.log"
 EDITOR_OUT="$LOG_DIR/editor.out.log"
 EDITOR_ERR="$LOG_DIR/editor.err.log"
-PYTHON_BIN="${PYTHON:-python3}"
+PYTHON_BIN="${PYTHON:-}"
+VENV_DIR="${BLACKNODE_VENV:-$ROOT_DIR/.venv}"
 BACKEND_PID=""
 FRONTEND_PID=""
 BACKEND_PORT=7777
 FRONTEND_PORT=3000
 EDITOR_URL="http://localhost:${FRONTEND_PORT}"
 
-if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
-  if command -v python >/dev/null 2>&1; then
+if ! command -v npm >/dev/null 2>&1; then
+  echo "ERROR: npm is required. Install Node.js 20.19+ or 22.12+."
+  exit 1
+fi
+
+resolve_system_python() {
+  if [[ -n "$PYTHON_BIN" ]]; then
+    if command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+      return 0
+    fi
+
+    echo "ERROR: PYTHON points to '$PYTHON_BIN', but that command was not found."
+    exit 1
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="python3"
+  elif command -v python >/dev/null 2>&1; then
     PYTHON_BIN="python"
   else
     echo "ERROR: Python 3.11+ is required."
     exit 1
   fi
-fi
+}
 
-if ! command -v npm >/dev/null 2>&1; then
-  echo "ERROR: npm is required. Install Node.js 20.19+ or 22.12+."
-  exit 1
-fi
+assert_python_version() {
+  if ! "$PYTHON_BIN" - <<'PY'
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
+PY
+  then
+    echo "ERROR: Python 3.11+ is required. Found: $("$PYTHON_BIN" --version 2>&1)"
+    exit 1
+  fi
+}
+
+ensure_python_environment() {
+  resolve_system_python
+  assert_python_version
+
+  if [[ -n "${PYTHON:-}" ]]; then
+    return
+  fi
+
+  if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+    echo "  Creating Python virtual environment (.venv)..."
+    if ! "$PYTHON_BIN" -m venv "$VENV_DIR"; then
+      echo
+      echo "  ERROR: Could not create the Python virtual environment."
+      echo "  On Ubuntu/Debian, install venv support and run ./start.sh again:"
+      echo
+      echo "    sudo apt install python3-venv"
+      exit 1
+    fi
+  fi
+
+  PYTHON_BIN="$VENV_DIR/bin/python"
+  assert_python_version
+
+  if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+    echo "ERROR: pip is unavailable in $VENV_DIR."
+    exit 1
+  fi
+}
 
 process_running() {
   local pid="$1"
@@ -63,6 +115,12 @@ cleanup() {
 }
 
 open_browser() {
+  if [[ "${BLACKNODE_NO_BROWSER:-}" == "1" ]]; then
+    echo "  Browser launch skipped (BLACKNODE_NO_BROWSER=1)."
+    return
+  fi
+
+  echo "  Opening browser..."
   if command -v xdg-open >/dev/null 2>&1; then
     xdg-open "$EDITOR_URL" >/dev/null 2>&1 &
   elif command -v open >/dev/null 2>&1; then
@@ -71,6 +129,32 @@ open_browser() {
     cmd.exe /c start "" "$EDITOR_URL" >/dev/null 2>&1 &
   else
     echo "Open $EDITOR_URL in your browser."
+  fi
+}
+
+pip_install() {
+  PYTHONPATH= "$PYTHON_BIN" -m pip install "$@"
+}
+
+ensure_blacknode_command() {
+  local cli="$VENV_DIR/bin/blacknode"
+  local bin_dir="$HOME/.local/bin"
+  local shim="$bin_dir/blacknode"
+
+  if [[ -n "${PYTHON:-}" || "$PYTHON_BIN" != "$VENV_DIR/bin/python" || ! -x "$cli" ]]; then
+    return
+  fi
+
+  mkdir -p "$bin_dir"
+  if [[ -e "$shim" && ! -L "$shim" ]]; then
+    echo "  Note: $shim already exists; leaving it unchanged."
+    echo "  Project CLI is available at: $cli"
+    return
+  fi
+
+  ln -sfn "$cli" "$shim"
+  if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
+    echo "  Note: $bin_dir is not on PATH; add it to your shell profile to run 'blacknode'."
   fi
 }
 
@@ -205,13 +289,15 @@ cd "$ROOT_DIR"
 mkdir -p "$LOG_DIR"
 
 print_banner
+ensure_python_environment
 echo "  Checking Python dependencies..."
-"$PYTHON_BIN" -m pip install -r "$ROOT_DIR/editor-server/requirements.txt" -q --disable-pip-version-check
+pip_install -r "$ROOT_DIR/editor-server/requirements.txt" -q --disable-pip-version-check
 
 if ! "$PYTHON_BIN" -c "import importlib.metadata; importlib.metadata.version('blacknode')" >/dev/null 2>&1; then
   echo "  Installing blacknode package for the CLI..."
-  "$PYTHON_BIN" -m pip install -e "$ROOT_DIR" -q --disable-pip-version-check
+  pip_install -e "$ROOT_DIR" -q --disable-pip-version-check
 fi
+ensure_blacknode_command
 
 # Optional: install CuPy for the GPU/CUDA nodes when an NVIDIA GPU is present.
 # macOS has no NVIDIA CUDA GPUs, so nvidia-smi is absent and this is skipped.
@@ -219,7 +305,7 @@ fi
 if command -v nvidia-smi >/dev/null 2>&1; then
   if ! "$PYTHON_BIN" -c "import cupy" >/dev/null 2>&1; then
     echo "  NVIDIA GPU detected - installing CuPy for CUDA nodes (one-time, large download)..."
-    "$PYTHON_BIN" -m pip install cupy-cuda12x -q --disable-pip-version-check \
+    pip_install cupy-cuda12x -q --disable-pip-version-check \
       || echo "  CuPy install failed; GPU/CUDA nodes stay unavailable but the editor will run."
   fi
 fi
@@ -265,7 +351,6 @@ FRONTEND_PID=$!
 sleep 5
 assert_process_running "$FRONTEND_PID" "Visual editor" "$EDITOR_ERR"
 echo
-echo "  Opening browser..."
 open_browser
 echo
 echo "  Logs: .local-logs/server.out.log and .local-logs/editor.out.log"

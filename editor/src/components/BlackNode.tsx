@@ -282,7 +282,17 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const visibleInputs = data.inputs ?? []
   const inputsKey = visibleInputs.join('|')
   const outputsKey = (data.outputs ?? []).join('|')
-  const imageResult = !data.cookError && isImageDataUrl(data.cookResult) ? data.cookResult : null
+  // Prefer the cooked port's value, but fall back to any image-valued output
+  // port: a node that produces an image (e.g. a dashboard) previews it inline
+  // even when a different port (e.g. `summary`) is the one wired downstream.
+  const nodeImage = (): string | null => {
+    if (isImageDataUrl(data.cookResult)) return data.cookResult
+    for (const v of Object.values(data.portResults ?? {})) {
+      if (isImageDataUrl(v)) return v
+    }
+    return null
+  }
+  const imageResult = !data.cookError ? nodeImage() : null
   const showImageResult = data.type === 'LoadImage' ? null : imageResult
 
   const effectivePortType = (portName: string, side: 'input' | 'output'): string => {

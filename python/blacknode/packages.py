@@ -19,6 +19,7 @@ import importlib
 import importlib.metadata
 import importlib.util
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -39,6 +40,9 @@ _PKG_MODULE_ROOT = "blacknode.pkg"
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_PACKAGE_DIRS = (_REPO_ROOT / "packages",)
+_DEFAULT_PACKAGE_GIT_BASE = "https://github.com/temiroff"
+_PACKAGE_GIT_BASE_ENV = "BLACKNODE_PACKAGE_GIT_BASE"
+_SCP_GIT_URL_RE = re.compile(r"^[^/\s@]+@[^:\s]+:.+")
 
 
 @dataclass
@@ -51,11 +55,13 @@ class PackageInfo:
     requires_blacknode: str = ""
     categories: dict[str, str] = field(default_factory=dict)  # category -> hex color
     pip_dependencies: list[str] = field(default_factory=list)
+    import_dependencies: list[str] = field(default_factory=list)  # modules that must import
     docker_images: list[str] = field(default_factory=list)
     node_types: list[str] = field(default_factory=list)
     templates_dir: str = ""
     ok: bool = True
     error: str = ""
+    warnings: list[str] = field(default_factory=list)  # non-fatal (e.g. missing runtime dep)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -67,6 +73,37 @@ _PACKAGE_REGISTRY: dict[str, PackageInfo] = {}
 def packages_root() -> Path:
     """The default folder packages are cloned into."""
     return _DEFAULT_PACKAGE_DIRS[0]
+
+
+def default_package_git_base() -> str:
+    """Git namespace used when installing packages by short name."""
+    configured = os.environ.get(_PACKAGE_GIT_BASE_ENV, "").strip()
+    if configured:
+        return configured.rstrip("/")
+
+    remote = _repo_origin_url()
+    if remote:
+        base = _package_git_base_from_url(remote)
+        if base:
+            return base
+
+    return _DEFAULT_PACKAGE_GIT_BASE
+
+
+def resolve_package_git_url(source: str) -> str:
+    """Resolve a package name, owner/repo shorthand, URL, or local path."""
+    value = source.strip()
+    if not value:
+        return value
+
+    if _is_explicit_git_source(value):
+        return value
+
+    # Common GitHub shorthand. Existing local paths are handled above.
+    if re.fullmatch(r"[\w.-]+/[\w.-]+(?:\.git)?", value):
+        return _join_git_base("https://github.com", value)
+
+    return _join_git_base(default_package_git_base(), value)
 
 
 def default_package_dirs() -> list[Path]:
@@ -128,6 +165,7 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
     info.categories = {str(k): str(v) for k, v in (manifest.get("categories", {}) or {}).items()}
     deps = manifest.get("dependencies", {}) or {}
     info.pip_dependencies = [str(d) for d in (deps.get("pip", []) or [])]
+    info.import_dependencies = [str(d) for d in (deps.get("imports", []) or [])]
     info.docker_images = [str(d) for d in (deps.get("docker", []) or [])]
 
     templates_dir = pkg_path / "templates"
@@ -155,8 +193,45 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
         fn._bn_package = info.name
         if not getattr(fn, "_bn_source_path", ""):
             fn._bn_source_path = str(nodes_dir)
+    _check_import_dependencies(info)
     _PACKAGE_REGISTRY[info.name] = info
     return info
+
+
+def _check_import_dependencies(info: PackageInfo) -> None:
+    """Warn (non-fatally) about declared runtime modules that won't import.
+
+    A package's nodes often guard heavy imports (GPU, ROS, ...) so the package
+    still loads on machines without them. That means a missing dependency is
+    invisible until a node fails at runtime. Listing the modules under
+    ``[dependencies] imports`` lets the loader verify them up front and report
+    exactly what to install — into this server's own interpreter — in
+    ``blacknode packages list``, the ``/packages`` endpoint, and the editor's
+    Packages tab.
+    """
+    missing: list[str] = []
+    for raw in info.import_dependencies:
+        module = raw.strip()
+        if not module:
+            continue
+        try:
+            found = importlib.util.find_spec(module) is not None
+        except (ImportError, ValueError):
+            found = False
+        if not found:
+            missing.append(module)
+    if not missing:
+        return
+    requirements = Path(info.path) / "requirements.txt"
+    if requirements.exists():
+        fix = f'"{sys.executable}" -m pip install -r "{requirements}"'
+    else:
+        fix = f'"{sys.executable}" -m pip install ' + " ".join(missing)
+    plural = "ies" if len(missing) > 1 else "y"
+    info.warnings.append(
+        f"missing Python dependenc{plural}: {', '.join(missing)} — its nodes will "
+        f"return errors until installed.\nFix: {fix}\n(or: blacknode packages setup {info.name})"
+    )
 
 
 def _record_failure(info: PackageInfo, error: str) -> PackageInfo:
@@ -263,8 +338,9 @@ def install_from_git(
     prerequisites, and load it. Returns {ok, package, error}."""
     target_root = Path(root).expanduser().resolve() if root else packages_root()
     target_root.mkdir(parents=True, exist_ok=True)
+    resolved_url = resolve_package_git_url(url)
     # handles https URLs, scp-style git@host:user/repo.git, and local paths
-    cleaned = url.replace("\\", "/").rstrip("/").removesuffix(".git")
+    cleaned = resolved_url.replace("\\", "/").rstrip("/").removesuffix(".git")
     name = cleaned.rsplit("/", 1)[-1].rsplit(":", 1)[-1]
     if not name:
         return {"ok": False, "package": None, "error": f"Could not derive a folder name from '{url}'"}
@@ -272,8 +348,9 @@ def install_from_git(
     if dest.exists():
         return {"ok": False, "package": None, "error": f"{dest} already exists"}
 
-    progress(f"Cloning {url} -> {dest}")
-    clone = subprocess.run(["git", "clone", "--depth", "1", url, str(dest)], capture_output=True, text=True)
+    source_label = resolved_url if resolved_url == url else f"{url} ({resolved_url})"
+    progress(f"Cloning {source_label} -> {dest}")
+    clone = subprocess.run(["git", "clone", "--depth", "1", resolved_url, str(dest)], capture_output=True, text=True)
     if clone.returncode != 0:
         return {"ok": False, "package": None, "error": clone.stderr.strip() or "git clone failed"}
     if not (dest / MANIFEST_NAME).exists():
@@ -355,6 +432,51 @@ def _rmtree_force(path: Path) -> None:
         shutil.rmtree(path, onerror=_onerror)
 
 
+def _is_explicit_git_source(value: str) -> bool:
+    if "://" in value or _SCP_GIT_URL_RE.match(value):
+        return True
+    if value.startswith(("/", "./", "../", "~")):
+        return True
+    return Path(value).expanduser().exists()
+
+
+def _repo_origin_url() -> str:
+    if not shutil.which("git"):
+        return ""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(_REPO_ROOT), "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _package_git_base_from_url(url: str) -> str:
+    value = url.strip().rstrip("/").removesuffix(".git")
+    if not value:
+        return ""
+    if _SCP_GIT_URL_RE.match(value):
+        return value.rsplit("/", 1)[0] if "/" in value else ""
+    if "://" in value:
+        base, separator, _repo = value.rpartition("/")
+        return base if separator else ""
+    return ""
+
+
+def _join_git_base(base: str, package: str) -> str:
+    clean_base = base.strip().rstrip("/")
+    clean_package = package.strip().strip("/").removesuffix(".git")
+    if not clean_base or not clean_package:
+        return package
+    return f"{clean_base}/{clean_package}.git"
+
+
 def _version_satisfied(spec: str, current: str) -> bool:
     spec = spec.strip()
     op = ">="
@@ -386,6 +508,7 @@ __all__ = [
     "MANIFEST_NAME",
     "PackageInfo",
     "default_package_dirs",
+    "default_package_git_base",
     "discover_packages",
     "install_from_git",
     "install_prerequisites",
@@ -395,4 +518,5 @@ __all__ = [
     "package_template_dirs",
     "packages_root",
     "remove_package",
+    "resolve_package_git_url",
 ]

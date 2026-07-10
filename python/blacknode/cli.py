@@ -209,11 +209,17 @@ def _packages_list() -> int:
         print("Clone one into packages/ or run: blacknode packages install <git-url>")
         return 0
     for info in packages:
+        warnings = getattr(info, "warnings", []) or []
         status = "ok" if info.ok else "FAILED"
+        if info.ok and warnings:
+            status = "ok, deps missing"
         print(f"{info.name} {info.version or '?'} [{status}] {len(info.node_types)} nodes  {info.path}")
         if not info.ok:
             last_line = info.error.strip().splitlines()[-1] if info.error.strip() else "unknown error"
             print(f"  {last_line}")
+        for warning in warnings:
+            for line in warning.splitlines():
+                print(f"  ! {line}")
     return 0
 
 

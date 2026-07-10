@@ -160,11 +160,59 @@ function Write-PortBusyError {
     Write-Host "  Close that app or free port $Port, then run start.bat again."
 }
 
+function Invoke-NativeProbe {
+    param(
+        [string] $Command,
+        [string[]] $Arguments
+    )
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    $HadNativePreference = Test-Path Variable:PSNativeCommandUseErrorActionPreference
+    if ($HadNativePreference) {
+        $PreviousNativePreference = $PSNativeCommandUseErrorActionPreference
+    }
+
+    try {
+        $ErrorActionPreference = "Continue"
+        if ($HadNativePreference) {
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+        & $Command @Arguments > $null 2>$null
+        return $LASTEXITCODE -eq 0
+    } catch {
+        return $false
+    } finally {
+        if ($HadNativePreference) {
+            $PSNativeCommandUseErrorActionPreference = $PreviousNativePreference
+        }
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+}
+
+function Test-PythonDistribution {
+    param(
+        [string] $Python,
+        [string] $Name
+    )
+
+    $Probe = "import importlib.metadata as metadata, sys; name = sys.argv[1].lower(); sys.exit(0 if any((dist.metadata.get('Name') or '').lower() == name for dist in metadata.distributions()) else 1)"
+    return Invoke-NativeProbe -Command $Python -Arguments @("-c", $Probe, $Name)
+}
+
+function Test-PythonModule {
+    param(
+        [string] $Python,
+        [string] $Name
+    )
+
+    $Probe = "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec(sys.argv[1]) else 1)"
+    return Invoke-NativeProbe -Command $Python -Arguments @("-c", $Probe, $Name)
+}
+
 function Test-FrontendDependencies {
     Push-Location (Join-Path $Root "editor")
     try {
-        & node -e "import('vite').then(() => {}).catch(() => process.exit(1))" > $null 2>&1
-        return $LASTEXITCODE -eq 0
+        return Invoke-NativeProbe -Command "node" -Arguments @("-e", "import('vite').then(() => {}).catch(() => process.exit(1))")
     } finally {
         Pop-Location
     }
@@ -268,8 +316,7 @@ try {
         throw "Python dependency install failed."
     }
 
-    & $Python -c "import importlib.metadata; importlib.metadata.version('blacknode')" > $null 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Test-PythonDistribution -Python $Python -Name "blacknode")) {
         Write-Step "Installing blacknode package for the CLI..."
         & $Python -m pip install -e $Root -q --disable-pip-version-check
         if ($LASTEXITCODE -ne 0) {
@@ -280,8 +327,7 @@ try {
     # Optional: install CuPy for the GPU/CUDA nodes when an NVIDIA GPU is present.
     # Non-fatal: a failure here never blocks the editor.
     if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-        & $Python -c "import cupy" > $null 2>&1
-        if ($LASTEXITCODE -ne 0) {
+        if (-not (Test-PythonModule -Python $Python -Name "cupy")) {
             Write-Step "NVIDIA GPU detected - installing CuPy for CUDA nodes (one-time, large download)..."
             & $Python -m pip install cupy-cuda12x -q --disable-pip-version-check
             if ($LASTEXITCODE -ne 0) {

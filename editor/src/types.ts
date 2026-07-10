@@ -68,11 +68,13 @@ export interface BnPackage {
   requires_blacknode: string
   categories: Record<string, string>
   pip_dependencies: string[]
+  import_dependencies: string[]
   docker_images: string[]
   node_types: string[]
   templates_dir: string
   ok: boolean
   error: string
+  warnings: string[]
 }
 
 export interface BnEdge {

@@ -123,8 +123,38 @@ requires-blacknode = ">=0.1.0"   # load is skipped (with a clear error) if too o
 "ROS 2" = "#22314e"
 
 [dependencies]
-pip = ["pyyaml>=6"]        # informational; installed via requirements.txt
-docker = ["ros:jazzy"]     # images pulled by `blacknode packages install` / `setup`
+pip = ["pyyaml>=6"]            # informational; installed via requirements.txt
+imports = ["yaml", "roslibpy"] # modules verified at load time (see below)
+docker = ["ros:jazzy"]         # images pulled by `blacknode packages install` / `setup`
+```
+
+### Declaring runtime dependencies so users know what to install
+
+Nodes deliberately guard heavy imports (GPU, ROS, ...) so the package still
+loads on a machine without them — which means a missing dependency is invisible
+until a node fails at runtime. List the **import names** those guards need under
+`[dependencies] imports` (note: the *import* name, e.g. `yaml`, not the pip
+name `PyYAML`). At load time Blacknode verifies each one and, for any that are
+missing, attaches a non-fatal **warning** with the exact fix command — targeting
+*this server's own interpreter*, so there's no ambiguity about which Python or
+environment to install into. The warnings show up in:
+
+- `blacknode packages list` (an `ok, deps missing` status plus `!` lines)
+- the `GET /packages` endpoint (`warnings` field on each package)
+- the editor's **Packages** tab — the status dot turns amber and the expanded
+  panel shows the warning and an amber **Install prerequisites** button (hover it
+  to see exactly what is missing). When everything declared is satisfied the
+  button instead reads **Prerequisites ✓** in green, so you can tell at a glance
+  whether you need to press it. Note the check covers the declared Python
+  `imports`; Docker images are not verified at load and pull on first use.
+
+The package still loads and its other nodes still work; only the ones needing
+the missing module return a structured error until it is installed. Install
+everything a package declares (pip requirements and Docker images) at any time
+with **Install prerequisites** in the Packages tab, or:
+
+```bash
+blacknode packages setup <package-name>
 ```
 
 A failing package (missing deps, bad code, version mismatch) never breaks

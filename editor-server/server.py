@@ -21,9 +21,13 @@ from blacknode.mcp import tools as mcp_tools
 from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
 from blacknode.package_index import package_index_payload, resolve_workflow_dependencies
+from blacknode.packages import MANIFEST_NAME as BN_MANIFEST_NAME
 from blacknode.packages import discover_packages as discover_bn_packages
 from blacknode.packages import install_from_git as bn_install_from_git
+from blacknode.packages import install_prerequisites as bn_install_prerequisites
 from blacknode.packages import installed_packages, package_category_colors, package_template_dirs
+from blacknode.packages import load_package as bn_load_package
+from blacknode.packages import packages_root as bn_packages_root
 from blacknode.packages import remove_package as bn_remove_package
 from blacknode.python_importer import import_workflow_python
 from blacknode.workflow import validate_graph as validate_bn_graph
@@ -1200,6 +1204,19 @@ def _event_outputs(outputs: Any) -> Any:
     return _event_value(outputs)
 
 
+def _live_outputs(outputs: Any) -> Any:
+    """Per-port values for the live success event, keeping full image data URLs.
+
+    Unlike ``_event_outputs`` (which placeholders images to keep run-log files
+    small), this preserves images so the editor can preview a node's image
+    output inline even when a different port is the one being cooked — e.g. a
+    dashboard wired to a downstream node by its ``summary`` port still shows its
+    rendered image on the node. Storage re-strips images via
+    ``_event_for_storage``, so run logs stay small.
+    """
+    return _status_value(outputs)
+
+
 def _event_for_storage(event: dict[str, Any]) -> dict[str, Any]:
     stored = dict(event)
     if "value" in stored:
@@ -1759,7 +1776,7 @@ def _cook_trace(
                 "node_id": current_id,
                 "port": current_port,
                 "value": value,
-                "outputs": _event_outputs(result),
+                "outputs": _live_outputs(result),
             })
             return value
         except Exception as exc:
@@ -2868,6 +2885,22 @@ def install_package(req: InstallPackageReq):
     # panel shows a busy state. Progress lines come back in the response.
     result = bn_install_from_git(url, install_deps=req.install_deps, progress=log.append)
     return {**result, "log": log}
+
+
+@app.post("/packages/{name}/setup")
+def setup_package(name: str):
+    """Install an already-cloned package's prerequisites (pip deps, Docker
+    images) into this server's interpreter, then reload it."""
+    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", name):
+        raise HTTPException(400, "Invalid package name")
+    dest = (bn_packages_root() / name).resolve()
+    if not (dest / BN_MANIFEST_NAME).exists():
+        raise HTTPException(404, f"No package folder '{name}' under packages/")
+    log: list[str] = []
+    # Blocking on purpose: pip installs and Docker pulls can take minutes.
+    bn_install_prerequisites(dest, progress=log.append)
+    info = bn_load_package(dest)
+    return {"ok": info.ok, "package": info.to_dict(), "log": log}
 
 
 @app.delete("/packages/{name}")
