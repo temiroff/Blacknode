@@ -339,11 +339,13 @@ def _runtime_status() -> dict[str, Any]:
     }
     streams: list[dict[str, Any]] = []
     cv2_streams: list[dict[str, Any]] = []
+    reasoning_streams: list[dict[str, Any]] = []
     managed_runs: list[dict[str, Any]] = []
     detached_count = 0
     for label, status in modules.items():
         streams.extend({**item, "runtime": label} for item in status.get("streams", []) if isinstance(item, dict))
         cv2_streams.extend({**item, "runtime": label} for item in status.get("cv2_streams", []) if isinstance(item, dict))
+        reasoning_streams.extend({**item, "runtime": label} for item in status.get("reasoning_streams", []) if isinstance(item, dict))
         managed_runs.extend({**item, "runtime": label} for item in status.get("managed_runs", []) if isinstance(item, dict))
         detached_count += int(status.get("detached_count") or 0)
     ok = all(bool(status.get("ok", True)) for status in modules.values())
@@ -359,6 +361,7 @@ def _runtime_status() -> dict[str, Any]:
         "modules": modules,
         "streams": streams,
         "cv2_streams": cv2_streams,
+        "reasoning_streams": reasoning_streams,
         "managed_runs": managed_runs,
         "detached_count": detached_count,
         "report": "; ".join(reports),
@@ -370,7 +373,7 @@ def _stop_runtime_module(label: str, module_name: str) -> dict[str, Any]:
     if runtime is None or not hasattr(runtime, "stop_runtime_services"):
         return {
             "ok": True,
-            "stopped": {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0},
+            "stopped": {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0, "reasoning_streams": 0},
             "report": f"{label} runtime is not loaded",
         }
     try:
@@ -378,7 +381,7 @@ def _stop_runtime_module(label: str, module_name: str) -> dict[str, Any]:
     except Exception as exc:
         return {
             "ok": False,
-            "stopped": {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0},
+            "stopped": {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0, "reasoning_streams": 0},
             "error": f"{type(exc).__name__}: {exc}",
         }
 
@@ -388,7 +391,7 @@ def _stop_runtime_services() -> dict[str, Any]:
         label: _stop_runtime_module(label, module_name)
         for label, module_name in _RUNTIME_MODULES.items()
     }
-    stopped = {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0}
+    stopped = {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0, "reasoning_streams": 0}
     for result in modules.values():
         raw_stopped = result.get("stopped") if isinstance(result.get("stopped"), dict) else {}
         for key in stopped:
@@ -406,6 +409,7 @@ def _stop_runtime_services() -> dict[str, Any]:
         "report": "; ".join(reports) or (
             f"stopped {stopped['streams']} stream(s), "
             f"{stopped['cv2_streams']} CV2 stream(s), "
+            f"{stopped['reasoning_streams']} reasoning stream(s), "
             f"{stopped['managed_runs']} run process(es), "
             f"{stopped['detached']} detached process(es)"
         ),

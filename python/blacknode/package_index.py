@@ -56,6 +56,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "VisionDetectionPrompt",
             "VisionFramePrompt",
             "VisionReasoningDashboard",
+            "VisionReasoningStream",
             "VisionStreamStatus",
             "VisionVLMDescribe",
         ],

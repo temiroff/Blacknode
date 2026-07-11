@@ -2761,6 +2761,7 @@ export const useStore = create<Store>((set, get) => ({
         const runtimeNode = (
           n.data.type === 'ROS2ImageStream' ||
           n.data.type === 'CV2ColorObjectStream' ||
+          n.data.type === 'VisionReasoningStream' ||
           n.data.type === 'ROS2Run' ||
           n.data.type === 'ROS2Launch'
         )

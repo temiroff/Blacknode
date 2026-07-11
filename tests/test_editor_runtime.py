@@ -32,6 +32,7 @@ class EditorRuntimeTests(unittest.TestCase):
                 "ok": True,
                 "active": True,
                 "cv2_streams": [{"stream_id": "cube"}],
+                "reasoning_streams": [{"stream_id": "reason"}],
             }
 
         with (
@@ -44,6 +45,7 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertTrue(result["active"])
         self.assertEqual(result["streams"], [{"stream_id": "camera", "runtime": "ros2"}])
         self.assertEqual(result["cv2_streams"], [{"stream_id": "cube", "runtime": "vision"}])
+        self.assertEqual(result["reasoning_streams"], [{"stream_id": "reason", "runtime": "vision"}])
         self.assertEqual(result["managed_runs"], [{"run_id": "camera_run", "runtime": "ros2"}])
         self.assertEqual(result["detached_count"], 1)
 
@@ -57,8 +59,8 @@ class EditorRuntimeTests(unittest.TestCase):
                 }
             return {
                 "ok": True,
-                "stopped": {"cv2_streams": 2},
-                "report": "stopped cv2",
+                "stopped": {"cv2_streams": 2, "reasoning_streams": 1},
+                "report": "stopped cv2 and reasoning",
             }
 
         with (
@@ -68,9 +70,15 @@ class EditorRuntimeTests(unittest.TestCase):
             result = server._stop_runtime_services()
 
         self.assertTrue(result["ok"])
-        self.assertEqual(result["stopped"], {"streams": 1, "managed_runs": 1, "detached": 0, "cv2_streams": 2})
+        self.assertEqual(result["stopped"], {
+            "streams": 1,
+            "managed_runs": 1,
+            "detached": 0,
+            "cv2_streams": 2,
+            "reasoning_streams": 1,
+        })
         self.assertIn("stopped ros", result["report"])
-        self.assertIn("stopped cv2", result["report"])
+        self.assertIn("stopped cv2 and reasoning", result["report"])
 
     def test_runtime_stop_endpoint_stops_cook_and_runtime_helpers(self):
         runtime_result = {

@@ -158,6 +158,7 @@ export interface RuntimeStatus {
   ok: boolean
   active?: boolean
   streams?: Array<Record<string, unknown>>
+  reasoning_streams?: Array<Record<string, unknown>>
   managed_runs?: Array<Record<string, unknown>>
   detached_count?: number
   report?: string
@@ -169,6 +170,7 @@ export interface RuntimeStopResult {
   stopped?: {
     streams?: number
     cv2_streams?: number
+    reasoning_streams?: number
     managed_runs?: number
     detached?: number
   }
