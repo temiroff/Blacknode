@@ -34,6 +34,14 @@ blacknode export-framework templates\text-pipeline.json --target python --output
 blacknode export-framework templates\text-pipeline.json --target python-class --output workflow.class.py
 ```
 
+Plain Blacknode Python exports include a runtime bootstrap. A downloaded export
+can run from another folder, and `BLACKNODE_HOME=/path/to/Blacknode` overrides
+which local checkout supplies the runtime and `.venv` dependencies.
+
+When a plain Python export contains live ROS 2, CV2, vision reasoning, or ROS 2
+run nodes, it keeps running after printing the stream URL. Use `Ctrl-C` to stop
+the helper processes cleanly.
+
 Import a Blacknode Python export back into workflow JSON:
 
 ```powershell

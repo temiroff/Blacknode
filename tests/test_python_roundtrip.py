@@ -6,6 +6,8 @@ import io
 import json
 import os
 import runpy
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,6 +58,29 @@ def valid_workflow() -> dict:
     }
 
 
+def live_stream_workflow() -> dict:
+    return {
+        "kind": "blacknode.workflow",
+        "schema_version": 1,
+        "name": "Live Stream Export",
+        "node_meta": {
+            "cam": node(
+                "cam",
+                "ROS2ImageStream",
+                inputs=["trigger", "action"],
+                outputs=["stream_url"],
+                input_types={"trigger": "Any", "action": "Text"},
+                output_types={"stream_url": "Text"},
+                params={"action": "start"},
+                pos=[10, 20],
+            ),
+            "out": node("out", "Output", inputs=["value"], input_types={"value": "Any"}, pos=[300, 40]),
+        },
+        "edges": [{"from": "cam", "from_port": "stream_url", "to": "out", "to_port": "value"}],
+        "entrypoint": {"node_id": "out", "port": "value"},
+    }
+
+
 class PythonRoundTripTests(unittest.TestCase):
     def test_flat_export_is_runnable_and_importable(self):
         script = export_workflow_python(valid_workflow())
@@ -74,6 +99,41 @@ class PythonRoundTripTests(unittest.TestCase):
         self.assertEqual(imported["node_meta"]["text"]["pos"], [10, 20])
 
         self.assertEqual(_run_script(script), "hello")
+
+    def test_export_bootstraps_local_runtime_from_external_directory(self):
+        script = export_workflow_python(valid_workflow())
+
+        self.assertIn("BLACKNODE_HOME", script)
+        self.assertIn("_bootstrap_blacknode_runtime()", script)
+
+        with tempfile.TemporaryDirectory() as td:
+            script_path = Path(td) / "current-graph.python.py"
+            script_path.write_text(script, encoding="utf-8")
+            env = os.environ.copy()
+            env.pop("PYTHONPATH", None)
+            env.pop("BLACKNODE_HOME", None)
+            env["BLACKNODE_SYNC_URL"] = ""
+
+            result = subprocess.run(
+                [sys.executable, "-S", str(script_path)],
+                cwd=td,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+
+        self.assertEqual(result.stdout.strip(), "hello")
+
+    def test_live_stream_export_waits_for_ctrl_c_and_stops_runtime(self):
+        script = export_workflow_python(live_stream_workflow())
+
+        ast.parse(script)
+        self.assertIn("_BLACKNODE_LIVE_RUNTIME_NODE_TYPES", script)
+        self.assertIn("'ROS2ImageStream'", script)
+        self.assertIn("Press Ctrl-C to stop streams", script)
+        self.assertIn("_stop_blacknode_runtime_services()", script)
+        self.assertIn("_hold_live_runtime_if_needed()", script)
 
     def test_class_export_is_runnable_and_importable(self):
         script = export_workflow_python(valid_workflow(), style="class")

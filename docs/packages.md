@@ -50,7 +50,7 @@ development:
 | Package | Role |
 |---|---|
 | `blacknode-ros2` | ROS 2 system checks, topic inspection, image snapshots, image streams, process launch/run controls, and robot dashboards. |
-| `blacknode-vision` | USB camera ROS package, VLM frame reasoning, live reasoning dashboards, OpenCV masks, color tracking streams, and tracker exports. |
+| `blacknode-vision` | USB camera ROS package, VLM frame reasoning, live reasoning dashboards, OpenCV masks, color tracking streams, and graph-level Python exports. |
 
 The current `blacknode-vision` CV2 local-reasoning template routes target
 selection through the VLM:
@@ -67,6 +67,12 @@ model answer chooses the target color, and `CV2ColorObjectStream` retargets its
 HSV range while running. Direct text targets such as `track red cube` remain
 available for non-VLM graphs through `CV2ColorTargetHint.target` or
 `CV2ColorObjectStream.target`.
+
+When a tracker is working, use the top-bar **Export** dropdown on the actual
+canvas graph. **Plain Python** exports the same nodes and edges you built
+visually, including ROS 2, camera, reasoning, and CV2 nodes. A future
+robot-deploy exporter should compile supported graph patterns into smaller
+standalone scripts, but it should still be an export target, not a node.
 
 ## Missing-node resolution
 

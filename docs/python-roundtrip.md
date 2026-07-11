@@ -42,6 +42,20 @@ Expected result for the starter workflow:
 Hello World
 ```
 
+Generated Blacknode Python includes a small runtime bootstrap, so a file
+downloaded from the editor can run from another folder such as `Downloads`. It
+looks for the local checkout, its `.venv` dependencies, and `BLACKNODE_HOME` if
+you need to point the script at a different Blacknode folder:
+
+```bash
+BLACKNODE_HOME=/home/alex/PROJECTS/Blacknode python workflow.py
+```
+
+If the graph starts live runtime helpers such as ROS 2 image streams, CV2
+tracking streams, reasoning dashboards, or ROS 2 run processes, the exported
+script stays in the foreground after printing the stream URL. Press `Ctrl-C` to
+stop those helpers cleanly.
+
 ## Import Back Into Blacknode
 
 Editor:
