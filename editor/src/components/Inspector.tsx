@@ -340,6 +340,9 @@ const formatFloat = (v: unknown): string => {
 export const isImageDataUrl = (v: unknown): v is string =>
   typeof v === 'string' && v.startsWith('data:image/')
 
+export const isImageSrc = (v: unknown): v is string =>
+  isImageDataUrl(v) || (typeof v === 'string' && /^https?:\/\//i.test(v))
+
 const ICON_PARAMS = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
     <line x1="3" y1="5"  x2="15" y2="5"  stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
@@ -489,7 +492,7 @@ export default function Inspector() {
             }}>
               Result
             </div>
-            {!data.cookError && isImageDataUrl(data.cookResult) ? (
+            {!data.cookError && isImageSrc(data.cookResult) ? (
               <img
                 src={data.cookResult as string}
                 alt="result"
@@ -1000,9 +1003,9 @@ function ParamRow({ nodeType, label, type, value, defaultValue, choices, connect
 function ImageControl({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const current = typeof value === 'string' ? value : ''
-  const isImg = isImageDataUrl(current)
+  const isImg = isImageSrc(current)
   const [draft, setDraft] = useState(isImg ? '' : current)
-  useEffect(() => { setDraft(isImageDataUrl(current) ? '' : current) }, [current])
+  useEffect(() => { setDraft(isImageSrc(current) ? '' : current) }, [current])
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]

@@ -154,6 +154,28 @@ export interface WorkflowValidation {
   warnings: Array<Record<string, unknown>>
 }
 
+export interface RuntimeStatus {
+  ok: boolean
+  active?: boolean
+  streams?: Array<Record<string, unknown>>
+  managed_runs?: Array<Record<string, unknown>>
+  detached_count?: number
+  report?: string
+  error?: string
+}
+
+export interface RuntimeStopResult {
+  ok: boolean
+  stopped?: {
+    streams?: number
+    managed_runs?: number
+    detached?: number
+  }
+  runtime?: RuntimeStopResult
+  report?: string
+  error?: string
+}
+
 export interface PythonImportResult {
   workflow: WorkflowSnapshot
   validation: WorkflowValidation
@@ -325,7 +347,9 @@ export const api = {
     req('DELETE', `/edges?from_id=${from_id}&from_port=${from_port}&to_id=${to_id}&to_port=${to_port}`),
   cook:       (node_id: string, port = 'output') =>
     req<{ value: unknown; port: string }>('POST', '/cook', { node_id, port }),
-  stopCook:   () => req<{ ok: boolean }>('POST', '/cook/stop'),
+  stopCook:   () => req<RuntimeStopResult>('POST', '/cook/stop'),
+  runtimeStatus: () => req<RuntimeStatus>('GET', '/runtime/status'),
+  stopRuntime: () => req<RuntimeStopResult>('POST', '/runtime/stop'),
   cookStream: (node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
     streamCook('/cook-stream', { node_id, port }, `${node_id}.${port}`, onEvent, signal),
   cookGraphStream: (targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>

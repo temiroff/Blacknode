@@ -3,7 +3,7 @@ import {
   Node, Edge, addEdge, applyNodeChanges, applyEdgeChanges,
   NodeChange, EdgeChange, Connection,
 } from 'reactflow'
-import { api, type ApiKeyStatus, type CookEvent, type DriverInfo, type DriverStatus, type LearnedNodeSummary, type RunRecord } from './api'
+import { api, type ApiKeyStatus, type CookEvent, type DriverInfo, type DriverStatus, type LearnedNodeSummary, type RunRecord, type RuntimeStopResult } from './api'
 import { BnNodeDef, BnNodeMeta, ConnectionDraft, NodeCookState, SubnetFrame } from './types'
 import { VALUE_NODE_TYPES, registerDynamicColors } from './categories'
 import { portsCompatible, portColor } from './portColors'
@@ -181,6 +181,7 @@ interface Store {
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
   cookNode: (id: string, port?: string, graphTargets?: GraphRunTarget[]) => Promise<void>
   stopCook: () => void
+  stopRuntimeServices: () => Promise<RuntimeStopResult>
   dismissCookStatus: () => void
   applyRunReplay: (record: RunRecord, cursor: number, playing: boolean) => void
   clearRunReplay: () => void
@@ -207,6 +208,9 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
     ...(meta.type === 'ROS2VisualDashboard' ? { style: { width: 840, height: 760 } } : {}),
     ...(meta.type === 'ROS2CompressedImageSnapshot' ? { style: { width: 700, height: 600 } } : {}),
+    ...(meta.type === 'ROS2ImageSnapshot' ? { style: { width: 700, height: 600 } } : {}),
+    ...(meta.type === 'ROS2ImageStream' ? { style: { width: 760, height: 620 } } : {}),
+    ...(meta.type === 'ROS2Run' ? { style: { width: 520, height: 360 } } : {}),
     ...(meta.type === 'ROS2MotionDashboard' ? { style: { width: 860, height: 720 } } : {}),
   }
 }
@@ -319,6 +323,47 @@ function clearReplayData(data: NodeData): NodeData {
   return rest
 }
 
+function clearRuntimeNodeData(data: NodeData): NodeData {
+  const base = { ...data, cooking: false, cookError: undefined }
+  if (data.type === 'ROS2ImageStream') {
+    return {
+      ...base,
+      cookResult: undefined,
+      portResults: {
+        ...(data.portResults ?? {}),
+        preview: '',
+        streaming: false,
+        stream_url: '',
+        snapshot_url: '',
+        report: 'stopped by workflow control',
+      },
+    }
+  }
+  if (data.type === 'ROS2Run') {
+    return {
+      ...base,
+      cookResult: undefined,
+      portResults: {
+        ...(data.portResults ?? {}),
+        running: false,
+        report: 'stopped by workflow control',
+      },
+    }
+  }
+  if (data.type === 'ROS2Launch') {
+    return {
+      ...base,
+      cookResult: undefined,
+      portResults: {
+        ...(data.portResults ?? {}),
+        launched: false,
+        report: 'stopped by workflow control',
+      },
+    }
+  }
+  return base
+}
+
 function flowEdgesToBackend(edges: Edge[]): any[] {
   return edges
     .filter(e => e.source && e.target && e.sourceHandle && e.targetHandle)
@@ -386,6 +431,10 @@ function shortText(value: unknown, max = 120): string {
 
 function isImageDataUrl(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith('data:image/')
+}
+
+function isImageSrc(value: unknown): value is string {
+  return isImageDataUrl(value) || (typeof value === 'string' && /^https?:\/\//i.test(value))
 }
 
 function summarizeImages(value: unknown): unknown {
@@ -2518,7 +2567,7 @@ export const useStore = create<Store>((set, get) => ({
                 e.targetHandle === 'image'
               )
               const imageValue = successOutputValue(event, imageEdge?.sourceHandle)
-              if (isImageDataUrl(imageValue)) {
+              if (isImageSrc(imageValue) || imageValue === '') {
                 return {
                   ...n,
                   data: {
@@ -2683,6 +2732,42 @@ export const useStore = create<Store>((set, get) => ({
         n.data.cooking ? { ...n, data: { ...clearReplayData(n.data), cooking: false } } : { ...n, data: clearReplayData(n.data) }
       ),
     }))
+  },
+
+  stopRuntimeServices: async () => {
+    cookAbort?.abort()
+    cookAbort = null
+    let result: RuntimeStopResult
+    try {
+      result = await api.stopRuntime()
+    } catch (err) {
+      set({ serverOk: false, serverError: errorMessage(err) })
+      throw err
+    }
+    set(s => ({
+      ...syncTabCookState(s, s.activeTabId, {
+        cookActive: false,
+        cookStatusHidden: false,
+        cookLog: appendCookLog(tabCookLog(s, s.activeTabId), {
+          id: `${Date.now()}-runtime-stopped`,
+          kind: result.ok ? 'info' : 'error',
+          label: 'Runtime',
+          message: result.report || result.error || 'Stopped workflow runtime services',
+          ts: Date.now(),
+        }),
+      }),
+      runReplay: EMPTY_REPLAY,
+      nodes: s.nodes.map(n => {
+        const runtimeNode = n.data.type === 'ROS2ImageStream' || n.data.type === 'ROS2Run' || n.data.type === 'ROS2Launch'
+        return {
+          ...n,
+          data: runtimeNode
+            ? clearRuntimeNodeData(clearReplayData(n.data))
+            : { ...n.data, cooking: false },
+        }
+      }),
+    }))
+    return result
   },
 
   dismissCookStatus: () => {

@@ -122,44 +122,56 @@ function PortRow({
       }}>
         {name}
       </span>
-      {hovering && (
-        <span style={{
-          fontSize: 11,
-          padding: '1px 6px',
-          borderRadius: 4,
-          background: color + '28',
-          color: color,
-          fontFamily: 'var(--font-mono)',
-          whiteSpace: 'nowrap',
-        }}>
-          {type}
-        </span>
-      )}
-      {hovering && resultText && (
-        <span
-          title={resultText}
+      {hovering && (type || resultText) && (
+        <div
+          title={resultText || type}
           style={{
-            fontSize: 11,
-            padding: '1px 6px',
-            borderRadius: 4,
-            background: 'var(--ok)22',
-            color: 'var(--ok)',
-            fontFamily: 'var(--font-mono)',
-            maxWidth: 220,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
+            position: 'absolute',
+            top: -30,
+            [isInput ? 'left' : 'right']: 10,
+            zIndex: 30,
+            maxWidth: 260,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '4px 7px',
+            borderRadius: 6,
+            border: '1px solid var(--line2)',
+            background: 'var(--panel)',
+            boxShadow: '0 8px 20px rgba(0,0,0,.28)',
+            pointerEvents: 'none',
             whiteSpace: 'nowrap',
           }}
         >
-          = {resultText}
-        </span>
+          <span style={{
+            fontSize: 11,
+            color,
+            fontFamily: 'var(--font-mono)',
+          }}>
+            {type}
+          </span>
+          {resultText && (
+            <span
+              style={{
+                fontSize: 11,
+                color: 'var(--ok)',
+                fontFamily: 'var(--font-mono)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              = {resultText}
+            </span>
+          )}
+        </div>
       )}
     </div>
   )
 }
 
-const isImageDataUrl = (v: unknown): v is string =>
-  typeof v === 'string' && v.startsWith('data:image/')
+const isImageSrc = (v: unknown): v is string =>
+  typeof v === 'string' && (v.startsWith('data:image/') || /^https?:\/\//i.test(v))
 
 const imgBtn: React.CSSProperties = {
   background: 'var(--lift)', border: '1px solid var(--line)', borderRadius: 5,
@@ -209,7 +221,7 @@ function NodeImageInput({
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const v = typeof value === 'string' ? value : ''
-  const hasImage = isImageDataUrl(v)
+  const hasImage = isImageSrc(v)
   const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (!f) return
@@ -276,6 +288,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const driverLive  = driverName ? Boolean(driverStatus[driverName]?.live) : false
   const driverNotInstalled = driverName ? drivers[driverName]?.packages_installed === false : false
   const [driverPending, setDriverPending] = useState<null | 'start' | 'stop'>(null)
+  const [streamStopPending, setStreamStopPending] = useState(false)
+  const [rosRunStopPending, setRosRunStopPending] = useState(false)
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
   const isToolBox   = data.type === 'ToolBox'
@@ -286,14 +300,18 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   // port: a node that produces an image (e.g. a dashboard) previews it inline
   // even when a different port (e.g. `summary`) is the one wired downstream.
   const nodeImage = (): string | null => {
-    if (isImageDataUrl(data.cookResult)) return data.cookResult
+    if (isImageSrc(data.cookResult)) return data.cookResult
     for (const v of Object.values(data.portResults ?? {})) {
-      if (isImageDataUrl(v)) return v
+      if (isImageSrc(v)) return v
     }
     return null
   }
   const imageResult = !data.cookError ? nodeImage() : null
   const showImageResult = data.type === 'LoadImage' ? null : imageResult
+  const streamActive = data.type === 'ROS2ImageStream' && data.portResults?.streaming === true
+  const streamUrl = typeof data.portResults?.stream_url === 'string' ? data.portResults.stream_url : ''
+  const rosRunActive = data.type === 'ROS2Run' && data.portResults?.running === true
+  const rosRunId = typeof data.portResults?.run_id === 'string' ? data.portResults.run_id : 'ros2_run'
 
   const effectivePortType = (portName: string, side: 'input' | 'output'): string => {
     const declared = side === 'input'
@@ -368,6 +386,36 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     }
   }
 
+  const onStopImageStream = async () => {
+    setStreamStopPending(true)
+    try {
+      await updateParam(id, 'action', 'stop')
+      await cookNode(id, 'report')
+    } finally {
+      try {
+        await updateParam(id, 'action', 'start')
+      } catch {
+        // Keep the stop control responsive even if the editor cannot write the param.
+      }
+      setStreamStopPending(false)
+    }
+  }
+
+  const onStopROS2Run = async () => {
+    setRosRunStopPending(true)
+    try {
+      await updateParam(id, 'action', 'stop')
+      await cookNode(id, 'report')
+    } finally {
+      try {
+        await updateParam(id, 'action', 'start')
+      } catch {
+        // Keep the stop control responsive even if the editor cannot write the param.
+      }
+      setRosRunStopPending(false)
+    }
+  }
+
   const fitNodeToImage = (naturalWidth: number, naturalHeight: number, extraControls = 0) => {
     if (!naturalWidth || !naturalHeight) return
     const portRows = visibleInputs.length + (data.outputs?.length ?? 0) + (isToolBox ? 1 : 0)
@@ -406,6 +454,120 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         lineStyle={{ borderColor: color }}
         handleStyle={{ background: color, borderColor: color, width: 8, height: 8, borderRadius: 2 }}
       />
+
+      {streamActive && (
+        <div
+          className="nodrag"
+          title={streamUrl ? `Live stream: ${streamUrl}` : 'Live image stream is running'}
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            left: 8,
+            top: -28,
+            zIndex: 22,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 7,
+            padding: '4px 7px',
+            borderRadius: 6,
+            border: '1px solid var(--ok)',
+            background: 'var(--panel)',
+            color: 'var(--ok)',
+            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
+            fontFamily: 'var(--font-ui)',
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: '0.06em',
+            lineHeight: 1,
+          }}
+        >
+          <span style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: 'var(--ok)',
+            boxShadow: '0 0 8px var(--ok)',
+            flexShrink: 0,
+          }} />
+          <span>STREAMING</span>
+          <button
+            disabled={streamStopPending}
+            onClick={e => { e.stopPropagation(); void onStopImageStream() }}
+            style={{
+              marginLeft: 2,
+              padding: '2px 6px',
+              borderRadius: 4,
+              border: '1px solid var(--err)',
+              background: 'transparent',
+              color: streamStopPending ? 'var(--tx3)' : 'var(--err)',
+              cursor: streamStopPending ? 'default' : 'pointer',
+              fontFamily: 'var(--font-ui)',
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 0,
+            }}
+          >
+            {streamStopPending ? 'Stopping...' : 'Stop stream'}
+          </button>
+        </div>
+      )}
+
+      {rosRunActive && (
+        <div
+          className="nodrag"
+          title={`ROS 2 run process is active: ${rosRunId}`}
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            position: 'absolute',
+            left: 8,
+            top: -28,
+            zIndex: 22,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 7,
+            padding: '4px 7px',
+            borderRadius: 6,
+            border: '1px solid var(--ok)',
+            background: 'var(--panel)',
+            color: 'var(--ok)',
+            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
+            fontFamily: 'var(--font-ui)',
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: '0.06em',
+            lineHeight: 1,
+          }}
+        >
+          <span style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: 'var(--ok)',
+            boxShadow: '0 0 8px var(--ok)',
+            flexShrink: 0,
+          }} />
+          <span>ROS2 RUNNING</span>
+          <button
+            disabled={rosRunStopPending}
+            onClick={e => { e.stopPropagation(); void onStopROS2Run() }}
+            style={{
+              marginLeft: 2,
+              padding: '2px 6px',
+              borderRadius: 4,
+              border: '1px solid var(--err)',
+              background: 'transparent',
+              color: rosRunStopPending ? 'var(--tx3)' : 'var(--err)',
+              cursor: rosRunStopPending ? 'default' : 'pointer',
+              fontFamily: 'var(--font-ui)',
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 0,
+            }}
+          >
+            {rosRunStopPending ? 'Stopping...' : 'Stop run'}
+          </button>
+        </div>
+      )}
 
       {/* header */}
       <div style={{
@@ -530,7 +692,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           const showImageInput = type === 'Image'
             && !connected
             && !isWireOnlyInput(data.type, inp, type)
-          const hasImageInputPreview = showImageInput && isImageDataUrl(data.params?.[inp])
+          const hasImageInputPreview = showImageInput && isImageSrc(data.params?.[inp])
           return (
             <div
               key={inp}

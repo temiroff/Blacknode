@@ -379,6 +379,13 @@ def install_prerequisites(pkg_dir: str | Path, progress: Callable[[str], None] =
         if pip.returncode != 0:
             warnings.append("pip install failed; the package may not load until deps are installed")
 
+    setup_script = pkg_path / "scripts" / "setup.sh"
+    if setup_script.exists():
+        progress(f"Running package setup script {setup_script}")
+        setup = subprocess.run(["bash", str(setup_script)], cwd=str(pkg_path))
+        if setup.returncode != 0:
+            warnings.append(f"package setup script failed; rerun with: bash {setup_script}")
+
     info = load_package(pkg_path)
     for image in info.docker_images:
         if not shutil.which("docker"):

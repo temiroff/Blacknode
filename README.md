@@ -2,16 +2,22 @@
 
 [![CI](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml/badge.svg)](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml)
 
-**The visual workflow builder where AI agents build the workflow.**
+**A visual runtime for AI, GPU computing, and robotics.**
 
-Blacknode turns agent intent into typed, visible, runnable workflows. Agents
-get a structured control surface through MCP, HTTP, and WebSocket APIs instead
-of guessing JSON, and users get a live graph they can inspect, run, replay, and
-export.
+Blacknode turns agent intent and user ideas into typed, visible, runnable
+workflows. Agents get a structured control surface through MCP, HTTP, and
+WebSocket APIs instead of guessing JSON, and users get a live graph they can
+inspect, run, replay, stop, and export.
 
 Workflows export to plain Python, class-based Python, LangGraph, CrewAI,
 AutoGen, OpenAI Swarm, and an NVIDIA Agent Stack manifest, with NVIDIA NIM and
 AI-Q/NeMo Agent Toolkit workflow paths built in.
+
+Blacknode stays generic at the core, while extension packages add first-class
+systems for CUDA, ROS 2, robot vision, local/hosted models, simulation, and
+hardware-specific robots. The long-term goal is visual-first embodied AI:
+prototype with graphs, inspect every edge, then deploy the same behavior to a
+local process, workstation, Jetson, robot, simulator, or cloud runtime.
 
 <table>
   <tr>
@@ -82,6 +88,7 @@ or missing package never breaks the core. Manage everything from the editor's
 | Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md), [Presentation Checklist](docs/presentation-checklist.md) |
 | Custom nodes | Persistent editor-created nodes, Python decorator nodes, auto-discovery, and community node packs. | [Custom Nodes](docs/custom-nodes.md) |
 | Extension packages | Modular node libraries in separate git repos (`blacknode-cuda`, ...) cloned into `packages/` — install, remove, or write your own without touching the core app. | [Extension Packages](docs/packages.md) |
+| Robotics and vision packages | ROS 2 runtime nodes, live camera streams, OpenCV tracking, VLM/LLM reasoning, and stop-all runtime controls through `blacknode-ros2` and `blacknode-vision`. | [Extension Packages](docs/packages.md) |
 | Learned nodes | MCP agents can create reusable Docker-sandboxed node types that appear live in the editor palette. | [Learned Nodes](docs/learned-nodes.md) |
 | Python round-trip | Export readable Python, import it back into the editor, and live-sync Python runs into replay. | [Python Round-Trip](docs/python-roundtrip.md) |
 | Framework export | Turn a visual graph into Python, LangGraph, CrewAI, AutoGen, OpenAI Swarm, or an NVIDIA Agent Stack manifest. | [Framework Export](docs/framework-export.md) |

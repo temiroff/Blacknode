@@ -183,6 +183,45 @@ body {
   opacity: .55;
 }
 
+.bn-top-streaming-button {
+  align-items: center;
+  border-color: var(--ok);
+  color: var(--ok);
+  display: inline-flex;
+  font-weight: 700;
+  gap: 7px;
+  min-width: 170px;
+  padding-left: 10px;
+  padding-right: 8px;
+}
+
+.bn-top-streaming-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.bn-top-streaming-button:disabled {
+  cursor: default;
+  opacity: .7;
+}
+
+.bn-top-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 72%, transparent);
+  flex: 0 0 auto;
+}
+
+.bn-top-streaming-stop {
+  margin-left: 2px;
+  border-left: 1px solid color-mix(in srgb, var(--ok) 48%, transparent);
+  color: var(--err);
+  padding-left: 8px;
+}
+
 .bn-workflow-row:hover {
   background: var(--hover) !important;
   border-color: var(--accent) !important;

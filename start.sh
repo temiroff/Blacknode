@@ -15,6 +15,132 @@ BACKEND_PORT=7777
 FRONTEND_PORT=3000
 EDITOR_URL="http://localhost:${FRONTEND_PORT}"
 
+source_setup_file() {
+  local setup_file="$1"
+
+  # ROS setup files are written for ordinary interactive shells and may touch
+  # variables that are unset. Keep this launcher strict outside the source call.
+  set +u
+  # shellcheck source=/dev/null
+  source "$setup_file"
+  local status=$?
+  set -u
+  return "$status"
+}
+
+ros_workspace_already_sourced() {
+  local prefix
+  local paths="${AMENT_PREFIX_PATH:-}:${COLCON_PREFIX_PATH:-}"
+
+  IFS=':' read -r -a prefixes <<< "$paths"
+  for prefix in "${prefixes[@]}"; do
+    [[ -z "$prefix" ]] && continue
+    [[ "$prefix" == /opt/ros/* ]] && continue
+    [[ "$prefix" == "$ROOT_DIR/packages/"* ]] && continue
+    if [[ "$prefix" == */install || "$prefix" == */install/* ]]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+discover_ros2_workspace_setups() {
+  local roots=()
+  local root
+
+  roots+=("$ROOT_DIR")
+  roots+=("$(dirname "$ROOT_DIR")")
+  if [[ -n "${HOME:-}" && -d "$HOME/PROJECTS" ]]; then
+    roots+=("$HOME/PROJECTS")
+  fi
+
+  for root in "${roots[@]}"; do
+    [[ -d "$root" ]] || continue
+    find "$root" -maxdepth 6 -type f -path "*/ros2_ws/install/setup.bash" 2>/dev/null || true
+  done | awk -v package_root="$ROOT_DIR/packages/" 'index($0, package_root) != 1 && !seen[$0]++'
+}
+
+source_blacknode_package_ros2_workspaces() {
+  local -a package_setups=()
+  local setup
+
+  mapfile -t package_setups < <(
+    find "$ROOT_DIR/packages" -maxdepth 4 -type f -path "*/ros2_ws/install/setup.bash" 2>/dev/null | sort
+  )
+  for setup in "${package_setups[@]}"; do
+    if source_setup_file "$setup"; then
+      echo "  ROS 2 package workspace sourced: $setup"
+    else
+      echo "  Warning: failed to source ROS 2 package workspace: $setup"
+    fi
+  done
+}
+
+source_ros2_environment() {
+  if [[ "${BLACKNODE_SKIP_ROS2_AUTO_SOURCE:-0}" == "1" ]]; then
+    echo "  ROS 2 auto-source skipped (BLACKNODE_SKIP_ROS2_AUTO_SOURCE=1)."
+    return
+  fi
+
+  local setup=""
+  local candidate
+
+  if [[ -z "${ROS_DISTRO:-}" || -z "$(command -v ros2 2>/dev/null || true)" ]]; then
+    if [[ -n "${ROS_DISTRO:-}" && -f "/opt/ros/$ROS_DISTRO/setup.bash" ]]; then
+      setup="/opt/ros/$ROS_DISTRO/setup.bash"
+    elif [[ -f "/opt/ros/jazzy/setup.bash" ]]; then
+      setup="/opt/ros/jazzy/setup.bash"
+    else
+      shopt -s nullglob
+      for candidate in /opt/ros/*/setup.bash; do
+        setup="$candidate"
+        break
+      done
+      shopt -u nullglob
+    fi
+
+    if [[ -n "$setup" ]]; then
+      if source_setup_file "$setup"; then
+        echo "  ROS 2 sourced: $setup"
+      else
+        echo "  Warning: failed to source ROS 2 setup: $setup"
+      fi
+    fi
+  fi
+
+  if ! command -v ros2 >/dev/null 2>&1; then
+    echo "  ROS 2 native CLI not found; ROS nodes can still use Docker fallback where supported."
+    return
+  fi
+
+  source_blacknode_package_ros2_workspaces
+
+  if ros_workspace_already_sourced; then
+    echo "  ROS 2 workspace already sourced."
+    return
+  fi
+
+  local -a workspace_setups=()
+  mapfile -t workspace_setups < <(discover_ros2_workspace_setups)
+  if (( ${#workspace_setups[@]} == 1 )); then
+    if source_setup_file "${workspace_setups[0]}"; then
+      echo "  ROS 2 workspace sourced: ${workspace_setups[0]}"
+    else
+      echo "  Warning: failed to source ROS 2 workspace: ${workspace_setups[0]}"
+    fi
+  elif (( ${#workspace_setups[@]} > 1 )); then
+    echo "  Multiple ROS 2 workspaces found; not auto-sourcing an overlay."
+    printf '    %s\n' "${workspace_setups[@]:0:6}"
+    if (( ${#workspace_setups[@]} > 6 )); then
+      echo "    ...plus $(( ${#workspace_setups[@]} - 6 )) more"
+    fi
+    echo "  Source the workspace you want before ./start.sh."
+  else
+    echo "  No ROS 2 workspace overlay auto-detected."
+  fi
+}
+
 if ! command -v npm >/dev/null 2>&1; then
   echo "ERROR: npm is required. Install Node.js 20.19+ or 22.12+."
   exit 1
@@ -289,6 +415,7 @@ cd "$ROOT_DIR"
 mkdir -p "$LOG_DIR"
 
 print_banner
+source_ros2_environment
 ensure_python_environment
 echo "  Checking Python dependencies..."
 pip_install -r "$ROOT_DIR/editor-server/requirements.txt" -q --disable-pip-version-check

@@ -19,8 +19,8 @@ async function copyText(text: string): Promise<void> {
   document.body.removeChild(textarea)
 }
 
-const isImageDataUrl = (v: unknown): v is string =>
-  typeof v === 'string' && v.startsWith('data:image/')
+const isImageSrc = (v: unknown): v is string =>
+  typeof v === 'string' && (v.startsWith('data:image/') || /^https?:\/\//i.test(v))
 
 function previewValue(v: unknown): string {
   if (v === undefined || v === null) return ''
@@ -124,7 +124,7 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
             {copyLabel}
           </div>
           {!isCooking && (
-            !isError && isImageDataUrl(result) ? (
+            !isError && isImageSrc(result) ? (
               <img
                 src={result as string}
                 alt="result"

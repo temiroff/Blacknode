@@ -299,6 +299,52 @@ def _stop_active_cook() -> None:
             _active_cook_stop.set()
 
 
+def _ros2_runtime_module():
+    module_name = "blacknode.pkg.blacknode_ros2.ros2_runtime"
+    module = sys.modules.get(module_name)
+    if module is not None:
+        return module
+    try:
+        return importlib.import_module(module_name)
+    except Exception:
+        return None
+
+
+def _ros2_runtime_status() -> dict[str, Any]:
+    runtime = _ros2_runtime_module()
+    if runtime is None or not hasattr(runtime, "runtime_status"):
+        return {
+            "ok": True,
+            "active": False,
+            "streams": [],
+            "managed_runs": [],
+            "detached_count": 0,
+            "report": "blacknode-ros2 runtime is not loaded",
+        }
+    try:
+        return dict(runtime.runtime_status())
+    except Exception as exc:
+        return {"ok": False, "active": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _stop_runtime_services() -> dict[str, Any]:
+    runtime = _ros2_runtime_module()
+    if runtime is None or not hasattr(runtime, "stop_runtime_services"):
+        return {
+            "ok": True,
+            "stopped": {"streams": 0, "managed_runs": 0, "detached": 0},
+            "report": "blacknode-ros2 runtime is not loaded",
+        }
+    try:
+        return dict(runtime.stop_runtime_services())
+    except Exception as exc:
+        return {
+            "ok": False,
+            "stopped": {"streams": 0, "managed_runs": 0, "detached": 0},
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
 def _raise_if_stopped(stop_event: threading.Event | None) -> None:
     if stop_event is not None and stop_event.is_set():
         raise _CookStopped("stopped")
@@ -1933,7 +1979,19 @@ def cook_graph_stream(req: CookGraphReq):
 def stop_cook():
     _stop_active_cook()
     _begin_fresh_cook()
-    return {"ok": True}
+    return {"ok": True, "runtime": _stop_runtime_services()}
+
+
+@app.get("/runtime/status")
+def runtime_status():
+    return _ros2_runtime_status()
+
+
+@app.post("/runtime/stop")
+def stop_runtime():
+    _stop_active_cook()
+    _begin_fresh_cook()
+    return _stop_runtime_services()
 
 
 @app.get("/runs")

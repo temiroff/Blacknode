@@ -117,7 +117,7 @@ export default function App() {
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     openGraphAsTab, openWorkflowAsTab, renameTab, saveActiveWorkflow,
-    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, stopCook, dismissCookStatus, applyRunReplay,
+    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, stopCook, stopRuntimeServices, dismissCookStatus, applyRunReplay,
     handleLearnedNodeEvent, updateParam,
   } = useStore()
 
@@ -137,6 +137,7 @@ export default function App() {
   const [frameworkExportTargets, setFrameworkExportTargets] = useState(DEFAULT_FRAMEWORK_EXPORT_TARGETS)
   const [exportingTarget, setExportingTarget] = useState('')
   const [importingFile, setImportingFile] = useState(false)
+  const [runtimeStopPending, setRuntimeStopPending] = useState(false)
   const updatePendingCloseName = useCallback((draftName: string) => {
     setPendingClose(current => current ? { ...current, draftName } : current)
   }, [])
@@ -919,6 +920,31 @@ export default function App() {
     }))
   }, [stopCook])
 
+  const handleStopRuntime = useCallback(async () => {
+    if (runtimeStopPending) return
+    setRuntimeStopPending(true)
+    try {
+      const result = await stopRuntimeServices()
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: result.ok ? 'info' : 'error',
+          title: result.ok ? 'Runtime stopped' : 'Runtime stop failed',
+          message: result.report || result.error || 'Stopped workflow runtime services.',
+        },
+      }))
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: 'Runtime stop failed',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
+    } finally {
+      setRuntimeStopPending(false)
+    }
+  }, [runtimeStopPending, stopRuntimeServices])
+
   const handleFrameworkExport = useCallback(async (target: string) => {
     if (!target || exportingTarget) return
     setExportingTarget(target)
@@ -965,6 +991,13 @@ export default function App() {
 
   const topbarH = 44
   const canvasPad = topbarH + TAB_H
+  const liveStreamCount = nodes.filter(n => n.data.type === 'ROS2ImageStream' && n.data.portResults?.streaming === true).length
+  const liveRunCount = nodes.filter(n => n.data.type === 'ROS2Run' && n.data.portResults?.running === true).length
+  const runtimeActive = liveStreamCount > 0 || liveRunCount > 0
+  const runtimeLabel = [
+    liveStreamCount ? `${liveStreamCount} stream${liveStreamCount === 1 ? '' : 's'}` : '',
+    liveRunCount ? `${liveRunCount} run${liveRunCount === 1 ? '' : 's'}` : '',
+  ].filter(Boolean).join(' + ')
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
@@ -1028,10 +1061,23 @@ export default function App() {
             className="bn-top-button bn-top-run-button"
             onClick={() => (cookActive ? stopCook() : void handleRunGraph())}
             disabled={!serverOk || (!cookActive && nodes.length === 0)}
-            title={cookActive ? 'Stop the running cook' : 'Run every terminal node in the current graph'}
+            title={cookActive ? 'Stop the running workflow and runtime services' : 'Run every terminal node in the current graph'}
           >
-            {cookActive ? '■ Stop' : 'Run'}
+            {cookActive ? '■ Stop All' : 'Run'}
           </button>
+
+          {runtimeActive && (
+            <button
+              className="bn-top-button bn-top-streaming-button"
+              onClick={() => void handleStopRuntime()}
+              disabled={!serverOk || runtimeStopPending}
+              title={`Workflow runtime active: ${runtimeLabel || 'streaming'}. Stop active streams and ROS 2 processes.`}
+            >
+              <span className="bn-top-live-dot" />
+              <span>{runtimeStopPending ? 'Stopping...' : `Streaming${runtimeLabel ? ` · ${runtimeLabel}` : ''}`}</span>
+              <span className="bn-top-streaming-stop">Stop</span>
+            </button>
+          )}
 
           <button
             className="bn-top-button"
