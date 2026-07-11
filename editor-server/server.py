@@ -3134,12 +3134,52 @@ def _workflow_payload(
     return payload
 
 
+def _infer_export_entrypoint(data: dict[str, Any]) -> dict[str, str] | None:
+    entrypoint = data.get("entrypoint")
+    if isinstance(entrypoint, dict) and entrypoint.get("node_id") and entrypoint.get("port"):
+        return {"node_id": str(entrypoint["node_id"]), "port": str(entrypoint["port"])}
+
+    node_meta = data.get("node_meta")
+    if not isinstance(node_meta, dict):
+        return None
+
+    preferred_ids = (
+        "overlay_out",
+        "reason_dashboard_out",
+        "reasoning_out",
+        "stream_out",
+        "image_out",
+        "snapshot_out",
+        "mask_out",
+        "out",
+    )
+    for node_id in preferred_ids:
+        meta = node_meta.get(node_id)
+        if isinstance(meta, dict):
+            if meta.get("type") == "OutputImage":
+                return {"node_id": node_id, "port": "image"}
+            if meta.get("type") == "Output":
+                return {"node_id": node_id, "port": "value"}
+
+    for node_id, meta in node_meta.items():
+        if isinstance(meta, dict) and meta.get("type") == "OutputImage":
+            return {"node_id": str(node_id), "port": "image"}
+    for node_id, meta in node_meta.items():
+        if isinstance(meta, dict) and meta.get("type") == "Output":
+            return {"node_id": str(node_id), "port": "value"}
+    return None
+
+
 def _workflow_for_export(workflow: dict[str, Any] | None = None) -> dict[str, Any]:
     data = dict(workflow) if workflow is not None else _workflow_payload(
         "Current Graph",
         metadata={"source": "editor"},
     )
     _ensure_workflow_header(data)
+    if not isinstance(data.get("entrypoint"), dict):
+        entrypoint = _infer_export_entrypoint(data)
+        if entrypoint is not None:
+            data["entrypoint"] = entrypoint
     return data
 
 

@@ -18,6 +18,53 @@ import server  # noqa: E402
 
 
 class EditorRuntimeTests(unittest.TestCase):
+    def test_export_workflow_infers_entrypoint_for_multi_output_image_graph(self):
+        workflow = {
+            "kind": "blacknode.workflow",
+            "schema_version": 1,
+            "name": "Vision Export",
+            "node_meta": {
+                "stream_out": {
+                    "id": "stream_out",
+                    "type": "OutputImage",
+                    "params": {},
+                    "pos": [0, 0],
+                    "inputs": ["image"],
+                    "outputs": ["image"],
+                    "input_types": {"image": "Image"},
+                    "output_types": {"image": "Image"},
+                    "input_defaults": {},
+                },
+                "overlay_out": {
+                    "id": "overlay_out",
+                    "type": "OutputImage",
+                    "params": {},
+                    "pos": [0, 0],
+                    "inputs": ["image"],
+                    "outputs": ["image"],
+                    "input_types": {"image": "Image"},
+                    "output_types": {"image": "Image"},
+                    "input_defaults": {},
+                },
+                "detection_out": {
+                    "id": "detection_out",
+                    "type": "Output",
+                    "params": {},
+                    "pos": [0, 0],
+                    "inputs": ["value"],
+                    "outputs": [],
+                    "input_types": {"value": "Any"},
+                    "output_types": {},
+                    "input_defaults": {},
+                },
+            },
+            "edges": [],
+        }
+
+        result = server._workflow_for_export(workflow)
+
+        self.assertEqual(result["entrypoint"], {"node_id": "overlay_out", "port": "image"})
+
     def test_runtime_status_aggregates_package_runtime_modules(self):
         def fake_status(label, _module_name):
             if label == "ros2":
