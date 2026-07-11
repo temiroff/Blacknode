@@ -42,6 +42,32 @@ no restart needed.
 Extra search folders can be added with the `BLACKNODE_PACKAGE_PATH`
 environment variable (separated by the platform path separator).
 
+## Official robotics and vision packages
+
+The robotics packages are separate repos but can live under `packages/` during
+development:
+
+| Package | Role |
+|---|---|
+| `blacknode-ros2` | ROS 2 system checks, topic inspection, image snapshots, image streams, process launch/run controls, and robot dashboards. |
+| `blacknode-vision` | USB camera ROS package, VLM frame reasoning, live reasoning dashboards, OpenCV masks, color tracking streams, and tracker exports. |
+
+The current `blacknode-vision` CV2 local-reasoning template routes target
+selection through the VLM:
+
+```text
+Text target prompt
+  -> VisionReasoningStream
+  -> CV2ColorObjectStream.reasoning_state_url
+  -> live overlay / mask / detection JSON
+```
+
+The prompt does not connect directly to the CV2 target in that template. The
+model answer chooses the target color, and `CV2ColorObjectStream` retargets its
+HSV range while running. Direct text targets such as `track red cube` remain
+available for non-VLM graphs through `CV2ColorTargetHint.target` or
+`CV2ColorObjectStream.target`.
+
 ## Missing-node resolution
 
 Blacknode ships a small core index that maps official extension node types to

@@ -7,10 +7,17 @@ outside the editor.
 ## Editor
 
 1. Start Blacknode with `start.bat` on Windows or `./start.sh` on macOS/Linux.
-2. Open or build a workflow that ends in an `Output` node.
+2. Open or build a workflow that ends in an `Output` or `OutputImage` node.
 3. Press `Export` in the top bar.
 4. Choose `Plain Python`, `Python Class`, `LangGraph`, `CrewAI`, `AutoGen`, `OpenAI Swarm`, or `NVIDIA Agent Stack`.
 5. The generated file downloads from the browser.
+
+Editor export infers an entrypoint for common multi-output graphs. It preserves
+an explicit workflow `entrypoint` when one exists, otherwise it prefers visible
+display nodes such as `overlay_out.image`, `reason_dashboard_out.image`, and
+other `OutputImage` nodes before falling back to an `Output.value` node. This
+keeps live robotics/vision dashboards exportable even when the graph contains
+several output panels.
 
 ## CLI
 
@@ -37,6 +44,10 @@ blacknode import-python workflow.langgraph.py --output imported-langgraph.workfl
 The editor `Import` button and canvas file drop use the same importer, so
 Blacknode-generated Python and LangGraph files can be reopened as visual
 workflow tabs.
+
+For CLI exports, workflow JSON should still include an explicit `entrypoint`
+when it has multiple `Output` nodes. The editor adds one automatically for the
+current graph before calling the same exporter.
 
 Export framework maps:
 
