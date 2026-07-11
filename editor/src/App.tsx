@@ -991,7 +991,10 @@ export default function App() {
 
   const topbarH = 44
   const canvasPad = topbarH + TAB_H
-  const liveStreamCount = nodes.filter(n => n.data.type === 'ROS2ImageStream' && n.data.portResults?.streaming === true).length
+  const liveStreamCount = nodes.filter(n => (
+    (n.data.type === 'ROS2ImageStream' || n.data.type === 'CV2ColorObjectStream') &&
+    n.data.portResults?.streaming === true
+  )).length
   const liveRunCount = nodes.filter(n => n.data.type === 'ROS2Run' && n.data.portResults?.running === true).length
   const runtimeActive = liveStreamCount > 0 || liveRunCount > 0
   const runtimeLabel = [

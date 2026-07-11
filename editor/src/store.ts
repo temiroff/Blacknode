@@ -2758,7 +2758,12 @@ export const useStore = create<Store>((set, get) => ({
       }),
       runReplay: EMPTY_REPLAY,
       nodes: s.nodes.map(n => {
-        const runtimeNode = n.data.type === 'ROS2ImageStream' || n.data.type === 'ROS2Run' || n.data.type === 'ROS2Launch'
+        const runtimeNode = (
+          n.data.type === 'ROS2ImageStream' ||
+          n.data.type === 'CV2ColorObjectStream' ||
+          n.data.type === 'ROS2Run' ||
+          n.data.type === 'ROS2Launch'
+        )
         return {
           ...n,
           data: runtimeNode

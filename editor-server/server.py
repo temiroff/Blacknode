@@ -299,8 +299,13 @@ def _stop_active_cook() -> None:
             _active_cook_stop.set()
 
 
-def _ros2_runtime_module():
-    module_name = "blacknode.pkg.blacknode_ros2.ros2_runtime"
+_RUNTIME_MODULES = {
+    "ros2": "blacknode.pkg.blacknode_ros2.ros2_runtime",
+    "vision": "blacknode.pkg.blacknode_vision.cv2_runtime",
+}
+
+
+def _runtime_module(module_name: str):
     module = sys.modules.get(module_name)
     if module is not None:
         return module
@@ -310,8 +315,8 @@ def _ros2_runtime_module():
         return None
 
 
-def _ros2_runtime_status() -> dict[str, Any]:
-    runtime = _ros2_runtime_module()
+def _runtime_module_status(label: str, module_name: str) -> dict[str, Any]:
+    runtime = _runtime_module(module_name)
     if runtime is None or not hasattr(runtime, "runtime_status"):
         return {
             "ok": True,
@@ -319,7 +324,7 @@ def _ros2_runtime_status() -> dict[str, Any]:
             "streams": [],
             "managed_runs": [],
             "detached_count": 0,
-            "report": "blacknode-ros2 runtime is not loaded",
+            "report": f"{label} runtime is not loaded",
         }
     try:
         return dict(runtime.runtime_status())
@@ -327,22 +332,84 @@ def _ros2_runtime_status() -> dict[str, Any]:
         return {"ok": False, "active": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
-def _stop_runtime_services() -> dict[str, Any]:
-    runtime = _ros2_runtime_module()
+def _runtime_status() -> dict[str, Any]:
+    modules = {
+        label: _runtime_module_status(label, module_name)
+        for label, module_name in _RUNTIME_MODULES.items()
+    }
+    streams: list[dict[str, Any]] = []
+    cv2_streams: list[dict[str, Any]] = []
+    managed_runs: list[dict[str, Any]] = []
+    detached_count = 0
+    for label, status in modules.items():
+        streams.extend({**item, "runtime": label} for item in status.get("streams", []) if isinstance(item, dict))
+        cv2_streams.extend({**item, "runtime": label} for item in status.get("cv2_streams", []) if isinstance(item, dict))
+        managed_runs.extend({**item, "runtime": label} for item in status.get("managed_runs", []) if isinstance(item, dict))
+        detached_count += int(status.get("detached_count") or 0)
+    ok = all(bool(status.get("ok", True)) for status in modules.values())
+    active = any(bool(status.get("active")) for status in modules.values())
+    reports = [
+        str(status.get("report") or status.get("error") or "").strip()
+        for status in modules.values()
+        if status.get("report") or status.get("error")
+    ]
+    return {
+        "ok": ok,
+        "active": active,
+        "modules": modules,
+        "streams": streams,
+        "cv2_streams": cv2_streams,
+        "managed_runs": managed_runs,
+        "detached_count": detached_count,
+        "report": "; ".join(reports),
+    }
+
+
+def _stop_runtime_module(label: str, module_name: str) -> dict[str, Any]:
+    runtime = _runtime_module(module_name)
     if runtime is None or not hasattr(runtime, "stop_runtime_services"):
         return {
             "ok": True,
-            "stopped": {"streams": 0, "managed_runs": 0, "detached": 0},
-            "report": "blacknode-ros2 runtime is not loaded",
+            "stopped": {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0},
+            "report": f"{label} runtime is not loaded",
         }
     try:
         return dict(runtime.stop_runtime_services())
     except Exception as exc:
         return {
             "ok": False,
-            "stopped": {"streams": 0, "managed_runs": 0, "detached": 0},
+            "stopped": {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0},
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+
+def _stop_runtime_services() -> dict[str, Any]:
+    modules = {
+        label: _stop_runtime_module(label, module_name)
+        for label, module_name in _RUNTIME_MODULES.items()
+    }
+    stopped = {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0}
+    for result in modules.values():
+        raw_stopped = result.get("stopped") if isinstance(result.get("stopped"), dict) else {}
+        for key in stopped:
+            stopped[key] += int(raw_stopped.get(key) or 0)
+    ok = all(bool(result.get("ok", True)) for result in modules.values())
+    reports = [
+        str(result.get("report") or result.get("error") or "").strip()
+        for result in modules.values()
+        if result.get("report") or result.get("error")
+    ]
+    return {
+        "ok": ok,
+        "stopped": stopped,
+        "modules": modules,
+        "report": "; ".join(reports) or (
+            f"stopped {stopped['streams']} stream(s), "
+            f"{stopped['cv2_streams']} CV2 stream(s), "
+            f"{stopped['managed_runs']} run process(es), "
+            f"{stopped['detached']} detached process(es)"
+        ),
+    }
 
 
 def _raise_if_stopped(stop_event: threading.Event | None) -> None:
@@ -1984,7 +2051,7 @@ def stop_cook():
 
 @app.get("/runtime/status")
 def runtime_status():
-    return _ros2_runtime_status()
+    return _runtime_status()
 
 
 @app.post("/runtime/stop")

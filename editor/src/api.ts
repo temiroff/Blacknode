@@ -168,6 +168,7 @@ export interface RuntimeStopResult {
   ok: boolean
   stopped?: {
     streams?: number
+    cv2_streams?: number
     managed_runs?: number
     detached?: number
   }

@@ -49,6 +49,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
         "name": "blacknode-vision",
         "git_url": "https://github.com/temiroff/blacknode-vision.git",
         "node_types": [
+            "CV2ColorObjectStream",
             "CV2ColorObjectTracker",
             "CV2HSVMask",
             "CV2TrackerPythonExport",
