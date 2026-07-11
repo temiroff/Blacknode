@@ -206,6 +206,7 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
     ...(meta.type === 'Dict'   ? { style: { width: 260, height: 150 } } : {}),
     ...(meta.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
+    ...(meta.type === 'OutputImage' ? { style: { width: 760, height: 620 } } : {}),
     ...(meta.type === 'ROS2VisualDashboard' ? { style: { width: 840, height: 760 } } : {}),
     ...(meta.type === 'ROS2CompressedImageSnapshot' ? { style: { width: 700, height: 600 } } : {}),
     ...(meta.type === 'ROS2ImageSnapshot' ? { style: { width: 700, height: 600 } } : {}),

@@ -296,9 +296,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const visibleInputs = data.inputs ?? []
   const inputsKey = visibleInputs.join('|')
   const outputsKey = (data.outputs ?? []).join('|')
-  // Prefer the cooked port's value, but fall back to any image-valued output
-  // port: a node that produces an image (e.g. a dashboard) previews it inline
-  // even when a different port (e.g. `summary`) is the one wired downstream.
+  // Only explicit display nodes render image panels. Processing nodes keep
+  // image-valued ports wireable without expanding into duplicate previews.
   const nodeImage = (): string | null => {
     if (isImageSrc(data.cookResult)) return data.cookResult
     for (const v of Object.values(data.portResults ?? {})) {
@@ -307,7 +306,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     return null
   }
   const imageResult = !data.cookError ? nodeImage() : null
-  const showImageResult = data.type === 'LoadImage' ? null : imageResult
+  const showImageResult = data.type === 'OutputImage' ? imageResult : null
   const streamActive = data.type === 'ROS2ImageStream' && data.portResults?.streaming === true
   const streamUrl = typeof data.portResults?.stream_url === 'string' ? data.portResults.stream_url : ''
   const rosRunActive = data.type === 'ROS2Run' && data.portResults?.running === true
