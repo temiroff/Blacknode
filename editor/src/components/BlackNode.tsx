@@ -2,7 +2,7 @@ import { memo, useState, useRef, useEffect } from 'react'
 import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import '@reactflow/node-resizer/dist/style.css'
-import { useStore } from '../store'
+import { useStore, hasArmedUpstream } from '../store'
 import { portColor } from '../portColors'
 import { headerColor } from '../categories'
 import { isWireOnlyInput } from '../inputControls'
@@ -16,6 +16,13 @@ const TRIGGER_DRIVER: Record<string, string> = {
   SlackMessage: 'slack',
   TelegramMessage: 'telegram',
 }
+
+const LIVE_STREAM_NODE_TYPES = new Set([
+  'ROS2ImageStream',
+  'CV2ColorObjectStream',
+  'VisionReasoningStream',
+  'CUDAImageFilterStream',
+])
 
 function driverBtn(color: string, disabled = false): React.CSSProperties {
   return {
@@ -274,6 +281,8 @@ function NodeImageInput({
 
 function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode    = useStore(s => s.cookNode)
+  const stopLiveRun = useStore(s => s.stopLiveRun)
+  const liveRun     = useStore(s => s.liveRun)
   const updateParam = useStore(s => s.updateParam)
   const resizeNode  = useStore(s => s.resizeNode)
   const disconnectEdge = useStore(s => s.disconnectEdge)
@@ -307,8 +316,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   }
   const imageResult = !data.cookError ? nodeImage() : null
   const showImageResult = data.type === 'OutputImage' ? imageResult : null
-  const streamActive = data.type === 'ROS2ImageStream' && data.portResults?.streaming === true
   const streamUrl = typeof data.portResults?.stream_url === 'string' ? data.portResults.stream_url : ''
+  const streamActive = LIVE_STREAM_NODE_TYPES.has(data.type) && data.portResults?.streaming === true && streamUrl.length > 0
   const rosRunActive = data.type === 'ROS2Run' && data.portResults?.running === true
   const rosRunId = typeof data.portResults?.run_id === 'string' ? data.portResults.run_id : 'ros2_run'
 
@@ -615,6 +624,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </div>
         <button
           onClick={e => { e.stopPropagation(); cookNode(id, data.outputs[0] ?? 'output') }}
+          title="Cook once"
           style={{
             background: 'rgba(0,0,0,.2)',
             border: 'none',
@@ -628,6 +638,38 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           }}
         >
           {data.cooking ? '…' : '▶'}
+        </button>
+        <button
+          onClick={e => {
+            e.stopPropagation()
+            if (liveRun?.nodeId === id) {
+              stopLiveRun()
+              return
+            }
+            if (hasArmedUpstream(nodes, edges, [id])) {
+              const ok = window.confirm(
+                'This chain includes a node with armed=true. Live mode will keep sending real motion ' +
+                'commands to the robot at the live rate until you stop it. Continue?'
+              )
+              if (!ok) return
+            }
+            void cookNode(id, data.outputs[0] ?? 'output', undefined, { rateHz: 10 })
+          }}
+          title={liveRun?.nodeId === id ? 'Stop live re-cook' : 'Live: keep re-cooking this chain until stopped'}
+          style={{
+            background: liveRun?.nodeId === id ? 'var(--err)' : 'rgba(0,0,0,.2)',
+            border: 'none',
+            borderRadius: 4,
+            color: '#fff',
+            cursor: 'pointer',
+            fontSize: 10,
+            padding: '2px 7px',
+            fontFamily: 'var(--font-ui)',
+            flexShrink: 0,
+            marginLeft: 4,
+          }}
+        >
+          {liveRun?.nodeId === id ? '■' : '⟳'}
         </button>
       </div>
 

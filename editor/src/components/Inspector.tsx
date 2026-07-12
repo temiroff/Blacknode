@@ -32,6 +32,23 @@ const RAIL_W = 78
 const PANEL_DEFAULT_W = 260
 const PANEL_MIN_W = 200
 const PANEL_MAX_W = 560
+// Mirrors packages/blacknode-vision/nodes/vision.py's _PROVIDER_DEFAULT_ENDPOINTS
+// / _PROVIDER_DEFAULT_MODELS. A saved "model"/"endpoint_url" param that exactly
+// matches one of these is a placeholder left over from switching provider, not
+// a real user choice -- the Inspector shouldn't render it as the current value
+// once the provider dropdown has moved to a different provider.
+const PROVIDER_DEFAULT_ENDPOINTS: Record<string, string> = {
+  ollama: 'http://127.0.0.1:11434',
+  nvidia: 'https://integrate.api.nvidia.com/v1',
+  anthropic: 'https://api.anthropic.com/v1',
+  'openai-compatible': 'https://api.openai.com/v1',
+}
+const PROVIDER_DEFAULT_MODELS: Record<string, string> = {
+  ollama: 'qwen3-vl:4b',
+  nvidia: 'nvidia/nemotron-nano-12b-v2-vl',
+  anthropic: 'claude-sonnet-4-5',
+  'openai-compatible': 'gpt-4o-mini',
+}
 const CUSTOM_KERNEL_TEMPLATE_PRESETS: Record<string, { code: string; signature: string; output_mode: string }> = {
   image_invert: {
     signature: 'image_rgb',
@@ -431,6 +448,36 @@ export default function Inspector() {
                 const def  = (data.input_defaults as Record<string, unknown>)?.[inp]
                           ?? nodeDefs[data.type]?.input_defaults?.[inp]
                 const choices = nodeDefs[data.type]?.input_choices?.[inp]
+                const isOllamaModel = inp === 'model' && data.inputs.includes('provider')
+                  && String(
+                    data.params.provider
+                    ?? data.input_defaults?.provider
+                    ?? nodeDefs[data.type]?.input_defaults?.provider
+                    ?? ''
+                  ).toLowerCase() === 'ollama'
+                const rawEndpointForModel = String(
+                  data.params.endpoint_url
+                  ?? data.input_defaults?.endpoint_url
+                  ?? nodeDefs[data.type]?.input_defaults?.endpoint_url
+                  ?? ''
+                )
+                // A leftover endpoint from another provider (e.g. NVIDIA's URL
+                // still sitting in the param after switching back to ollama)
+                // isn't a real override -- fall back to ollama's own default.
+                const ollamaEndpoint = isOllamaModel
+                  ? (Object.values(PROVIDER_DEFAULT_ENDPOINTS).includes(rawEndpointForModel) && rawEndpointForModel !== PROVIDER_DEFAULT_ENDPOINTS.ollama
+                      ? PROVIDER_DEFAULT_ENDPOINTS.ollama
+                      : rawEndpointForModel || PROVIDER_DEFAULT_ENDPOINTS.ollama)
+                  : undefined
+                const rawModelValue = data.params[inp]
+                // Same idea for the model field itself: a placeholder model
+                // name from a different provider (e.g. "nvidia/nemotron-...")
+                // shouldn't show as "selected" once provider is back on ollama.
+                const ollamaModelValue = isOllamaModel && typeof rawModelValue === 'string'
+                  && Object.values(PROVIDER_DEFAULT_MODELS).includes(rawModelValue)
+                  && rawModelValue !== PROVIDER_DEFAULT_MODELS.ollama
+                  ? undefined
+                  : rawModelValue
                 const changeParam = (v: unknown) => {
                   if (data.type === 'CUDACustomKernel' && inp === 'template') {
                     void (async () => {
@@ -459,6 +506,15 @@ export default function Inspector() {
                     })()
                     return
                   }
+                  // Dropdown (Enum) params are discrete, deliberate picks -- unlike
+                  // Text/Number fields (debounced, fire per keystroke/drag), a single
+                  // selection is cheap to recook immediately so the node's preview
+                  // (e.g. an OutputImage fed by a live stream node) updates without
+                  // requiring a manual Run click.
+                  if ((choices && choices.length > 0) || isOllamaModel) {
+                    void updateParam(node.id, inp, v).then(() => cookNode(node.id, data.outputs[0] ?? 'output'))
+                    return
+                  }
                   void updateParam(node.id, inp, v)
                 }
                 return (
@@ -467,7 +523,8 @@ export default function Inspector() {
                     nodeType={data.type}
                     label={inp}
                     type={type}
-                    value={data.params[inp]}
+                    ollamaEndpoint={ollamaEndpoint}
+                    value={isOllamaModel ? ollamaModelValue : data.params[inp]}
                     defaultValue={def}
                     choices={choices}
                     connected={connectedPorts.has(inp)}
@@ -915,7 +972,7 @@ function SecretField({ label, placeholder, value, onCommit }: {
   )
 }
 
-function ParamRow({ nodeType, label, type, value, defaultValue, choices, connected, onChange }: {
+function ParamRow({ nodeType, label, type, value, defaultValue, choices, connected, onChange, ollamaEndpoint }: {
   nodeType: string
   label: string
   type: string
@@ -924,8 +981,12 @@ function ParamRow({ nodeType, label, type, value, defaultValue, choices, connect
   choices?: string[]
   connected: boolean
   onChange: (v: unknown) => void
+  ollamaEndpoint?: string
 }) {
-  const color = portColor(type)
+  const hsvParam = isHsvParam(label, type)
+  const colorParam = isColorParam(label, type, value, defaultValue)
+  const displayType = (hsvParam || colorParam) ? 'Color' : type
+  const color = portColor(displayType)
   const wireOnly = isWireOnlyInput(nodeType, label, type)
 
   return (
@@ -944,7 +1005,7 @@ function ParamRow({ nodeType, label, type, value, defaultValue, choices, connect
           padding: '1px 5px',
           letterSpacing: '0.02em',
         }}>
-          {type}
+          {displayType}
         </span>
       </div>
 
@@ -983,8 +1044,14 @@ function ParamRow({ nodeType, label, type, value, defaultValue, choices, connect
         </div>
       ) : type === 'Image' ? (
         <ImageControl value={value} onChange={onChange} />
+      ) : hsvParam ? (
+        <HsvColorControl value={value} defaultValue={defaultValue} onChange={onChange} />
+      ) : colorParam ? (
+        <ColorControl value={value} defaultValue={defaultValue} choices={choices} onChange={onChange} />
       ) : choices && choices.length > 0 ? (
         <EnumControl value={value} defaultValue={defaultValue} choices={choices} onChange={onChange} />
+      ) : ollamaEndpoint !== undefined ? (
+        <OllamaModelControl value={value} defaultValue={defaultValue} endpointUrl={ollamaEndpoint} onChange={onChange} />
       ) : type === 'Bool' ? (
         <BoolControl value={value} onChange={onChange} />
       ) : type === 'Int' ? (
@@ -998,6 +1065,127 @@ function ParamRow({ nodeType, label, type, value, defaultValue, choices, connect
       )}
     </div>
   )
+}
+
+function isHsvParam(label: string, type: string): boolean {
+  const normalizedType = type.trim().toLowerCase()
+  if (normalizedType === 'hsv') return true
+  if (normalizedType !== 'text' && normalizedType !== 'any') return false
+  const normalizedLabel = label.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+  return /(^|[_\-\s])hsv($|[_\-\s])/.test(normalizedLabel)
+}
+
+function isColorParam(label: string, type: string, value: unknown, defaultValue: unknown): boolean {
+  const normalizedType = type.trim().toLowerCase()
+  if (normalizedType === 'color') return true
+  if (normalizedType !== 'text' && normalizedType !== 'any') return false
+
+  const normalizedLabel = label.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+  const parts = normalizedLabel.split(/[_\-\s]+/).filter(Boolean)
+  if (parts.length === 1) return /^colou?rs?$/.test(parts[0])
+  if (/^colou?r$/.test(parts[parts.length - 1] ?? '')) return true
+
+  const raw = value !== undefined && value !== null && value !== ''
+    ? String(value)
+    : defaultValue !== undefined && defaultValue !== null ? String(defaultValue)
+    : ''
+  return parts.some(part => /^colou?r$/.test(part)) && normalizeHexColor(raw) !== null
+}
+
+function normalizeHexColor(value: string): string | null {
+  const trimmed = value.trim()
+  const six = trimmed.match(/^#?([0-9a-f]{6})$/i)
+  if (six) return `#${six[1].toLowerCase()}`
+
+  const three = trimmed.match(/^#?([0-9a-f]{3})$/i)
+  if (!three) return null
+  return `#${three[1].split('').map(ch => ch + ch).join('').toLowerCase()}`
+}
+
+const NAMED_COLOR_HEX: Record<string, string> = {
+  black: '#111827',
+  blue: '#2563eb',
+  cyan: '#06b6d4',
+  green: '#22c55e',
+  orange: '#f97316',
+  pink: '#ec4899',
+  purple: '#a855f7',
+  red: '#ef4444',
+  white: '#f8fafc',
+  yellow: '#eab308',
+}
+
+function colorPickerValue(value: string): string {
+  return normalizeHexColor(value) ?? NAMED_COLOR_HEX[value.trim().toLowerCase()] ?? '#000000'
+}
+
+function hexRgb(value: string): [number, number, number] {
+  const hex = normalizeHexColor(value) ?? '#000000'
+  return [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ]
+}
+
+function nearestNamedColor(value: string, choices?: string[]): string {
+  const allowed = (choices ?? []).filter(choice => NAMED_COLOR_HEX[choice])
+  if (allowed.length === 0) return normalizeHexColor(value) ?? value
+
+  const [r, g, b] = hexRgb(value)
+  let best = allowed[0]
+  let bestScore = Number.POSITIVE_INFINITY
+  for (const choice of allowed) {
+    const [cr, cg, cb] = hexRgb(NAMED_COLOR_HEX[choice])
+    const score = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2
+    if (score < bestScore) {
+      best = choice
+      bestScore = score
+    }
+  }
+  return best
+}
+
+function openCvHsvToHex(hsv: [number, number, number]): string {
+  const h = (Math.max(0, Math.min(179, hsv[0])) * 2) / 60
+  const s = Math.max(0, Math.min(255, hsv[1])) / 255
+  const v = Math.max(0, Math.min(255, hsv[2])) / 255
+  const c = v * s
+  const x = c * (1 - Math.abs((h % 2) - 1))
+  const m = v - c
+  const section = Math.floor(h) % 6
+  const rgb: [number, number, number] = section === 0 ? [c, x, 0]
+    : section === 1 ? [x, c, 0]
+      : section === 2 ? [0, c, x]
+        : section === 3 ? [0, x, c]
+          : section === 4 ? [x, 0, c]
+            : [c, 0, x]
+  return '#' + rgb
+    .map(part => Math.round((part + m) * 255).toString(16).padStart(2, '0'))
+    .join('')
+}
+
+function hexToOpenCvHsv(value: string): [number, number, number] {
+  const [r8, g8, b8] = hexRgb(value)
+  const r = r8 / 255
+  const g = g8 / 255
+  const b = b8 / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const delta = max - min
+  let h = 0
+  if (delta !== 0) {
+    if (max === r) h = 60 * (((g - b) / delta) % 6)
+    else if (max === g) h = 60 * ((b - r) / delta + 2)
+    else h = 60 * ((r - g) / delta + 4)
+  }
+  if (h < 0) h += 360
+  const s = max === 0 ? 0 : delta / max
+  return [
+    Math.max(0, Math.min(179, Math.round(h / 2))),
+    Math.max(0, Math.min(255, Math.round(s * 255))),
+    Math.max(0, Math.min(255, Math.round(max * 255))),
+  ]
 }
 
 function ImageControl({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
@@ -1055,6 +1243,105 @@ function ImageControl({ value, onChange }: { value: unknown; onChange: (v: unkno
   )
 }
 
+function ColorControl({ value, defaultValue, choices, disabled = false, onChange }: {
+  value: unknown
+  defaultValue: unknown
+  choices?: string[]
+  disabled?: boolean
+  onChange: (v: unknown) => void
+}) {
+  const resolve = (v: unknown) =>
+    v !== undefined && v !== null && v !== '' ? String(v)
+    : defaultValue !== undefined && defaultValue !== null ? String(defaultValue)
+    : ''
+
+  const [draft, setDraft] = useState(() => resolve(value))
+  useEffect(() => { setDraft(resolve(value)) }, [value, defaultValue])
+
+  const pickerValue = colorPickerValue(draft || resolve(defaultValue))
+  const commit = (raw: string) => {
+    const next = choices?.length ? nearestNamedColor(raw, choices) : normalizeHexColor(raw) ?? raw.trim()
+    setDraft(next)
+    onChange(next)
+  }
+
+  return (
+    <input
+      type="color"
+      value={pickerValue}
+      title="Pick color"
+      aria-label="Pick color"
+      disabled={disabled}
+      onChange={e => commit(e.target.value)}
+      style={{
+        width: '100%',
+        height: 32,
+        padding: 2,
+        border: '1px solid var(--line)',
+        borderRadius: 6,
+        background: 'var(--lift)',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        boxSizing: 'border-box',
+      }}
+    />
+  )
+}
+
+function parseHsvParts(value: unknown, fallback: [number, number, number]): [number, number, number] {
+  const raw = value !== undefined && value !== null && value !== '' ? String(value) : ''
+  const parts = raw
+    .replace(/[\[\]]/g, '')
+    .replace(/;/g, ',')
+    .replace(/\s+/g, ',')
+    .split(',')
+    .filter(Boolean)
+  return ([0, 1, 2] as const).map(index => {
+    const limit = index === 0 ? 179 : 255
+    const parsed = Number(parts[index])
+    const base = Number.isFinite(parsed) ? parsed : fallback[index]
+    return Math.max(0, Math.min(limit, Math.round(base)))
+  }) as [number, number, number]
+}
+
+function HsvColorControl({ value, defaultValue, disabled = false, onChange }: {
+  value: unknown
+  defaultValue: unknown
+  disabled?: boolean
+  onChange: (v: unknown) => void
+}) {
+  const defaultParts = parseHsvParts(defaultValue, [0, 0, 0])
+  const [pickerValue, setPickerValue] = useState(() => openCvHsvToHex(parseHsvParts(value, defaultParts)))
+
+  useEffect(() => {
+    setPickerValue(openCvHsvToHex(parseHsvParts(value, defaultParts)))
+  }, [value, defaultValue])
+
+  return (
+    <input
+      type="color"
+      value={pickerValue}
+      title="Pick color"
+      aria-label="Pick color"
+      disabled={disabled}
+      onChange={e => {
+        const next = e.target.value
+        setPickerValue(next)
+        onChange(hexToOpenCvHsv(next).join(','))
+      }}
+      style={{
+        width: '100%',
+        height: 32,
+        padding: 2,
+        border: '1px solid var(--line)',
+        borderRadius: 6,
+        background: 'var(--lift)',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        boxSizing: 'border-box',
+      }}
+    />
+  )
+}
+
 function EnumControl({ value, defaultValue, choices, onChange }: {
   value: unknown; defaultValue: unknown; choices: string[]; onChange: (v: unknown) => void
 }) {
@@ -1089,8 +1376,88 @@ function EnumControl({ value, defaultValue, choices, onChange }: {
   )
 }
 
+// Keyed by endpoint URL so switching back to a previously-seen Ollama host
+// doesn't refetch every time the Inspector re-renders.
+const ollamaModelsCache = new Map<string, string[]>()
+
+function OllamaModelControl({ value, defaultValue, endpointUrl, onChange }: {
+  value: unknown; defaultValue: unknown; endpointUrl: string; onChange: (v: unknown) => void
+}) {
+  const current = value !== undefined && value !== null && value !== '' ? String(value)
+    : defaultValue !== undefined && defaultValue !== null ? String(defaultValue)
+    : ''
+  const [models, setModels] = useState<string[] | null>(ollamaModelsCache.get(endpointUrl) ?? null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const cached = ollamaModelsCache.get(endpointUrl)
+    if (cached) { setModels(cached); return }
+    let cancelled = false
+    setError('')
+    api.ollamaModels(endpointUrl).then(res => {
+      if (cancelled) return
+      if (res.ok && res.models.length > 0) {
+        ollamaModelsCache.set(endpointUrl, res.models)
+        setModels(res.models)
+      } else {
+        setError(res.error || 'no models found')
+      }
+    }).catch(err => { if (!cancelled) setError(String(err)) })
+    return () => { cancelled = true }
+  }, [endpointUrl])
+
+  const color = portColor('Text')
+  if (!models || models.length === 0) {
+    // Ollama unreachable or no models pulled yet -- fall back to a plain
+    // text field so the param is still editable instead of a dead end.
+    return (
+      <div>
+        <TextControl value={value} defaultValue={defaultValue} onChange={onChange} multiline={false} />
+        {error && (
+          <div style={{ color: 'var(--tx3)', fontSize: 11, marginTop: 4 }}>
+            couldn't list Ollama models at {endpointUrl} ({error})
+          </div>
+        )}
+      </div>
+    )
+  }
+  const options = models.includes(current) || !current ? models : [current, ...models]
+  return (
+    <select
+      value={current || models[0]}
+      onChange={e => onChange(e.target.value)}
+      style={{
+        width: '100%',
+        background: 'var(--lift)',
+        border: '1px solid var(--line)',
+        borderRadius: 6,
+        padding: '5px 8px',
+        minHeight: 28,
+        color: 'var(--tx1)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 12,
+        fontWeight: 600,
+        outline: 'none',
+        cursor: 'pointer',
+        borderLeft: `2px solid ${color}`,
+      }}
+    >
+      {options.map(opt => (
+        <option key={opt} value={opt}>{opt}</option>
+      ))}
+    </select>
+  )
+}
+
+function boolControlValue(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value !== 0
+  if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
+  return Boolean(value)
+}
+
 function BoolControl({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
-  const on = Boolean(value)
+  const on = boolControlValue(value)
   const color = portColor('Bool')
   return (
     <div

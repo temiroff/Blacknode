@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
-ALLOWED_PORT_TYPES = frozenset({"Text", "Int", "Float", "Bool", "List", "Dict", "Any"})
+ALLOWED_PORT_TYPES = frozenset({"Text", "Int", "Float", "Bool", "Color", "List", "Dict", "Any"})
 MANIFEST_SCHEMA_VERSION = 1
 
 NAME_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
@@ -200,4 +200,3 @@ def _required_str(value: Any, field: str, path: str | Path) -> str:
 def _split_port(port: str) -> tuple[str, str]:
     name, type_name = port.split(":", 1)
     return name, type_name
-

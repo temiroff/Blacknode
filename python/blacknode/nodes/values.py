@@ -36,6 +36,12 @@ def bool_value(ctx: dict) -> dict:
     return {"value": bool(v) if not isinstance(v, str) else v.lower() not in ("false", "0", "")}
 
 
+@node(inputs=[], outputs=["value:Color"], name="Color")
+def color_value(ctx: dict) -> dict:
+    value = str(ctx.get("value") or "#22c55e").strip()
+    return {"value": value or "#22c55e"}
+
+
 @node(inputs=[], outputs=["value:Model"], name="Model")
 def model_value(ctx: dict) -> dict:
     value = str(ctx.get("value", "claude-sonnet-4-6"))
@@ -59,3 +65,15 @@ def dict_value(ctx: dict) -> dict:
         except Exception:
             v = {}
     return {"value": v if isinstance(v, dict) else {}}
+
+
+@node(inputs=[], outputs=["value:List"], name="List")
+def list_value(ctx: dict) -> dict:
+    import json
+    v = ctx.get("value", [])
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except Exception:
+            v = []
+    return {"value": v if isinstance(v, list) else []}

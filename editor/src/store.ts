@@ -64,6 +64,18 @@ export interface RunReplayState {
   message?: string
 }
 
+// A live run keeps re-cooking the same target chain until stopped (see
+// cookNode's `live` option). hasArmedNode flags whether any upstream node
+// has an `armed: true` param, so the UI can show a persistent Stop control
+// instead of relying on the user to find the node again -- an armed node in
+// a live loop sends real, continuous motion commands at rate_hz.
+export interface LiveRunState {
+  nodeId: string
+  port: string
+  label: string
+  hasArmedNode: boolean
+}
+
 interface UndoSnapshot {
   activeTabId: string
   graph: GraphSnapshot
@@ -100,6 +112,7 @@ interface Store {
   cookActive: boolean
   cookStatusHidden: boolean
   runReplay: RunReplayState
+  liveRun: LiveRunState | null
 
   loadNodeTypes: () => Promise<void>
   loadGraph: () => Promise<void>
@@ -179,8 +192,9 @@ interface Store {
     copyIdMap: Record<string, string> | null,
   ) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
-  cookNode: (id: string, port?: string, graphTargets?: GraphRunTarget[]) => Promise<void>
+  cookNode: (id: string, port?: string, graphTargets?: GraphRunTarget[], live?: { rateHz: number }) => Promise<void>
   stopCook: () => void
+  stopLiveRun: () => void
   stopRuntimeServices: () => Promise<RuntimeStopResult>
   dismissCookStatus: () => void
   applyRunReplay: (record: RunRecord, cursor: number, playing: boolean) => void
@@ -204,6 +218,7 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     position: { x: meta.pos[0], y: meta.pos[1] },
     data: { ...meta },
     ...(meta.type === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
+    ...(meta.type === 'List'   ? { style: { width: 260, height: 150 } } : {}),
     ...(meta.type === 'Dict'   ? { style: { width: 260, height: 150 } } : {}),
     ...(meta.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
     ...(meta.type === 'OutputImage' ? { style: { width: 760, height: 620 } } : {}),
@@ -326,16 +341,24 @@ function clearReplayData(data: NodeData): NodeData {
 
 function clearRuntimeNodeData(data: NodeData): NodeData {
   const base = { ...data, cooking: false, cookError: undefined }
-  if (data.type === 'ROS2ImageStream') {
+  if (
+    data.type === 'ROS2ImageStream' ||
+    data.type === 'CV2ColorObjectStream' ||
+    data.type === 'VisionReasoningStream' ||
+    data.type === 'CUDAImageFilterStream'
+  ) {
     return {
       ...base,
       cookResult: undefined,
       portResults: {
         ...(data.portResults ?? {}),
         preview: '',
+        mask: '',
         streaming: false,
         stream_url: '',
         snapshot_url: '',
+        mask_stream_url: '',
+        mask_url: '',
         report: 'stopped by workflow control',
       },
     }
@@ -571,6 +594,28 @@ function fullDetail(value: unknown): string | undefined {
 
 function appendCookLog(log: CookLogEntry[], entry: CookLogEntry): CookLogEntry[] {
   return [...log, entry].slice(-80)
+}
+
+// Live mode re-runs a chain forever until stopped -- if any upstream node
+// has armed=true (ROS2NativeSetJoint, ROS2RotateJoint,
+// ROS2NativeFollowDetectionJoint, ...), that means real, continuous motion
+// commands at the live rate, not just a repeated preview. Exported so the
+// UI can check this before starting live mode (to confirm) and cookNode can
+// check it after (to decide whether to show a persistent Stop control).
+export function hasArmedUpstream(nodes: Node<NodeData>[], edges: Edge[], startIds: Iterable<string>): boolean {
+  const visited = new Set<string>()
+  const stack = [...startIds]
+  while (stack.length > 0) {
+    const nid = stack.pop() as string
+    if (visited.has(nid)) continue
+    visited.add(nid)
+    const node = nodes.find(n => n.id === nid)
+    if (node?.data.params?.armed === true) return true
+    for (const edge of edges) {
+      if (edge.target === nid) stack.push(edge.source)
+    }
+  }
+  return false
 }
 
 const EMPTY_REPLAY: RunReplayState = {
@@ -1051,6 +1096,7 @@ export const useStore = create<Store>((set, get) => ({
   cookActive: false,
   cookStatusHidden: false,
   runReplay: EMPTY_REPLAY,
+  liveRun: null,
   subnetStack: [],
 
   checkServer: async () => {
@@ -2481,11 +2527,12 @@ export const useStore = create<Store>((set, get) => ({
     await api.updateParam(id, key, value)
   },
 
-  cookNode: async (id, port = 'output', graphTargets) => {
+  cookNode: async (id, port = 'output', graphTargets, live) => {
     const cookTabId = get().activeTabId
     const stack = get().subnetStack
     const activeSubnetId = stack.length > 0 ? stack[stack.length - 1].subnetId : null
     const cookNodes = get().nodes
+    const cookEdges = get().edges
     const targets = graphTargets?.length ? graphTargets : [{ id, port }]
     const graphRun = Boolean(graphTargets?.length)
     const targetIds = new Set(targets.map(target => target.id))
@@ -2534,8 +2581,24 @@ export const useStore = create<Store>((set, get) => ({
       }, delay)
     }
     const applyCookEvent = (event: CookEvent) => {
-      queueLiveReplay(event)
+      // The replay-scrub cascade schedules each event `delay += 170ms`
+      // further out -- fine for a bounded one-shot run, but a live stream
+      // never ends, so that delay would grow without bound. Skip it in
+      // live mode; there's no "final state" to scrub to yet anyway.
+      if (!live) queueLiveReplay(event)
       if (event.type === 'done') {
+        if (live) {
+          // Every frame of a live loop ends with its own `done` -- that
+          // means "this frame finished," not "the whole live run is over."
+          // Only log it; cookActive/liveRun/node.cooking get torn down
+          // once in cookNode's `finally`, when the stream actually closes.
+          set(s => ({
+            ...syncTabCookState(s, cookTabId, {
+              cookLog: appendCookLog(tabCookLog(s, cookTabId), cookEventLogEntry(event, s.activeTabId === cookTabId ? s.nodes : cookNodes)),
+            }),
+          }))
+          return
+        }
         set(s => ({
           ...syncTabCookState(s, cookTabId, {
             cookActive: false,
@@ -2637,6 +2700,9 @@ export const useStore = create<Store>((set, get) => ({
       port: runPort,
       ts: Date.now(),
     }]
+
+    const hasArmedNode = live ? hasArmedUpstream(cookNodes, cookEdges, targetIds) : false
+
     set(s => ({
       ...syncTabCookState(s, cookTabId, {
         cookActive: true,
@@ -2652,6 +2718,7 @@ export const useStore = create<Store>((set, get) => ({
         currentEventType: 'queued',
         message: graphRun ? `Queued all ${targets.length} terminal nodes` : `Queued ${runLabel}.${port}`,
       },
+      liveRun: live ? { nodeId: runNodeId, port: runPort, label: runLabel, hasArmedNode } : s.liveRun,
       nodes: s.nodes.map(n => ({
         ...n,
         data: targetIds.has(n.id)
@@ -2671,15 +2738,35 @@ export const useStore = create<Store>((set, get) => ({
 
     cookAbort = new AbortController()
     const signal = cookAbort.signal
+    // Live mode is only wired up for the top-level graph (see api.ts) --
+    // subnets still cook once per click. Rather than silently downgrading a
+    // "Live" click to a single cook with no explanation, say so.
+    if (live && activeSubnetId) {
+      set(s => ({
+        ...syncTabCookState(s, cookTabId, {
+          cookLog: appendCookLog(tabCookLog(s, cookTabId), {
+            id: `${Date.now()}-${id}-live-unsupported`,
+            kind: 'error',
+            label: runLabel,
+            message: 'Live mode is not supported inside a subnet yet -- cooking once instead.',
+            nodeId: graphRun ? undefined : id,
+            port: runPort,
+            ts: Date.now(),
+          }),
+        }),
+        liveRun: null,
+      }))
+    }
+    const liveOpts = live && !activeSubnetId ? { rateHz: live.rateHz } : undefined
     try {
       if (activeSubnetId && graphRun) {
         await api.cookSubgraphGraphStream(activeSubnetId, targets, applyCookEvent, signal)
       } else if (activeSubnetId) {
         await api.cookSubgraphStream(activeSubnetId, id, port, applyCookEvent, signal)
       } else if (graphRun) {
-        await api.cookGraphStream(targets, applyCookEvent, signal)
+        await api.cookGraphStream(targets, applyCookEvent, signal, liveOpts)
       } else {
-        await api.cookStream(id, port, applyCookEvent, signal)
+        await api.cookStream(id, port, applyCookEvent, signal, liveOpts)
       }
     } catch (e: any) {
       const stopped = e?.name === 'AbortError' || signal.aborted
@@ -2712,7 +2799,26 @@ export const useStore = create<Store>((set, get) => ({
       }))
     } finally {
       cookAbort = null
+      // Every frame of a live run suppresses the usual done-event cleanup
+      // (see applyCookEvent above), so this is the one place that always
+      // runs exactly once when the stream truly ends -- via Stop, a server-
+      // side error, or the connection closing -- regardless of which path
+      // got us here.
+      if (liveOpts) {
+        set(s => ({
+          ...syncTabCookState(s, cookTabId, { cookActive: false }),
+          liveRun: s.liveRun?.nodeId === runNodeId ? null : s.liveRun,
+          nodes: s.activeTabId === cookTabId
+            ? s.nodes.map(n => (targetIds.has(n.id) ? { ...n, data: { ...n.data, cooking: false } } : n))
+            : s.nodes,
+        }))
+      }
     }
+  },
+
+  stopLiveRun: () => {
+    set({ liveRun: null })
+    get().stopCook()
   },
 
   stopCook: () => {
@@ -2768,6 +2874,7 @@ export const useStore = create<Store>((set, get) => ({
           n.data.type === 'ROS2ImageStream' ||
           n.data.type === 'CV2ColorObjectStream' ||
           n.data.type === 'VisionReasoningStream' ||
+          n.data.type === 'CUDAImageFilterStream' ||
           n.data.type === 'ROS2Run' ||
           n.data.type === 'ROS2Launch'
         )

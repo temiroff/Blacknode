@@ -19,7 +19,7 @@ SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool", "VisualAgentLoop"}
 SPECIAL_NODE_TYPES = {"Subnet"}
 
 _COMPAT: dict[str, set[str]] = {
-    "Text": {"Text", "Any"},
+    "Text": {"Text", "Color", "Any"},
     "Int": {"Int", "Float", "Number", "Any"},
     "Float": {"Float", "Int", "Number", "Any"},
     "Number": {"Number", "Int", "Float", "Any"},
@@ -29,6 +29,7 @@ _COMPAT: dict[str, set[str]] = {
     "Embedding": {"Embedding", "Any"},
     "Fn": {"Fn", "Any"},
     "Model": {"Model", "Text", "Any"},
+    "Color": {"Color", "Text", "Any"},
 }
 
 

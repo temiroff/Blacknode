@@ -27,6 +27,12 @@ from typing import Any, Iterable
 
 DEFAULT_MAX_RUNS = 200
 _RUN_FILE_GLOB = "*.json"
+# A long-lived live-cook run emits a start/success/done triple every frame
+# forever; without a cap, buf.events would grow without bound in memory and
+# blow up the JSON file written on finalize. Keep only the most recent
+# events -- run history is for inspecting what just happened, not scrubbing
+# hours of a live stream frame by frame.
+MAX_BUFFERED_EVENTS = 2000
 
 
 def _iso_now() -> str:
@@ -103,6 +109,8 @@ class RunStore:
             stamped = dict(event)
             stamped.setdefault("ts", _iso_now())
             buf.events.append(stamped)
+            if len(buf.events) > MAX_BUFFERED_EVENTS:
+                del buf.events[: len(buf.events) - MAX_BUFFERED_EVENTS]
             self._update_counters(buf, stamped)
 
     def finalize_success(self, run_id: str, *, value: Any = None) -> dict[str, Any] | None:

@@ -16,9 +16,9 @@ built-in.
 ## Requirements
 
 - An NVIDIA GPU and a recent driver
-- CUDA 12.x runtime (via CuPy; no separate toolkit needed for the curated ops)
-- `cupy-cuda12x` — installed automatically by `start.ps1` / `start.sh` when an
-  NVIDIA GPU is detected, or manually with `pip install cupy-cuda12x`
+- CUDA 12.x runtime and toolkit headers for CuPy kernels
+- `cupy-cuda12x[ctk]` — installed automatically by `start.ps1` / `start.sh`
+  when an NVIDIA GPU is detected, or manually with `pip install 'cupy-cuda12x[ctk]'`
 
 Without a GPU these nodes return a structured "GPU not available" result instead
 of failing the graph, so the editor stays usable on any machine.

@@ -10,12 +10,14 @@ export const PORT_COLORS: Record<string, string> = {
   Fn:        '#ef4444',  // red
   Model:     '#76b900',  // nvidia green
   Image:     '#fb7185',  // rose
+  Color:     '#e11d48',  // color picker value
+  HSV:       '#0ea5e9',  // hue/saturation/value triplet
   Any:       '#6b7280',  // grey
 }
 
 // Which target types a source type can connect to
 const COMPAT: Record<string, Set<string>> = {
-  Text:      new Set(['Text', 'Any']),
+  Text:      new Set(['Text', 'Color', 'Any']),
   Int:       new Set(['Int', 'Float', 'Number', 'Any']),
   Float:     new Set(['Float', 'Int', 'Number', 'Any']),
   Number:    new Set(['Number', 'Int', 'Float', 'Any']),
@@ -26,6 +28,8 @@ const COMPAT: Record<string, Set<string>> = {
   Fn:        new Set(['Fn', 'Any']),
   Model:     new Set(['Model', 'Text', 'Any']),
   Image:     new Set(['Image', 'Any']),
+  Color:     new Set(['Color', 'Text', 'Any']),
+  HSV:       new Set(['HSV', 'Text', 'Any']),
 }
 
 export function portColor(type: string): string {

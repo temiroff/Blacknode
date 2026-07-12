@@ -1,6 +1,6 @@
 from ._version import __version__
 from .graph import Graph, NodeProxy
-from .node import Any, Bool, Dict, Embedding, Enum, Float, Fn, Image, Int, List, Model, Number, Text, _NODE_REGISTRY, node
+from .node import Any, Bool, Color, Dict, Embedding, Enum, Float, Fn, Image, Int, List, Model, Number, Text, _NODE_REGISTRY, node
 from .workflow import validate_graph, validate_workflow
 
 # Auto-register built-in node libraries
@@ -37,6 +37,7 @@ _LEARNED_REPORT = _load_learned_nodes()
 __all__ = [
     "Any",
     "Bool",
+    "Color",
     "Dict",
     "Embedding",
     "Enum",

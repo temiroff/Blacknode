@@ -10,7 +10,7 @@ import type { NodeCookState } from '../types'
 
 interface NodeData extends NodeCookState {
   id: string
-  type: 'Text' | 'Float' | 'Int' | 'Bool' | 'Dict'
+  type: 'Text' | 'Float' | 'Int' | 'Bool' | 'Color' | 'List' | 'Dict'
   inputs: string[]
   outputs: string[]
   output_types: Record<string, string>
@@ -23,6 +23,15 @@ const formatFloat = (v: unknown): string => {
   return Number.isInteger(n) ? `${n}.0` : String(n)
 }
 
+function normalizeHexColor(value: unknown): string | null {
+  const text = String(value ?? '').trim()
+  const six = text.match(/^#?([0-9a-f]{6})$/i)
+  if (six) return `#${six[1].toLowerCase()}`
+  const three = text.match(/^#?([0-9a-f]{3})$/i)
+  if (!three) return null
+  return `#${three[1].split('').map(ch => ch + ch).join('').toLowerCase()}`
+}
+
 function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   const { updateParam, cookNode } = useStore()
   const color  = headerColor(data.type)
@@ -30,12 +39,17 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   const isText  = data.type === 'Text'
   const isFloat = data.type === 'Float'
   const isInt   = data.type === 'Int'
+  const isColor = data.type === 'Color'
+  const isList  = data.type === 'List'
   const isDict  = data.type === 'Dict'
-  const isLargeText = isText || isDict
+  const isStructured = isDict || isList
+  const isLargeText = isText || isStructured
 
   const rawValue  = data.params.value
   const resolveDraft = (value: unknown): string | number => isFloat ? formatFloat(value)
     : isInt  ? Number(value ?? 0)
+    : isColor ? normalizeHexColor(value) ?? '#22c55e'
+    : isList ? (typeof value === 'string' ? value : JSON.stringify(value ?? [], null, 2))
     : isDict ? (typeof value === 'string' ? value : JSON.stringify(value ?? {}, null, 2))
     : typeof value === 'string' || typeof value === 'number' ? value
     : value === undefined || value === null ? ''
@@ -58,6 +72,14 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
     if (commitRef.current) clearTimeout(commitRef.current)
     commitRef.current = setTimeout(() => updateParam(id, 'value', val), 400)
   }
+  const validateStructuredDraft = (text: string): boolean => {
+    try {
+      const parsed = JSON.parse(text)
+      return isList ? Array.isArray(parsed) : Boolean(parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+    } catch {
+      return false
+    }
+  }
 
   return (
     <NodeFrame
@@ -74,7 +96,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
         flexDirection: isLargeText ? 'column' : undefined,
       }}
     >
-      {/* resize handle — Text and Dict */}
+      {/* resize handle — Text, List, and Dict */}
       {isLargeText && (
         <NodeResizer
           minWidth={180}
@@ -149,23 +171,22 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
             </span>
           </label>
 
-        ) : isDict ? (
+        ) : isStructured ? (
           <textarea
             value={String(draft)}
-            placeholder={'{\n  "key": "value"\n}'}
+            placeholder={isList ? '[\n  "item"\n]' : '{\n  "key": "value"\n}'}
             onClick={e => e.stopPropagation()}
             onChange={e => {
               setDraft(e.target.value)
-              try { JSON.parse(e.target.value); setJsonError(false) } catch { setJsonError(true) }
+              setJsonError(!validateStructuredDraft(e.target.value))
               scheduleCommit(e.target.value)
             }}
             onBlur={() => {
               if (commitRef.current) clearTimeout(commitRef.current)
-              try {
-                JSON.parse(String(draft))
+              if (validateStructuredDraft(String(draft))) {
                 setJsonError(false)
                 commit(draft)
-              } catch {
+              } else {
                 setJsonError(true)
               }
             }}
@@ -218,6 +239,29 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               resize: 'none',
               overflow: 'auto',
               padding: '6px 4px',
+              boxSizing: 'border-box',
+            }}
+          />
+
+        ) : isColor ? (
+          <input
+            type="color"
+            value={normalizeHexColor(draft) ?? '#22c55e'}
+            aria-label="Pick color"
+            onClick={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
+            onChange={e => {
+              setDraft(e.target.value)
+              commit(e.target.value)
+            }}
+            style={{
+              width: '100%',
+              height: 32,
+              padding: 2,
+              background: 'var(--lift)',
+              border: `1px solid ${pColor}80`,
+              borderRadius: 6,
+              cursor: 'pointer',
               boxSizing: 'border-box',
             }}
           />

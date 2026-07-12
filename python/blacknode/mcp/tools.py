@@ -47,7 +47,7 @@ _LOGGER = logging.getLogger(__name__)
 _LEARNED_NAME_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 _LEARNED_CONSENT_ENV = "BLACKNODE_LEARNED_NODES_CONSENT"
 _LEARNED_CONSENT_FILE = "learned-nodes-consent.json"
-_ALLOWED_PORT_TYPES_DISPLAY = "Text, Int, Float, Bool, List, Dict, Any"
+_ALLOWED_PORT_TYPES_DISPLAY = "Text, Int, Float, Bool, Color, List, Dict, Any"
 
 _CATEGORY_BY_MODULE = {
     "blacknode.nodes.values": "Values",

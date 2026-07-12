@@ -37,6 +37,7 @@ Text = PortType("Text")
 Int = PortType("Int")
 Float = PortType("Float")
 Bool = PortType("Bool")
+Color = PortType("Color")
 List = PortType("List")
 Dict = PortType("Dict")
 Embedding = PortType("Embedding")
@@ -277,6 +278,7 @@ def _attach_metadata(
 __all__ = [
     "Any",
     "Bool",
+    "Color",
     "Dict",
     "Embedding",
     "Enum",

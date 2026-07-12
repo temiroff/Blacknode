@@ -1,6 +1,7 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
 import uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal
+import urllib.error, urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -176,6 +177,8 @@ class UpdatePortsReq(BaseModel):
 class CookReq(BaseModel):
     node_id: str
     port: str = "output"
+    live: bool = False
+    rate_hz: float = 10.0
 
 class CookTargetReq(BaseModel):
     node_id: str
@@ -183,6 +186,8 @@ class CookTargetReq(BaseModel):
 
 class CookGraphReq(BaseModel):
     targets: list[CookTargetReq]
+    live: bool = False
+    rate_hz: float = 10.0
 
 class SetGraphReq(BaseModel):
     nodes: list[dict[str, Any]] = []
@@ -302,6 +307,8 @@ def _stop_active_cook() -> None:
 _RUNTIME_MODULES = {
     "ros2": "blacknode.pkg.blacknode_ros2.ros2_runtime",
     "vision": "blacknode.pkg.blacknode_vision.cv2_runtime",
+    "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
+    "robot": "blacknode.pkg.blacknode_robot.robot",
 }
 
 
@@ -414,6 +421,41 @@ def _stop_runtime_services() -> dict[str, Any]:
             f"{stopped['detached']} detached process(es)"
         ),
     }
+
+
+_CV2_STREAM_LIVE_CONFIG_KEYS = {
+    "source_url",
+    "object_color",
+    "use_reasoning_color",
+    "target",
+    "reasoning_state_url",
+    "target_update_seconds",
+    "label",
+    "min_area",
+    "max_detections",
+    "blur",
+    "morphology_iters",
+    "max_fps",
+    "max_width",
+    "jpeg_quality",
+}
+
+
+def _push_live_node_param_update(meta: dict[str, Any], key: str, value: Any, old_params: dict[str, Any]) -> None:
+    if meta.get("type") != "CV2ColorObjectStream" or key not in _CV2_STREAM_LIVE_CONFIG_KEYS:
+        return
+    runtime = _runtime_module(_RUNTIME_MODULES["vision"])
+    if runtime is None or not hasattr(runtime, "update_color_stream_config"):
+        return
+    stream_id = str(old_params.get("stream_id") or meta.get("params", {}).get("stream_id") or "cube_tracker").strip() or "cube_tracker"
+    update_key = "target_text" if key == "target" else key
+    try:
+        result = runtime.update_color_stream_config(stream_id, {update_key: value})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[blacknode] live CV2 param update failed for {stream_id}.{key}: {type(exc).__name__}: {exc}")
+        return
+    if not result.get("ok", True):
+        print(f"[blacknode] live CV2 param update failed for {stream_id}.{key}: {result.get('error') or result.get('report')}")
 
 
 def _raise_if_stopped(stop_event: threading.Event | None) -> None:
@@ -1010,11 +1052,14 @@ def remove_node(node_id: str):
 def update_param(node_id: str, req: UpdateParamReq):
     if node_id not in _session.node_meta:
         raise HTTPException(404, "Node not found")
-    _session.node_meta[node_id]["params"][req.key] = req.value
+    meta = _session.node_meta[node_id]
+    old_params = dict(meta.get("params", {}))
+    meta["params"][req.key] = req.value
     _session.graph._nodes[node_id]["params"][req.key] = req.value
     _session.graph._mark_dirty(node_id)
+    _push_live_node_param_update(meta, req.key, req.value, old_params)
     _save()
-    return _session.node_meta[node_id]
+    return meta
 
 
 @app.patch("/nodes/{node_id}/ports")
@@ -1944,6 +1989,74 @@ def _captured_cook_trace(
             _run_store.finalize_success(run_id, value=final_value)
 
 
+def _captured_cook_trace_live(
+    node_id: str,
+    port: str,
+    run_id: str,
+    stop_event: threading.Event,
+    targets: list[tuple[str, str]] | None,
+    rate_hz: float,
+):
+    """Like _captured_cook_trace, but repeats the cook indefinitely at
+    ``rate_hz`` until ``stop_event`` fires, finalizing the run store record
+    only once -- when the loop itself ends, not after every frame.
+
+    Each frame needs graph._cache/_dirty reset first (via _begin_fresh_cook),
+    otherwise _cook_trace's own cache-hit check would just replay the first
+    frame's cached values forever instead of re-invoking node functions --
+    silently freezing the "stream" on frame one.
+    """
+    final_value: Any = None
+    final_error: str | None = None
+    period = 1.0 / max(0.1, rate_hz)
+    try:
+        while not stop_event.is_set():
+            frame_started = time.monotonic()
+            _begin_fresh_cook(clear_status=False)
+            try:
+                for line in _cook_trace(node_id, port, stop_event, targets=targets):
+                    try:
+                        event = json.loads(line)
+                    except (ValueError, TypeError):
+                        event = None
+                    if isinstance(event, dict):
+                        stored_event = _event_for_storage(event)
+                        _run_store.record_event(run_id, stored_event)
+                        if stored_event.get("type") == "done":
+                            if stored_event.get("error"):
+                                final_error = stored_event.get("error")
+                            elif "value" in event:
+                                final_value = stored_event.get("value")
+                        elif stored_event.get("type") == "error" and final_error is None:
+                            final_error = stored_event.get("error")
+                    yield line
+            except _CookStopped:
+                break
+            except Exception as exc:  # noqa: BLE001
+                # A live loop reads from real hardware/network sources each
+                # frame (camera HTTP, ROS2 topics, serial bus) -- a transient
+                # failure there (one dropped frame, one timeout) is normal and
+                # must not permanently end continuous tracking. Report this
+                # frame as failed and keep looping instead of letting the
+                # exception escape and silently kill the whole live run.
+                frame_error = f"{type(exc).__name__}: {exc}"
+                _run_store.record_event(run_id, {"type": "done", "node_id": node_id, "port": port, "error": frame_error})
+                yield _json_line({"type": "done", "port": port, "error": frame_error})
+            # Sleep in small increments so a Stop click lands within ~100ms
+            # regardless of how low rate_hz is, instead of waiting out a
+            # long single sleep.
+            remaining = period - (time.monotonic() - frame_started)
+            while remaining > 0 and not stop_event.is_set():
+                nap = min(0.1, remaining)
+                time.sleep(nap)
+                remaining -= nap
+    finally:
+        if final_error is not None:
+            _run_store.finalize_error(run_id, error=final_error)
+        else:
+            _run_store.finalize_success(run_id, value=final_value)
+
+
 def _stream_in_worker(lines_factory, stop_event: threading.Event, port: str):
     import traceback
 
@@ -1986,12 +2099,14 @@ def cook_stream(req: CookReq):
     stop_event = _prepare_cook()
     _begin_fresh_cook()
     headers = {"X-Blacknode-Run-Id": run_id}
+    if req.live:
+        lines_factory = lambda: _captured_cook_trace_live(
+            req.node_id, req.port, run_id, stop_event, None, req.rate_hz,
+        )
+    else:
+        lines_factory = lambda: _captured_cook_trace(req.node_id, req.port, run_id, stop_event)
     return StreamingResponse(
-        _stream_in_worker(
-            lambda: _captured_cook_trace(req.node_id, req.port, run_id, stop_event),
-            stop_event,
-            req.port,
-        ),
+        _stream_in_worker(lines_factory, stop_event, req.port),
         media_type="application/x-ndjson",
         headers=headers,
     )
@@ -2029,18 +2144,16 @@ def cook_graph_stream(req: CookGraphReq):
     _begin_fresh_cook()
     headers = {"X-Blacknode-Run-Id": run_id}
     first_node, first_port = targets[0]
+    if req.live:
+        lines_factory = lambda: _captured_cook_trace_live(
+            first_node, first_port, run_id, stop_event, targets, req.rate_hz,
+        )
+    else:
+        lines_factory = lambda: _captured_cook_trace(
+            first_node, first_port, run_id, stop_event, targets=targets,
+        )
     return StreamingResponse(
-        _stream_in_worker(
-            lambda: _captured_cook_trace(
-                first_node,
-                first_port,
-                run_id,
-                stop_event,
-                targets=targets,
-            ),
-            stop_event,
-            "leaves",
-        ),
+        _stream_in_worker(lines_factory, stop_event, "leaves"),
         media_type="application/x-ndjson",
         headers=headers,
     )
@@ -2051,6 +2164,19 @@ def stop_cook():
     _stop_active_cook()
     _begin_fresh_cook()
     return {"ok": True, "runtime": _stop_runtime_services()}
+
+
+@app.get("/ollama/models")
+def ollama_models(endpoint_url: str = "http://127.0.0.1:11434"):
+    base = endpoint_url.strip().rstrip("/") or "http://127.0.0.1:11434"
+    req = urllib.request.Request(f"{base}/api/tags", headers={"User-Agent": "Blacknode/0.1"})
+    try:
+        with urllib.request.urlopen(req, timeout=3.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "models": [], "error": f"{type(exc).__name__}: {exc}"}
+    models = sorted(str(m.get("name", "")) for m in payload.get("models", []) if isinstance(m, dict) and m.get("name"))
+    return {"ok": True, "models": models}
 
 
 @app.get("/runtime/status")

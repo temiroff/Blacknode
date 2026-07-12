@@ -118,7 +118,7 @@ export default function App() {
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     openGraphAsTab, openWorkflowAsTab, renameTab, saveActiveWorkflow,
     diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, stopCook, stopRuntimeServices, dismissCookStatus, applyRunReplay,
-    handleLearnedNodeEvent, updateParam,
+    handleLearnedNodeEvent, updateParam, liveRun: activeLiveRun, stopLiveRun,
   } = useStore()
 
   const rfInstance = useRef<ReactFlowInstance | null>(null)
@@ -992,7 +992,12 @@ export default function App() {
   const topbarH = 44
   const canvasPad = topbarH + TAB_H
   const liveStreamCount = nodes.filter(n => (
-    (n.data.type === 'ROS2ImageStream' || n.data.type === 'CV2ColorObjectStream' || n.data.type === 'VisionReasoningStream') &&
+    (
+      n.data.type === 'ROS2ImageStream' ||
+      n.data.type === 'CV2ColorObjectStream' ||
+      n.data.type === 'VisionReasoningStream' ||
+      n.data.type === 'CUDAImageFilterStream'
+    ) &&
     n.data.portResults?.streaming === true
   )).length
   const liveRunCount = nodes.filter(n => n.data.type === 'ROS2Run' && n.data.portResults?.running === true).length
@@ -1078,6 +1083,23 @@ export default function App() {
             >
               <span className="bn-top-live-dot" />
               <span>{runtimeStopPending ? 'Stopping...' : `Streaming${runtimeLabel ? ` · ${runtimeLabel}` : ''}`}</span>
+              <span className="bn-top-streaming-stop">Stop</span>
+            </button>
+          )}
+
+          {activeLiveRun && (
+            <button
+              className="bn-top-button bn-top-streaming-button"
+              onClick={() => stopLiveRun()}
+              style={activeLiveRun.hasArmedNode ? { background: 'var(--err)', borderColor: 'var(--err)', color: '#fff' } : undefined}
+              title={
+                activeLiveRun.hasArmedNode
+                  ? `Live re-cook of "${activeLiveRun.label}" is armed and sending continuous motion commands. Click to stop.`
+                  : `Live re-cook of "${activeLiveRun.label}" is running. Click to stop.`
+              }
+            >
+              <span className="bn-top-live-dot" />
+              <span>{activeLiveRun.hasArmedNode ? '⚠ Live (armed)' : 'Live'} · {activeLiveRun.label}</span>
               <span className="bn-top-streaming-stop">Stop</span>
             </button>
           )}

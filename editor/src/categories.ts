@@ -2,7 +2,7 @@ import { PYTHON_TOOL_TYPES } from './pythonToolPresets'
 
 // value nodes each use their port color as header — see headerColor() below
 export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
-  Values:   { color: '#6b7280', nodes: ['Text', 'Float', 'Int', 'Bool', 'Dict'] },
+  Values:   { color: '#6b7280', nodes: ['Text', 'Float', 'Int', 'Bool', 'Color', 'List', 'Dict'] },
   AI:       { color: '#6366f1', nodes: [
     'Model', 'LLMAgent', 'AgentLoop', 'VisualAgentLoop',
     'AgentMessages', 'AgentChatStep', 'ToolDispatch',
@@ -55,6 +55,8 @@ const VALUE_HEADER_COLORS: Record<string, string> = {
   Int:   '#22c55e',
   Float: '#06b6d4',
   Bool:  '#e879f9',
+  Color: '#e11d48',
+  List:  '#f97316',
   Dict:  '#a855f7',
 }
 

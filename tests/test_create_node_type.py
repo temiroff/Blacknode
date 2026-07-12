@@ -123,7 +123,7 @@ class CreateNodeTypeTests(unittest.TestCase):
         self.assertEqual(result["status"], "rejected")
         self.assertEqual(
             result["reason"],
-            "Port type 'Path' not in allowed set: Text, Int, Float, Bool, List, Dict, Any",
+            "Port type 'Path' not in allowed set: Text, Int, Float, Bool, Color, List, Dict, Any",
         )
 
     def test_rejects_static_check_failure(self):
