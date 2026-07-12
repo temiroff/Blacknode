@@ -33,3 +33,13 @@ def map_node(ctx: dict) -> dict:
     items = ctx.get("items", [])
     fn    = ctx.get("fn", lambda x: x)
     return {"items": [fn(x) for x in items]}
+
+
+@node(inputs=["items:List", "index:Int"], outputs=["value:Any", "found:Bool"], name="ListIndex")
+def list_index_node(ctx: dict) -> dict:
+    items = ctx.get("items") or []
+    try:
+        value = items[int(ctx.get("index", 0))]
+    except (TypeError, ValueError, IndexError):
+        return {"value": None, "found": False}
+    return {"value": value, "found": True}

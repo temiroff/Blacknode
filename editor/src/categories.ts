@@ -34,7 +34,7 @@ export const CATEGORIES: Record<string, { color: string; nodes: string[] }> = {
   Integrations: { color: '#4a90d9', nodes: ['SlackMessage', 'SlackReply', 'TelegramMessage', 'TelegramReply', 'ConversationMemory'] },
   Learned:  { color: '#a78bfa', nodes: [] },
   Math:     { color: '#22c55e', nodes: ['Add', 'Subtract', 'Multiply', 'Divide'] },
-  Flow:     { color: '#d97706', nodes: ['Branch', 'Switch', 'Gate', 'Map', 'Filter', 'Reduce', 'ForEach'] },
+  Flow:     { color: '#d97706', nodes: ['Branch', 'Switch', 'Gate', 'Map', 'Filter', 'Reduce', 'ForEach', 'ListIndex'] },
   IO:       { color: '#0891b2', nodes: ['FileRead', 'FileWrite', 'DirectoryList', 'FileInfo', 'CSVRead', 'CSVWrite', 'HTTPGet', 'JSONParse', 'JSONDump'] },
   Core:     { color: '#374151', nodes: ['Literal', 'Print', 'Concat'] },
   Output:   { color: '#8b5cf6', nodes: ['Output'] },

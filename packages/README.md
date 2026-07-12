@@ -19,6 +19,8 @@ startup and registers its nodes and templates. Delete a folder to remove the
 package. See [docs/packages.md](../docs/packages.md) for the manifest format
 and how to write your own package.
 
-Every package folder here is gitignored — each is its own repository.
-[`blacknode-cuda`](https://github.com/temiroff/blacknode-cuda) is the reference
-package to copy when writing your own.
+Every package folder here is gitignored — each is its own repository. Official
+robotics packages are split by responsibility: `blacknode-robot` is generic
+USB/driver setup, `blacknode-ros2` is ROS 2 transport/control, and
+`blacknode-vision` is camera/CV2/VLM perception. `blacknode-cuda` remains the
+smallest reference package to copy when writing your own.

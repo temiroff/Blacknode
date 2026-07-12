@@ -39,6 +39,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "git_url": "https://github.com/temiroff/blacknode-cuda.git",
     }
     assert payload["nodes"]["ROS2TopicList"]["package"] == "blacknode-ros2"
+    assert payload["nodes"]["RobotDiscovery"]["package"] == "blacknode-robot"
 
 
 def test_resolver_finds_nested_nodes_and_indexed_package():

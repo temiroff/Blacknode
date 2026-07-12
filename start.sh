@@ -35,7 +35,7 @@ ros_workspace_already_sourced() {
   IFS=':' read -r -a prefixes <<< "$paths"
   for prefix in "${prefixes[@]}"; do
     [[ -z "$prefix" ]] && continue
-    [[ "$prefix" == /opt/ros/* ]] && continue
+    [[ "$prefix" != "$ROOT_DIR/"* ]] && continue
     [[ "$prefix" == "$ROOT_DIR/packages/"* ]] && continue
     if [[ "$prefix" == */install || "$prefix" == */install/* ]]; then
       return 0
@@ -46,19 +46,19 @@ ros_workspace_already_sourced() {
 }
 
 discover_ros2_workspace_setups() {
-  local roots=()
-  local root
+  find "$ROOT_DIR" -maxdepth 6 -type f -path "*/ros2_ws/install/setup.bash" 2>/dev/null \
+    | awk -v package_root="$ROOT_DIR/packages/" 'index($0, package_root) != 1 && !seen[$0]++'
+}
 
-  roots+=("$ROOT_DIR")
-  roots+=("$(dirname "$ROOT_DIR")")
-  if [[ -n "${HOME:-}" && -d "$HOME/PROJECTS" ]]; then
-    roots+=("$HOME/PROJECTS")
-  fi
+ros2_package_workspace_installed() {
+  local setup="$1"
+  local install_dir package_dir
 
-  for root in "${roots[@]}"; do
-    [[ -d "$root" ]] || continue
-    find "$root" -maxdepth 6 -type f -path "*/ros2_ws/install/setup.bash" 2>/dev/null || true
-  done | awk -v package_root="$ROOT_DIR/packages/" 'index($0, package_root) != 1 && !seen[$0]++'
+  install_dir="$(dirname "$setup")"
+  package_dir="$(dirname "$(dirname "$install_dir")")"
+
+  [[ -f "$package_dir/blacknode-package.toml" ]] || return 1
+  find "$install_dir" -maxdepth 4 -type f -path "*/share/*/package.bash" -print -quit 2>/dev/null | grep -q .
 }
 
 source_blacknode_package_ros2_workspaces() {
@@ -69,6 +69,10 @@ source_blacknode_package_ros2_workspaces() {
     find "$ROOT_DIR/packages" -maxdepth 4 -type f -path "*/ros2_ws/install/setup.bash" 2>/dev/null | sort
   )
   for setup in "${package_setups[@]}"; do
+    if ! ros2_package_workspace_installed "$setup"; then
+      echo "  ROS 2 package workspace skipped (not installed): $setup"
+      continue
+    fi
     if source_setup_file "$setup"; then
       echo "  ROS 2 package workspace sourced: $setup"
     else
@@ -284,6 +288,30 @@ ensure_blacknode_command() {
   fi
 }
 
+check_package_dependencies() {
+  local output=""
+
+  if [[ "${BLACKNODE_SKIP_PACKAGE_CHECK:-0}" == "1" ]]; then
+    echo "  Package dependency check skipped (BLACKNODE_SKIP_PACKAGE_CHECK=1)."
+    return
+  fi
+
+  echo "  Checking package dependencies..."
+  if ! output="$(PYTHONPATH="$ROOT_DIR/python" "$PYTHON_BIN" -m blacknode.cli packages list 2>&1)"; then
+    echo "  Warning: package dependency check failed:"
+    printf '%s\n' "$output" | sed 's/^/    /'
+    return
+  fi
+
+  if grep -Eq '\[FAILED\]|\[ok, deps missing\]|^  ! ' <<< "$output"; then
+    echo "  Package dependency warnings:"
+    printf '%s\n' "$output" | sed 's/^/    /'
+    echo "  Install missing package prerequisites with: blacknode packages setup <package-name>"
+  else
+    echo "  Package dependencies OK."
+  fi
+}
+
 port_pids() {
   local port="$1"
 
@@ -437,6 +465,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
   fi
 fi
 
+check_package_dependencies
 ensure_frontend_dependencies
 
 echo "  Done."

@@ -1136,12 +1136,24 @@ function IntControl({ value, defaultValue, onChange }: { value: unknown; default
     : ''
 
   const [draft, setDraft] = useState<string>(() => resolve(value))
+  const commitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { setDraft(resolve(value)) }, [value, defaultValue])
+  useEffect(() => () => { if (commitRef.current) clearTimeout(commitRef.current) }, [])
 
-  const commit = (raw: string) => {
-    const v = parseInt(raw)
-    if (!isNaN(v)) onChange(v)
+  // Committing on every keystroke round-trips through the store/backend and
+  // then re-syncs `draft` from the resulting `value` prop (see the effect
+  // above) -- typing fast enough to have two round-trips in flight lets a
+  // late response stomp a newer keystroke, which reads as the field
+  // "jumping" or resetting. Debounce the commit so a round-trip only fires
+  // once typing pauses; the on-screen `draft` still updates every keystroke.
+  const commitNow = (v: number) => {
+    if (commitRef.current) clearTimeout(commitRef.current)
+    onChange(v)
+  }
+  const scheduleCommit = (v: number) => {
+    if (commitRef.current) clearTimeout(commitRef.current)
+    commitRef.current = setTimeout(() => onChange(v), 400)
   }
 
   return (
@@ -1159,10 +1171,13 @@ function IntControl({ value, defaultValue, onChange }: { value: unknown; default
           setDraft(raw)
           if (raw !== '') {
             const v = parseInt(raw)
-            if (!isNaN(v)) onChange(v)
+            if (!isNaN(v)) scheduleCommit(v)
           }
         }}
-        onBlur={() => commit(draft)}
+        onBlur={() => {
+          const v = parseInt(draft)
+          if (!isNaN(v)) commitNow(v)
+        }}
         style={{
           flex: 1, background: 'transparent', border: 'none',
           color: 'var(--tx1)', fontFamily: 'var(--font-mono)',
@@ -1176,7 +1191,7 @@ function IntControl({ value, defaultValue, onChange }: { value: unknown; default
             onClick={() => {
               const v = (parseInt(draft) || 0) + delta
               setDraft(String(v))
-              onChange(v)
+              commitNow(v)
             }}
             style={{
               background: 'transparent', border: 'none', color: 'var(--tx2)',
@@ -1198,8 +1213,24 @@ function FloatControl({ value, defaultValue, onChange }: { value: unknown; defau
     : ''
 
   const [draft, setDraft] = useState<string>(() => resolve(value))
+  const commitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { setDraft(resolve(value)) }, [value, defaultValue])
+  useEffect(() => () => { if (commitRef.current) clearTimeout(commitRef.current) }, [])
+
+  // Same reasoning as IntControl: debounce the commit so a store/backend
+  // round-trip only fires once typing pauses, instead of on every keystroke
+  // (which let a late, out-of-order response re-sync `draft` mid-typing and
+  // wipe out whatever the user had just typed, e.g. a trailing "." or a
+  // leading "-").
+  const commitNow = (v: number | undefined) => {
+    if (commitRef.current) clearTimeout(commitRef.current)
+    onChange(v)
+  }
+  const scheduleCommit = (v: number) => {
+    if (commitRef.current) clearTimeout(commitRef.current)
+    commitRef.current = setTimeout(() => onChange(v), 400)
+  }
 
   return (
     <div style={{
@@ -1214,12 +1245,12 @@ function FloatControl({ value, defaultValue, onChange }: { value: unknown; defau
         onChange={e => {
           setDraft(e.target.value)
           const v = parseFloat(e.target.value)
-          if (!isNaN(v)) onChange(v)
+          if (!isNaN(v)) scheduleCommit(v)
         }}
         onBlur={() => {
-          if (draft === '') { onChange(undefined); return }
+          if (draft === '') { commitNow(undefined); return }
           const v = parseFloat(draft)
-          if (!isNaN(v)) { setDraft(formatFloat(v)); onChange(v) }
+          if (!isNaN(v)) { setDraft(formatFloat(v)); commitNow(v) }
           else setDraft('')
         }}
         style={{
@@ -1235,7 +1266,7 @@ function FloatControl({ value, defaultValue, onChange }: { value: unknown; defau
             onClick={() => {
               const v = (parseFloat(draft) || 0) + delta
               setDraft(formatFloat(v))
-              onChange(v)
+              commitNow(v)
             }}
             style={{
               background: 'transparent', border: 'none', color: 'var(--tx2)',

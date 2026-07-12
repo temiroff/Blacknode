@@ -49,8 +49,14 @@ development:
 
 | Package | Role |
 |---|---|
-| `blacknode-ros2` | ROS 2 system checks, topic inspection, image snapshots, image streams, process launch/run controls, and robot dashboards. |
+| `blacknode-robot` | Generic USB robot discovery, serial permission help, driver descriptors, driver process launch, and the standard robot profile. |
+| `blacknode-ros2` | ROS 2 system checks, topic inspection, image snapshots, image streams, process launch/run controls, native `rclpy` robot control, rosbridge robot control, and robot dashboards. |
 | `blacknode-vision` | USB camera ROS package, VLM frame reasoning, live reasoning dashboards, OpenCV masks, color tracking streams, and graph-level Python exports. |
+
+Keep the layers separate: `blacknode-robot` finds hardware and starts the right
+robot driver, robot-specific packages define the driver descriptor, and
+`blacknode-ros2` only verifies or controls a ROS-compatible interface exposed by
+that driver.
 
 The current `blacknode-vision` CV2 local-reasoning template routes target
 selection through the VLM:

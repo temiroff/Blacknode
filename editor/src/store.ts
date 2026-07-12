@@ -2467,13 +2467,18 @@ export const useStore = create<Store>((set, get) => ({
     const node = get().nodes.find(n => n.id === id)
     if (!node || node.data.params?.[key] === value) return
     set(s => pushUndoSnapshot(s))
-    await api.updateParam(id, key, value)
+    // Apply the local param optimistically before awaiting the backend PATCH
+    // (rather than after) so displayed state always reflects the latest
+    // call, not whichever PATCH response happens to land last. Two of these
+    // can be in flight at once (e.g. rapid edits), and network responses
+    // aren't guaranteed to resolve in call order.
     set(s => ({
       nodes: s.nodes.map(n =>
         n.id === id ? { ...n, data: { ...n.data, params: { ...n.data.params, [key]: value } } } : n
       ),
       ...markActiveTabDirty(s),
     }))
+    await api.updateParam(id, key, value)
   },
 
   cookNode: async (id, port = 'output', graphTargets) => {

@@ -88,7 +88,7 @@ or missing package never breaks the core. Manage everything from the editor's
 | Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md), [Presentation Checklist](docs/presentation-checklist.md) |
 | Custom nodes | Persistent editor-created nodes, Python decorator nodes, auto-discovery, and community node packs. | [Custom Nodes](docs/custom-nodes.md) |
 | Extension packages | Modular node libraries in separate git repos (`blacknode-cuda`, ...) cloned into `packages/` — install, remove, or write your own without touching the core app. | [Extension Packages](docs/packages.md) |
-| Robotics and vision packages | ROS 2 runtime nodes, live camera streams, VLM-driven OpenCV tracking, graph-level Python exports, local reasoning dashboards, and stop-all runtime controls through `blacknode-ros2` and `blacknode-vision`. | [Extension Packages](docs/packages.md) |
+| Robotics and vision packages | Generic USB/driver setup through `blacknode-robot`, native/rosbridge ROS 2 transport/control through `blacknode-ros2`, and camera/CV2/VLM reasoning through `blacknode-vision`. | [Extension Packages](docs/packages.md) |
 | Learned nodes | MCP agents can create reusable Docker-sandboxed node types that appear live in the editor palette. | [Learned Nodes](docs/learned-nodes.md) |
 | Python round-trip | Export readable Python, import it back into the editor, and live-sync Python runs into replay. | [Python Round-Trip](docs/python-roundtrip.md) |
 | Framework export | Turn a visual graph into Python, LangGraph, CrewAI, AutoGen, OpenAI Swarm, or an NVIDIA Agent Stack manifest. | [Framework Export](docs/framework-export.md) |
