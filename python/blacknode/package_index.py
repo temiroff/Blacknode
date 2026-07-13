@@ -63,6 +63,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "RobotDiscovery",
             "RobotDriverDescriptor",
             "RobotDriverLauncher",
+            "RobotDriverPreset",
             "RobotUSBDiscovery",
         ],
     },
