@@ -15,6 +15,8 @@ from unittest.mock import patch
 
 from blacknode.exporters import export_workflow
 from blacknode.cli import main
+from blacknode.node import Any as AnyPort
+from blacknode.node import Text, _NODE_REGISTRY, node as bn_node
 from blacknode.python_importer import import_workflow_python
 from blacknode.workflow import export_workflow_python, validate_workflow
 
@@ -57,6 +59,19 @@ def valid_workflow() -> dict:
         "entrypoint": {"node_id": "out", "port": "value"},
     }
 
+
+def ensure_live_stream_test_node() -> None:
+    if "ROS2ImageStream" in _NODE_REGISTRY:
+        return
+
+    @bn_node(
+        name="ROS2ImageStream",
+        category="Test",
+        inputs={"trigger": AnyPort, "action": Text(default="start")},
+        outputs={"stream_url": Text},
+    )
+    def ros2_image_stream(ctx: dict) -> dict:
+        return {"stream_url": "http://127.0.0.1:0/stream.mjpg"}
 
 def live_stream_workflow() -> dict:
     return {
@@ -126,6 +141,7 @@ class PythonRoundTripTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "hello")
 
     def test_live_stream_export_waits_for_ctrl_c_and_stops_runtime(self):
+        ensure_live_stream_test_node()
         script = export_workflow_python(live_stream_workflow())
 
         ast.parse(script)

@@ -26,7 +26,7 @@ from blacknode.packages import MANIFEST_NAME as BN_MANIFEST_NAME
 from blacknode.packages import discover_packages as discover_bn_packages
 from blacknode.packages import install_from_git as bn_install_from_git
 from blacknode.packages import install_prerequisites as bn_install_prerequisites
-from blacknode.packages import installed_packages, package_category_colors, package_template_dirs
+from blacknode.packages import installed_packages, package_category_colors, package_statuses, package_template_dirs
 from blacknode.packages import load_package as bn_load_package
 from blacknode.packages import packages_root as bn_packages_root
 from blacknode.packages import remove_package as bn_remove_package
@@ -3111,7 +3111,7 @@ def list_custom_nodes():
 
 @app.get("/packages")
 def list_packages():
-    return {"packages": [info.to_dict() for info in installed_packages()]}
+    return {"packages": package_statuses(fetch=False)}
 
 
 @app.get("/packages/index")

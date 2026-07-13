@@ -42,6 +42,54 @@ no restart needed.
 Extra search folders can be added with the `BLACKNODE_PACKAGE_PATH`
 environment variable (separated by the platform path separator).
 
+## Updating packages
+
+`blacknode packages status` reports package load state, missing official nodes,
+and local git state for installed folder packages. Add `--fetch` when you want
+to contact remotes and see whether a package is behind upstream:
+
+```bash
+blacknode packages status --fetch
+```
+
+Update clean package checkouts with:
+
+```bash
+blacknode packages update --all
+```
+
+The update command is intentionally conservative: it fetches and fast-forwards
+only packages with no local edits and no local commits ahead of upstream. Dirty,
+ahead, diverged, non-git, and non-folder packages are reported and skipped so a
+startup update cannot overwrite package development work. Use `--deps` when a
+package update added new Python or Docker prerequisites:
+
+```bash
+blacknode packages update --all --deps
+```
+
+At launcher startup, Blacknode checks installed package health and attempts safe
+fast-forward updates by default. It skips dirty, ahead, diverged, non-git, and
+blocked packages rather than overwriting local package work. Disable startup
+package updates with `BLACKNODE_PACKAGE_AUTO_UPDATE=0`:
+
+```bash
+BLACKNODE_PACKAGE_AUTO_UPDATE=0 ./start.sh
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:BLACKNODE_PACKAGE_AUTO_UPDATE="0"; .\start.bat
+```
+
+Set `BLACKNODE_SKIP_PACKAGE_CHECK=1` to skip the package health check entirely.
+If auto-update is disabled but you still want startup to fetch remote state, set
+`BLACKNODE_PACKAGE_CHECK_REMOTE=1`.
+
+Official packages are listed in the editor's Packages tab even when they are not
+installed. Press **Install** on an available package to clone it from the built-in
+Git URL without pasting a repository URL manually.
 ## Official robotics and vision packages
 
 The robotics packages are separate repos but can live under `packages/` during

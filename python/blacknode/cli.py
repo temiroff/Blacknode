@@ -155,6 +155,12 @@ def _parser() -> argparse.ArgumentParser:
     packages = subcommands.add_parser("packages", help="list or install Blacknode extension packages")
     packages_sub = packages.add_subparsers(dest="packages_command")
     packages_sub.add_parser("list", help="show installed extension packages")
+    packages_status = packages_sub.add_parser("status", help="show package load, node, and git status")
+    packages_status.add_argument("--fetch", action="store_true", help="fetch remotes before reporting git ahead/behind state")
+    packages_update = packages_sub.add_parser("update", help="fetch and fast-forward clean installed package repos")
+    packages_update.add_argument("names", nargs="*", help="package names to update; defaults to every installed folder package")
+    packages_update.add_argument("--all", action="store_true", help="update every installed folder package")
+    packages_update.add_argument("--deps", action="store_true", help="reinstall package prerequisites after updating")
     packages_install = packages_sub.add_parser(
         "install", help="git clone a package repo into packages/ and install its pip deps"
     )
@@ -190,11 +196,15 @@ def _parser() -> argparse.ArgumentParser:
 def _packages(args: Any) -> int:
     if args.packages_command == "list":
         return _packages_list()
+    if args.packages_command == "status":
+        return _packages_status(args.fetch)
+    if args.packages_command == "update":
+        return _packages_update(args.names, args.all, args.deps)
     if args.packages_command == "install":
         return _packages_install(args.url, args.directory, args.no_deps)
     if args.packages_command == "setup":
         return _packages_setup(args.name, args.directory)
-    print("usage: blacknode packages {list,install,setup}", file=sys.stderr)
+    print("usage: blacknode packages {list,status,update,install,setup}", file=sys.stderr)
     return 2
 
 
@@ -209,19 +219,100 @@ def _packages_list() -> int:
         print("Clone one into packages/ or run: blacknode packages install <git-url>")
         return 0
     for info in packages:
-        warnings = getattr(info, "warnings", []) or []
-        status = "ok" if info.ok else "FAILED"
-        if info.ok and warnings:
-            status = "ok, deps missing"
+        status = _package_status_label(info)
         print(f"{info.name} {info.version or '?'} [{status}] {len(info.node_types)} nodes  {info.path}")
+        if info.missing_node_types:
+            print("  missing nodes: " + ", ".join(info.missing_node_types))
         if not info.ok:
             last_line = info.error.strip().splitlines()[-1] if info.error.strip() else "unknown error"
             print(f"  {last_line}")
-        for warning in warnings:
-            for line in warning.splitlines():
-                print(f"  ! {line}")
+        _print_package_warnings(info)
     return 0
 
+
+def _package_status_label(info: Any) -> str:
+    if not info.ok:
+        return "FAILED"
+    warnings = getattr(info, "warnings", []) or []
+    missing_nodes = getattr(info, "missing_node_types", []) or []
+    if missing_nodes:
+        return "ok, nodes missing"
+    if warnings:
+        return "ok, deps missing"
+    return "ok"
+
+
+def _print_package_warnings(info: Any) -> None:
+    for warning in getattr(info, "warnings", []) or []:
+        for line in warning.splitlines():
+            print(f"  ! {line}")
+
+
+def _packages_status(fetch: bool = False) -> int:
+    import blacknode  # noqa: F401  triggers package discovery
+
+    from .packages import package_statuses
+
+    statuses = package_statuses(fetch=fetch)
+    if not statuses:
+        print("No extension packages installed.")
+        print("Clone one into packages/ or run: blacknode packages install <git-url>")
+        return 0
+    for info in statuses:
+        status = "FAILED" if not info.get("ok", False) else "ok"
+        if info.get("ok", False) and info.get("missing_node_types"):
+            status = "ok, nodes missing"
+        elif info.get("ok", False) and info.get("warnings"):
+            status = "ok, warnings"
+        git = info.get("git_status") or {}
+        git_parts: list[str] = []
+        if git.get("is_git_repo"):
+            branch = git.get("branch") or "detached"
+            git_parts.append(str(branch))
+            if git.get("dirty"):
+                git_parts.append("dirty")
+            ahead = git.get("ahead")
+            behind = git.get("behind")
+            if ahead:
+                git_parts.append(f"ahead {ahead}")
+            if behind:
+                git_parts.append(f"behind {behind}")
+            if git.get("fetch_error"):
+                git_parts.append("fetch failed")
+        print(f"{info['name']} {info.get('version') or '?'} [{status}] {len(info.get('node_types') or [])} nodes  {info.get('path') or ''}")
+        if git_parts:
+            print("  git: " + ", ".join(git_parts))
+        if info.get("missing_node_types"):
+            print("  missing nodes: " + ", ".join(info["missing_node_types"]))
+        if not info.get("ok", False):
+            error = str(info.get("error") or "").strip()
+            print(f"  {error.splitlines()[-1] if error else 'unknown error'}")
+        for warning in info.get("warnings") or []:
+            for line in str(warning).splitlines():
+                print(f"  ! {line}")
+        if git.get("fetch_error"):
+            print(f"  ! fetch: {git['fetch_error']}")
+    return 0
+
+
+def _packages_update(names: list[str], all_packages: bool, deps: bool) -> int:
+    import blacknode  # noqa: F401  triggers package discovery
+
+    from .packages import update_packages
+
+    if all_packages:
+        names = []
+    result = update_packages(names or None, install_deps=deps)
+    for item in result["updated"]:
+        package = item.get("package") or {}
+        print(f"updated {item['name']}: {len(package.get('node_types') or [])} nodes")
+    for item in result["skipped"]:
+        print(f"skipped {item['name']}: {item['reason']}")
+    for item in result["failed"]:
+        print(f"failed {item['name']}: {item['error']}", file=sys.stderr)
+    if result["updated"]:
+        print("Restart Blacknode (or press Reload in the editor Packages tab) to use updated nodes.")
+    return 0 if result["ok"] else 1
 
 def _packages_install(url: str, directory: Path | None, no_deps: bool) -> int:
     from .packages import install_from_git

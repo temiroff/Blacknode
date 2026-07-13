@@ -33,6 +33,7 @@ from typing import Any, Callable
 
 from ._version import __version__ as _CORE_VERSION
 from .node import _NODE_REGISTRY
+from .package_index import indexed_package
 
 MANIFEST_NAME = "blacknode-package.toml"
 ENTRY_POINT_GROUP = "blacknode.packages"
@@ -58,6 +59,9 @@ class PackageInfo:
     import_dependencies: list[str] = field(default_factory=list)  # modules that must import
     docker_images: list[str] = field(default_factory=list)
     node_types: list[str] = field(default_factory=list)
+    expected_node_types: list[str] = field(default_factory=list)
+    missing_node_types: list[str] = field(default_factory=list)
+    git_status: dict[str, Any] = field(default_factory=dict)
     templates_dir: str = ""
     ok: bool = True
     error: str = ""
@@ -194,9 +198,31 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
         if not getattr(fn, "_bn_source_path", ""):
             fn._bn_source_path = str(nodes_dir)
     _check_import_dependencies(info)
+    _check_indexed_nodes(info)
     _PACKAGE_REGISTRY[info.name] = info
     return info
 
+
+def _check_indexed_nodes(info: PackageInfo) -> None:
+    """Warn when an official package checkout lacks indexed node types."""
+    indexed = indexed_package(info.name)
+    if indexed is None:
+        return
+
+    expected = sorted(str(node_type) for node_type in indexed.get("node_types", []) if str(node_type))
+    info.expected_node_types = expected
+    info.missing_node_types = sorted(set(expected) - set(info.node_types))
+    if not info.missing_node_types:
+        return
+
+    plural = "s" if len(info.missing_node_types) != 1 else ""
+    info.warnings.append(
+        f"missing official node{plural}: {', '.join(info.missing_node_types)}\n"
+        "Fix: startup auto-update can repair this after local package git changes are committed, "
+        "stashed, or discarded.\n"
+        f"Manual repair: blacknode packages update {info.name}\n"
+        "If this package is intentionally older, update the package index or template requirements."
+    )
 
 def _check_import_dependencies(info: PackageInfo) -> None:
     """Warn (non-fatally) about declared runtime modules that won't import.
@@ -237,6 +263,7 @@ def _check_import_dependencies(info: PackageInfo) -> None:
 def _record_failure(info: PackageInfo, error: str) -> PackageInfo:
     info.ok = False
     info.error = error
+    _check_indexed_nodes(info)
     _PACKAGE_REGISTRY[info.name] = info
     return info
 
@@ -323,10 +350,165 @@ def _load_entry_point_packages() -> list[PackageInfo]:
                 info.node_types = previous.node_types
         for name in info.node_types:
             _NODE_REGISTRY[name]._bn_package = info.name
+        _check_indexed_nodes(info)
         _PACKAGE_REGISTRY[info.name] = info
         infos.append(info)
     return infos
 
+
+def package_git_status(pkg_dir: str | Path, fetch: bool = False) -> dict[str, Any]:
+    """Return local git status for a folder package without mutating files."""
+    pkg_path = Path(pkg_dir).expanduser().resolve()
+    state: dict[str, Any] = {
+        "is_git_repo": False,
+        "ok": True,
+        "error": "",
+        "fetch_error": "",
+        "remote": "",
+        "branch": "",
+        "head": "",
+        "upstream": "",
+        "dirty": False,
+        "ahead": None,
+        "behind": None,
+        "update_available": False,
+        "can_fast_forward": False,
+    }
+    if not (pkg_path / ".git").exists():
+        return state
+    state["is_git_repo"] = True
+    if not shutil.which("git"):
+        state["ok"] = False
+        state["error"] = "git is not on PATH"
+        return state
+
+    inside = _run_git(pkg_path, ["rev-parse", "--is-inside-work-tree"])
+    if inside.returncode != 0:
+        state["ok"] = False
+        state["error"] = _git_error(inside)
+        return state
+
+    state["remote"] = _git_stdout(_run_git(pkg_path, ["remote", "get-url", "origin"]))
+    state["branch"] = _git_stdout(_run_git(pkg_path, ["rev-parse", "--abbrev-ref", "HEAD"]))
+    state["head"] = _git_stdout(_run_git(pkg_path, ["rev-parse", "--short", "HEAD"]))
+    state["upstream"] = _git_stdout(_run_git(pkg_path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]))
+    state["dirty"] = bool(_git_stdout(_run_git(pkg_path, ["status", "--porcelain"])))
+
+    if fetch and state["upstream"]:
+        fetched = _run_git(pkg_path, ["fetch", "--prune"], timeout=60)
+        if fetched.returncode != 0:
+            state["fetch_error"] = _git_error(fetched)
+
+    if state["upstream"]:
+        counts = _git_stdout(_run_git(pkg_path, ["rev-list", "--left-right", "--count", "HEAD...@{upstream}"]))
+        parts = counts.split()
+        if len(parts) == 2 and all(part.isdigit() for part in parts):
+            ahead = int(parts[0])
+            behind = int(parts[1])
+            state["ahead"] = ahead
+            state["behind"] = behind
+            state["update_available"] = behind > 0
+            state["can_fast_forward"] = behind > 0 and ahead == 0 and not state["dirty"]
+    return state
+
+
+def package_statuses(fetch: bool = False) -> list[dict[str, Any]]:
+    """Return installed package records with git status attached."""
+    statuses: list[dict[str, Any]] = []
+    for info in installed_packages():
+        if info.source == "folder" and info.path:
+            info.git_status = package_git_status(info.path, fetch=fetch)
+        else:
+            info.git_status = {"is_git_repo": False, "ok": True, "error": ""}
+        statuses.append(info.to_dict())
+    return statuses
+
+
+def update_packages(
+    names: list[str] | None = None,
+    *,
+    install_deps: bool = False,
+    progress: Callable[[str], None] = print,
+) -> dict[str, Any]:
+    """Fetch and fast-forward clean folder packages.
+
+    Dirty, ahead, diverged, non-git, and failed packages are skipped rather than
+    overwritten. This is safe to run before startup when the user opts in.
+    """
+    wanted = {name.strip() for name in (names or []) if name.strip()}
+    by_name = {info.name: info for info in installed_packages()}
+    selected = [info for info in installed_packages() if not wanted or info.name in wanted]
+    result: dict[str, Any] = {"ok": True, "updated": [], "skipped": [], "failed": []}
+
+    for name in sorted(wanted - set(by_name)):
+        result["ok"] = False
+        result["failed"].append({"name": name, "error": "package is not installed"})
+
+    for info in selected:
+        if info.source != "folder" or not info.path:
+            result["skipped"].append({"name": info.name, "reason": "not a folder package"})
+            continue
+        pkg_path = Path(info.path).expanduser().resolve()
+        state = package_git_status(pkg_path, fetch=True)
+        if not state.get("is_git_repo"):
+            result["skipped"].append({"name": info.name, "reason": "not a git checkout"})
+            continue
+        if not state.get("ok", True):
+            result["ok"] = False
+            result["failed"].append({"name": info.name, "error": state.get("error", "git status failed")})
+            continue
+        if state.get("fetch_error"):
+            result["ok"] = False
+            result["failed"].append({"name": info.name, "error": state["fetch_error"]})
+            continue
+        if not state.get("upstream"):
+            result["skipped"].append({"name": info.name, "reason": "no upstream branch configured"})
+            continue
+        if state.get("dirty"):
+            result["skipped"].append({"name": info.name, "reason": "working tree has local changes"})
+            continue
+        ahead = int(state.get("ahead") or 0)
+        behind = int(state.get("behind") or 0)
+        if ahead > 0:
+            reason = f"local branch is ahead of upstream by {ahead} commit(s)"
+            if behind > 0:
+                reason += f" and behind by {behind} commit(s)"
+            result["skipped"].append({"name": info.name, "reason": reason})
+            continue
+        if behind <= 0:
+            result["skipped"].append({"name": info.name, "reason": "already up to date"})
+            continue
+
+        progress(f"Updating {info.name} ({behind} upstream commit(s))")
+        pulled = _run_git(pkg_path, ["pull", "--ff-only"], timeout=120)
+        if pulled.returncode != 0:
+            result["ok"] = False
+            result["failed"].append({"name": info.name, "error": _git_error(pulled)})
+            continue
+        if install_deps:
+            install_prerequisites(pkg_path, progress=progress)
+        reloaded = load_package(pkg_path)
+        result["updated"].append({"name": info.name, "package": reloaded.to_dict()})
+
+    return result
+
+
+def _run_git(pkg_path: Path, args: list[str], timeout: int = 10) -> subprocess.CompletedProcess[str]:
+    safe_dir = pkg_path.resolve().as_posix()
+    return subprocess.run(
+        ["git", "-c", f"safe.directory={safe_dir}", "-C", str(pkg_path), *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _git_stdout(result: subprocess.CompletedProcess[str]) -> str:
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _git_error(result: subprocess.CompletedProcess[str]) -> str:
+    return (result.stderr or result.stdout or "git command failed").strip()
 
 def install_from_git(
     url: str,
@@ -520,10 +702,13 @@ __all__ = [
     "install_from_git",
     "install_prerequisites",
     "installed_packages",
+    "package_git_status",
+    "package_statuses",
     "load_package",
     "package_category_colors",
     "package_template_dirs",
     "packages_root",
     "remove_package",
+    "update_packages",
     "resolve_package_git_url",
 ]

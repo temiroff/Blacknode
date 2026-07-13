@@ -1,4 +1,4 @@
-import type { BnNodeDef, BnNodeMeta, BnPackage } from './types'
+import type { BnNodeDef, BnNodeMeta, BnPackage, BnPackageIndex } from './types'
 import type { GraphRunTarget } from './graphRun'
 
 const BASE = (import.meta.env.VITE_BLACKNODE_API_BASE ?? '/api').replace(/\/$/, '')
@@ -329,7 +329,7 @@ export const api = {
   nodeTypes: ()                              => req<string[]>('GET', '/node-types'),
   nodeDefs:  ()                              => req<Record<string, BnNodeDef>>('GET', '/node-defs'),
   packages:  ()                              => req<{ packages: BnPackage[] }>('GET', '/packages'),
-  packageIndex: ()                           => req<Record<string, unknown>>('GET', '/packages/index'),
+  packageIndex: ()                           => req<BnPackageIndex>('GET', '/packages/index'),
   reloadPackages: ()                         => req<{ ok: boolean }>('POST', '/packages/reload'),
   installPackage: (url: string)              => req<{ ok: boolean; package: BnPackage | null; error: string; log: string[] }>('POST', '/packages/install', { url }),
   setupPackage: (name: string)               => req<{ ok: boolean; package: BnPackage | null; log: string[] }>('POST', `/packages/${encodeURIComponent(name)}/setup`),

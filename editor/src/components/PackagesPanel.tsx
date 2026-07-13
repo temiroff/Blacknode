@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import type { BnPackage } from '../types'
+import type { BnPackage, BnPackageIndexPackage } from '../types'
 
 const inputStyle: React.CSSProperties = {
   flex: 1,
@@ -27,19 +27,49 @@ const buttonStyle = (busy: boolean): React.CSSProperties => ({
   whiteSpace: 'nowrap',
 })
 
+const sectionStyle: React.CSSProperties = {
+  padding: '8px 12px 5px',
+  borderBottom: '1px solid var(--line)',
+  color: 'var(--tx3)',
+  fontFamily: 'var(--font-ui)',
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+}
+
+function gitSummary(pkg: BnPackage): string {
+  const git = pkg.git_status
+  if (!git?.is_git_repo) return ''
+  const parts = [git.branch || 'detached']
+  if (git.dirty) parts.push('dirty')
+  if (git.ahead) parts.push(`ahead ${git.ahead}`)
+  if (git.behind) parts.push(`behind ${git.behind}`)
+  if (git.fetch_error) parts.push('fetch failed')
+  return parts.join(' · ')
+}
+
 export default function PackagesPanel() {
   const [packages, setPackages] = useState<BnPackage[]>([])
+  const [catalog, setCatalog] = useState<BnPackageIndexPackage[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [gitUrl, setGitUrl] = useState('')
-  const [installing, setInstalling] = useState(false)
+  const [installingName, setInstallingName] = useState<string | null>(null)
   const [installLog, setInstallLog] = useState<string | null>(null)
   const loadNodeTypes = useStore(s => s.loadNodeTypes)
 
+  const installedNames = useMemo(() => new Set(packages.map(pkg => pkg.name)), [packages])
+  const availablePackages = useMemo(
+    () => catalog.filter(pkg => !installedNames.has(pkg.name)).sort((a, b) => a.name.localeCompare(b.name)),
+    [catalog, installedNames],
+  )
+
   const refresh = async () => {
     try {
-      setPackages((await api.packages()).packages)
+      const [installed, index] = await Promise.all([api.packages(), api.packageIndex()])
+      setPackages(installed.packages)
+      setCatalog(Object.values(index.packages))
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -61,17 +91,17 @@ export default function PackagesPanel() {
     }
   }
 
-  const install = async () => {
-    const url = gitUrl.trim()
-    if (!url || installing) return
-    setInstalling(true)
+  const installUrl = async (url: string, name: string, clearManualUrl = false) => {
+    const cleanUrl = url.trim()
+    if (!cleanUrl || installingName) return
+    setInstallingName(name)
     setInstallLog(null)
     setError(null)
     try {
-      const result = await api.installPackage(url)
+      const result = await api.installPackage(cleanUrl)
       setInstallLog(result.log?.length ? result.log.join('\n') : null)
       if (result.ok) {
-        setGitUrl('')
+        if (clearManualUrl) setGitUrl('')
         await refresh()
         await loadNodeTypes()
       } else {
@@ -80,7 +110,7 @@ export default function PackagesPanel() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
-      setInstalling(false)
+      setInstallingName(null)
     }
   }
 
@@ -123,32 +153,32 @@ export default function PackagesPanel() {
           <input
             value={gitUrl}
             onChange={e => setGitUrl(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') install() }}
+            onKeyDown={e => { if (e.key === 'Enter') installUrl(gitUrl, 'custom', true) }}
             placeholder="git URL, e.g. git@github.com:user/blacknode-pkg.git"
-            disabled={installing}
+            disabled={Boolean(installingName)}
             style={inputStyle}
           />
-          <button onClick={install} disabled={installing || !gitUrl.trim()} style={buttonStyle(installing)}>
-            {installing ? 'Installing…' : 'Install'}
+          <button onClick={() => installUrl(gitUrl, 'custom', true)} disabled={Boolean(installingName) || !gitUrl.trim()} style={buttonStyle(Boolean(installingName))}>
+            {installingName === 'custom' ? 'Installing...' : 'Install'}
           </button>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span style={{ flex: 1, fontSize: 11, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>
-            {packages.length} installed
+            {packages.length} installed · {availablePackages.length} available
           </span>
           <button onClick={reload} disabled={busy} style={buttonStyle(busy)}>
-            {busy ? 'Working…' : 'Reload'}
+            {busy ? 'Working...' : 'Reload'}
           </button>
         </div>
       </div>
 
-      {installing && (
+      {installingName && (
         <div style={{ padding: '8px 12px', color: 'var(--tx3)', fontSize: 11, fontFamily: 'var(--font-ui)' }}>
-          Cloning and installing prerequisites — large Docker images can take a few minutes…
+          Cloning and installing prerequisites...
         </div>
       )}
 
-      {installLog && !installing && (
+      {installLog && !installingName && (
         <pre style={{
           margin: 0,
           padding: '8px 12px',
@@ -171,29 +201,65 @@ export default function PackagesPanel() {
         </div>
       )}
 
-      {!error && packages.length === 0 && (
+      {availablePackages.length > 0 && <div style={sectionStyle}>Available</div>}
+      {availablePackages.map(pkg => {
+        const installing = installingName === pkg.name
+        return (
+          <div key={pkg.name} style={{ borderBottom: '1px solid var(--line)', padding: '9px 12px', display: 'flex', gap: 10, alignItems: 'center' }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--tx3)', flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                <span style={{ color: 'var(--tx1)', fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {pkg.name}
+                </span>
+                <span style={{ color: 'var(--tx3)', fontSize: 10, fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
+                  {pkg.node_types.length} nodes
+                </span>
+              </div>
+              {pkg.description && (
+                <div style={{ color: 'var(--tx3)', fontSize: 11, lineHeight: 1.35, marginTop: 2 }}>
+                  {pkg.description}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => installUrl(pkg.git_url, pkg.name)}
+              disabled={Boolean(installingName) || !pkg.git_url}
+              style={{ ...buttonStyle(Boolean(installingName)), color: 'var(--ok)', borderColor: 'var(--ok)' }}
+            >
+              {installing ? 'Installing...' : 'Install'}
+            </button>
+          </div>
+        )
+      })}
+
+      {packages.length > 0 && <div style={sectionStyle}>Installed</div>}
+      {!error && packages.length === 0 && availablePackages.length === 0 && (
         <div style={{ padding: '14px 12px', color: 'var(--tx3)', fontSize: 12, fontFamily: 'var(--font-ui)', lineHeight: 1.5 }}>
-          No extension packages installed. Paste a git URL above, or clone one
-          into the <code>packages/</code> folder and press Reload.
+          No extension packages installed.
         </div>
       )}
 
       {packages.map(pkg => {
         const open = expanded === pkg.name
         const hasWarnings = (pkg.warnings?.length ?? 0) > 0
-        const prereqsMet = pkg.ok && !hasWarnings
+        const hasMissingNodes = (pkg.missing_node_types?.length ?? 0) > 0
+        const prereqsMet = pkg.ok && !hasWarnings && !hasMissingNodes
         const dotTitle = !pkg.ok
-          ? 'Package failed to load — see the error below'
-          : hasWarnings
-            ? 'Prerequisites missing — press "Install prerequisites"'
-            : 'Loaded; declared prerequisites satisfied'
+          ? 'Package failed to load - see the error below'
+          : hasMissingNodes
+            ? 'Installed package is missing official nodes'
+            : hasWarnings
+              ? 'Package warnings - expand for details'
+              : 'Loaded'
         const setupTitle = hasWarnings
           ? pkg.warnings.join('\n')
           : pkg.import_dependencies.length
             ? `Python prerequisites installed (${pkg.import_dependencies.join(', ')}).`
               + (pkg.docker_images.length ? ` Docker image ${pkg.docker_images.join(', ')} pulls on first use.` : '')
-              + ' Click to re-run setup (e.g. to pre-pull Docker images).'
+              + ' Click to re-run setup.'
             : 'No prerequisites declared. Click to re-run setup.'
+        const git = gitSummary(pkg)
         return (
           <div key={pkg.name} style={{ borderBottom: '1px solid var(--line)' }}>
             <button
@@ -216,7 +282,7 @@ export default function PackagesPanel() {
                 width: 7,
                 height: 7,
                 borderRadius: '50%',
-                background: !pkg.ok ? 'var(--err)' : (hasWarnings ? '#e0a000' : 'var(--ok)'),
+                background: !pkg.ok ? 'var(--err)' : (hasWarnings || hasMissingNodes ? '#e0a000' : 'var(--ok)'),
                 flexShrink: 0,
               }} />
               <span style={{ flex: 1, fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -233,9 +299,19 @@ export default function PackagesPanel() {
                   {pkg.node_types.length} nodes · {pkg.source}
                   {pkg.templates_dir ? ' · templates' : ''}
                 </div>
+                {git && (
+                  <div style={{ marginTop: 2, color: 'var(--tx3)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
+                    git: {git}
+                  </div>
+                )}
                 {pkg.docker_images?.length > 0 && (
                   <div style={{ marginTop: 2, color: 'var(--tx3)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
                     docker: {pkg.docker_images.join(', ')}
+                  </div>
+                )}
+                {hasMissingNodes && (
+                  <div style={{ marginTop: 4, color: '#e0a000', fontSize: 10, fontFamily: 'var(--font-mono)', wordBreak: 'break-word' }}>
+                    missing: {pkg.missing_node_types.join(', ')}
                   </div>
                 )}
                 {pkg.node_types.length > 0 && (
@@ -290,10 +366,10 @@ export default function PackagesPanel() {
                           : buttonStyle(busy)}
                     >
                       {busy
-                        ? 'Working…'
+                        ? 'Working...'
                         : hasWarnings
                           ? 'Install prerequisites'
-                          : 'Prerequisites ✓'}
+                          : 'Prerequisites ok'}
                     </button>
                     <button
                       onClick={() => remove(pkg.name)}

@@ -286,6 +286,53 @@ function Open-Browser {
     Start-Process $EditorUrl
 }
 
+function Invoke-PackageHealthCheck {
+    if ($env:BLACKNODE_SKIP_PACKAGE_CHECK -eq "1") {
+        Write-Step "Package health check skipped (BLACKNODE_SKIP_PACKAGE_CHECK=1)."
+        return
+    }
+
+    $PreviousPythonPath = $env:PYTHONPATH
+    $env:PYTHONPATH = Join-Path $Root "python"
+    try {
+        if ($env:BLACKNODE_PACKAGE_AUTO_UPDATE -ne "0") {
+            Write-Step "Updating extension packages (safe fast-forward only)..."
+            $Output = & $Python -m blacknode.cli packages update --all 2>&1
+            $ExitCode = $LASTEXITCODE
+            if ($Output) { $Output | ForEach-Object { Write-Host "    $_" } }
+            if ($ExitCode -ne 0) {
+                Write-Host "  Warning: package update failed." -ForegroundColor Yellow
+            }
+        }
+
+        Write-Step "Checking package health..."
+        $Args = @("-m", "blacknode.cli", "packages", "status")
+        if ($env:BLACKNODE_PACKAGE_AUTO_UPDATE -eq "0" -and $env:BLACKNODE_PACKAGE_CHECK_REMOTE -eq "1") {
+            $Args += "--fetch"
+        }
+        $Output = & $Python @Args 2>&1
+        $ExitCode = $LASTEXITCODE
+        $Text = ($Output -join "`n")
+        if ($ExitCode -ne 0) {
+            Write-Host "  Warning: package health check failed:" -ForegroundColor Yellow
+            if ($Output) { $Output | ForEach-Object { Write-Host "    $_" } }
+            return
+        }
+        if ($Text -match "\[FAILED\]|\[ok, warnings\]|\[ok, nodes missing\]|behind|dirty|ahead|^  ! ") {
+            Write-Host "  Package health warnings:" -ForegroundColor Yellow
+            if ($Output) { $Output | ForEach-Object { Write-Host "    $_" } }
+            if ($env:BLACKNODE_PACKAGE_AUTO_UPDATE -ne "0") {
+                Write-Host "  Auto-update skipped dirty, ahead, or blocked packages. Resolve the listed package state, then restart."
+            } else {
+                Write-Host "  Use: blacknode packages update --all"
+            }
+        } else {
+            Write-Step "Package health OK."
+        }
+    } finally {
+        $env:PYTHONPATH = $PreviousPythonPath
+    }
+}
 function Stop-Services {
     if ($script:FrontendProcess -and -not $script:FrontendProcess.HasExited) {
         Stop-ProcessTree -TargetProcessId $script:FrontendProcess.Id
@@ -335,6 +382,8 @@ try {
             }
         }
     }
+
+    Invoke-PackageHealthCheck
 
     $NodeModules = Join-Path $Root "editor\node_modules"
     if (-not (Test-Path -LiteralPath $NodeModules)) {

@@ -290,25 +290,42 @@ ensure_blacknode_command() {
 
 check_package_dependencies() {
   local output=""
+  local status_args=(status)
 
   if [[ "${BLACKNODE_SKIP_PACKAGE_CHECK:-0}" == "1" ]]; then
-    echo "  Package dependency check skipped (BLACKNODE_SKIP_PACKAGE_CHECK=1)."
+    echo "  Package health check skipped (BLACKNODE_SKIP_PACKAGE_CHECK=1)."
     return
   fi
 
-  echo "  Checking package dependencies..."
-  if ! output="$(PYTHONPATH="$ROOT_DIR/python" "$PYTHON_BIN" -m blacknode.cli packages list 2>&1)"; then
-    echo "  Warning: package dependency check failed:"
+  if [[ "${BLACKNODE_PACKAGE_AUTO_UPDATE:-1}" == "1" ]]; then
+    echo "  Updating extension packages (safe fast-forward only)..."
+    if ! output="$(PYTHONPATH="$ROOT_DIR/python" "$PYTHON_BIN" -m blacknode.cli packages update --all 2>&1)"; then
+      echo "  Warning: package update failed:"
+      printf '%s\n' "$output" | sed 's/^/    /'
+    elif [[ -n "$output" ]]; then
+      printf '%s\n' "$output" | sed 's/^/    /'
+    fi
+  elif [[ "${BLACKNODE_PACKAGE_CHECK_REMOTE:-0}" == "1" ]]; then
+    status_args+=(--fetch)
+  fi
+
+  echo "  Checking package health..."
+  if ! output="$(PYTHONPATH="$ROOT_DIR/python" "$PYTHON_BIN" -m blacknode.cli packages "${status_args[@]}" 2>&1)"; then
+    echo "  Warning: package health check failed:"
     printf '%s\n' "$output" | sed 's/^/    /'
     return
   fi
 
-  if grep -Eq '\[FAILED\]|\[ok, deps missing\]|^  ! ' <<< "$output"; then
-    echo "  Package dependency warnings:"
+  if grep -Eq '\[FAILED\]|\[ok, warnings\]|\[ok, nodes missing\]|behind|dirty|ahead|^  ! ' <<< "$output"; then
+    echo "  Package health warnings:"
     printf '%s\n' "$output" | sed 's/^/    /'
-    echo "  Install missing package prerequisites with: blacknode packages setup <package-name>"
+    if [[ "${BLACKNODE_PACKAGE_AUTO_UPDATE:-1}" == "1" ]]; then
+      echo "  Auto-update skipped dirty, ahead, or blocked packages. Resolve the listed package state, then restart."
+    else
+      echo "  Use: blacknode packages update --all"
+    fi
   else
-    echo "  Package dependencies OK."
+    echo "  Package health OK."
   fi
 }
 

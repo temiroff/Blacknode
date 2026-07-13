@@ -8,9 +8,11 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     "blacknode-cuda": {
         "name": "blacknode-cuda",
         "git_url": "https://github.com/temiroff/blacknode-cuda.git",
+        "description": "Real GPU compute nodes: CUDA kernel lab, custom NVRTC kernels, GPU image filters, Tensor Core GEMM, and CUTLASS.",
         "node_types": [
             "CUDACustomKernel",
             "CUDAImageFilter",
+            "CUDAImageFilterStream",
             "CUDAKernelLab",
             "CUTLASS",
             "CUTLASSGemm",
@@ -22,6 +24,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     "blacknode-ros2": {
         "name": "blacknode-ros2",
         "git_url": "https://github.com/temiroff/blacknode-ros2.git",
+        "description": "ROS 2 topics, services, visual tests, image streams, process launch/run controls, and robot interface nodes.",
         "node_types": [
             "ROS2Command",
             "ROS2CompressedImageSnapshot",
@@ -55,6 +58,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     "blacknode-robot": {
         "name": "blacknode-robot",
         "git_url": "https://github.com/temiroff/blacknode-robot.git",
+        "description": "Generic robot setup: USB discovery, serial permission diagnostics, driver launch, and standard robot profiles.",
         "node_types": [
             "RobotDiscovery",
             "RobotDriverDescriptor",
@@ -65,12 +69,12 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     "blacknode-vision": {
         "name": "blacknode-vision",
         "git_url": "https://github.com/temiroff/blacknode-vision.git",
+        "description": "Robot vision workflows: USB cameras, ROS 2 image streams, VLM reasoning dashboards, and OpenCV object tracking.",
         "node_types": [
             "CV2ColorObjectStream",
             "CV2ColorTargetHint",
             "CV2ColorObjectTracker",
             "CV2HSVMask",
-            "CV2TrackerPythonExport",
             "VisionDetectionPrompt",
             "VisionFramePrompt",
             "VisionReasoningDashboard",
@@ -108,6 +112,16 @@ def package_index_payload() -> dict[str, Any]:
         },
     }
 
+
+def indexed_package(name: str) -> dict[str, Any] | None:
+    """Return the official package-index entry for ``name``, if known."""
+    package = _CORE_PACKAGES.get(name)
+    if package is None:
+        return None
+    return {
+        **package,
+        "node_types": list(package["node_types"]),
+    }
 
 def workflow_node_types(workflow: Mapping[str, Any]) -> set[str]:
     """Collect node types from the root graph and all nested subgraphs."""
@@ -251,6 +265,7 @@ def resolve_workflow_dependencies(
 
 
 __all__ = [
+    "indexed_package",
     "package_index_payload",
     "resolve_workflow_dependencies",
     "template_package_requirements",

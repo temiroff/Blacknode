@@ -59,6 +59,34 @@ export interface BnNodeDef {
   package?: string  // extension package name, '' for built-ins
 }
 
+export interface BnPackageGitStatus {
+  is_git_repo: boolean
+  ok: boolean
+  error: string
+  fetch_error?: string
+  remote?: string
+  branch?: string
+  head?: string
+  upstream?: string
+  dirty?: boolean
+  ahead?: number | null
+  behind?: number | null
+  update_available?: boolean
+  can_fast_forward?: boolean
+}
+
+export interface BnPackageIndexPackage {
+  name: string
+  git_url: string
+  node_types: string[]
+  description?: string
+}
+
+export interface BnPackageIndex {
+  schema_version: number
+  packages: Record<string, BnPackageIndexPackage>
+  nodes: Record<string, { package: string; git_url: string }>
+}
 export interface BnPackage {
   name: string
   version: string
@@ -71,6 +99,9 @@ export interface BnPackage {
   import_dependencies: string[]
   docker_images: string[]
   node_types: string[]
+  expected_node_types: string[]
+  missing_node_types: string[]
+  git_status?: BnPackageGitStatus
   templates_dir: string
   ok: boolean
   error: string
