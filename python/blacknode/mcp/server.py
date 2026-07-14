@@ -45,6 +45,13 @@ WORKFLOW_BUILDER_INSTRUCTIONS = """When building Blacknode workflows:
 7. After creating a learned node, call list_learned_nodes, use it in the visual
    workflow, validate the graph, open it in the editor, and cook the final
    Output node.
+8. Treat cook_editor_node as a one-shot graph cook. Camera streams, robot
+   drivers, and persistent controller nodes may continue after that cook
+   completes; do not repeatedly cook them to process new frames.
+9. Use get_editor_runtime_status to inspect managed services. When the user
+   asks to stop a demo, or a physical-robot safety condition requires it, call
+   stop_editor_runtime_services. This stops streams and controllers and gives
+   robot drivers their normal shutdown path, which may disable torque.
 
 Learned-node code is registered as a node type, but it never runs in the
 Blacknode host process. It executes through the Docker sandbox wrapper.
@@ -122,6 +129,16 @@ def editor_graph_resource() -> str:
 def runs_resource() -> str:
     """Recent editor run summaries as JSON."""
     return _safe_editor_resource("blacknode://runs", tools.list_recent_runs)
+
+
+@mcp.resource(
+    "blacknode://runtime/status",
+    mime_type="application/json",
+    description="Managed stream, persistent controller, and robot-driver status.",
+)
+def runtime_status_resource() -> str:
+    """Current managed editor runtime status as JSON."""
+    return _safe_editor_resource("blacknode://runtime/status", tools.get_editor_runtime_status)
 
 
 @mcp.prompt(
@@ -339,8 +356,20 @@ def cook_editor_node(
     port: str = "value",
     editor_url: str | None = None,
 ) -> dict[str, Any]:
-    """Ask a running Blacknode editor UI to cook a node and update the canvas."""
+    """Cook a node once; managed stream nodes may continue independently."""
     return tools.cook_editor_node(node_id=node_id, port=port, editor_url=editor_url)
+
+
+@mcp.tool()
+def get_editor_runtime_status(editor_url: str | None = None) -> dict[str, Any]:
+    """Inspect managed streams, persistent controllers, and robot drivers."""
+    return tools.get_editor_runtime_status(editor_url=editor_url)
+
+
+@mcp.tool()
+def stop_editor_runtime_services(editor_url: str | None = None) -> dict[str, Any]:
+    """Safely stop all editor-managed services, including physical robot drivers."""
+    return tools.stop_editor_runtime_services(editor_url=editor_url)
 
 
 @mcp.tool()

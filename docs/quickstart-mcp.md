@@ -123,6 +123,13 @@ After creating a learned node:
 - validate the workflow
 - open it in the editor
 - cook the final Output node
+
+Treat `cook_editor_node` as a one-shot cook. Managed camera streams,
+persistent controllers, and robot drivers may continue after the cook returns;
+do not repeatedly cook them for each frame. Use `get_editor_runtime_status` to
+inspect them. Use `stop_editor_runtime_services` when the user asks to stop the
+demo or physical-robot safety requires shutdown; robot shutdown may disable
+torque, so support an arm when gravity could move it.
 ```
 
 The Blacknode MCP server also exposes this same rule as:
@@ -184,6 +191,32 @@ Expected result:
 - The graph is organized on the canvas.
 - The Output node displays the cooked value.
 - The Runs panel records the execution.
+
+## Managed Runtime Tools
+
+Persistent workflow nodes outlive the one cook that starts them:
+
+| Tool | Use |
+|---|---|
+| `get_editor_runtime_status` | Inspect active camera/CUDA streams, continuous controllers, managed ROS processes, and robot drivers. |
+| `stop_editor_runtime_services` | Stop every editor-managed service through its normal shutdown path. Physical robot drivers may disable torque. |
+
+Runtime status is also available as the read-only MCP resource
+`blacknode://runtime/status`.
+
+After starting a persistent template, use:
+
+```text
+Using the blacknode MCP tools, inspect the editor runtime status and summarize
+active streams, persistent controllers, and robot drivers. Do not stop them.
+```
+
+To end a demo explicitly, use:
+
+```text
+Using the blacknode MCP tools, safely stop all editor-managed runtime services,
+then confirm that no persistent controller or robot driver remains active.
+```
 
 ## NVIDIA NIM Demo Prompt
 

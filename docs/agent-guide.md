@@ -47,6 +47,31 @@ Do not commit local planning notes, generated scratch exports, API keys, run log
 - Template: a tracked workflow JSON file in `templates/` with `metadata.template: true`.
 - Learned node: a reusable MCP-created node type stored on disk and executed in
   Docker through the learned-node wrapper.
+- Managed runtime service: a camera/CUDA stream, persistent controller, ROS
+  process, or robot driver that continues after its starting cook completes.
+
+## One-Shot Cooks And Managed Services
+
+`run_workflow` and `cook_editor_node` each evaluate a graph target once. A
+managed node can start a background service during that cook, but frames,
+detections, joint feedback, and commands must flow through the service rather
+than repeatedly re-cooking the graph.
+
+Examples include `CV2CameraStream`, `CV2ColorObjectStream`,
+`CUDAImageFilterStream`, robot-driver nodes, and
+`ROS2ContinuousFollowDetectionJoint`.
+
+For MCP-controlled demos:
+
+1. Cook the persistent template or target once.
+2. Call `get_editor_runtime_status` and verify the expected services are active.
+3. Keep robot motion disarmed until the user explicitly authorizes it.
+4. Call `stop_editor_runtime_services` on an explicit stop request, at the end
+   of the physical demo, or when continued motion is unsafe.
+5. Re-check runtime status after stopping.
+
+The stop tool uses each package's normal shutdown path. A robot driver may
+disable actuator torque, so support the arm when gravity could move it.
 
 ## Learned Nodes vs PythonFn
 
@@ -300,6 +325,7 @@ client. MCP exposes read-only resources for quick context:
 - `blacknode://templates`
 - `blacknode://workflows`
 - `blacknode://editor/graph`
+- `blacknode://runtime/status`
 
 The NVIDIA NIM prompts exercise the full live-editor path:
 
@@ -319,6 +345,8 @@ before opening it.
 
 The live editor tools require `editor-server/server.py` to be running at
 `http://127.0.0.1:7777` or `BLACKNODE_EDITOR_URL` to point at the backend.
+Use `get_editor_runtime_status` for managed services and
+`stop_editor_runtime_services` for a safe global runtime shutdown.
 
 ## Editing Checklist For Agents
 

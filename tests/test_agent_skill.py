@@ -20,6 +20,15 @@ class AgentSkillTests(unittest.TestCase):
                 self.assertIn("name: blacknode-workflow", text)
                 self.assertIn("blacknode mcp --transport streamable-http", text)
                 self.assertIn("validate_workflow", text)
+                self.assertIn("get_editor_runtime_status", text)
+                self.assertIn("stop_editor_runtime_services", text)
+                self.assertIn("one-shot editor cook", text)
+
+        self.assertEqual(
+            paths[0].read_text(encoding="utf-8"),
+            paths[1].read_text(encoding="utf-8"),
+            "canonical and repository-local Blacknode skills must stay synchronized",
+        )
 
 
 if __name__ == "__main__":

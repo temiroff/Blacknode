@@ -344,6 +344,47 @@ class CreateEditorWorkflowTabTests(unittest.TestCase):
             json.loads(requests[0][0].data.decode("utf-8")),
             {"node_id": "out", "port": "value"},
         )
+        self.assertIn("cook the node once", result["note"])
+
+    def test_gets_runtime_status_and_safely_stops_services(self):
+        requests = []
+
+        class FakeResponse:
+            def __init__(self, body):
+                self.body = body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps(self.body).encode("utf-8")
+
+        def fake_urlopen(req, timeout):
+            requests.append((req, timeout))
+            if req.full_url.endswith("/runtime/status"):
+                return FakeResponse({"ok": True, "active": True, "modules": {"robot": {"active": True}}})
+            if req.full_url.endswith("/runtime/stop"):
+                return FakeResponse({"ok": True, "stopped": {"managed_runs": 1}})
+            raise AssertionError(f"Unexpected URL: {req.full_url}")
+
+        with patch.object(t.urllib_request, "urlopen", side_effect=fake_urlopen):
+            status = t.get_editor_runtime_status(editor_url="http://editor")
+            stopped = t.stop_editor_runtime_services(editor_url="http://editor")
+
+        self.assertTrue(status["ok"])
+        self.assertTrue(status["runtime"]["modules"]["robot"]["active"])
+        self.assertEqual(stopped["runtime"]["stopped"]["managed_runs"], 1)
+        self.assertIn("disable actuator torque", stopped["note"])
+        self.assertEqual(
+            [(req.get_method(), req.full_url) for req, _ in requests],
+            [
+                ("GET", "http://editor/runtime/status"),
+                ("POST", "http://editor/runtime/stop"),
+            ],
+        )
 
     def test_runs_template_in_editor_and_cooks_output(self):
         requests = []

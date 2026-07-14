@@ -74,13 +74,31 @@ blacknode export-framework templates\text-pipeline.json --target nvidia-agent-st
 3. Prefer `run_template_in_editor` for demo paths that should appear in the UI.
 4. For custom graphs, call `create_workflow`, `add_node`, and `connect_nodes`.
 5. Call `validate_workflow` after each meaningful mutation.
-6. Call `run_workflow` for headless execution or `cook_editor_node` for live UI execution.
-7. Call `list_recent_runs` and `get_run` to inspect replay events, model calls, tool calls, and errors.
-8. Call `export_python` when the user needs a handoff script.
-9. Use `blacknode import-python`, `/import/python`, the editor `Import` button, or canvas file drop when a workflow JSON, Python export, or LangGraph export should be restored as a visual graph.
+6. Call `run_workflow` for a headless one-shot run or `cook_editor_node` for a one-shot editor cook. Managed stream nodes may remain active after the cook completes.
+7. Call `get_editor_runtime_status` to inspect managed camera streams, persistent controllers, and robot drivers.
+8. Call `stop_editor_runtime_services` when the user asks to stop a demo or physical-robot safety requires shutdown.
+9. Call `list_recent_runs` and `get_run` to inspect replay events, model calls, tool calls, and errors.
+10. Call `export_python` when the user needs a handoff script.
+11. Use `blacknode import-python`, `/import/python`, the editor `Import` button, or canvas file drop when a workflow JSON, Python export, or LangGraph export should be restored as a visual graph.
 
 Every mutation should be followed by validation. If validation reports a port
 or type error, inspect `get_node_schema` and fix the graph instead of guessing.
+
+## Managed Runtime Safety
+
+- A cook evaluates the graph once. Do not repeatedly cook a stream or controller
+  node to process new frames, detections, or robot feedback.
+- Nodes such as `CV2CameraStream`, `CV2ColorObjectStream`,
+  `CUDAImageFilterStream`, robot drivers, and
+  `ROS2ContinuousFollowDetectionJoint` own persistent background services.
+- Use `get_editor_runtime_status` after starting a persistent template to verify
+  its streams, controllers, and robot driver are active.
+- Use `stop_editor_runtime_services` for an explicit stop request, at the end of
+  a physical demo, or when stale/error status makes continued motion unsafe.
+  Robot-driver shutdown may disable actuator torque, so account for gravity and
+  support the arm when necessary.
+- Keep motion nodes disarmed by default. Arming authorizes motion; it does not
+  justify bypassing joint limits, stale-data suppression, or runtime checks.
 
 ## Agent Build Prompt
 
