@@ -27,11 +27,8 @@ from typing import Any, Iterable
 
 DEFAULT_MAX_RUNS = 200
 _RUN_FILE_GLOB = "*.json"
-# A long-lived live-cook run emits a start/success/done triple every frame
-# forever; without a cap, buf.events would grow without bound in memory and
-# blow up the JSON file written on finalize. Keep only the most recent
-# events -- run history is for inspecting what just happened, not scrubbing
-# hours of a live stream frame by frame.
+# Bound unusually event-heavy runs so a faulty or very large workflow cannot
+# grow the in-memory buffer and finalized JSON file without limit.
 MAX_BUFFERED_EVENTS = 2000
 
 

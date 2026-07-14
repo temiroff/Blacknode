@@ -177,8 +177,6 @@ class UpdatePortsReq(BaseModel):
 class CookReq(BaseModel):
     node_id: str
     port: str = "output"
-    live: bool = False
-    rate_hz: float = 10.0
 
 class CookTargetReq(BaseModel):
     node_id: str
@@ -186,8 +184,6 @@ class CookTargetReq(BaseModel):
 
 class CookGraphReq(BaseModel):
     targets: list[CookTargetReq]
-    live: bool = False
-    rate_hz: float = 10.0
 
 class SetGraphReq(BaseModel):
     nodes: list[dict[str, Any]] = []
@@ -311,6 +307,12 @@ _RUNTIME_MODULES = {
     "robot": "blacknode.pkg.blacknode_robot.robot",
 }
 
+# Package reloads replace node functions before sys.modules is always updated.
+# Resolve stateful robot runtime helpers through the registered launcher—the
+# exact module globals that own the live subprocess table—so status and Stop
+# All cannot silently look at an empty duplicate module.
+_RUNTIME_REGISTRY_ANCHORS = {"robot": "RobotDriverLauncher"}
+
 
 def _runtime_module(module_name: str):
     module = sys.modules.get(module_name)
@@ -322,9 +324,20 @@ def _runtime_module(module_name: str):
         return None
 
 
-def _runtime_module_status(label: str, module_name: str) -> dict[str, Any]:
+def _runtime_callable(label: str, module_name: str, name: str):
+    anchor_name = _RUNTIME_REGISTRY_ANCHORS.get(label)
+    anchor = _NODE_REGISTRY.get(anchor_name) if anchor_name else None
+    candidate = getattr(anchor, "__globals__", {}).get(name) if anchor is not None else None
+    if callable(candidate):
+        return candidate
     runtime = _runtime_module(module_name)
-    if runtime is None or not hasattr(runtime, "runtime_status"):
+    candidate = getattr(runtime, name, None) if runtime is not None else None
+    return candidate if callable(candidate) else None
+
+
+def _runtime_module_status(label: str, module_name: str) -> dict[str, Any]:
+    status_fn = _runtime_callable(label, module_name, "runtime_status")
+    if status_fn is None:
         return {
             "ok": True,
             "active": False,
@@ -334,7 +347,7 @@ def _runtime_module_status(label: str, module_name: str) -> dict[str, Any]:
             "report": f"{label} runtime is not loaded",
         }
     try:
-        return dict(runtime.runtime_status())
+        return dict(status_fn())
     except Exception as exc:
         return {"ok": False, "active": False, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -376,15 +389,15 @@ def _runtime_status() -> dict[str, Any]:
 
 
 def _stop_runtime_module(label: str, module_name: str) -> dict[str, Any]:
-    runtime = _runtime_module(module_name)
-    if runtime is None or not hasattr(runtime, "stop_runtime_services"):
+    stop_fn = _runtime_callable(label, module_name, "stop_runtime_services")
+    if stop_fn is None:
         return {
             "ok": True,
             "stopped": {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0, "reasoning_streams": 0},
             "report": f"{label} runtime is not loaded",
         }
     try:
-        return dict(runtime.stop_runtime_services())
+        return dict(stop_fn())
     except Exception as exc:
         return {
             "ok": False,
@@ -1989,74 +2002,6 @@ def _captured_cook_trace(
             _run_store.finalize_success(run_id, value=final_value)
 
 
-def _captured_cook_trace_live(
-    node_id: str,
-    port: str,
-    run_id: str,
-    stop_event: threading.Event,
-    targets: list[tuple[str, str]] | None,
-    rate_hz: float,
-):
-    """Like _captured_cook_trace, but repeats the cook indefinitely at
-    ``rate_hz`` until ``stop_event`` fires, finalizing the run store record
-    only once -- when the loop itself ends, not after every frame.
-
-    Each frame needs graph._cache/_dirty reset first (via _begin_fresh_cook),
-    otherwise _cook_trace's own cache-hit check would just replay the first
-    frame's cached values forever instead of re-invoking node functions --
-    silently freezing the "stream" on frame one.
-    """
-    final_value: Any = None
-    final_error: str | None = None
-    period = 1.0 / max(0.1, rate_hz)
-    try:
-        while not stop_event.is_set():
-            frame_started = time.monotonic()
-            _begin_fresh_cook(clear_status=False)
-            try:
-                for line in _cook_trace(node_id, port, stop_event, targets=targets):
-                    try:
-                        event = json.loads(line)
-                    except (ValueError, TypeError):
-                        event = None
-                    if isinstance(event, dict):
-                        stored_event = _event_for_storage(event)
-                        _run_store.record_event(run_id, stored_event)
-                        if stored_event.get("type") == "done":
-                            if stored_event.get("error"):
-                                final_error = stored_event.get("error")
-                            elif "value" in event:
-                                final_value = stored_event.get("value")
-                        elif stored_event.get("type") == "error" and final_error is None:
-                            final_error = stored_event.get("error")
-                    yield line
-            except _CookStopped:
-                break
-            except Exception as exc:  # noqa: BLE001
-                # A live loop reads from real hardware/network sources each
-                # frame (camera HTTP, ROS2 topics, serial bus) -- a transient
-                # failure there (one dropped frame, one timeout) is normal and
-                # must not permanently end continuous tracking. Report this
-                # frame as failed and keep looping instead of letting the
-                # exception escape and silently kill the whole live run.
-                frame_error = f"{type(exc).__name__}: {exc}"
-                _run_store.record_event(run_id, {"type": "done", "node_id": node_id, "port": port, "error": frame_error})
-                yield _json_line({"type": "done", "port": port, "error": frame_error})
-            # Sleep in small increments so a Stop click lands within ~100ms
-            # regardless of how low rate_hz is, instead of waiting out a
-            # long single sleep.
-            remaining = period - (time.monotonic() - frame_started)
-            while remaining > 0 and not stop_event.is_set():
-                nap = min(0.1, remaining)
-                time.sleep(nap)
-                remaining -= nap
-    finally:
-        if final_error is not None:
-            _run_store.finalize_error(run_id, error=final_error)
-        else:
-            _run_store.finalize_success(run_id, value=final_value)
-
-
 def _stream_in_worker(lines_factory, stop_event: threading.Event, port: str):
     import traceback
 
@@ -2099,12 +2044,7 @@ def cook_stream(req: CookReq):
     stop_event = _prepare_cook()
     _begin_fresh_cook()
     headers = {"X-Blacknode-Run-Id": run_id}
-    if req.live:
-        lines_factory = lambda: _captured_cook_trace_live(
-            req.node_id, req.port, run_id, stop_event, None, req.rate_hz,
-        )
-    else:
-        lines_factory = lambda: _captured_cook_trace(req.node_id, req.port, run_id, stop_event)
+    lines_factory = lambda: _captured_cook_trace(req.node_id, req.port, run_id, stop_event)
     return StreamingResponse(
         _stream_in_worker(lines_factory, stop_event, req.port),
         media_type="application/x-ndjson",
@@ -2144,14 +2084,9 @@ def cook_graph_stream(req: CookGraphReq):
     _begin_fresh_cook()
     headers = {"X-Blacknode-Run-Id": run_id}
     first_node, first_port = targets[0]
-    if req.live:
-        lines_factory = lambda: _captured_cook_trace_live(
-            first_node, first_port, run_id, stop_event, targets, req.rate_hz,
-        )
-    else:
-        lines_factory = lambda: _captured_cook_trace(
-            first_node, first_port, run_id, stop_event, targets=targets,
-        )
+    lines_factory = lambda: _captured_cook_trace(
+        first_node, first_port, run_id, stop_event, targets=targets,
+    )
     return StreamingResponse(
         _stream_in_worker(lines_factory, stop_event, "leaves"),
         media_type="application/x-ndjson",

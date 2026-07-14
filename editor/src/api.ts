@@ -356,10 +356,10 @@ export const api = {
   ollamaModels: (endpointUrl: string) =>
     req<{ ok: boolean; models: string[]; error?: string }>('GET', `/ollama/models?endpoint_url=${encodeURIComponent(endpointUrl)}`),
   stopRuntime: () => req<RuntimeStopResult>('POST', '/runtime/stop'),
-  cookStream: (node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal, live?: { rateHz: number }) =>
-    streamCook('/cook-stream', { node_id, port, live: Boolean(live), rate_hz: live?.rateHz ?? 10 }, `${node_id}.${port}`, onEvent, signal),
-  cookGraphStream: (targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal, live?: { rateHz: number }) =>
-    streamCook('/cook-graph-stream', { targets: targets.map(target => ({ node_id: target.id, port: target.port })), live: Boolean(live), rate_hz: live?.rateHz ?? 10 }, `${targets.length} terminal nodes`, onEvent, signal),
+  cookStream: (node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
+    streamCook('/cook-stream', { node_id, port }, `${node_id}.${port}`, onEvent, signal),
+  cookGraphStream: (targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
+    streamCook('/cook-graph-stream', { targets: targets.map(target => ({ node_id: target.id, port: target.port })) }, `${targets.length} terminal nodes`, onEvent, signal),
   cookSubgraphStream: (subnet_id: string, node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
     streamCook(`/nodes/${subnet_id}/cook-stream`, { node_id, port }, `${node_id}.${port}`, onEvent, signal),
   cookSubgraphGraphStream: (subnet_id: string, targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -18,6 +19,20 @@ import server  # noqa: E402
 
 
 class EditorRuntimeTests(unittest.TestCase):
+    def test_robot_runtime_helpers_follow_registered_launcher_state(self):
+        status_fn = lambda: {"ok": True, "active": True, "managed_runs": [{"run_id": "robot"}]}
+        stop_fn = lambda: {"ok": True, "stopped": {"managed_runs": 1}}
+        anchor = SimpleNamespace(__globals__={
+            "runtime_status": status_fn,
+            "stop_runtime_services": stop_fn,
+        })
+        with (
+            patch.dict(server._NODE_REGISTRY, {"RobotDriverLauncher": anchor}),
+            patch.object(server, "_RUNTIME_REGISTRY_ANCHORS", {"robot": "RobotDriverLauncher"}),
+        ):
+            self.assertIs(server._runtime_callable("robot", "unused", "runtime_status"), status_fn)
+            self.assertIs(server._runtime_callable("robot", "unused", "stop_runtime_services"), stop_fn)
+
     def test_export_workflow_infers_entrypoint_for_multi_output_image_graph(self):
         workflow = {
             "kind": "blacknode.workflow",
