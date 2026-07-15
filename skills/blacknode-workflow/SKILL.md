@@ -88,17 +88,45 @@ or type error, inspect `get_node_schema` and fix the graph instead of guessing.
 
 - A cook evaluates the graph once. Do not repeatedly cook a stream or controller
   node to process new frames, detections, or robot feedback.
+- `Run once` evaluates every required node once. `Go live` starts or updates
+  nodes declared `live=True` and evaluates non-live dependencies once; it does
+  not make every node a polling loop.
 - Nodes such as `CV2CameraStream`, `CV2ColorObjectStream`,
   `CUDAImageFilterStream`, robot drivers, and
-  `ROS2ContinuousFollowDetectionJoint` own persistent background services.
+  `ROS2ManualMove`, `ROS2MotionDashboard`, and
+  `ROS2ContinuousFollowDetectionJoint` own or consume persistent background
+  services. Downstream dashboards and Output nodes should receive pushed live
+  values without repeatedly cooking the graph.
 - Use `get_editor_runtime_status` after starting a persistent template to verify
   its streams, controllers, and robot driver are active.
+- A worker heartbeat is not proof that hardware data is fresh. For robot and
+  camera streams, inspect the source message age or runtime error and replace a
+  stale subscription instead of continuing to display cached values as live.
 - Use `stop_editor_runtime_services` for an explicit stop request, at the end of
   a physical demo, or when stale/error status makes continued motion unsafe.
   Robot-driver shutdown may disable actuator torque, so account for gravity and
   support the arm when necessary.
 - Keep motion nodes disarmed by default. Arming authorizes motion; it does not
   justify bypassing joint limits, stale-data suppression, or runtime checks.
+
+## Robot Manual-Move Semantics
+
+- Prefer the generic nodes `ROS2Status`, `ROS2RobotDiscovery`, `ROS2JointState`,
+  `ROS2SetJoint`, and `ROS2ManualMove`. Native/rosbridge-specific names are
+  compatibility implementations and should not appear in new user templates.
+- Treat torque control and pose streaming as independent state:
+  - `Release + live pose` disables torque and keeps joint feedback live. Support
+    the arm because gravity may move it.
+  - `Hold position` reads the current pose, enables torque at that pose, and
+    keeps joint feedback live.
+  - `Monitor only` preserves the current torque state and watches joint feedback.
+  - `Go live` starts supported streaming but never changes torque by itself.
+- Do not tear down the joint-state subscription when changing between Hold,
+  Monitor, and Release. Reuse a healthy persistent session; discard and rebuild
+  it only when actual JointState message age proves it stale.
+- Rosbridge control delivery may repeat an idempotent command for reliability.
+  Robot drivers must ignore an already-applied successful torque action while
+  still retrying actions whose prior application reported an error.
 
 ## Agent Build Prompt
 
