@@ -1,23 +1,6 @@
 import { useState } from 'react'
 import type { NodeCookState } from '../types'
-
-async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-
-  const textarea = document.createElement('textarea')
-  textarea.value = text
-  textarea.style.position = 'fixed'
-  textarea.style.left = '-9999px'
-  textarea.style.top = '-9999px'
-  document.body.appendChild(textarea)
-  textarea.focus()
-  textarea.select()
-  document.execCommand('copy')
-  document.body.removeChild(textarea)
-}
+import { copyTextToClipboard } from '../clipboard'
 
 const isImageSrc = (v: unknown): v is string =>
   typeof v === 'string' && (v.startsWith('data:image/') || /^https?:\/\//i.test(v))
@@ -60,7 +43,7 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
     e.stopPropagation()
     if (!copyValue.trim()) return
     try {
-      await copyText(copyValue)
+      await copyTextToClipboard(copyValue)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1100)
     } catch (err) {

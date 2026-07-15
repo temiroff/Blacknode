@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { copyTextToClipboard } from '../clipboard'
 import { api } from '../api'
 
 interface McpStatus {
@@ -96,7 +97,7 @@ export default function McpPanel() {
 
   const copy = async (key: string, text: string) => {
     try {
-      await navigator.clipboard.writeText(text)
+      await copyTextToClipboard(text)
       setCopied(key)
       window.setTimeout(() => setCopied(prev => prev === key ? null : prev), 1500)
     } catch {
