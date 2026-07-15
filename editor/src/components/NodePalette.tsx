@@ -136,10 +136,10 @@ export default function NodePalette() {
 
   const groups = Object.entries(CATEGORIES).map(([group, { color, nodes }]) => ({
     group, color,
-    types: nodes.filter(t => isPythonToolPreset(t) || nodeTypes.includes(t)),
+    types: nodes.filter(t => isPythonToolPreset(t) || (nodeTypes.includes(t) && !nodeDefs[t]?.hidden)),
   })).filter(g => g.types.length > 0)
 
-  const ungrouped = nodeTypes.filter(t => !ALL_CATEGORISED.includes(t))
+  const ungrouped = nodeTypes.filter(t => !ALL_CATEGORISED.includes(t) && !nodeDefs[t]?.hidden)
   for (const type of ungrouped) {
     const category = nodeDefs[type]?.category || 'Custom'
     const known = CATEGORIES[category]

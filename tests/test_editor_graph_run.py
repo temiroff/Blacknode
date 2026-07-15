@@ -130,6 +130,35 @@ class EditorGraphRunTests(unittest.TestCase):
         self.assertEqual(self.calls, {"source": 1, "left": 1, "right": 1})
         self.assertTrue(response.headers.get("X-Blacknode-Run-Id"))
 
+    def test_graph_stream_passes_live_execution_mode_to_nodes(self):
+        seen = []
+
+        @bn.node(inputs=[], outputs=["mode:Text"], name="GraphRunModeProbe", live=True)
+        def mode_probe(ctx: dict) -> dict:
+            seen.append(ctx.get("__run_mode__"))
+            return {"mode": str(ctx.get("__run_mode__"))}
+
+        self.addCleanup(_NODE_REGISTRY.pop, "GraphRunModeProbe", None)
+        session = server.Session()
+        probe = session.graph.node("GraphRunModeProbe")
+        session.node_meta = {probe._id: {"type": "GraphRunModeProbe"}}
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(server, "_session", session),
+            patch.object(server, "_run_store", server.RunStore(tmp)),
+        ):
+            response = TestClient(server.app).post(
+                "/cook-graph-stream",
+                json={
+                    "targets": [{"node_id": probe._id, "port": "mode"}],
+                    "run_mode": "live",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(seen, ["live"])
+
 
 if __name__ == "__main__":
     unittest.main()

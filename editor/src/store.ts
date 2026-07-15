@@ -107,6 +107,7 @@ interface Store {
   loadApiKeyStatus: () => Promise<void>
   setApiKey: (provider: string, key: string) => Promise<void>
   loadDriverStatus: () => Promise<void>
+  loadRuntimeNodeOutputs: () => Promise<void>
   loadDrivers: () => Promise<void>
   installDriver: (name: string) => Promise<boolean>
   startDriver: (name: string) => Promise<{ ok: boolean; error?: string }>
@@ -179,11 +180,11 @@ interface Store {
     copyIdMap: Record<string, string> | null,
   ) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
-  cookNode: (id: string, port?: string, graphTargets?: GraphRunTarget[]) => Promise<void>
+  cookNode: (id: string, port?: string, graphTargets?: GraphRunTarget[], runMode?: 'once' | 'live') => Promise<void>
   stopCook: () => void
   stopRuntimeServices: () => Promise<RuntimeStopResult>
   dismissCookStatus: () => void
-  applyRunReplay: (record: RunRecord, cursor: number, playing: boolean) => void
+  applyRunReplay: (record: RunRecord, cursor: number, playing: boolean, preserveLiveOutputs?: boolean) => void
   clearRunReplay: () => void
   selectNode: (id: string | null) => void
   undoGraph: () => Promise<void>
@@ -198,6 +199,9 @@ function reactNodeType(typeName: string): string {
 }
 
 function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
+  const hasDashboardImage = meta.outputs?.some(port =>
+    port === 'dashboard' && meta.output_types?.[port] === 'Image'
+  )
   return {
     id: meta.id,
     type: reactNodeType(meta.type),
@@ -208,6 +212,7 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'Dict'   ? { style: { width: 260, height: 150 } } : {}),
     ...(meta.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
     ...(meta.type === 'OutputImage' ? { style: { width: 760, height: 620 } } : {}),
+    ...(hasDashboardImage ? { style: { width: 860, height: 720 } } : {}),
     ...(meta.type === 'ROS2VisualDashboard' ? { style: { width: 840, height: 760 } } : {}),
     ...(meta.type === 'ROS2CompressedImageSnapshot' ? { style: { width: 700, height: 600 } } : {}),
     ...(meta.type === 'ROS2ImageSnapshot' ? { style: { width: 700, height: 600 } } : {}),
@@ -231,6 +236,41 @@ function parseGraph(bnNodes: BnNodeMeta[], bnEdges: any[]): { nodes: Node<NodeDa
     }
   })
   return { nodes, edges }
+}
+
+function propagateLiveTerminalValues(nodes: Node<NodeData>[], edges: Edge[]): Node<NodeData>[] {
+  const byId = new Map(nodes.map(node => [node.id, node]))
+  return nodes.map(node => {
+    if (node.data.type !== 'Output' && node.data.type !== 'OutputImage') return node
+    const incoming = edges.find(edge => edge.target === node.id && edge.source && edge.sourceHandle)
+    if (!incoming) return node
+    const source = byId.get(incoming.source)
+    if (!source) return node
+    const sourceResults = source.data.portResults ?? {}
+    const sourcePort = String(incoming.sourceHandle)
+    if (!Object.prototype.hasOwnProperty.call(sourceResults, sourcePort)) return node
+    const sourceLive = sourceResults.live === true
+      || sourceResults.streaming === true
+      || sourceResults.running === true
+    if (!sourceLive) return node
+    const targetPort = String(incoming.targetHandle || 'value')
+    const value = sourceResults[sourcePort]
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        cooking: false,
+        cookError: undefined,
+        cookResult: value,
+        cookPort: targetPort,
+        portResults: {
+          ...(node.data.portResults ?? {}),
+          [targetPort]: value,
+          live: true,
+        },
+      },
+    }
+  })
 }
 
 function parseSubgraph(subgraph: { node_meta: Record<string, BnNodeMeta>; edges: any[] }): { nodes: any[]; edges: any[] } {
@@ -329,6 +369,7 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
   const base = { ...data, cooking: false, cookError: undefined }
   if (
     data.type === 'ROS2ImageStream' ||
+    data.type === 'CV2CameraStream' ||
     data.type === 'CV2ColorObjectStream' ||
     data.type === 'VisionReasoningStream' ||
     data.type === 'CUDAImageFilterStream'
@@ -346,6 +387,45 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
         mask_stream_url: '',
         mask_url: '',
         report: 'stopped by workflow control',
+      },
+    }
+  }
+  if (data.type === 'ROS2ManualMove' || data.type === 'ROS2TeachMode') {
+    return {
+      ...base,
+      portResults: {
+        ...(data.portResults ?? {}),
+        live: false,
+        updated_at: 'live monitoring stopped',
+        report: 'live pose monitoring stopped; displayed values are the last snapshot',
+      },
+    }
+  }
+  if (data.type === 'ROS2MotionDashboard') {
+    return {
+      ...base,
+      portResults: {
+        ...(data.portResults ?? {}),
+        live: false,
+      },
+    }
+  }
+  if (data.type === 'Output' || data.type === 'OutputImage') {
+    return {
+      ...base,
+      portResults: {
+        ...(data.portResults ?? {}),
+        live: false,
+      },
+    }
+  }
+  if (data.type === 'ROS2ContinuousFollowDetectionJoint') {
+    return {
+      ...base,
+      portResults: {
+        ...(data.portResults ?? {}),
+        running: false,
+        report: 'continuous controller stopped by workflow control',
       },
     }
   }
@@ -1157,6 +1237,38 @@ export const useStore = create<Store>((set, get) => ({
     try {
       set({ driverStatus: await api.getDriverStatus() })
     } catch {}
+  },
+
+  loadRuntimeNodeOutputs: async () => {
+    try {
+      const status = await api.runtimeStatus()
+      const moduleStatus = status.modules?.ros2_live
+      const items = Array.isArray(moduleStatus?.node_outputs) ? moduleStatus.node_outputs : []
+      if (items.length === 0) return
+      set(s => ({
+        nodes: propagateLiveTerminalValues(s.nodes.map(node => {
+          const runId = String(node.data.params?.run_id ?? 'robot_teach')
+          const item = items.find(raw => {
+            if (!raw || typeof raw !== 'object') return false
+            const record = raw as Record<string, unknown>
+            if (String(record.node_id ?? '') === node.id) return true
+            const manual = node.data.type === 'ROS2ManualMove' || node.data.type === 'ROS2TeachMode'
+            return manual && String(record.run_id ?? '') === runId
+          })
+          if (!item || typeof item !== 'object') return node
+          const outputs = (item as Record<string, unknown>).outputs
+          if (!outputs || typeof outputs !== 'object' || Array.isArray(outputs)) return node
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              portResults: { ...(node.data.portResults ?? {}), ...(outputs as Record<string, unknown>) },
+            },
+          }
+        }), s.edges),
+      }))
+    } catch {
+    }
   },
 
   loadDrivers: async () => {
@@ -2490,7 +2602,7 @@ export const useStore = create<Store>((set, get) => ({
     await api.updateParam(id, key, value)
   },
 
-  cookNode: async (id, port = 'output', graphTargets) => {
+  cookNode: async (id, port = 'output', graphTargets, runMode = 'once') => {
     const cookTabId = get().activeTabId
     const stack = get().subnetStack
     const activeSubnetId = stack.length > 0 ? stack[stack.length - 1].subnetId : null
@@ -2539,7 +2651,7 @@ export const useStore = create<Store>((set, get) => ({
       liveReplayDelay += 170
       window.setTimeout(() => {
         if (get().runReplay.runId !== replayRunId) return
-        get().applyRunReplay(record, eventIndex, stamped.type !== 'done' && !finalSuccess)
+        get().applyRunReplay(record, eventIndex, stamped.type !== 'done' && !finalSuccess, true)
       }, delay)
     }
     const applyCookEvent = (event: CookEvent) => {
@@ -2683,13 +2795,13 @@ export const useStore = create<Store>((set, get) => ({
     const signal = cookAbort.signal
     try {
       if (activeSubnetId && graphRun) {
-        await api.cookSubgraphGraphStream(activeSubnetId, targets, applyCookEvent, signal)
+        await api.cookSubgraphGraphStream(activeSubnetId, targets, applyCookEvent, signal, runMode)
       } else if (activeSubnetId) {
-        await api.cookSubgraphStream(activeSubnetId, id, port, applyCookEvent, signal)
+        await api.cookSubgraphStream(activeSubnetId, id, port, applyCookEvent, signal, runMode)
       } else if (graphRun) {
-        await api.cookGraphStream(targets, applyCookEvent, signal)
+        await api.cookGraphStream(targets, applyCookEvent, signal, runMode)
       } else {
-        await api.cookStream(id, port, applyCookEvent, signal)
+        await api.cookStream(id, port, applyCookEvent, signal, runMode)
       }
     } catch (e: any) {
       const stopped = e?.name === 'AbortError' || signal.aborted
@@ -2781,6 +2893,11 @@ export const useStore = create<Store>((set, get) => ({
           n.data.type === 'VisionReasoningStream' ||
           n.data.type === 'CUDAImageFilterStream' ||
           n.data.type === 'ROS2ContinuousFollowDetectionJoint' ||
+          n.data.type === 'ROS2ManualMove' ||
+          n.data.type === 'ROS2TeachMode' ||
+          n.data.type === 'ROS2MotionDashboard' ||
+          n.data.type === 'Output' ||
+          n.data.type === 'OutputImage' ||
           n.data.type === 'ROS2Run' ||
           n.data.type === 'ROS2Launch'
         )
@@ -2799,7 +2916,7 @@ export const useStore = create<Store>((set, get) => ({
     set(s => syncTabCookState(s, s.activeTabId, { cookStatusHidden: true }))
   },
 
-  applyRunReplay: (record, cursor, playing) => {
+  applyRunReplay: (record, cursor, playing, preserveLiveOutputs = false) => {
     const total = record.events.length
     const nextCursor = total > 0 ? Math.min(Math.max(cursor, 0), total - 1) : -1
     const currentEvent = nextCursor >= 0 ? record.events[nextCursor] : undefined
@@ -2822,13 +2939,21 @@ export const useStore = create<Store>((set, get) => ({
         currentEventType: status,
         message,
       },
-      nodes: s.nodes.map(node => ({
-        ...node,
-        data: {
-          ...clearReplayData(node.data),
-          ...patches.get(node.id),
-        },
-      })),
+      nodes: s.nodes.map(node => {
+        const patch = patches.get(node.id)
+        const livePortResults = preserveLiveOutputs ? node.data.portResults : undefined
+        const portResults = preserveLiveOutputs
+          ? { ...(patch?.portResults ?? {}), ...(livePortResults ?? {}) }
+          : patch?.portResults
+        return {
+          ...node,
+          data: {
+            ...clearReplayData(node.data),
+            ...patch,
+            ...(portResults ? { portResults } : {}),
+          },
+        }
+      }),
     }))
   },
 

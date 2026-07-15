@@ -178,6 +178,8 @@ def node(
     name: str | None = None,
     category: str | None = None,
     description: str | None = None,
+    hidden: bool = False,
+    live: bool = False,
 ):
     """Decorator that registers a function as a Blacknode node type.
 
@@ -208,9 +210,9 @@ def node(
 
         runtime_fn = fn if _expects_context(fn) else _wrap_direct_node(fn, in_names, in_defaults, out_names)
         _NODE_REGISTRY[type_name] = runtime_fn
-        _attach_metadata(runtime_fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description)
+        _attach_metadata(runtime_fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description, hidden, live)
         if runtime_fn is not fn:
-            _attach_metadata(fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description)
+            _attach_metadata(fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description, hidden, live)
         return fn
     return decorator
 
@@ -260,6 +262,8 @@ def _attach_metadata(
     output_types: dict[str, str],
     category: str | None,
     description: str | None,
+    hidden: bool,
+    live: bool,
 ) -> None:
     fn._bn_node = True
     fn._bn_type_name = type_name
@@ -269,6 +273,8 @@ def _attach_metadata(
     fn._bn_input_choices = input_choices
     fn._bn_outputs = outputs
     fn._bn_output_types = output_types
+    fn._bn_hidden = hidden
+    fn._bn_live_capable = live
     if category:
         fn._bn_category = category
     if description:

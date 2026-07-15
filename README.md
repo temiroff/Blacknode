@@ -4,6 +4,9 @@
 
 **A visual runtime for AI, GPU computing, and robotics.**
 
+**Blacknode already detects, launches, monitors, and safely controls a real
+robot. The next step is deploying that same visual workflow to any robot.**
+
 Blacknode turns agent intent and user ideas into typed, visible, runnable
 workflows. Agents get a structured control surface through MCP, HTTP, and
 WebSocket APIs instead of guessing JSON, and users get a live graph they can
@@ -51,6 +54,29 @@ local process, workstation, Jetson, robot, simulator, or cloud runtime.
 It shows the exact commands to run, buttons to press, templates to open, results
 to expect, NVIDIA NIM paths, MCP setup, framework export, Docker Compose,
 custom nodes, run history, and troubleshooting.
+
+## Connect a Robot in Five Minutes
+
+The shortest embodied-AI demo is a real SO-ARM101, not a simulated fleet:
+
+```text
+Plug in SO-ARM101
+  → select the tested preset
+  → start the driver
+  → verify live joint state
+  → arm one bounded movement
+  → Stop all safely
+```
+
+The **SO-ARM101 Motion Test** template now includes one connection dashboard
+for USB, driver, ROS 2, and live-pose readiness. Motion remains disarmed until
+the operator explicitly enables it. After that path works, the shipped cube
+follow workflow turns the shoulder toward a colored cube using a USB camera,
+OpenCV tracking, and a safety-gated ROS 2 controller.
+
+Use the [five-minute SO-ARM101 demo guide](docs/so-arm101-five-minute-demo.md)
+for setup, the 60–90 second recording shot list, expected proof, safety gates,
+and the visual-follow follow-up.
 
 ## Why Blacknode
 
