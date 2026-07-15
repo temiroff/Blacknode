@@ -469,6 +469,19 @@ _CV2_STREAM_LIVE_CONFIG_KEYS = {
 
 
 def _push_live_node_param_update(meta: dict[str, Any], key: str, value: Any, old_params: dict[str, Any]) -> None:
+    if meta.get("type") == "ROS2LeaderFollower":
+        update_fn = _runtime_callable("ros2_live", _RUNTIME_MODULES["ros2_live"], "update_leader_follower_config")
+        if update_fn is None:
+            return
+        run_id = str(old_params.get("run_id") or meta.get("params", {}).get("run_id") or "leader_follower").strip() or "leader_follower"
+        try:
+            result = update_fn(run_id, {key: value})
+        except Exception as exc:  # noqa: BLE001
+            print(f"[blacknode] live leader-follower update failed for {run_id}.{key}: {type(exc).__name__}: {exc}")
+            return
+        if not result.get("ok", True) and "not running" not in str(result.get("report") or ""):
+            print(f"[blacknode] live leader-follower update failed for {run_id}.{key}: {result.get('error') or result.get('report')}")
+        return
     if meta.get("type") != "CV2ColorObjectStream" or key not in _CV2_STREAM_LIVE_CONFIG_KEYS:
         return
     runtime = _runtime_module(_RUNTIME_MODULES["vision"])
@@ -1128,6 +1141,14 @@ def update_param(node_id: str, req: UpdateParamReq):
         invalidated_meta = _session.node_meta.get(invalidated_id)
         if invalidated_meta is not None:
             _clear_runtime_status(invalidated_meta)
+            if invalidated_meta.get("type") == "ROS2LeaderFollower" and invalidated_id != node_id:
+                disarm_fn = _runtime_callable("ros2_live", _RUNTIME_MODULES["ros2_live"], "update_leader_follower_config")
+                if disarm_fn is not None:
+                    run_id = str(invalidated_meta.get("params", {}).get("run_id") or "leader_follower").strip() or "leader_follower"
+                    try:
+                        disarm_fn(run_id, {"armed": False})
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"[blacknode] could not disarm invalidated leader-follower '{run_id}': {type(exc).__name__}: {exc}")
     _push_live_node_param_update(meta, req.key, req.value, old_params)
     _save()
     return meta

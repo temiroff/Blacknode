@@ -446,7 +446,7 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
       },
     }
   }
-  if (data.type === 'ROS2ContinuousFollowDetectionJoint') {
+  if (data.type === 'ROS2ContinuousFollowDetectionJoint' || data.type === 'ROS2LeaderFollower') {
     return {
       ...base,
       portResults: {
@@ -2976,6 +2976,7 @@ export const useStore = create<Store>((set, get) => ({
           n.data.type === 'VisionReasoningStream' ||
           n.data.type === 'CUDAImageFilterStream' ||
           n.data.type === 'ROS2ContinuousFollowDetectionJoint' ||
+          n.data.type === 'ROS2LeaderFollower' ||
           n.data.type === 'ROS2ManualMove' ||
           n.data.type === 'ROS2TeachMode' ||
           n.data.type === 'ROS2MotionDashboard' ||
