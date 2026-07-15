@@ -177,6 +177,7 @@ class UpdatePortsReq(BaseModel):
 class CookReq(BaseModel):
     node_id: str
     port: str = "output"
+    run_mode: str = "once"
 
 class CookTargetReq(BaseModel):
     node_id: str
@@ -184,6 +185,7 @@ class CookTargetReq(BaseModel):
 
 class CookGraphReq(BaseModel):
     targets: list[CookTargetReq]
+    run_mode: str = "once"
 
 class SetGraphReq(BaseModel):
     nodes: list[dict[str, Any]] = []
@@ -302,6 +304,7 @@ def _stop_active_cook() -> None:
 
 _RUNTIME_MODULES = {
     "ros2": "blacknode.pkg.blacknode_ros2.ros2_runtime",
+    "ros2_live": "blacknode.pkg.blacknode_ros2.ros2_live",
     "vision": "blacknode.pkg.blacknode_vision.cv2_runtime",
     "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
     "robot": "blacknode.pkg.blacknode_robot.robot",
@@ -415,7 +418,16 @@ def _stop_runtime_services() -> dict[str, Any]:
     for result in modules.values():
         raw_stopped = result.get("stopped") if isinstance(result.get("stopped"), dict) else {}
         for key in stopped:
-            stopped[key] += int(raw_stopped.get(key) or 0)
+            value = raw_stopped.get(key) or 0
+            # Package runtimes should return numeric counters, but older or
+            # independently updated packages may return a structured stop
+            # result here. Preserve Stop All and extract its nested count.
+            if isinstance(value, dict):
+                value = value.get("stopped") or 0
+            try:
+                stopped[key] += int(value)
+            except (TypeError, ValueError):
+                continue
     ok = all(bool(result.get("ok", True)) for result in modules.values())
     reports = [
         str(result.get("report") or result.get("error") or "").strip()
@@ -943,6 +955,8 @@ def _node_def_payload(name: str, fn: Any) -> dict[str, Any]:
         "category": category,
         "color": package_category_colors().get(category, ""),
         "package": getattr(fn, "_bn_package", ""),
+        "hidden": bool(getattr(fn, "_bn_hidden", False)),
+        "live_capable": bool(getattr(fn, "_bn_live_capable", False)),
         "inputs": getattr(fn, "_bn_inputs", []),
         "outputs": getattr(fn, "_bn_outputs", ["output"]),
         "input_types": getattr(fn, "_bn_input_types", {}),
@@ -978,6 +992,7 @@ def get_graph():
                 "input_types":    getattr(fn, "_bn_input_types",    meta.get("input_types",    {})),
                 "output_types":   getattr(fn, "_bn_output_types",   meta.get("output_types",   {})),
                 "input_defaults": getattr(fn, "_bn_input_defaults", meta.get("input_defaults", {})),
+                "live_capable":   bool(getattr(fn, "_bn_live_capable", False)),
             })
     return {"nodes": nodes, "edges": _session.graph._edges}
 
@@ -1817,6 +1832,7 @@ def _cook_trace(
     port: str,
     stop_event: threading.Event | None = None,
     targets: list[tuple[str, str]] | None = None,
+    run_mode: str = "once",
 ):
     import traceback
     emitted_cached: set[tuple[str, str]] = set()
@@ -1916,6 +1932,7 @@ def _cook_trace(
             ctx["__graph__"] = _session.graph
             ctx["__node_id__"] = current_id
             ctx["__run_logger__"] = logger
+            ctx["__run_mode__"] = "live" if run_mode == "live" else "once"
             _out_buf, _err_buf = io.StringIO(), io.StringIO()
             try:
                 with contextlib.redirect_stdout(_out_buf), contextlib.redirect_stderr(_err_buf):
@@ -1974,12 +1991,13 @@ def _captured_cook_trace(
     run_id: str,
     stop_event: threading.Event | None = None,
     targets: list[tuple[str, str]] | None = None,
+    run_mode: str = "once",
 ):
     """Wrap _cook_trace so every emitted event is also persisted to the run store."""
     final_value: Any = None
     final_error: str | None = None
     try:
-        for line in _cook_trace(node_id, port, stop_event, targets=targets):
+        for line in _cook_trace(node_id, port, stop_event, targets=targets, run_mode=run_mode):
             try:
                 event = json.loads(line)
             except (ValueError, TypeError):
@@ -2044,7 +2062,7 @@ def cook_stream(req: CookReq):
     stop_event = _prepare_cook()
     _begin_fresh_cook()
     headers = {"X-Blacknode-Run-Id": run_id}
-    lines_factory = lambda: _captured_cook_trace(req.node_id, req.port, run_id, stop_event)
+    lines_factory = lambda: _captured_cook_trace(req.node_id, req.port, run_id, stop_event, run_mode=req.run_mode)
     return StreamingResponse(
         _stream_in_worker(lines_factory, stop_event, req.port),
         media_type="application/x-ndjson",
@@ -2085,7 +2103,7 @@ def cook_graph_stream(req: CookGraphReq):
     headers = {"X-Blacknode-Run-Id": run_id}
     first_node, first_port = targets[0]
     lines_factory = lambda: _captured_cook_trace(
-        first_node, first_port, run_id, stop_event, targets=targets,
+        first_node, first_port, run_id, stop_event, targets=targets, run_mode=req.run_mode,
     )
     return StreamingResponse(
         _stream_in_worker(lines_factory, stop_event, "leaves"),
@@ -2389,6 +2407,7 @@ def _subgraph_cook_trace(
     port: str,
     stop_event: threading.Event | None = None,
     targets: list[tuple[str, str]] | None = None,
+    run_mode: str = "once",
 ):
     import traceback
 
@@ -2479,6 +2498,7 @@ def _subgraph_cook_trace(
                     ctx["__graph__"] = _session.graph
                     ctx["__node_id__"] = current_id
                     ctx["__run_logger__"] = logger
+                    ctx["__run_mode__"] = "live" if run_mode == "live" else "once"
                     try:
                         result = fn(ctx)
                     finally:
@@ -2664,7 +2684,7 @@ def cook_subgraph_stream(subnet_id: str, req: CookReq):
     _begin_fresh_cook()
     return StreamingResponse(
         _stream_in_worker(
-            lambda: _subgraph_cook_trace(subnet_id, req.node_id, req.port, stop_event),
+            lambda: _subgraph_cook_trace(subnet_id, req.node_id, req.port, stop_event, run_mode=req.run_mode),
             stop_event,
             req.port,
         ),
@@ -2686,6 +2706,7 @@ def cook_subgraph_graph_stream(subnet_id: str, req: CookGraphReq):
                 first_port,
                 stop_event,
                 targets=targets,
+                run_mode=req.run_mode,
             ),
             stop_event,
             "leaves",

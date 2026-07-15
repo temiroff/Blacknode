@@ -33,6 +33,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
   })()
 
   const { cooking, cookResult, cookError, replayResult, replayError, replayStatus } = data
+  const liveInput = data.portResults?.live === true
   const replayHasResult = replayResult !== undefined || !!replayError
   const hasResult = cookResult !== undefined || !!cookError || replayHasResult
   const label = typeof data.params.label === 'string' && data.params.label.trim()
@@ -89,6 +90,14 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
         <span style={{ fontWeight: 700, fontSize: 12, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em' }}>
           {label}
         </span>
+        {liveInput && (
+          <span
+            title="This output is receiving values from a live upstream node"
+            style={{ marginLeft: 'auto', marginRight: 8, color: '#dcfce7', fontSize: 10, fontWeight: 800, fontFamily: 'var(--font-ui)' }}
+          >
+            ● LIVE
+          </span>
+        )}
         <button
           onClick={e => { e.stopPropagation(); cookNode(id, 'value') }}
           style={{
@@ -133,9 +142,19 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
       </div>
 
       {/* result area */}
-      <div style={{
-        flex: 1,
-        overflow: 'auto',
+      <div
+        className="nodrag nowheel bn-output-scroll"
+        tabIndex={0}
+        aria-label="Scrollable output value"
+        onWheel={e => e.stopPropagation()}
+        style={{
+        flex: '1 1 0',
+        minWidth: 0,
+        minHeight: 0,
+        overflowX: 'auto',
+        overflowY: 'scroll',
+        overscrollBehavior: 'contain',
+        scrollbarGutter: 'stable',
         padding: '10px 12px',
         cursor: 'text',
       }}>
@@ -174,6 +193,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
             )}
             <pre style={{
               margin: 0,
+              minWidth: '100%',
               color: cookError || replayError ? 'var(--err)' : 'var(--tx1)',
               fontFamily: 'var(--font-mono)',
               fontSize: 12,

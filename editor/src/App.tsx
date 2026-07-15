@@ -112,7 +112,7 @@ export default function App() {
     nodes, edges, nodeTypes, nodeDefs, serverOk, serverError, cookLog, cookActive, cookStatusHidden,
     tabs, activeTabId,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
-    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadApiKeyStatus, loadCustomModels, loadLearnedNodes, loadDriverStatus, loadDrivers,
+    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadApiKeyStatus, loadCustomModels, loadLearnedNodes, loadDriverStatus, loadRuntimeNodeOutputs, loadDrivers,
     addNodeFromConnection, copySelection, pasteClipboard,
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
@@ -250,12 +250,14 @@ export default function App() {
       loadNodeTypes()
       loadGraph()
       loadDriverStatus()
+      loadRuntimeNodeOutputs()
       loadDrivers()
     })
     const id = setInterval(checkServer, 5000)
     // Poll running-driver heartbeats so trigger nodes show live/offline truthfully.
     const driverId = setInterval(loadDriverStatus, 4000)
-    return () => { clearInterval(id); clearInterval(driverId) }
+    const runtimeOutputsId = setInterval(loadRuntimeNodeOutputs, 250)
+    return () => { clearInterval(id); clearInterval(driverId); clearInterval(runtimeOutputsId) }
   }, [])
 
   useEffect(() => {
@@ -893,7 +895,7 @@ export default function App() {
     fitCurrentCanvas(320)
   }, [fitCurrentCanvas, organizeNodes])
 
-  const handleRunGraph = useCallback(async () => {
+  const handleRunGraph = useCallback(async (runMode: 'once' | 'live' = 'once') => {
     const targets = inferGraphRunTargets(nodes, edges)
     if (targets.length === 0) {
       window.dispatchEvent(new CustomEvent('blacknode:notice', {
@@ -906,7 +908,18 @@ export default function App() {
       return
     }
     fitCurrentCanvas(220)
-    await cookNode(targets[0].id, targets[0].port, targets)
+    const liveCapable = nodes.filter(node => node.data.live_capable).length
+    const effectiveMode = runMode === 'live' && liveCapable > 0 ? 'live' : 'once'
+    if (runMode === 'live' && liveCapable === 0) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'info',
+          title: 'No live nodes in this graph',
+          message: 'This graph has no streaming-capable nodes, so Blacknode is running it once.',
+        },
+      }))
+    }
+    await cookNode(targets[0].id, targets[0].port, targets, effectiveMode)
   }, [cookNode, edges, fitCurrentCanvas, nodes])
 
   const handleResetRun = useCallback(() => {
@@ -1005,13 +1018,16 @@ export default function App() {
   const controllerCount = nodes.filter(n => (
     n.data.type === 'ROS2ContinuousFollowDetectionJoint' && n.data.portResults?.running === true
   )).length
-  const runtimeActive = liveStreamCount > 0 || managedRunCount > 0 || controllerCount > 0
-  const runtimeLabel = [
-    liveStreamCount ? `${liveStreamCount} stream${liveStreamCount === 1 ? '' : 's'}` : '',
-    managedRunCount ? `${managedRunCount} run${managedRunCount === 1 ? '' : 's'}` : '',
-    controllerCount ? `${controllerCount} controller${controllerCount === 1 ? '' : 's'}` : '',
-  ].filter(Boolean).join(' + ')
-
+  const manualMoveCount = nodes.filter(n => n.data.type === 'ROS2ManualMove' && n.data.portResults?.live === true).length
+  const liveDashboardCount = nodes.filter(n => n.data.type === 'ROS2MotionDashboard' && n.data.portResults?.live === true).length
+  const liveOutputCount = nodes.filter(n => (
+    (n.data.type === 'Output' || n.data.type === 'OutputImage') && n.data.portResults?.live === true
+  )).length
+  const liveCapableCount = nodes.filter(n => n.data.live_capable).length
+  const runOnceNodeCount = Math.max(0, nodes.length - liveCapableCount)
+  const activelyUpdatingCount = liveStreamCount + managedRunCount + controllerCount + manualMoveCount + liveDashboardCount + liveOutputCount
+  const lastRunNodeCount = Math.max(0, nodes.length - activelyUpdatingCount)
+  const runtimeActive = liveStreamCount > 0 || managedRunCount > 0 || controllerCount > 0 || manualMoveCount > 0
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
       <NodePalette />
@@ -1072,11 +1088,22 @@ export default function App() {
 
           <button
             className="bn-top-button bn-top-run-button"
-            onClick={() => (cookActive ? stopCook() : void handleRunGraph())}
+            onClick={() => (cookActive ? stopCook() : void handleRunGraph('once'))}
             disabled={!serverOk || (!cookActive && nodes.length === 0)}
-            title={cookActive ? 'Stop the running workflow and runtime services' : 'Run every terminal node in the current graph'}
+            title={cookActive ? 'Stop the current evaluation' : 'Evaluate the graph once. Live-capable nodes return one snapshot and do not keep streaming.'}
           >
-            {cookActive ? '■ Stop All' : 'Run'}
+            {cookActive ? '■ Stop run' : '▶ Run once'}
+          </button>
+
+          <button
+            className="bn-top-button bn-top-run-button"
+            onClick={() => void handleRunGraph('live')}
+            disabled={!serverOk || cookActive || nodes.length === 0}
+            title={liveCapableCount > 0
+              ? `Start ${liveCapableCount} live-capable node${liveCapableCount === 1 ? '' : 's'}; evaluate the other ${runOnceNodeCount} node${runOnceNodeCount === 1 ? '' : 's'} once.`
+              : 'No live-capable nodes are present; this will run the graph once.'}
+          >
+            ● Go live
           </button>
 
           {runtimeActive && (
@@ -1084,10 +1111,10 @@ export default function App() {
               className="bn-top-button bn-top-streaming-button"
               onClick={() => void handleStopRuntime()}
               disabled={!serverOk || runtimeStopPending}
-              title={`Workflow runtime active: ${runtimeLabel || 'streaming'}. Stop active streams and ROS 2 processes.`}
+              title={`Graph is mixed: ${liveCapableCount} live-capable node${liveCapableCount === 1 ? '' : 's'} and ${runOnceNodeCount} run-once node${runOnceNodeCount === 1 ? '' : 's'}. Stop active streams and ROS 2 processes.`}
             >
               <span className="bn-top-live-dot" />
-              <span>{runtimeStopPending ? 'Stopping...' : `Streaming${runtimeLabel ? ` · ${runtimeLabel}` : ''}`}</span>
+              <span>{runtimeStopPending ? 'Stopping...' : `LIVE · ${activelyUpdatingCount} updating · ${lastRunNodeCount} last-run`}</span>
               <span className="bn-top-streaming-stop">Stop</span>
             </button>
           )}

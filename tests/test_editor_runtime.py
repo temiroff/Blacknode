@@ -142,6 +142,20 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertIn("stopped ros", result["report"])
         self.assertIn("stopped cv2 and reasoning", result["report"])
 
+    def test_stop_runtime_services_tolerates_nested_package_counter(self):
+        with (
+            patch.object(server, "_RUNTIME_MODULES", {"ros2_live": "ros2_live_runtime"}),
+            patch.object(server, "_stop_runtime_module", return_value={
+                "ok": True,
+                "stopped": {"streams": 1, "managed_runs": {"ok": True, "stopped": 2}},
+            }),
+        ):
+            result = server._stop_runtime_services()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["stopped"]["streams"], 1)
+        self.assertEqual(result["stopped"]["managed_runs"], 2)
+
     def test_runtime_stop_endpoint_stops_cook_and_runtime_helpers(self):
         runtime_result = {
             "ok": True,

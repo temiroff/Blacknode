@@ -21,6 +21,7 @@ export interface BnNodeMeta {
   output_types: Record<string, string>
   input_defaults: Record<string, unknown>
   multi_input_ports?: string[]
+  live_capable?: boolean
   subgraph?: SubgraphData
 }
 
@@ -57,6 +58,8 @@ export interface BnNodeDef {
   source?: string
   color?: string    // category color declared by the owning extension package
   package?: string  // extension package name, '' for built-ins
+  hidden?: boolean  // compatibility node: loadable in saved graphs, omitted from the palette
+  live_capable?: boolean // keeps producing runtime output when the graph is in Live mode
 }
 
 export interface BnPackageGitStatus {

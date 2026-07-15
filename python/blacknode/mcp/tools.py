@@ -88,7 +88,11 @@ class BlacknodeMCPError(ValueError):
 def list_nodes() -> dict[str, Any]:
     """Return every registered node type with its category and port schema."""
     learned_registry.sync_with_disk()
-    nodes = [_node_schema(name, fn) for name, fn in sorted(_NODE_REGISTRY.items())]
+    nodes = [
+        _node_schema(name, fn)
+        for name, fn in sorted(_NODE_REGISTRY.items())
+        if not getattr(fn, "_bn_hidden", False)
+    ]
     by_category: dict[str, list[str]] = {}
     for entry in nodes:
         by_category.setdefault(entry["category"], []).append(entry["type"])
@@ -1252,6 +1256,7 @@ def _node_schema(name: str, fn: Any) -> dict[str, Any]:
         "input_defaults": dict(getattr(fn, "_bn_input_defaults", {})),
         "doc": getattr(fn, "_bn_description", None) or summary,
         "source": getattr(fn, "_bn_source_path", ""),
+        "hidden": bool(getattr(fn, "_bn_hidden", False)),
     }
 
 

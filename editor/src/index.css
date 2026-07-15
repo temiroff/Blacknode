@@ -1096,3 +1096,24 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--tx3); }
+
+.bn-output-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: var(--tx3) var(--lift);
+}
+
+.bn-output-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.bn-output-scroll::-webkit-scrollbar-track {
+  background: var(--lift);
+  border-radius: 5px;
+}
+
+.bn-output-scroll::-webkit-scrollbar-thumb {
+  background: var(--tx3);
+  border: 2px solid var(--lift);
+  border-radius: 6px;
+}

@@ -161,6 +161,7 @@ export interface RuntimeStatus {
   cv2_streams?: Array<Record<string, unknown>>
   reasoning_streams?: Array<Record<string, unknown>>
   managed_runs?: Array<Record<string, unknown>>
+  modules?: Record<string, Record<string, unknown>>
   detached_count?: number
   report?: string
   error?: string
@@ -356,14 +357,14 @@ export const api = {
   ollamaModels: (endpointUrl: string) =>
     req<{ ok: boolean; models: string[]; error?: string }>('GET', `/ollama/models?endpoint_url=${encodeURIComponent(endpointUrl)}`),
   stopRuntime: () => req<RuntimeStopResult>('POST', '/runtime/stop'),
-  cookStream: (node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
-    streamCook('/cook-stream', { node_id, port }, `${node_id}.${port}`, onEvent, signal),
-  cookGraphStream: (targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
-    streamCook('/cook-graph-stream', { targets: targets.map(target => ({ node_id: target.id, port: target.port })) }, `${targets.length} terminal nodes`, onEvent, signal),
-  cookSubgraphStream: (subnet_id: string, node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
-    streamCook(`/nodes/${subnet_id}/cook-stream`, { node_id, port }, `${node_id}.${port}`, onEvent, signal),
-  cookSubgraphGraphStream: (subnet_id: string, targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal) =>
-    streamCook(`/nodes/${subnet_id}/cook-graph-stream`, { targets: targets.map(target => ({ node_id: target.id, port: target.port })) }, `${targets.length} subnet terminal nodes`, onEvent, signal),
+  cookStream: (node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal, run_mode: 'once' | 'live' = 'once') =>
+    streamCook('/cook-stream', { node_id, port, run_mode }, `${node_id}.${port}`, onEvent, signal),
+  cookGraphStream: (targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal, run_mode: 'once' | 'live' = 'once') =>
+    streamCook('/cook-graph-stream', { targets: targets.map(target => ({ node_id: target.id, port: target.port })), run_mode }, `${targets.length} terminal nodes`, onEvent, signal),
+  cookSubgraphStream: (subnet_id: string, node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal, run_mode: 'once' | 'live' = 'once') =>
+    streamCook(`/nodes/${subnet_id}/cook-stream`, { node_id, port, run_mode }, `${node_id}.${port}`, onEvent, signal),
+  cookSubgraphGraphStream: (subnet_id: string, targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal, run_mode: 'once' | 'live' = 'once') =>
+    streamCook(`/nodes/${subnet_id}/cook-graph-stream`, { targets: targets.map(target => ({ node_id: target.id, port: target.port })), run_mode }, `${targets.length} subnet terminal nodes`, onEvent, signal),
   reset:      ()                             => req('POST', '/reset'),
   execNode:   (code: string)                 => req<{ ok: boolean; new_types: string[] }>('POST', '/exec-node', { code }),
   saveCustomNode: (filename: string, code: string) =>

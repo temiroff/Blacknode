@@ -48,12 +48,15 @@ interface NodeData extends NodeCookState {
   input_types: Record<string, string>
   output_types: Record<string, string>
   params: Record<string, unknown>
+  live_capable?: boolean
 }
 
-function previewPortValue(v: unknown): string {
+function formatPortValue(v: unknown): string {
   if (v === undefined || v === null) return ''
-  const s = typeof v === 'object' ? JSON.stringify(v) : String(v)
-  return s.length > 160 ? s.slice(0, 160) + '…' : s
+  if (typeof v === 'string' && v.startsWith('data:image/')) {
+    return `[image data URL, ${v.length} characters]`
+  }
+  return typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v)
 }
 
 function PortRow({
@@ -70,9 +73,29 @@ function PortRow({
   onRemove?: () => void
 }) {
   const [hovering, setHovering] = useState(false)
+  const closeTimer = useRef<number | null>(null)
   const color   = portColor(type)
   const isInput = dir === 'input'
-  const resultText = result !== undefined ? previewPortValue(result) : ''
+  const resultText = result !== undefined ? formatPortValue(result) : ''
+
+  const openTooltip = () => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+    setHovering(true)
+  }
+  const closeTooltipSoon = () => {
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null
+      setHovering(false)
+    }, 220)
+  }
+
+  useEffect(() => () => {
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
+  }, [])
 
   return (
     <div
@@ -84,13 +107,13 @@ function PortRow({
         position: 'relative',
         gap: 5,
       }}
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => setHovering(false)}
     >
       <Handle
         type={isInput ? 'target' : 'source'}
         position={isInput ? Position.Left : Position.Right}
         id={name}
+        onMouseEnter={openTooltip}
+        onMouseLeave={closeTooltipSoon}
         style={{
           [isInput ? 'left' : 'right']: -5,
           background: color,
@@ -131,45 +154,51 @@ function PortRow({
       </span>
       {hovering && (type || resultText) && (
         <div
-          title={resultText || type}
+          className="nodrag"
+          onMouseEnter={openTooltip}
+          onMouseLeave={closeTooltipSoon}
+          onMouseDown={e => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
           style={{
             position: 'absolute',
-            top: -30,
+            bottom: '100%',
             [isInput ? 'left' : 'right']: 10,
-            zIndex: 30,
-            maxWidth: 260,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-            padding: '4px 7px',
-            borderRadius: 6,
-            border: '1px solid var(--line2)',
+            zIndex: 100,
+            width: 'min(420px, calc(100vw - 32px))',
+            padding: '8px 10px',
+            borderRadius: 8,
+            border: `1px solid ${resultText ? 'var(--ok)' : color}`,
             background: 'var(--panel)',
-            boxShadow: '0 8px 20px rgba(0,0,0,.28)',
-            pointerEvents: 'none',
-            whiteSpace: 'nowrap',
+            boxShadow: '0 8px 24px rgba(0,0,0,.3)',
+            pointerEvents: 'auto',
+            userSelect: 'text',
           }}
         >
-          <span style={{
+          <div style={{
             fontSize: 11,
             color,
-            fontFamily: 'var(--font-mono)',
+            fontFamily: 'var(--font-ui)',
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            marginBottom: resultText ? 6 : 0,
           }}>
-            {type}
-          </span>
+            {dir} · {name} · {type}
+          </div>
           {resultText && (
-            <span
+            <div
               style={{
-                fontSize: 11,
-                color: 'var(--ok)',
+                fontSize: 12,
+                color: 'var(--tx1)',
                 fontFamily: 'var(--font-mono)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                maxHeight: 280,
+                overflow: 'auto',
               }}
             >
-              = {resultText}
-            </span>
+              {resultText}
+            </div>
           )}
         </div>
       )}
@@ -297,14 +326,19 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [driverPending, setDriverPending] = useState<null | 'start' | 'stop'>(null)
   const [streamStopPending, setStreamStopPending] = useState(false)
   const [rosRunStopPending, setRosRunStopPending] = useState(false)
+  const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
   const isToolBox   = data.type === 'ToolBox'
+  const isManualMove = data.type === 'ROS2ManualMove' || data.type === 'ROS2TeachMode'
   const visibleInputs = data.inputs ?? []
   const inputsKey = visibleInputs.join('|')
   const outputsKey = (data.outputs ?? []).join('|')
-  // Only explicit display nodes render image panels. Processing nodes keep
-  // image-valued ports wireable without expanding into duplicate previews.
+  // Explicit OutputImage nodes always render their image. Dashboard producers
+  // also render their dashboard image when that port is terminal, so a graph
+  // can present status in place without requiring a redundant OutputImage.
+  // Once dashboard is wired downstream, the inline panel disappears and the
+  // connected node owns presentation instead.
   const nodeImage = (): string | null => {
     if (isImageSrc(data.cookResult)) return data.cookResult
     for (const v of Object.values(data.portResults ?? {})) {
@@ -313,9 +347,41 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     return null
   }
   const imageResult = !data.cookError ? nodeImage() : null
-  const showImageResult = data.type === 'OutputImage' ? imageResult : null
+  const inlineDashboardPort = (data.outputs ?? []).find(port =>
+    port === 'dashboard'
+    && data.output_types?.[port] === 'Image'
+    && !edges.some(edge => edge.source === id && edge.sourceHandle === port)
+    && isImageSrc(data.portResults?.[port])
+  )
+  const inlineDashboardImage = inlineDashboardPort
+    ? data.portResults?.[inlineDashboardPort]
+    : null
+  const showImageResult = data.type === 'OutputImage'
+    ? imageResult
+    : isImageSrc(inlineDashboardImage) ? inlineDashboardImage : null
   const streamUrl = typeof data.portResults?.stream_url === 'string' ? data.portResults.stream_url : ''
   const streamActive = LIVE_STREAM_NODE_TYPES.has(data.type) && data.portResults?.streaming === true && streamUrl.length > 0
+  const manualMoveLive = (data.type === 'ROS2ManualMove' || data.type === 'ROS2TeachMode') && data.portResults?.live === true
+  const manualMoveReady = manualMoveLive && data.portResults?.data_ready === true
+  const manualMoveMode = data.portResults?.mode === 'released' ? 'RELEASED' : 'HOLD'
+  const manualMoveJointCount = Array.isArray(data.portResults?.joints) ? data.portResults.joints.length : 0
+  const selectedManualAction = String(data.params?.action ?? 'check').toLowerCase()
+  const releaseSelected = selectedManualAction === 'release' || selectedManualAction === 'enter'
+  const holdSelected = selectedManualAction === 'hold' || selectedManualAction === 'exit'
+  const monitorSelected = !releaseSelected && !holdSelected
+  const manualReleaseMismatch = isManualMove
+    && releaseSelected
+    && data.portResults?.torque_enabled === true
+  const manualHoldMismatch = isManualMove
+    && holdSelected
+    && data.portResults?.torque_enabled === false
+  const genericNodeLive = data.live_capable === true && data.portResults?.live === true && !manualMoveLive && !streamActive
+  const snapshotResult = data.live_capable === true
+    && !streamActive
+    && !manualMoveLive
+    && !genericNodeLive
+    && !data.cooking
+    && Object.keys(data.portResults ?? {}).length > 0
   const rosRunActive = data.type === 'ROS2Run' && data.portResults?.running === true
   const rosRunId = typeof data.portResults?.run_id === 'string' ? data.portResults.run_id : 'ros2_run'
 
@@ -422,6 +488,24 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     }
   }
 
+  const runManualMoveAction = async (action: 'release' | 'monitor' | 'hold') => {
+    if (manualMovePending) return
+    if (action === 'release' && !window.confirm(
+      'Support the arm before releasing it. This turns motor torque OFF so gravity may move the arm. Continue?'
+    )) return
+    setManualMovePending(action)
+    try {
+      const nodeAction = action === 'monitor' ? 'check' : action
+      await updateParam(id, 'action', nodeAction)
+      // Every manual-mode button keeps the same live pose subscription alive.
+      // Treating Hold as a one-shot used to tear down the rosbridge subscriber;
+      // a subsequent Monitor/Go live could then reopen onto a stale topic.
+      await cookNode(id, 'report', undefined, 'live')
+    } finally {
+      setManualMovePending(null)
+    }
+  }
+
   const fitNodeToImage = (naturalWidth: number, naturalHeight: number, extraControls = 0) => {
     if (!naturalWidth || !naturalHeight) return
     const portRows = visibleInputs.length + (data.outputs?.length ?? 0) + (isToolBox ? 1 : 0)
@@ -515,6 +599,72 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           >
             {streamStopPending ? 'Stopping...' : 'Stop stream'}
           </button>
+        </div>
+      )}
+
+      {manualMoveLive && (
+        <div
+          className="nodrag"
+          title={manualMoveReady ? `Live pose monitor: ${manualMoveJointCount} joint(s)` : 'Live monitor is running; waiting for the first joint-state message'}
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            position: 'absolute', left: 8, top: -28, zIndex: 22,
+            display: 'flex', alignItems: 'center', gap: 7,
+            padding: '5px 8px', borderRadius: 6,
+            border: `1px solid ${manualMoveReady ? 'var(--ok)' : 'var(--warn)'}`,
+            background: 'var(--panel)',
+            color: manualMoveReady ? 'var(--ok)' : 'var(--warn)',
+            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
+            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
+            letterSpacing: '0.04em', lineHeight: 1,
+          }}
+        >
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: manualMoveReady ? 'var(--ok)' : 'var(--warn)',
+            boxShadow: `0 0 8px ${manualMoveReady ? 'var(--ok)' : 'var(--warn)'}`,
+          }} />
+          <span>{manualMoveReady ? `LIVE • ${manualMoveMode} • ${manualMoveJointCount} JOINTS` : 'LIVE • WAITING FOR JOINT DATA'}</span>
+        </div>
+      )}
+
+      {snapshotResult && (
+        <div
+          className="nodrag"
+          title="This is the result of one evaluation. It is not updating; use Go live to start supported continuous output."
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            position: 'absolute', left: 8, top: -28, zIndex: 22,
+            display: 'flex', alignItems: 'center', gap: 7,
+            padding: '5px 8px', borderRadius: 6,
+            border: '1px solid var(--tx3)', background: 'var(--panel)', color: 'var(--tx2)',
+            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
+            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
+            letterSpacing: '0.04em', lineHeight: 1,
+          }}
+        >
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--tx3)' }} />
+          <span>SNAPSHOT • NOT UPDATING</span>
+        </div>
+      )}
+
+      {genericNodeLive && (
+        <div
+          className="nodrag"
+          title="This node is receiving continuous runtime updates."
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            position: 'absolute', left: 8, top: -28, zIndex: 22,
+            display: 'flex', alignItems: 'center', gap: 7,
+            padding: '5px 8px', borderRadius: 6,
+            border: '1px solid var(--ok)', background: 'var(--panel)', color: 'var(--ok)',
+            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
+            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
+            letterSpacing: '0.04em', lineHeight: 1,
+          }}
+        >
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ok)', boxShadow: '0 0 8px var(--ok)' }} />
+          <span>LIVE • UPDATING</span>
         </div>
       )}
 
@@ -666,6 +816,82 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </div>
       )}
 
+      {isManualMove && (
+        <div
+          className="nodrag"
+          onMouseDown={e => e.stopPropagation()}
+          style={{ padding: '8px 10px 4px', borderBottom: '1px solid var(--line)' }}
+        >
+          <div style={{
+            marginBottom: 7, color: data.portResults?.torque_enabled === false ? 'var(--warn)' : 'var(--tx2)',
+            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 750,
+          }}>
+            {`SELECTED: ${releaseSelected ? 'RELEASE + LIVE POSE' : holdSelected ? 'HOLD POSITION' : 'MONITOR ONLY'} · `}
+            {data.portResults?.torque_enabled === false
+              ? 'ROBOT: TORQUE OFF · RELEASED'
+              : data.portResults?.torque_enabled === true
+                ? 'ROBOT: TORQUE ON · HOLDING'
+              : 'ROBOT STATE UNKNOWN'}
+          </div>
+          {manualReleaseMismatch && (
+            <div style={{
+              marginBottom: 7, padding: '5px 7px', borderRadius: 5,
+              border: '1px solid var(--err)', background: 'rgba(239,68,68,.12)', color: 'var(--err)',
+              fontFamily: 'var(--font-ui)', fontSize: 9, fontWeight: 800, lineHeight: 1.35,
+            }}>
+              RELEASE NOT APPLIED · TORQUE IS STILL ON
+            </div>
+          )}
+          {manualHoldMismatch && (
+            <div style={{
+              marginBottom: 7, padding: '5px 7px', borderRadius: 5,
+              border: '1px solid var(--err)', background: 'rgba(239,68,68,.12)', color: 'var(--err)',
+              fontFamily: 'var(--font-ui)', fontSize: 9, fontWeight: 800, lineHeight: 1.35,
+            }}>
+              HOLD NOT APPLIED · TORQUE IS STILL OFF
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button
+              disabled={Boolean(manualMovePending)}
+              title="Turn torque off and immediately start the live pose monitor"
+              onClick={e => { e.stopPropagation(); void runManualMoveAction('release') }}
+              style={{
+                ...driverBtn('var(--warn)', Boolean(manualMovePending)),
+                background: releaseSelected ? 'rgba(245,158,11,.22)' : 'transparent',
+              }}
+            >
+              {manualMovePending === 'release' ? 'Releasing…' : `${releaseSelected ? '✓ ' : ''}Release + live pose`}
+            </button>
+            <button
+              disabled={Boolean(manualMovePending)}
+              title="Watch joint positions continuously without changing torque"
+              onClick={e => { e.stopPropagation(); void runManualMoveAction('monitor') }}
+              style={{
+                ...driverBtn('var(--tx2)', Boolean(manualMovePending)),
+                background: monitorSelected ? 'rgba(46,159,230,.22)' : 'transparent',
+              }}
+            >
+              {manualMovePending === 'monitor' ? 'Starting…' : `${monitorSelected ? '✓ ' : ''}Monitor only`}
+            </button>
+            <button
+              disabled={Boolean(manualMovePending)}
+              title="Read the current pose safely, turn torque on to hold it, and keep live feedback running"
+              onClick={e => { e.stopPropagation(); void runManualMoveAction('hold') }}
+              style={{
+                ...driverBtn('var(--ok)', Boolean(manualMovePending)),
+                background: holdSelected ? 'rgba(34,197,94,.22)' : 'transparent',
+              }}
+            >
+              {manualMovePending === 'hold' ? 'Holding…' : `${holdSelected ? '✓ ' : ''}Hold position`}
+            </button>
+          </div>
+          <div style={{ marginTop: 6, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9, lineHeight: 1.35 }}>
+            Go live never changes torque by itself; it only keeps supported outputs updating.
+          </div>
+        </div>
+      )}
+
       {/* ports */}
       <div style={{ flex: 1, padding: '6px 0', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {isToolBox && (
@@ -696,6 +922,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         {visibleInputs.map(inp => {
           const type = effectivePortType(inp, 'input')
           const connected = edges.some(e => e.target === id && e.targetHandle === inp)
+          if (isManualMove && inp === 'action' && !connected) return null
           const showImageInput = type === 'Image'
             && !connected
             && !isWireOnlyInput(data.type, inp, type)
