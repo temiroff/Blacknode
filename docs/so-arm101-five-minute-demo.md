@@ -30,7 +30,8 @@ otherwise it prepares the local rosbridge service automatically.
 5. Keep `ROS2SetJoint.armed` set to `false`.
 6. Press **Run**.
 7. Inspect **Robot Connection Dashboard**. USB, driver, ROS 2, and live state
-   should all show ready, and the panel should list live joint positions.
+   should all show ready. The joint table shows live positions, home references,
+   safe ranges, and whether they came from saved calibration or profile defaults.
 8. Clear the workspace. Set `joint` to `shoulder_pan`, choose a small target
    close to the current value, and only then set `armed=true`.
 9. Cook the final output once. Confirm the motion dashboard shows the before,
@@ -84,7 +85,7 @@ dashboard, and Stop-all state are captured together.
 | 0–8s | Unplugged arm and open template | Real starting state |
 | 8–18s | Plug in USB; cook discovery | Generic serial discovery |
 | 18–28s | Show `so_arm101` preset; press Run | Additive robot support and driver launch |
-| 28–42s | Open connection dashboard | USB, driver, ROS 2, and live joint positions |
+| 28–42s | Open connection dashboard | USB, driver, ROS 2, live positions, home, and safe limits |
 | 42–58s | Arm one small `shoulder_pan` move | Explicit safety gate and real motion |
 | 58–70s | Show before/target/after dashboard | Observable result |
 | 70–82s | Press Stop all; show inactive runtime | Safe shutdown and lifecycle ownership |
