@@ -18,6 +18,24 @@ class NonTtyStringIO(io.StringIO):
 
 
 class McpServerTests(unittest.TestCase):
+    def test_agent_instructions_explain_one_shot_cooks_and_runtime_safety(self):
+        text = server.WORKFLOW_BUILDER_INSTRUCTIONS
+
+        self.assertIn("one-shot graph cook", text)
+        self.assertIn("get_editor_runtime_status", text)
+        self.assertIn("stop_editor_runtime_services", text)
+        self.assertIn("disable torque", text)
+
+    def test_runtime_status_resource_uses_editor_runtime_tool(self):
+        with patch.object(
+            server.tools,
+            "get_editor_runtime_status",
+            return_value={"ok": True, "runtime": {"active": True}},
+        ):
+            payload = server.runtime_status_resource()
+
+        self.assertIn('"active": true', payload)
+
     def test_stdio_terminal_hint_is_written_to_stderr_for_humans(self):
         stderr = TtyStringIO()
         with (

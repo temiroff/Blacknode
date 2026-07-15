@@ -37,6 +37,41 @@ Using the blacknode MCP resources, read blacknode://nodes and blacknode://templa
 
 Expected result: the client reads `blacknode://nodes` and `blacknode://templates` without needing a tool call.
 
+## Managed Runtime Status
+
+```text
+Using the blacknode MCP tools, inspect the running editor's managed runtime.
+Summarize active camera/CUDA streams, persistent controllers, ROS processes,
+and robot drivers. Do not stop anything.
+```
+
+Expected tool call: `get_editor_runtime_status`.
+
+Expected result: the response mirrors the editor's runtime status and clearly
+identifies whether any managed service is active.
+
+The same status is available read-only through
+`blacknode://runtime/status`.
+
+## Safe Runtime Stop
+
+Only run this prompt when ending a demo and after supporting any physical arm
+that could move when torque is disabled.
+
+```text
+Using the blacknode MCP tools, safely stop all editor-managed runtime services,
+then inspect runtime status and confirm that no persistent controller or robot
+driver remains active.
+```
+
+Expected tool sequence:
+
+1. `stop_editor_runtime_services`
+2. `get_editor_runtime_status`
+
+Expected result: camera/CUDA streams, persistent controllers, ROS processes,
+and robot drivers stop through their package shutdown paths.
+
 ## Open A Blank Editor Tab
 
 ```text

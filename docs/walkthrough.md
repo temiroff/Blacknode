@@ -166,7 +166,7 @@ In the browser:
 Expected result:
 
 - The Output node shows `Hello World`.
-- A small live cook status appears while the graph runs.
+- A small run status appears while the graph cooks once.
 - The run is saved in the **Runs** tab.
 
 ## 7. Build the Same Workflow by Hand

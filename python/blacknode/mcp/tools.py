@@ -674,7 +674,34 @@ def cook_editor_node(
         "ok": bool(result.get("ok", True)),
         "editor_url": base_url,
         "action": result.get("action", result),
-        "note": "The open Blacknode editor will cook the node on its next action poll.",
+        "note": (
+            "The open Blacknode editor will cook the node once on its next action poll. "
+            "Managed stream nodes may keep running after that cook completes."
+        ),
+    }
+
+
+def get_editor_runtime_status(*, editor_url: str | None = None) -> dict[str, Any]:
+    """Inspect managed streams, robot drivers, and persistent controllers."""
+    base_url, result = _editor_request_json("GET", "/runtime/status", editor_url=editor_url)
+    return {
+        "ok": bool(result.get("ok", True)),
+        "editor_url": base_url,
+        "runtime": result,
+    }
+
+
+def stop_editor_runtime_services(*, editor_url: str | None = None) -> dict[str, Any]:
+    """Safely stop every managed stream/controller/driver owned by the editor."""
+    base_url, result = _editor_request_json("POST", "/runtime/stop", editor_url=editor_url)
+    return {
+        "ok": bool(result.get("ok", True)),
+        "editor_url": base_url,
+        "runtime": result,
+        "note": (
+            "Stopped managed runtime services. Robot drivers receive their normal shutdown "
+            "path, which may disable actuator torque."
+        ),
     }
 
 

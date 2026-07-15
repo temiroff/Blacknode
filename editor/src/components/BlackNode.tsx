@@ -2,7 +2,7 @@ import { memo, useState, useRef, useEffect } from 'react'
 import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import '@reactflow/node-resizer/dist/style.css'
-import { useStore, hasArmedUpstream } from '../store'
+import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { headerColor } from '../categories'
 import { isWireOnlyInput } from '../inputControls'
@@ -281,8 +281,6 @@ function NodeImageInput({
 
 function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode    = useStore(s => s.cookNode)
-  const stopLiveRun = useStore(s => s.stopLiveRun)
-  const liveRun     = useStore(s => s.liveRun)
   const updateParam = useStore(s => s.updateParam)
   const resizeNode  = useStore(s => s.resizeNode)
   const disconnectEdge = useStore(s => s.disconnectEdge)
@@ -638,38 +636,6 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           }}
         >
           {data.cooking ? '…' : '▶'}
-        </button>
-        <button
-          onClick={e => {
-            e.stopPropagation()
-            if (liveRun?.nodeId === id) {
-              stopLiveRun()
-              return
-            }
-            if (hasArmedUpstream(nodes, edges, [id])) {
-              const ok = window.confirm(
-                'This chain includes a node with armed=true. Live mode will keep sending real motion ' +
-                'commands to the robot at the live rate until you stop it. Continue?'
-              )
-              if (!ok) return
-            }
-            void cookNode(id, data.outputs[0] ?? 'output', undefined, { rateHz: 10 })
-          }}
-          title={liveRun?.nodeId === id ? 'Stop live re-cook' : 'Live: keep re-cooking this chain until stopped'}
-          style={{
-            background: liveRun?.nodeId === id ? 'var(--err)' : 'rgba(0,0,0,.2)',
-            border: 'none',
-            borderRadius: 4,
-            color: '#fff',
-            cursor: 'pointer',
-            fontSize: 10,
-            padding: '2px 7px',
-            fontFamily: 'var(--font-ui)',
-            flexShrink: 0,
-            marginLeft: 4,
-          }}
-        >
-          {liveRun?.nodeId === id ? '■' : '⟳'}
         </button>
       </div>
 
