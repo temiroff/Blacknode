@@ -327,10 +327,12 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [streamStopPending, setStreamStopPending] = useState(false)
   const [rosRunStopPending, setRosRunStopPending] = useState(false)
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
+  const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'capture_home' | 'finish' | 'cancel'>(null)
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
   const isToolBox   = data.type === 'ToolBox'
   const isManualMove = data.type === 'ROS2ManualMove' || data.type === 'ROS2TeachMode'
+  const isRobotCalibration = data.type === 'RobotCalibrationRecorder'
   const visibleInputs = data.inputs ?? []
   const inputsKey = visibleInputs.join('|')
   const outputsKey = (data.outputs ?? []).join('|')
@@ -375,6 +377,11 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const manualHoldMismatch = isManualMove
     && holdSelected
     && data.portResults?.torque_enabled === false
+  const calibrationActive = isRobotCalibration && data.portResults?.active === true
+  const calibrationSamples = isRobotCalibration && typeof data.portResults?.samples === 'number'
+    ? data.portResults.samples
+    : 0
+  const calibrationSaved = isRobotCalibration && data.portResults?.saved === true
   const genericNodeLive = data.live_capable === true && data.portResults?.live === true && !manualMoveLive && !streamActive
   const snapshotResult = data.live_capable === true
     && !streamActive
@@ -503,6 +510,25 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       await cookNode(id, 'report', undefined, 'live')
     } finally {
       setManualMovePending(null)
+    }
+  }
+
+  const runCalibrationAction = async (action: 'start' | 'capture_home' | 'finish' | 'cancel') => {
+    if (calibrationPending) return
+    if (action === 'start' && !window.confirm(
+      'Support the robot and release motor torque before calibration. Calibration records hand-moved positions and never commands motion. Continue?'
+    )) return
+    if (action === 'finish' && !window.confirm(
+      'Save the observed range, captured Home pose, and safety margin for this physical robot?'
+    )) return
+    setCalibrationPending(action)
+    try {
+      await updateParam(id, 'action', action)
+      // Keep the upstream Manual Move subscription alive while changing the
+      // recorder state; live pose samples are pushed into this node.
+      await cookNode(id, 'report', undefined, 'live')
+    } finally {
+      setCalibrationPending(null)
     }
   }
 
@@ -892,6 +918,58 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </div>
       )}
 
+      {isRobotCalibration && (
+        <div style={{
+          margin: '7px 9px 3px', padding: 8, borderRadius: 7,
+          border: `1px solid ${calibrationActive ? 'var(--warn)' : calibrationSaved ? 'var(--ok)' : 'var(--line)'}`,
+          background: calibrationActive ? 'rgba(245,158,11,.08)' : 'rgba(255,255,255,.02)',
+        }}>
+          <div style={{
+            marginBottom: 7, color: calibrationActive ? 'var(--warn)' : calibrationSaved ? 'var(--ok)' : 'var(--tx2)',
+            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
+          }}>
+            {calibrationActive ? `● RECORDING · ${calibrationSamples} samples` : calibrationSaved ? '✓ CALIBRATION SAVED' : '○ CALIBRATION IDLE'}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button
+              disabled={Boolean(calibrationPending)}
+              title="Start recording observed positions. Torque must already be released."
+              onClick={e => { e.stopPropagation(); void runCalibrationAction('start') }}
+              style={driverBtn('var(--warn)', Boolean(calibrationPending))}
+            >
+              {calibrationPending === 'start' ? 'Starting…' : 'Start recording'}
+            </button>
+            <button
+              disabled={Boolean(calibrationPending) || !calibrationActive}
+              title="Capture the current released pose as the neutral Home pose"
+              onClick={e => { e.stopPropagation(); void runCalibrationAction('capture_home') }}
+              style={driverBtn('var(--accent)', Boolean(calibrationPending) || !calibrationActive)}
+            >
+              {calibrationPending === 'capture_home' ? 'Capturing…' : 'Capture Home'}
+            </button>
+            <button
+              disabled={Boolean(calibrationPending) || !calibrationActive}
+              title="Review and save observed and safe ranges for this hardware serial"
+              onClick={e => { e.stopPropagation(); void runCalibrationAction('finish') }}
+              style={driverBtn('var(--ok)', Boolean(calibrationPending) || !calibrationActive)}
+            >
+              {calibrationPending === 'finish' ? 'Saving…' : 'Save calibration'}
+            </button>
+            <button
+              disabled={Boolean(calibrationPending) || !calibrationActive}
+              title="Discard this unsaved calibration session"
+              onClick={e => { e.stopPropagation(); void runCalibrationAction('cancel') }}
+              style={driverBtn('var(--err)', Boolean(calibrationPending) || !calibrationActive)}
+            >
+              Cancel
+            </button>
+          </div>
+          <div style={{ marginTop: 6, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9, lineHeight: 1.35 }}>
+            Move every released joint slowly through its intended usable range. Mechanical hard stops are not treated as safe limits.
+          </div>
+        </div>
+      )}
+
       {/* ports */}
       <div style={{ flex: 1, padding: '6px 0', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {isToolBox && (
@@ -922,7 +1000,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         {visibleInputs.map(inp => {
           const type = effectivePortType(inp, 'input')
           const connected = edges.some(e => e.target === id && e.targetHandle === inp)
-          if (isManualMove && inp === 'action' && !connected) return null
+          if ((isManualMove || isRobotCalibration) && inp === 'action' && !connected) return null
           const showImageInput = type === 'Image'
             && !connected
             && !isWireOnlyInput(data.type, inp, type)

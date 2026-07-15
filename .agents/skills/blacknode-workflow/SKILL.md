@@ -128,6 +128,28 @@ or type error, inspect `get_node_schema` and fix the graph instead of guessing.
   Robot drivers must ignore an already-applied successful torque action while
   still retrying actions whose prior application reported an error.
 
+## Robot Profile and Calibration Semantics
+
+- Build custom robots with `RobotJointDefinition` → `RobotJointList` →
+  `RobotDefinition` → `RobotProfileSave`. Prefer duplicating a built-in profile
+  with `RobotProfileDuplicate` when it is a close mechanical starting point.
+- Treat profile IDs and joint IDs as stable machine identifiers. They normalize
+  to lowercase snake case and must remain unique; use display names for labels
+  that people may rename.
+- Robot definitions and physical calibrations are separate. Definitions live at
+  `robots/<profile_id>/profile.json`; calibration files live below that profile
+  under `calibrations/<hardware_id>.json` and must not silently apply to another
+  device.
+- Use `RobotCalibrationRecorder` only with torque released and live pose data.
+  Recording observes hand-guided extrema; it never commands motion. Capture an
+  explicit home pose, observe every configured joint, and keep a positive
+  safety margin inside the physical extrema before saving.
+- Feed discovery hardware identity into `RobotProfileLoad` and
+  `RobotCalibrationRecorder` so the matching device calibration is selected.
+  Never replace a missing hardware identity with a generic shared calibration.
+- Base-profile limits are provisional until the physical assembly is calibrated.
+  Do not discover limits by driving an armed joint into a hard stop.
+
 ## Agent Build Prompt
 
 When an agent builds a workflow, use this operating prompt:
