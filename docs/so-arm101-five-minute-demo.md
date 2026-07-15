@@ -24,7 +24,9 @@ otherwise it prepares the local rosbridge service automatically.
 1. Start Blacknode and open **Templates**.
 2. Plug in and power the SO-ARM101.
 3. Open **SO-ARM101 Motion Test** from `blacknode-robot`.
-4. Confirm `RobotDriverPreset.preset` is `so_arm101`.
+4. Confirm the generic `Robot` dropdown is set to `so_arm101`. Its hardware
+   input is already connected to USB discovery, so a saved device calibration
+   is selected automatically.
 5. Keep `ROS2SetJoint.armed` set to `false`.
 6. Press **Run**.
 7. Inspect **Robot Connection Dashboard**. USB, driver, ROS 2, and live state

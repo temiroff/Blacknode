@@ -331,9 +331,18 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
   const isToolBox   = data.type === 'ToolBox'
+  const isRobotJointList = data.type === 'RobotJointList'
   const isManualMove = data.type === 'ROS2ManualMove' || data.type === 'ROS2TeachMode'
   const isRobotCalibration = data.type === 'RobotCalibrationRecorder'
-  const visibleInputs = data.inputs ?? []
+  const visibleInputs = isRobotJointList
+    ? (data.inputs ?? []).filter(port => edges.some(edge => edge.target === id && edge.targetHandle === port))
+    : (data.inputs ?? [])
+  const usedJointNumbers = new Set(visibleInputs.map(port => {
+    const value = Number(port.split('_').pop())
+    return Number.isFinite(value) ? value : 0
+  }))
+  let nextJointNumber = 1
+  while (usedJointNumbers.has(nextJointNumber)) nextJointNumber += 1
   const inputsKey = visibleInputs.join('|')
   const outputsKey = (data.outputs ?? []).join('|')
   // Explicit OutputImage nodes always render their image. Dashboard producers
@@ -972,7 +981,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
 
       {/* ports */}
       <div style={{ flex: 1, padding: '6px 0', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {isToolBox && (
+        {(isToolBox || isRobotJointList) && (
           <div style={{
             position: 'relative',
             display: 'flex',
@@ -988,12 +997,12 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 background: 'var(--node)',
                 width: 11,
                 height: 11,
-                border: `2px dashed ${TOOLBOX_NEW_HANDLE_COLOR}`,
+                border: `2px dashed ${isRobotJointList ? portColor('Dict') : TOOLBOX_NEW_HANDLE_COLOR}`,
                 borderRadius: '50%',
               }}
             />
-            <span style={{ fontSize: 9, color: TOOLBOX_NEW_HANDLE_COLOR, fontFamily: 'var(--font-ui)', userSelect: 'none' }}>
-              ← drag to create
+            <span style={{ fontSize: 9, color: isRobotJointList ? portColor('Dict') : TOOLBOX_NEW_HANDLE_COLOR, fontFamily: 'var(--font-ui)', userSelect: 'none' }}>
+              {isRobotJointList ? `joint_${nextJointNumber} · connect to add` : '← drag to create'}
             </span>
           </div>
         )}
@@ -1019,7 +1028,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 name={inp}
                 type={type}
                 dir="input"
-                onRemove={isToolBox ? () => removeToolSlot(inp) : undefined}
+                onRemove={(isToolBox || isRobotJointList) ? () => removeToolSlot(inp) : undefined}
               />
               {showImageInput && (
                 <NodeImageInput

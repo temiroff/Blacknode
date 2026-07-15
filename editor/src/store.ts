@@ -317,6 +317,21 @@ function sortToolInputs(inputs: string[]): string[] {
   return [...inputs].sort((a, b) => toolInputIndex(a) - toolInputIndex(b) || a.localeCompare(b))
 }
 
+function nextJointInputName(inputs: string[]): string {
+  let i = 1
+  while (inputs.includes(`joint_${i}`)) i++
+  return `joint_${i}`
+}
+
+function sortJointInputs(inputs: string[]): string[] {
+  return [...inputs].sort((a, b) => {
+    const ai = Number(a.split('_').pop())
+    const bi = Number(b.split('_').pop())
+    return (Number.isFinite(ai) ? ai : Number.MAX_SAFE_INTEGER)
+      - (Number.isFinite(bi) ? bi : Number.MAX_SAFE_INTEGER) || a.localeCompare(b)
+  })
+}
+
 function cloneDeep<T>(value: T): T {
   if (value === undefined || value === null) return value
   return JSON.parse(JSON.stringify(value)) as T
@@ -868,10 +883,16 @@ function pruneDisconnectedDynamicPorts(
   removedEdges: Edge[] = [],
 ): { nodes: Node<NodeData>[]; changedIds: Set<string> } {
   const connectedToolPorts = new Map<string, Set<string>>()
+  const connectedJointPorts = new Map<string, Set<string>>()
   edges.forEach(edge => {
-    if (!edge.targetHandle?.startsWith('tool_')) return
-    if (!connectedToolPorts.has(edge.target)) connectedToolPorts.set(edge.target, new Set())
-    connectedToolPorts.get(edge.target)!.add(edge.targetHandle)
+    if (edge.targetHandle?.startsWith('tool_')) {
+      if (!connectedToolPorts.has(edge.target)) connectedToolPorts.set(edge.target, new Set())
+      connectedToolPorts.get(edge.target)!.add(edge.targetHandle)
+    }
+    if (edge.targetHandle?.startsWith('joint_')) {
+      if (!connectedJointPorts.has(edge.target)) connectedJointPorts.set(edge.target, new Set())
+      connectedJointPorts.get(edge.target)!.add(edge.targetHandle)
+    }
   })
 
   const removedInputs = new Map<string, Set<string>>()
@@ -914,6 +935,21 @@ function pruneDisconnectedDynamicPorts(
           input_types: inputTypes,
           input_defaults: {},
         },
+      }
+    }
+
+    if (node.data.type === 'RobotJointList') {
+      const connected = sortJointInputs(Array.from(connectedJointPorts.get(node.id) ?? []))
+      if (
+        connected.length === (node.data.inputs ?? []).length
+        && connected.every((port, i) => port === node.data.inputs[i])
+      ) return node
+      changedIds.add(node.id)
+      const inputTypes: Record<string, string> = {}
+      connected.forEach(port => { inputTypes[port] = 'Dict' })
+      return {
+        ...node,
+        data: { ...node.data, inputs: connected, input_types: inputTypes, input_defaults: {} },
       }
     }
 
@@ -1029,14 +1065,15 @@ function pruneDisconnectedDynamicPorts(
 function ensureConnectedToolBoxSlots(nodes: Node<NodeData>[], edges: Edge[]): Node<NodeData>[] {
   const connectedPorts = new Map<string, Set<string>>()
   edges.forEach(edge => {
-    if (!edge.targetHandle?.startsWith('tool_')) return
+    if (!edge.targetHandle?.startsWith('tool_') && !edge.targetHandle?.startsWith('joint_')) return
     if (!connectedPorts.has(edge.target)) connectedPorts.set(edge.target, new Set())
     connectedPorts.get(edge.target)!.add(edge.targetHandle)
   })
 
   return nodes.map(node => {
-    if (node.data.type !== 'ToolBox') return node
-    const connected = sortToolInputs(Array.from(connectedPorts.get(node.id) ?? []))
+    if (node.data.type !== 'ToolBox' && node.data.type !== 'RobotJointList') return node
+    const isJointList = node.data.type === 'RobotJointList'
+    const connected = (isJointList ? sortJointInputs : sortToolInputs)(Array.from(connectedPorts.get(node.id) ?? []))
     if (
       connected.length === (node.data.inputs ?? []).length
       && connected.every((port, i) => port === node.data.inputs[i])
@@ -1045,7 +1082,7 @@ function ensureConnectedToolBoxSlots(nodes: Node<NodeData>[], edges: Edge[]): No
     }
 
     const inputTypes: Record<string, string> = {}
-    connected.forEach(port => { inputTypes[port] = 'Fn' })
+    connected.forEach(port => { inputTypes[port] = isJointList ? 'Dict' : 'Fn' })
     return {
       ...node,
       data: {
@@ -2086,11 +2123,13 @@ export const useStore = create<Store>((set, get) => ({
       conn = { ...conn, targetHandle: portName }
     }
 
-    // __new__ target handle on ToolBox: connect to the first empty tool slot,
-    // creating a new tool_N input when all visible slots are already used.
-    if (conn.targetHandle === '__new__' && tgtNode?.data?.type === 'ToolBox') {
+    // Numbered collectors expose one synthetic socket and turn it into a
+    // persistent tool_N or joint_N port when connected.
+    if (conn.targetHandle === '__new__' && (tgtNode?.data?.type === 'ToolBox' || tgtNode?.data?.type === 'RobotJointList')) {
+      const isJointList = tgtNode.data.type === 'RobotJointList'
+      const expectedType = isJointList ? 'Dict' : 'Fn'
       const fromType = srcNode?.data?.output_types?.[conn.sourceHandle!] ?? 'Any'
-      if (!portsCompatible(fromType, 'Fn')) return
+      if (!portsCompatible(fromType, expectedType)) return
       const existing: string[] = tgtNode.data.inputs ?? []
       const occupied = new Set(
         edges
@@ -2099,15 +2138,15 @@ export const useStore = create<Store>((set, get) => ({
       )
       let portName = existing.find(p => !occupied.has(p))
       if (!portName) {
-        const newPortName = nextToolInputName(existing)
+        const newPortName = isJointList ? nextJointInputName(existing) : nextToolInputName(existing)
         nodes = nodes.map(n =>
           n.id === conn.target
             ? {
                 ...n,
                 data: {
                   ...n.data,
-                  inputs: sortToolInputs([...existing, newPortName]),
-                  input_types: { ...(n.data.input_types ?? {}), [newPortName]: 'Fn' },
+                  inputs: (isJointList ? sortJointInputs : sortToolInputs)([...existing, newPortName]),
+                  input_types: { ...(n.data.input_types ?? {}), [newPortName]: expectedType },
                 },
               }
             : n
@@ -2119,11 +2158,12 @@ export const useStore = create<Store>((set, get) => ({
     }
 
     if (
-      tgtNode?.data?.type === 'ToolBox'
-      && conn.targetHandle?.startsWith('tool_')
+      (tgtNode?.data?.type === 'ToolBox' || tgtNode?.data?.type === 'RobotJointList')
+      && (conn.targetHandle?.startsWith('tool_') || conn.targetHandle?.startsWith('joint_'))
       && !(tgtNode.data.inputs ?? []).includes(conn.targetHandle)
     ) {
-      const nextInputs = sortToolInputs([...(tgtNode.data.inputs ?? []), conn.targetHandle])
+      const isJointList = tgtNode.data.type === 'RobotJointList'
+      const nextInputs = (isJointList ? sortJointInputs : sortToolInputs)([...(tgtNode.data.inputs ?? []), conn.targetHandle])
       nodes = nodes.map(n =>
         n.id === conn.target
           ? {
@@ -2131,7 +2171,7 @@ export const useStore = create<Store>((set, get) => ({
               data: {
                 ...n.data,
                 inputs: nextInputs,
-                input_types: { ...(n.data.input_types ?? {}), [conn.targetHandle!]: 'Fn' },
+                input_types: { ...(n.data.input_types ?? {}), [conn.targetHandle!]: isJointList ? 'Dict' : 'Fn' },
               },
             }
           : n
@@ -2218,9 +2258,11 @@ export const useStore = create<Store>((set, get) => ({
     let srcNode = nodes.find(n => n.id === conn.source)
     let tgtNode = nodes.find(n => n.id === conn.target)
 
-    if (conn.targetHandle === '__new__' && tgtNode?.data?.type === 'ToolBox') {
+    if (conn.targetHandle === '__new__' && (tgtNode?.data?.type === 'ToolBox' || tgtNode?.data?.type === 'RobotJointList')) {
+      const isJointList = tgtNode.data.type === 'RobotJointList'
+      const expectedType = isJointList ? 'Dict' : 'Fn'
       const fromType = srcNode?.data?.output_types?.[conn.sourceHandle] ?? 'Any'
-      if (!portsCompatible(fromType, 'Fn')) return
+      if (!portsCompatible(fromType, expectedType)) return
       const existing: string[] = tgtNode.data.inputs ?? []
       const occupied = new Set(
         edges
@@ -2229,15 +2271,15 @@ export const useStore = create<Store>((set, get) => ({
       )
       let portName = existing.find(p => !occupied.has(p))
       if (!portName) {
-        const newPortName = nextToolInputName(existing)
+        const newPortName = isJointList ? nextJointInputName(existing) : nextToolInputName(existing)
         nodes = nodes.map(n =>
           n.id === conn.target
             ? {
                 ...n,
                 data: {
                   ...n.data,
-                  inputs: [...existing, newPortName],
-                  input_types: { ...(n.data.input_types ?? {}), [newPortName]: 'Fn' },
+                  inputs: (isJointList ? sortJointInputs : sortToolInputs)([...existing, newPortName]),
+                  input_types: { ...(n.data.input_types ?? {}), [newPortName]: expectedType },
                 },
               }
             : n

@@ -50,7 +50,9 @@ _run_store      = RunStore(_RUNS_DIR)
 _save_timer: threading.Timer | None = None
 _SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool", "VisualAgentLoop"}
 _TOOLBOX_NODE_TYPES = {"ToolBox"}
-_DYNAMIC_PORT_TYPES = {*_SUBGRAPH_NODE_TYPES, "SubnetInput", "SubnetOutput", *_TOOLBOX_NODE_TYPES}
+_JOINT_LIST_NODE_TYPES = {"RobotJointList"}
+_NUMBERED_INPUT_NODE_TYPES = {*_TOOLBOX_NODE_TYPES, *_JOINT_LIST_NODE_TYPES}
+_DYNAMIC_PORT_TYPES = {*_SUBGRAPH_NODE_TYPES, "SubnetInput", "SubnetOutput", *_NUMBERED_INPUT_NODE_TYPES}
 _WORKFLOW_KIND = "blacknode.workflow"
 _WORKFLOW_SCHEMA_VERSION = 1
 _SECRET_FIELD_RE = re.compile(r"(api[_-]?key|token|secret|password|credential)", re.I)
@@ -591,6 +593,29 @@ def _sync_toolbox_ports(toolbox_meta: dict, edges: list[dict] | None = None) -> 
     toolbox_meta["input_defaults"] = {}
 
 
+def _joint_port_sort_key(port: str) -> tuple[int, str]:
+    match = re.fullmatch(r"joint_(\d+)", str(port))
+    return (int(match.group(1)), str(port)) if match else (999_999, str(port))
+
+
+def _sync_joint_list_ports(meta: dict, edges: list[dict] | None = None) -> None:
+    """Keep RobotJointList metadata aligned with connected numbered sockets."""
+    fn = _NODE_REGISTRY.get("RobotJointList")
+    inputs = [str(port) for port in list(meta.get("inputs") or []) if str(port).startswith("joint_")]
+    if edges is not None:
+        inputs = sorted({
+            str(edge.get("to_port"))
+            for edge in edges
+            if edge.get("to") == meta.get("id") and str(edge.get("to_port", "")).startswith("joint_")
+        }, key=_joint_port_sort_key)
+    input_types = dict(meta.get("input_types", {}))
+    meta["inputs"] = inputs
+    meta["input_types"] = {port: input_types.get(port, "Dict") for port in inputs}
+    meta["outputs"] = getattr(fn, "_bn_outputs", ["joints", "count", "report"])
+    meta["output_types"] = getattr(fn, "_bn_output_types", {"joints": "List", "count": "Int", "report": "Text"})
+    meta["input_defaults"] = {}
+
+
 def _default_visual_agent_loop_subgraph() -> dict:
     node_meta = {
         "loop_in": {
@@ -879,6 +904,8 @@ def _sync_dynamic_node_meta(meta: dict, edges: list[dict] | None = None) -> bool
         _sync_subgraph_node_ports(meta)
     elif meta.get("type") in _TOOLBOX_NODE_TYPES:
         _sync_toolbox_ports(meta, edges)
+    elif meta.get("type") in _JOINT_LIST_NODE_TYPES:
+        _sync_joint_list_ports(meta, edges)
     changed = before != _meta_fingerprint(meta)
 
     node_id = meta.get("id")
@@ -1095,8 +1122,8 @@ def update_ports(node_id: str, req: UpdatePortsReq):
     if node_id not in _session.node_meta:
         raise HTTPException(404, "Node not found")
     meta = _session.node_meta[node_id]
-    if meta["type"] not in _TOOLBOX_NODE_TYPES:
-        raise HTTPException(400, "Only ToolBox supports editable root ports")
+    if meta["type"] not in _NUMBERED_INPUT_NODE_TYPES:
+        raise HTTPException(400, "This node does not support editable root ports")
 
     if req.inputs is not None:
         meta["inputs"] = req.inputs
@@ -1111,7 +1138,10 @@ def update_ports(node_id: str, req: UpdatePortsReq):
     if req.multi_input_ports is not None:
         meta["multi_input_ports"] = req.multi_input_ports
 
-    _sync_toolbox_ports(meta)
+    if meta["type"] in _TOOLBOX_NODE_TYPES:
+        _sync_toolbox_ports(meta)
+    else:
+        _sync_joint_list_ports(meta)
     _session.graph._mark_dirty(node_id)
     _save()
     return meta
@@ -1139,6 +1169,12 @@ def connect(req: ConnectReq):
             meta["inputs"] = [*inputs, req.to_port]
             meta["input_types"] = {**meta.get("input_types", {}), req.to_port: "Fn"}
         _sync_toolbox_ports(meta)
+    elif meta and meta.get("type") in _JOINT_LIST_NODE_TYPES and req.to_port.startswith("joint_"):
+        inputs = list(meta.get("inputs", []))
+        if req.to_port not in inputs:
+            meta["inputs"] = [*inputs, req.to_port]
+            meta["input_types"] = {**meta.get("input_types", {}), req.to_port: "Dict"}
+        _sync_joint_list_ports(meta)
     _save()
     return {"ok": True}
 
@@ -1153,6 +1189,8 @@ def disconnect(from_id: str, from_port: str, to_id: str, to_port: str):
     meta = _session.node_meta.get(to_id)
     if meta and meta.get("type") in _TOOLBOX_NODE_TYPES:
         _sync_toolbox_ports(meta, _session.graph._edges)
+    elif meta and meta.get("type") in _JOINT_LIST_NODE_TYPES:
+        _sync_joint_list_ports(meta, _session.graph._edges)
     _save()
     return {"ok": True}
 
