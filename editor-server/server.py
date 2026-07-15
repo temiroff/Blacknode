@@ -1112,6 +1112,22 @@ def update_param(node_id: str, req: UpdateParamReq):
     meta["params"][req.key] = req.value
     _session.graph._nodes[node_id]["params"][req.key] = req.value
     _session.graph._mark_dirty(node_id)
+    # A changed input invalidates every visible result derived from it. The
+    # graph cache was already dirtied above; clear persisted node status too so
+    # the editor never continues presenting an old dashboard as current.
+    invalidated = {node_id}
+    pending = [node_id]
+    while pending:
+        current = pending.pop()
+        for edge in _session.graph._edges:
+            target = str(edge.get("to") or "")
+            if edge.get("from") == current and target and target not in invalidated:
+                invalidated.add(target)
+                pending.append(target)
+    for invalidated_id in invalidated:
+        invalidated_meta = _session.node_meta.get(invalidated_id)
+        if invalidated_meta is not None:
+            _clear_runtime_status(invalidated_meta)
     _push_live_node_param_update(meta, req.key, req.value, old_params)
     _save()
     return meta
