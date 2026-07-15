@@ -1016,7 +1016,7 @@ export default function App() {
   )).length
   const managedRunCount = nodes.filter(n => n.data.type === 'ROS2Run' && n.data.portResults?.running === true).length
   const controllerCount = nodes.filter(n => (
-    n.data.type === 'ROS2ContinuousFollowDetectionJoint' && n.data.portResults?.running === true
+    (n.data.type === 'ROS2ContinuousFollowDetectionJoint' || n.data.type === 'ROS2LeaderFollower') && n.data.portResults?.running === true
   )).length
   const manualMoveCount = nodes.filter(n => n.data.type === 'ROS2ManualMove' && n.data.portResults?.live === true).length
   const liveDashboardCount = nodes.filter(n => n.data.type === 'ROS2MotionDashboard' && n.data.portResults?.live === true).length
