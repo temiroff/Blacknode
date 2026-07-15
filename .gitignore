@@ -47,6 +47,7 @@ editor-server/custom_models.json
 editor-server/runs/
 editor-server/.driver-*.json
 /trajectories/
+/robots/
 /workflows/
 /nodes/learned/*
 !/nodes/learned/.gitkeep

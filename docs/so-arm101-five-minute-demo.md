@@ -103,3 +103,19 @@ claim easier to understand.
 
 Do not advance to remote deployment until this path is repeatable from a clean
 checkout and can be recorded without manual recovery steps.
+
+## Turn the Preset into Your Robot
+
+After the five-minute demo works, open **Editable SO-ARM101 Profile**. It shows
+the SO-ARM101 as ordinary visual joint definitions rather than an opaque preset.
+Rename the profile, change the joint list and provisional properties, then save
+it. Use **Robot Guided Calibration** to release torque, record each joint's
+intended physical range, capture a home pose, and save a safety-margined
+calibration for that connected hardware ID.
+
+The reusable definition lives at `robots/<profile_id>/profile.json`; measured
+values live separately at
+`robots/<profile_id>/calibrations/<hardware_id>.json`. This lets two assemblies
+share a logical robot profile without incorrectly sharing mechanical zeroes or
+limits. A new bus protocol still needs a protocol driver, but another arm using
+an existing protocol can be described without editing package source.
