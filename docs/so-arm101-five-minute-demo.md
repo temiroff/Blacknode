@@ -27,11 +27,15 @@ otherwise it prepares the local rosbridge service automatically.
 4. Confirm the generic `Robot` dropdown is set to `so_arm101`. Its hardware
    input is already connected to USB discovery, so a saved device calibration
    is selected automatically.
+   If you select a different saved profile, Blacknode clears the old dashboard;
+   press **Run** to safely replace the running driver and apply that profile.
 5. Keep `ROS2SetJoint.armed` set to `false`.
 6. Press **Run**.
 7. Inspect **Robot Connection Dashboard**. USB, driver, ROS 2, and live state
    should all show ready. The joint table shows live positions, home references,
    safe ranges, and whether they came from saved calibration or profile defaults.
+   `PROFILE DEFAULTS` means calibration was not saved for the displayed profile
+   and hardware ID; it does not mean a recording session completed successfully.
 8. Clear the workspace. Set `joint` to `shoulder_pan`, choose a small target
    close to the current value, and only then set `armed=true`.
 9. Cook the final output once. Confirm the motion dashboard shows the before,

@@ -380,6 +380,18 @@ function clearReplayData(data: NodeData): NodeData {
   return rest
 }
 
+function clearCookResults(data: NodeData): NodeData {
+  const {
+    cookResult: _cookResult,
+    cookError: _cookError,
+    cooking: _cooking,
+    cookPort: _cookPort,
+    portResults: _portResults,
+    ...rest
+  } = clearReplayData(data)
+  return rest
+}
+
 function clearRuntimeNodeData(data: NodeData): NodeData {
   const base = { ...data, cooking: false, cookError: undefined }
   if (
@@ -2629,6 +2641,20 @@ export const useStore = create<Store>((set, get) => ({
   updateParam: async (id, key, value) => {
     const node = get().nodes.find(n => n.id === id)
     if (!node || node.data.params?.[key] === value) return
+    const profileChanged = node.data.type === 'Robot' && key === 'profile_id'
+    const invalidated = new Set<string>([id])
+    if (profileChanged) {
+      const pending = [id]
+      while (pending.length > 0) {
+        const source = pending.pop()!
+        get().edges.forEach(edge => {
+          if (edge.source === source && !invalidated.has(edge.target)) {
+            invalidated.add(edge.target)
+            pending.push(edge.target)
+          }
+        })
+      }
+    }
     set(s => pushUndoSnapshot(s))
     // Apply the local param optimistically before awaiting the backend PATCH
     // (rather than after) so displayed state always reflects the latest
@@ -2636,12 +2662,27 @@ export const useStore = create<Store>((set, get) => ({
     // can be in flight at once (e.g. rapid edits), and network responses
     // aren't guaranteed to resolve in call order.
     set(s => ({
-      nodes: s.nodes.map(n =>
-        n.id === id ? { ...n, data: { ...n.data, params: { ...n.data.params, [key]: value } } } : n
-      ),
+      nodes: s.nodes.map(n => {
+        if (n.id === id) {
+          const data = { ...n.data, params: { ...n.data.params, [key]: value } }
+          return { ...n, data: profileChanged ? clearCookResults(data) : data }
+        }
+        return profileChanged && invalidated.has(n.id)
+          ? { ...n, data: clearCookResults(n.data) }
+          : n
+      }),
       ...markActiveTabDirty(s),
     }))
     await api.updateParam(id, key, value)
+    if (profileChanged) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'info',
+          title: 'Robot profile changed',
+          message: 'Previous dashboard values were cleared. Press Run to safely restart the driver with this profile and refresh all downstream nodes.',
+        },
+      }))
+    }
   },
 
   cookNode: async (id, port = 'output', graphTargets, runMode = 'once') => {
