@@ -147,6 +147,9 @@ or type error, inspect `get_node_schema` and fix the graph instead of guessing.
   Recording observes hand-guided extrema; it never commands motion. Capture an
   explicit home pose, observe every configured joint, and keep a positive
   safety margin inside the physical extrema before saving.
+- Calibration recording may be paused without discarding samples. Keep current
+  pose and downstream Output values live while paused, but do not expand the
+  observed extrema until recording resumes.
 - Feed discovery hardware identity into `Robot` and
   `RobotCalibrationRecorder` so the matching device calibration is selected.
   Never replace a missing hardware identity with a generic shared calibration.

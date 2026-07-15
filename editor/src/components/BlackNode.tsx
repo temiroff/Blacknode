@@ -327,7 +327,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [streamStopPending, setStreamStopPending] = useState(false)
   const [rosRunStopPending, setRosRunStopPending] = useState(false)
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
-  const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'capture_home' | 'finish' | 'cancel'>(null)
+  const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
   const isToolBox   = data.type === 'ToolBox'
@@ -387,10 +387,13 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     && holdSelected
     && data.portResults?.torque_enabled === false
   const calibrationActive = isRobotCalibration && data.portResults?.active === true
+  const calibrationState = isRobotCalibration ? String(data.portResults?.state ?? 'idle') : 'idle'
+  const calibrationPaused = calibrationState === 'paused'
+  const calibrationDataReady = isRobotCalibration && data.portResults?.data_ready === true
   const calibrationSamples = isRobotCalibration && typeof data.portResults?.samples === 'number'
     ? data.portResults.samples
     : 0
-  const calibrationSaved = isRobotCalibration && data.portResults?.saved === true
+  const calibrationSaved = isRobotCalibration && (data.portResults?.saved === true || calibrationState === 'saved')
   const genericNodeLive = data.live_capable === true && data.portResults?.live === true && !manualMoveLive && !streamActive
   const snapshotResult = data.live_capable === true
     && !streamActive
@@ -522,7 +525,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     }
   }
 
-  const runCalibrationAction = async (action: 'start' | 'capture_home' | 'finish' | 'cancel') => {
+  const runCalibrationAction = async (action: 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel') => {
     if (calibrationPending) return
     if (action === 'start' && !window.confirm(
       'Support the robot and release motor torque before calibration. Calibration records hand-moved positions and never commands motion. Continue?'
@@ -930,45 +933,53 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       {isRobotCalibration && (
         <div style={{
           margin: '7px 9px 3px', padding: 8, borderRadius: 7,
-          border: `1px solid ${calibrationActive ? 'var(--warn)' : calibrationSaved ? 'var(--ok)' : 'var(--line)'}`,
+          border: `1px solid ${calibrationActive ? 'var(--warn)' : calibrationPaused ? 'var(--accent)' : calibrationSaved ? 'var(--ok)' : 'var(--line)'}`,
           background: calibrationActive ? 'rgba(245,158,11,.08)' : 'rgba(255,255,255,.02)',
         }}>
           <div style={{
-            marginBottom: 7, color: calibrationActive ? 'var(--warn)' : calibrationSaved ? 'var(--ok)' : 'var(--tx2)',
+            marginBottom: 7, color: calibrationActive ? 'var(--warn)' : calibrationPaused ? 'var(--accent)' : calibrationSaved ? 'var(--ok)' : 'var(--tx2)',
             fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
           }}>
-            {calibrationActive ? `● RECORDING · ${calibrationSamples} samples` : calibrationSaved ? '✓ CALIBRATION SAVED' : '○ CALIBRATION IDLE'}
+            {calibrationActive ? `● RECORDING LIVE · ${calibrationSamples} samples` : calibrationPaused ? `Ⅱ RECORDING PAUSED · ${calibrationSamples} samples` : calibrationSaved ? '✓ CALIBRATION SAVED' : '○ CALIBRATION IDLE'}
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button
-              disabled={Boolean(calibrationPending)}
+              disabled={Boolean(calibrationPending) || calibrationActive}
               title="Start recording observed positions. Torque must already be released."
               onClick={e => { e.stopPropagation(); void runCalibrationAction('start') }}
-              style={driverBtn('var(--warn)', Boolean(calibrationPending))}
+              style={driverBtn('var(--warn)', Boolean(calibrationPending) || calibrationActive)}
             >
-              {calibrationPending === 'start' ? 'Starting…' : 'Start recording'}
+              {calibrationPending === 'start' ? 'Starting…' : calibrationPaused ? 'Resume recording' : 'Start recording'}
             </button>
             <button
               disabled={Boolean(calibrationPending) || !calibrationActive}
+              title="Pause range recording without discarding samples; live pose continues"
+              onClick={e => { e.stopPropagation(); void runCalibrationAction('pause') }}
+              style={driverBtn('var(--accent)', Boolean(calibrationPending) || !calibrationActive)}
+            >
+              {calibrationPending === 'pause' ? 'Stopping…' : 'Stop recording'}
+            </button>
+            <button
+              disabled={Boolean(calibrationPending) || !calibrationDataReady}
               title="Capture the current released pose as the neutral Home pose"
               onClick={e => { e.stopPropagation(); void runCalibrationAction('capture_home') }}
-              style={driverBtn('var(--accent)', Boolean(calibrationPending) || !calibrationActive)}
+              style={driverBtn('var(--accent)', Boolean(calibrationPending) || !calibrationDataReady)}
             >
               {calibrationPending === 'capture_home' ? 'Capturing…' : 'Capture Home'}
             </button>
             <button
-              disabled={Boolean(calibrationPending) || !calibrationActive}
+              disabled={Boolean(calibrationPending) || !calibrationDataReady}
               title="Review and save observed and safe ranges for this hardware serial"
               onClick={e => { e.stopPropagation(); void runCalibrationAction('finish') }}
-              style={driverBtn('var(--ok)', Boolean(calibrationPending) || !calibrationActive)}
+              style={driverBtn('var(--ok)', Boolean(calibrationPending) || !calibrationDataReady)}
             >
               {calibrationPending === 'finish' ? 'Saving…' : 'Save calibration'}
             </button>
             <button
-              disabled={Boolean(calibrationPending) || !calibrationActive}
+              disabled={Boolean(calibrationPending) || (!calibrationActive && !calibrationPaused)}
               title="Discard this unsaved calibration session"
               onClick={e => { e.stopPropagation(); void runCalibrationAction('cancel') }}
-              style={driverBtn('var(--err)', Boolean(calibrationPending) || !calibrationActive)}
+              style={driverBtn('var(--err)', Boolean(calibrationPending) || (!calibrationActive && !calibrationPaused))}
             >
               Cancel
             </button>
