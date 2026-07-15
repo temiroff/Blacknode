@@ -6,6 +6,7 @@ import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { headerColor } from '../categories'
 import { isWireOnlyInput } from '../inputControls'
+import { copyTextToClipboard } from '../clipboard'
 import NodeFrame from './NodeFrame'
 import type { NodeCookState } from '../types'
 
@@ -73,10 +74,13 @@ function PortRow({
   onRemove?: () => void
 }) {
   const [hovering, setHovering] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
+  const [copyMenu, setCopyMenu] = useState<{ x: number; y: number } | null>(null)
   const closeTimer = useRef<number | null>(null)
   const color   = portColor(type)
   const isInput = dir === 'input'
   const resultText = result !== undefined ? formatPortValue(result) : ''
+  const popupText = `${dir} · ${name} · ${type}${resultText ? `\n${resultText}` : ''}`
 
   const openTooltip = () => {
     if (closeTimer.current !== null) {
@@ -85,11 +89,29 @@ function PortRow({
     }
     setHovering(true)
   }
+  const copyPort = async () => {
+    try {
+      await copyTextToClipboard(resultText || popupText)
+      setCopyState('copied')
+      setCopyMenu(null)
+      window.setTimeout(() => setCopyState('idle'), 1200)
+    } catch (err) {
+      setCopyState('error')
+      console.error('Failed to copy port value', err)
+    }
+  }
+  const openCopyMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    openTooltip()
+    setCopyMenu({ x: e.clientX, y: e.clientY })
+  }
   const closeTooltipSoon = () => {
     if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null
       setHovering(false)
+      setCopyMenu(null)
     }, 220)
   }
 
@@ -114,6 +136,7 @@ function PortRow({
         id={name}
         onMouseEnter={openTooltip}
         onMouseLeave={closeTooltipSoon}
+        onContextMenu={openCopyMenu}
         style={{
           [isInput ? 'left' : 'right']: -5,
           background: color,
@@ -159,6 +182,7 @@ function PortRow({
           onMouseLeave={closeTooltipSoon}
           onMouseDown={e => e.stopPropagation()}
           onClick={e => e.stopPropagation()}
+          onContextMenu={openCopyMenu}
           style={{
             position: 'absolute',
             bottom: '100%',
@@ -174,16 +198,39 @@ function PortRow({
             userSelect: 'text',
           }}
         >
-          <div style={{
-            fontSize: 11,
-            color,
-            fontFamily: 'var(--font-ui)',
-            fontWeight: 700,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            marginBottom: resultText ? 6 : 0,
-          }}>
-            {dir} · {name} · {type}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: resultText ? 6 : 0 }}>
+            <div style={{
+              minWidth: 0,
+              flex: 1,
+              fontSize: 11,
+              color,
+              fontFamily: 'var(--font-ui)',
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}>
+              {dir} · {name} · {type}
+            </div>
+            {resultText && (
+              <button
+                type="button"
+                onMouseDown={e => e.stopPropagation()}
+                onClick={e => { e.stopPropagation(); void copyPort() }}
+                style={{
+                  flex: '0 0 auto',
+                  padding: '3px 7px',
+                  borderRadius: 5,
+                  border: '1px solid var(--border)',
+                  background: 'var(--panel2)',
+                  color: copyState === 'error' ? 'var(--err)' : copyState === 'copied' ? 'var(--ok)' : 'var(--tx1)',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  fontFamily: 'var(--font-ui)',
+                }}
+              >
+                {copyState === 'copied' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy value'}
+              </button>
+            )}
           </div>
           {resultText && (
             <div
@@ -198,6 +245,46 @@ function PortRow({
               }}
             >
               {resultText}
+            </div>
+          )}
+          {copyMenu && (
+            <div
+              className="nodrag"
+              onMouseEnter={openTooltip}
+              onMouseDown={e => e.stopPropagation()}
+              onClick={e => e.stopPropagation()}
+              onContextMenu={e => { e.preventDefault(); e.stopPropagation() }}
+              style={{
+                position: 'fixed',
+                top: copyMenu.y,
+                left: copyMenu.x,
+                zIndex: 1000,
+                minWidth: 150,
+                padding: 4,
+                borderRadius: 7,
+                border: '1px solid var(--border)',
+                background: 'var(--panel)',
+                boxShadow: '0 8px 24px rgba(0,0,0,.4)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => { void copyPort() }}
+                style={{
+                  width: '100%',
+                  padding: '6px 9px',
+                  border: 'none',
+                  borderRadius: 5,
+                  background: 'transparent',
+                  color: 'var(--tx1)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  fontSize: 12,
+                  fontFamily: 'var(--font-ui)',
+                }}
+              >
+                Copy value
+              </button>
             </div>
           )}
         </div>
@@ -221,6 +308,13 @@ const previewImg: React.CSSProperties = {
   minWidth: 0,
   minHeight: 0,
   objectFit: 'contain',
+  display: 'block',
+}
+
+const widthFitResultImg: React.CSSProperties = {
+  width: '100%',
+  height: 'auto',
+  minWidth: 0,
   display: 'block',
 }
 
@@ -328,6 +422,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [rosRunStopPending, setRosRunStopPending] = useState(false)
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
+  const dashboardAutoFitDone = useRef(false)
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
   const isToolBox   = data.type === 'ToolBox'
@@ -561,6 +656,53 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     })
     requestAnimationFrame(() => updateNodeInternals(id))
   }
+
+  const fitResultToNodeWidth = (image: HTMLImageElement) => {
+    if (dashboardAutoFitDone.current || !image.naturalWidth || !image.naturalHeight) return
+    requestAnimationFrame(() => {
+      if (dashboardAutoFitDone.current || !image.isConnected) return
+      const frame = image.closest<HTMLElement>(`[data-bn-node-frame="${id}"]`)
+      const dashboard = image.closest<HTMLElement>('[data-bn-dashboard-result]')
+      if (!frame || !dashboard) return
+      const currentNode = nodes.find(node => node.id === id)
+      const styledWidth = typeof currentNode?.style?.width === 'number' ? currentNode.style.width : undefined
+      const styledHeight = typeof currentNode?.style?.height === 'number' ? currentNode.style.height : undefined
+      const frameRect = frame.getBoundingClientRect()
+      const dashboardRect = dashboard.getBoundingClientRect()
+      const imageRect = image.getBoundingClientRect()
+      const dashboardStyle = window.getComputedStyle(dashboard)
+      const frameStyle = window.getComputedStyle(frame)
+      const dashboardPaddingBottom = Number.parseFloat(dashboardStyle.paddingBottom) || 0
+      const frameBorderBottom = Number.parseFloat(frameStyle.borderBottomWidth) || 0
+      const nodeWidth = Math.max(160, currentNode?.width ?? styledWidth ?? Math.ceil(frameRect.width))
+      const currentHeight = currentNode?.height ?? styledHeight ?? Math.ceil(frameRect.height)
+      const canvasScale = frameRect.width > 0 ? frameRect.width / nodeWidth : 1
+
+      // DOM rectangles are in zoomed screen pixels, while React Flow node
+      // dimensions are unscaled graph pixels. Convert the image's top/width
+      // back to graph space, then use its natural aspect ratio for an exact
+      // required height even when the current flex box is compressed.
+      const imageTop = (imageRect.top - frameRect.top) / canvasScale
+      const imageWidth = imageRect.width / canvasScale
+      const requiredImageHeight = imageWidth * image.naturalHeight / image.naturalWidth
+      const measuredDashboardBottom = (dashboardRect.bottom - frameRect.top) / canvasScale
+      const aspectRatioBottom = imageTop + requiredImageHeight + dashboardPaddingBottom
+      const targetHeight = Math.max(
+        60,
+        Math.ceil(Math.max(measuredDashboardBottom, aspectRatioBottom) + frameBorderBottom),
+      )
+
+      dashboardAutoFitDone.current = true
+      if (Math.abs(currentHeight - targetHeight) >= 3) {
+        resizeNode(id, { width: nodeWidth, height: targetHeight })
+        requestAnimationFrame(() => updateNodeInternals(id))
+      }
+    })
+  }
+
+  useEffect(() => {
+    if (!showImageResult) dashboardAutoFitDone.current = false
+  }, [showImageResult])
 
   useEffect(() => {
     updateNodeInternals(id)
@@ -1006,7 +1148,13 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       )}
 
       {/* ports */}
-      <div style={{ flex: 1, padding: '6px 0', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div style={{
+        flex: showImageResult ? '0 0 auto' : 1,
+        padding: '6px 0',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+      }}>
         {(isToolBox || isRobotJointList) && (
           <div style={{
             position: 'relative',
@@ -1076,14 +1224,17 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           />
         ))}
         {showImageResult && (
-          <div style={imageResultWrap}>
-            <div style={imagePreviewFrame}>
+          <div data-bn-dashboard-result style={{ ...imageResultWrap, flex: '0 0 auto', width: '100%', boxSizing: 'border-box' }}>
+            <div style={{ ...imagePreviewFrame, height: 'auto' }}>
               <img
                 src={showImageResult}
                 alt="result"
                 draggable={false}
-                style={previewImg}
+                style={widthFitResultImg}
                 onDragStart={e => e.preventDefault()}
+                onLoad={e => {
+                  fitResultToNodeWidth(e.currentTarget)
+                }}
                 onDoubleClick={e => {
                   e.stopPropagation()
                   fitNodeToImage(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)

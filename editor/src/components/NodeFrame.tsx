@@ -53,6 +53,7 @@ export default function NodeFrame({
 
   return (
     <div
+      data-bn-node-frame={id}
       onClick={() => selectNode(id)}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}

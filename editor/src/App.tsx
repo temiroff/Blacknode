@@ -22,6 +22,7 @@ import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
 import { api, type FrameworkExportTarget } from './api'
 import { inferGraphRunTargets } from './graphRun'
+import { copyTextToClipboard } from './clipboard'
 
 const NODE_TYPES = {
   blacknode: BlackNode,
@@ -1404,7 +1405,7 @@ export default function App() {
                 <button
                   className="bn-menu-item"
                   style={menuItemStyle(false, 'var(--err)')}
-                  onClick={() => { void copyToClipboard(String(data.cookError)); setNodeMenu(null) }}
+                  onClick={() => { void copyTextToClipboard(String(data.cookError)); setNodeMenu(null) }}
                 >
                   Copy error
                 </button>
@@ -1412,7 +1413,7 @@ export default function App() {
               <button
                 className="bn-menu-item"
                 style={menuItemStyle()}
-                onClick={() => { void copyToClipboard(menuNode.id); setNodeMenu(null) }}
+                onClick={() => { void copyTextToClipboard(menuNode.id); setNodeMenu(null) }}
               >
                 Copy node ID
               </button>
@@ -1970,7 +1971,7 @@ async function copyValueToClipboard(value: unknown): Promise<void> {
     await copyImageToClipboard(value)
     return
   }
-  await copyToClipboard(stringifyValue(value))
+  await copyTextToClipboard(stringifyValue(value))
 }
 
 async function copyImageToClipboard(dataUrl: string): Promise<void> {
@@ -1981,23 +1982,6 @@ async function copyImageToClipboard(dataUrl: string): Promise<void> {
   const blob = await res.blob()
   const type = blob.type || 'image/png'
   await navigator.clipboard.write([new ClipboardItem({ [type]: blob })])
-}
-
-async function copyToClipboard(text: string): Promise<void> {
-  if (!text) return
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.left = '-9999px'
-  document.body.appendChild(ta)
-  ta.focus()
-  ta.select()
-  document.execCommand('copy')
-  document.body.removeChild(ta)
 }
 
 function cookEntryColor(kind: CookLogEntry['kind']): string {
