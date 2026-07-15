@@ -67,6 +67,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "RobotDriverDescriptor",
             "RobotDriverLauncher",
             "RobotDriverPreset",
+            "Robot",
             "RobotJointDefinition",
             "RobotJointList",
             "RobotDefinition",

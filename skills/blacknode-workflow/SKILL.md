@@ -130,6 +130,9 @@ or type error, inspect `get_node_schema` and fix the graph instead of guessing.
 
 ## Robot Profile and Calibration Semantics
 
+- Use the generic `Robot` selector in new workflows. Built-in and saved profiles
+  appear in its dropdown; `RobotDriverPreset` and `RobotProfileLoad` are hidden
+  compatibility names for existing graphs.
 - Build custom robots with `RobotJointDefinition` → `RobotJointList` →
   `RobotDefinition` → `RobotProfileSave`. Prefer duplicating a built-in profile
   with `RobotProfileDuplicate` when it is a close mechanical starting point.
@@ -144,9 +147,13 @@ or type error, inspect `get_node_schema` and fix the graph instead of guessing.
   Recording observes hand-guided extrema; it never commands motion. Capture an
   explicit home pose, observe every configured joint, and keep a positive
   safety margin inside the physical extrema before saving.
-- Feed discovery hardware identity into `RobotProfileLoad` and
+- Feed discovery hardware identity into `Robot` and
   `RobotCalibrationRecorder` so the matching device calibration is selected.
   Never replace a missing hardware identity with a generic shared calibration.
+- USB VID/PID values come from discovery and may filter adapter models; they are
+  not random user-assigned IDs. The USB serial or device path identifies the
+  physical assembly for calibration. Leave manual identity overrides blank in
+  ordinary workflows.
 - Base-profile limits are provisional until the physical assembly is calibrated.
   Do not discover limits by driving an armed joint into a hard stop.
 
