@@ -393,6 +393,13 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const calibrationSamples = isRobotCalibration && typeof data.portResults?.samples === 'number'
     ? data.portResults.samples
     : 0
+  const calibrationCapturingJoint = isRobotCalibration ? String(data.portResults?.capturing_joint ?? '') : ''
+  const calibrationRangeUpdates = isRobotCalibration && data.portResults?.range_updates && typeof data.portResults.range_updates === 'object'
+    ? data.portResults.range_updates as Record<string, { kind?: string; at?: number }>
+    : {}
+  const latestCalibrationRangeUpdate = Object.entries(calibrationRangeUpdates)
+    .filter(([, update]) => Date.now() / 1000 - Number(update?.at ?? 0) <= 1.5)
+    .sort(([, a], [, b]) => Number(b?.at ?? 0) - Number(a?.at ?? 0))[0]
   const calibrationSaved = isRobotCalibration && (data.portResults?.saved === true || calibrationState === 'saved')
   const genericNodeLive = data.live_capable === true && data.portResults?.live === true && !manualMoveLive && !streamActive
   const snapshotResult = data.live_capable === true
@@ -942,6 +949,14 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           }}>
             {calibrationActive ? `● RECORDING LIVE · ${calibrationSamples} samples` : calibrationPaused ? `Ⅱ RECORDING PAUSED · ${calibrationSamples} samples` : calibrationSaved ? '✓ CALIBRATION SAVED' : '○ CALIBRATION IDLE'}
           </div>
+          {calibrationActive && (calibrationCapturingJoint || latestCalibrationRangeUpdate) && (
+            <div style={{ margin: '-3px 0 7px', color: 'var(--accent)', fontFamily: 'var(--font-ui)', fontSize: 9, fontWeight: 700 }}>
+              {calibrationCapturingJoint ? `CAPTURING ${calibrationCapturingJoint}` : ''}
+              {latestCalibrationRangeUpdate
+                ? `${calibrationCapturingJoint ? ' · ' : ''}${latestCalibrationRangeUpdate[0]} ${String(latestCalibrationRangeUpdate[1]?.kind ?? 'range').toUpperCase()} UPDATED`
+                : ''}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button
               disabled={Boolean(calibrationPending) || calibrationActive}
