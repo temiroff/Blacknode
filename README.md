@@ -4,8 +4,8 @@
 
 **A visual runtime for AI, GPU computing, and robotics.**
 
-**Blacknode already detects, launches, monitors, and safely controls a real
-robot. The next step is deploying that same visual workflow to any robot.**
+**Blacknode detects, launches, monitors, and safely controls supported robots
+through the same visible workflow runtime used for AI and GPU tasks.**
 
 Blacknode turns agent intent and user ideas into typed, visible, runnable
 workflows. Agents get a structured control surface through MCP, HTTP, and
@@ -18,9 +18,9 @@ AI-Q/NeMo Agent Toolkit workflow paths built in.
 
 Blacknode stays generic at the core, while extension packages add first-class
 systems for CUDA, ROS 2, robot vision, local/hosted models, simulation, and
-hardware-specific robots. The long-term goal is visual-first embodied AI:
-prototype with graphs, inspect every edge, then deploy the same behavior to a
-local process, workstation, Jetson, robot, simulator, or cloud runtime.
+hardware-specific robots. Together they support visual-first embodied AI:
+prototype with graphs, inspect every edge, and run the same behavior in a local
+process, workstation, Jetson, robot, simulator, or cloud runtime.
 
 <table>
   <tr>
@@ -55,9 +55,10 @@ It shows the exact commands to run, buttons to press, templates to open, results
 to expect, NVIDIA NIM paths, MCP setup, framework export, Docker Compose,
 custom nodes, run history, and troubleshooting.
 
-## Connect a Robot in Five Minutes
+## Connect an SO-ARM101
 
-The shortest embodied-AI demo is a real SO-ARM101, not a simulated fleet:
+The SO-ARM101 workflow covers discovery, driver startup, live state, bounded
+movement, and shutdown:
 
 ```text
 Plug in SO-ARM101
@@ -68,15 +69,14 @@ Plug in SO-ARM101
   → Stop all safely
 ```
 
-The **SO-ARM101 Motion Test** template now includes one connection dashboard
+The **SO-ARM101 Motion Test** template includes one connection dashboard
 for USB, driver, ROS 2, and live-pose readiness. Motion remains disarmed until
-the operator explicitly enables it. After that path works, the shipped cube
-follow workflow turns the shoulder toward a colored cube using a USB camera,
-OpenCV tracking, and a safety-gated ROS 2 controller.
+the operator explicitly enables it. The shipped cube-follow workflow can turn
+the shoulder toward a colored cube using a USB camera, OpenCV tracking, and a
+safety-gated ROS 2 controller.
 
-Use the [five-minute SO-ARM101 demo guide](docs/so-arm101-five-minute-demo.md)
-for setup, the 60–90 second recording shot list, expected proof, safety gates,
-and the visual-follow follow-up.
+Use the [SO-ARM101 quickstart](docs/so-arm101-quickstart.md) for setup, safety
+checks, controlled movement, shutdown, and the visual-follow workflow.
 
 ## Why Blacknode
 
@@ -111,7 +111,7 @@ or missing package never breaks the core. Manage everything from the editor's
 | GPU/CUDA blocks | Real CUDA kernels, custom NVRTC-compiled kernels, GPU image nodes, and capability/preflight nodes that run on your local NVIDIA GPU — shipped as the [blacknode-cuda](https://github.com/temiroff/blacknode-cuda) extension package. | [NVIDIA GPU Blocks](docs/nvidia-gpu-blocks.md) |
 | Local chat agents | Control a local Blacknode workflow through Telegram long polling or Slack Socket Mode, with editor start/stop, live status, tools, images, and replay. | [Local Telegram Agent](docs/telegram-nim-demo.md), [Slack Agent](docs/slack-nim-demo.md) |
 | Typed ports and validation | Text, Int, Float, Bool, List, Dict, Embedding, Fn, Model, Number, Any, cycle checks, and MCP repair suggestions. | [Workflow Schema](docs/workflow-schema.md), [Agent Skill](.agents/skills/blacknode-workflow/SKILL.md) |
-| Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md), [Presentation Checklist](docs/presentation-checklist.md) |
+| Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md) |
 | Custom nodes | Persistent editor-created nodes, Python decorator nodes, auto-discovery, and community node packs. | [Custom Nodes](docs/custom-nodes.md) |
 | Extension packages | Modular node libraries in separate git repos (`blacknode-cuda`, ...) cloned into `packages/` — install, remove, or write your own without touching the core app. | [Extension Packages](docs/packages.md) |
 | Robotics and vision packages | Generic USB/driver setup through `blacknode-robot`, native/rosbridge ROS 2 transport/control through `blacknode-ros2`, and camera/CV2/VLM reasoning through `blacknode-vision`. | [Extension Packages](docs/packages.md) |
@@ -156,7 +156,6 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | Guide | Use it for |
 |---|---|
 | [Beginner Walkthrough](docs/walkthrough.md) | Step-by-step setup, editor use, CLI checks, NVIDIA workflows, MCP, Docker, and troubleshooting. |
-| [Presentation Checklist](docs/presentation-checklist.md) | Fast demo order with actions, expected proof, and feature checkpoints. |
 | [MCP Quickstart](docs/quickstart-mcp.md) | Connecting Blacknode to an MCP client. |
 | [MCP Test Prompts](docs/mcp-test-prompts.md) | Copy-paste prompts for proving agent workflow control. |
 
@@ -164,10 +163,10 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 
 | Guide | Use it for |
 |---|---|
-| [NVIDIA NIM Demo](docs/nvidia-nim-demo.md) | Hosted NVIDIA NIM demo path through MCP and the editor. |
+| [NVIDIA NIM Quickstart](docs/nvidia-nim-demo.md) | Run a hosted NVIDIA NIM workflow through MCP and the editor. |
 | [NVIDIA Mission Control](docs/nvidia-mission-control.md) | NVIDIA nodes, templates, local readiness, local NIM launch, and benchmark flow. |
 | [NVIDIA Visual RAG Comparator](docs/nvidia-visual-rag.md) | Compare original and Q2E retrieval with NVIDIA embeddings, reranking, cited answers, and run replay. |
-| [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) | Positioning Blacknode beside AI-Q and using streamable HTTP MCP. |
+| [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) | Connect AI-Q or NeMo Agent Toolkit to Blacknode over streamable HTTP MCP. |
 
 ### Deployment
 
@@ -226,7 +225,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | `templates/` | Tracked starter workflows. |
 | `packages/` | Extension packages — separate git repos cloned in place (e.g. `blacknode-cuda`). |
 | `workflows/` | Local saved workflows, ignored by git. |
-| `docs/` | Walkthroughs, integration guides, workflow schema, and demo assets. |
+| `docs/` | Walkthroughs, integration guides, workflow schema, and example assets. |
 | `docker-compose.yml` | Self-hosted editor, backend, and streamable HTTP MCP stack. |
 | `crates/` | Rust crates and no-server CLI. |
 
