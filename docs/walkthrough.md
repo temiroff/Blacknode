@@ -616,9 +616,9 @@ OPENAI_API_KEY
 ANTHROPIC_API_KEY
 ```
 
-## Feature Checklist
+## Feature Reference
 
-Use this as the demo checklist:
+Use this table to locate each major feature after completing the walkthrough:
 
 | Feature | Where to try it |
 |---|---|

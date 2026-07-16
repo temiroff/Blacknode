@@ -5,7 +5,7 @@ enterprise agent orchestration. Blacknode gives the same agent stack a typed
 visual workflow editor, validator, live editor surface, run replay, and Python
 export path.
 
-Positioning:
+Integration model:
 
 > Agent harnesses can research, code, and reason. Blacknode gives them a typed
 > visual workflow editor through MCP.
@@ -77,37 +77,6 @@ skills/blacknode-workflow/SKILL.md
 Use this skill when an agent needs to create, validate, run, visualize, debug,
 or export Blacknode workflows. The skill points agents to the MCP tools and the
 NVIDIA templates.
-
-## Demo Script
-
-60-second integration demo:
-
-1. Start Blacknode:
-
-   ```powershell
-   .\docker-up.ps1
-   ```
-
-2. Start AI-Q or another harness with access to the Blacknode skill and MCP
-   endpoint.
-
-3. Prompt:
-
-   ```text
-   Use AI-Q to research how NVIDIA NIM, NeMo Retriever, and MCP fit into an
-   enterprise agent stack. Then use Blacknode to visualize the recommended
-   pipeline as a workflow graph and open it in the editor.
-   ```
-
-4. The harness performs research through AI-Q.
-
-5. The harness uses Blacknode MCP tools to open
-   `nvidia-video-intelligence-mission-control`, `nvidia-ai-mission-control`, or
-   build a custom graph from the research result.
-
-6. Blacknode shows the visual workflow, validation report, and run replay.
-
-7. Export the workflow to Python as the handoff artifact.
 
 ## Included Integration Surface
 

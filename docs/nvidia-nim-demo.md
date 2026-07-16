@@ -1,12 +1,12 @@
-# NVIDIA NIM Demo
+# NVIDIA NIM Quickstart
 
-This page is the short public demo path for showing Blacknode with NVIDIA NIM through the existing Python runtime and MCP tools.
+This page is a quickstart for running NVIDIA NIM through Blacknode's Python runtime and MCP tools.
 
-Demo video:
+Example video:
 
 https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2
 
-## What It Shows
+## What It Includes
 
 - A visual workflow assembled and operated through MCP.
 - Typed nodes for prompt, system message, model, token limit, temperature, LLM call, and output.
@@ -77,7 +77,7 @@ Or use the Rust no-server path:
 cargo run -p blacknode-cli -- run-pure templates\text-pipeline.json
 ```
 
-## Demo Coverage
+## Covered Components
 
-This demo covers the workflow format, MCP tools, visual editor, NVIDIA NIM
+This quickstart covers the workflow format, MCP tools, visual editor, NVIDIA NIM
 provider routing, run history, and Python export path.

@@ -116,9 +116,8 @@ For a larger deployment, keep the same rewrite, rerank, citation, and comparison
 nodes while replacing `NVIDIAVectorSearch` with Milvus, LanceDB, or another
 vector store backed by the full NeMo Retriever ingestion pipeline.
 
-Q2D, chain-of-thought rewrite comparison, automatic groundedness scoring,
-persistent indexes, and benchmark datasets are intentionally deferred until
-the basic Q2E experiment has real evaluation data.
+The current template does not include Q2D, chain-of-thought rewrite comparison,
+automatic groundedness scoring, persistent indexes, or benchmark datasets.
 
 ## NVIDIA References
 
