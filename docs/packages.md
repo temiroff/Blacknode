@@ -180,6 +180,7 @@ package code automatically.
 ```
 blacknode-ros2/
   blacknode-package.toml   # manifest (required)
+  AGENTS.md                # scoped coding-agent instructions (recommended)
   nodes/                   # Python modules using @node (required)
     __init__.py
     topics.py
@@ -196,6 +197,25 @@ modules get a stable import alias:
 ```python
 from blacknode.pkg.blacknode_ros2 import topics   # dashes become underscores
 ```
+
+### Agent guidance
+
+Every maintained package should include an `AGENTS.md` because it is an
+independent Git repository and may have domain-specific ownership, dependency,
+test, lifecycle, and safety rules. Keep that file concise and cover:
+
+- what belongs in the package and what belongs in core or a sibling package
+- optional dependency and no-hardware behavior
+- managed-service lifecycle and explicit shutdown, when applicable
+- exact focused test and template-validation commands
+- physical, credential, network, CUDA, camera, or ROS paths that must not be
+  claimed as tested without evidence
+
+Use the shared `blacknode-development` skill for package authoring and the
+package's `AGENTS.md` for its scoped implementation contract. Do not duplicate
+the same general authoring skill in every package. Create a package-specific
+skill only when its users need a distinct operational procedure beyond normal
+workflow construction.
 
 ## The manifest
 
