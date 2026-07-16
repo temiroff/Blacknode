@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blacknode Workflow"
+  short_description: "Build and run typed Blacknode workflows"
+  default_prompt: "Use $blacknode-workflow to build and validate a typed Blacknode workflow."

@@ -1,6 +1,45 @@
 # Blacknode Agent Guide
 
-This guide is for AI agents and contributors that need to inspect, create, validate, run, export, or share Blacknode workflows.
+This guide is for AI agents and contributors using or developing Blacknode. It
+defines the handoff between workflow construction and reusable platform or
+package development.
+
+## Choose the Agent Path
+
+Blacknode ships two complementary skills:
+
+| Goal | Skill | Result |
+|---|---|---|
+| Build with existing nodes and packages | `blacknode-workflow` | A validated graph, editor run, replay, or export |
+| Add or change reusable capability | `blacknode-development` | Tested core, editor, MCP, node, or extension-package changes |
+
+Repository instructions in [`AGENTS.md`](../AGENTS.md) orient coding agents
+before either skill is used. Each official extension package also carries its
+own scoped `AGENTS.md`, because packages are independent repositories with
+different dependencies, tests, and safety constraints.
+
+Do not create one general-purpose agent per package. The workflow skill should
+discover and use installed package nodes. The development skill should route
+code changes into the correct package and then follow that package's
+`AGENTS.md`. A package-specific skill is useful only when the package exposes a
+large standalone user workflow that cannot be routed clearly through these two
+skills.
+
+### Missing capability handoff
+
+When building a workflow:
+
+1. Inspect `list_nodes`, `get_node_schema`, and `list_templates`.
+2. Resolve missing official nodes through `metadata.required_packages` and the
+   package index.
+3. Use `PythonFn` only for a small adapter owned by that one graph.
+4. If a reusable capability is genuinely missing, switch to
+   `blacknode-development` and add a core, custom, community, or package node.
+5. Test the new capability, then return to `blacknode-workflow` to build,
+   validate, and run the final graph.
+
+The canonical skill sources live in `skills/`; `.agents/skills/` is the
+repository-discoverable mirror. Keep both copies synchronized.
 
 ## Current Contract
 

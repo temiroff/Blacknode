@@ -24,3 +24,8 @@ robotics packages are split by responsibility: `blacknode-robot` is generic
 USB/driver setup, `blacknode-ros2` is ROS 2 transport/control, and
 `blacknode-vision` is camera/CV2/VLM perception. `blacknode-cuda` remains the
 smallest reference package to copy when writing your own.
+
+Maintained packages should include a scoped `AGENTS.md` with ownership,
+dependency, safety, and verification rules. Agents use the core
+`blacknode-development` skill for the shared authoring workflow, then follow the
+target package's `AGENTS.md`; packages do not need duplicated general skills.

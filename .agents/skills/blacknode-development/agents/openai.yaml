@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blacknode Development"
+  short_description: "Develop Blacknode core, nodes, and packages"
+  default_prompt: "Use $blacknode-development to add a tested capability to Blacknode."

@@ -1,11 +1,12 @@
 ---
 name: blacknode-workflow
 description: >
-  Use this skill when the task asks an agent to create, edit, validate, run,
-  export, debug, visualize, extend, or open Blacknode workflows. Trigger phrases
-  include Blacknode, visual workflow, node graph, MCP workflow builder, run
-  replay, NVIDIA NIM workflow, workflow JSON, custom node, open in editor, and
-  framework export.
+  Create, edit, validate, run, debug, visualize, import, export, or open typed
+  Blacknode workflows using core nodes and extension packages. Use for requests
+  involving Blacknode workflow JSON, node graphs, MCP workflow building,
+  templates, editor runs, replay, NVIDIA NIM workflows, package-backed nodes,
+  or framework exports. Use blacknode-development instead when the requested
+  result is a change to Blacknode itself or a new reusable node/package.
 ---
 
 # Blacknode Workflow
@@ -13,7 +14,7 @@ description: >
 Blacknode is the visual workflow layer for agent harnesses. Use it when a chat
 or coding agent needs a typed node graph instead of raw JSON or ad hoc scripts.
 
-## When to Use
+## Scope
 
 Use this skill for:
 
@@ -22,11 +23,25 @@ Use this skill for:
 - Opening a workflow in the running visual editor.
 - Running a workflow or template and inspecting the structured event log.
 - Exporting or importing a workflow with Python round-trip, LangGraph, CrewAI, AutoGen, Swarm, or NVIDIA Agent Stack.
-- Creating persistent custom nodes and community node packs.
 - Creating NVIDIA NIM, local NIM, RAG, tool-agent, or research-pipeline demos.
+- Discovering or installing the extension package required by a workflow.
 
-Use the ordinary answer path for prose-only questions. Use this skill when the
-workflow artifact, editor state, run trace, custom node, or framework export matters.
+If no existing node expresses a reusable capability, stop graph construction
+and use `blacknode-development`. After implementing and testing the capability,
+return here to integrate it into a validated workflow.
+
+## Package-Aware Planning
+
+1. Inspect `list_nodes` and `list_templates` before assuming a node is missing.
+2. Prefer installed core or package nodes over one-off code.
+3. If a template reports missing nodes, use its `metadata.required_packages`
+   and the package index to identify the package.
+4. Ask before installing third-party package code. An indexed official package
+   may be installed when package installation is part of the user's request.
+5. Run `blacknode packages list` after installation and resolve declared
+   dependency warnings before cooking affected nodes.
+6. Use `PythonFn` only for workflow-local adapters. Use
+   `blacknode-development` for reusable nodes or packages.
 
 ## Available Surfaces
 

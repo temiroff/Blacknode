@@ -192,8 +192,10 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | [Learned Nodes Test Plan](docs/learned-nodes-test-plan.md) | Step-by-step commands for validating Docker, MCP, editor refresh, consent, and the camera demo dry run. |
 | [Learned Nodes Internals](docs/learned-nodes-internals.md) | Registry wiring, manifest schema, execution wrapper, and SSE events. |
 | [Learned Nodes Sandbox](docs/learned-nodes-sandbox.md) | Docker image, runtime limits, configuration, and troubleshooting. |
-| [Agent Guide](docs/agent-guide.md) | How agents should create and modify Blacknode workflows. |
-| [Blacknode Skill](.agents/skills/blacknode-workflow/SKILL.md) | Agent skill instructions for workflow creation, validation, running, and export. |
+| [Agent Guide](docs/agent-guide.md) | How agents route workflow construction, reusable development, and package work. |
+| [Repository Agent Instructions](AGENTS.md) | Always-on repository map, invariants, safety rules, and verification commands. |
+| [Blacknode Workflow Skill](.agents/skills/blacknode-workflow/SKILL.md) | Build, validate, run, inspect, and export graphs using core and package nodes. |
+| [Blacknode Development Skill](.agents/skills/blacknode-development/SKILL.md) | Extend core, editor, MCP, reusable nodes, and extension packages. |
 
 ## Demos
 
@@ -226,6 +228,8 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | `packages/` | Extension packages — separate git repos cloned in place (e.g. `blacknode-cuda`). |
 | `workflows/` | Local saved workflows, ignored by git. |
 | `docs/` | Walkthroughs, integration guides, workflow schema, and example assets. |
+| `AGENTS.md` | Repository-wide coding-agent routing and development rules. |
+| `skills/` | Canonical distributable Blacknode workflow and development skills. |
 | `docker-compose.yml` | Self-hosted editor, backend, and streamable HTTP MCP stack. |
 | `crates/` | Rust crates and no-server CLI. |
 
