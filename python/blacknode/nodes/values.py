@@ -67,9 +67,15 @@ def dict_value(ctx: dict) -> dict:
     return {"value": v if isinstance(v, dict) else {}}
 
 
-@node(inputs=[], outputs=["value:List"], name="List")
+@node(inputs=[], outputs=["value:List"], name="List", variadic_input="Any", variadic_prefix="item")
 def list_value(ctx: dict) -> dict:
     import json
+    numbered = sorted(
+        (name for name in ctx if name.startswith("item_") and name[5:].isdigit()),
+        key=lambda name: int(name[5:]),
+    )
+    if numbered:
+        return {"value": [ctx[name] for name in numbered]}
     v = ctx.get("value", [])
     if isinstance(v, str):
         try:

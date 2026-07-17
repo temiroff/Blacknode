@@ -40,6 +40,15 @@ def test_core_index_maps_official_node_types_to_git_packages():
     }
     assert payload["nodes"]["ROS2TopicList"]["package"] == "blacknode-ros2"
     assert payload["nodes"]["RobotDiscovery"]["package"] == "blacknode-robot"
+    assert payload["nodes"]["EpisodeRecorder"] == {
+        "package": "blacknode-dataset",
+        "git_url": "https://github.com/temiroff/blacknode-dataset.git",
+    }
+    assert payload["nodes"]["DatasetCameraStreamList"]["package"] == "blacknode-dataset"
+    assert payload["nodes"]["ROS2LeaderFollower"]["package"] == "blacknode-ros2"
+    assert payload["nodes"]["Camera"]["package"] == "blacknode-vision"
+    assert payload["nodes"]["CameraStream"]["package"] == "blacknode-vision"
+    assert payload["nodes"]["CV2CameraStream"]["package"] == "blacknode-vision"
 
 
 def test_resolver_finds_nested_nodes_and_indexed_package():

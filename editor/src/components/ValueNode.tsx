@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useRef } from 'react'
-import { Handle, Position, NodeProps } from 'reactflow'
+import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
@@ -14,7 +14,10 @@ interface NodeData extends NodeCookState {
   inputs: string[]
   outputs: string[]
   output_types: Record<string, string>
+  input_types: Record<string, string>
   params: Record<string, unknown>
+  variadic_input?: { prefix: string; type: string } | null
+  promoted_outputs?: string[] | null
 }
 
 const formatFloat = (v: unknown): string => {
@@ -33,7 +36,8 @@ function normalizeHexColor(value: unknown): string | null {
 }
 
 function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
-  const { updateParam, cookNode } = useStore()
+  const { updateParam, cookNode, edges, disconnectEdge } = useStore()
+  const updateNodeInternals = useUpdateNodeInternals()
   const color  = headerColor(data.type)
   const pColor = portColor(data.type)
   const isText  = data.type === 'Text'
@@ -44,6 +48,20 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   const isDict  = data.type === 'Dict'
   const isStructured = isDict || isList
   const isLargeText = isText || isStructured
+  const variadicPorts = isList ? (data.inputs ?? []).filter(port =>
+    new RegExp(`^${data.variadic_input?.prefix || 'item'}_[0-9]+$`).test(port)
+  ) : []
+  const nextVariadic = (() => {
+    const prefix = data.variadic_input?.prefix || 'item'
+    let index = 1
+    while (variadicPorts.includes(`${prefix}_${index}`)) index += 1
+    return `${prefix}_${index}`
+  })()
+  const showValueOutput = data.promoted_outputs == null
+    || data.promoted_outputs.includes('value')
+    || edges.some(edge => edge.source === id && edge.sourceHandle === 'value')
+
+  useEffect(() => { updateNodeInternals(id) }, [id, variadicPorts.join('|'), showValueOutput, updateNodeInternals])
 
   const rawValue  = data.params.value
   const resolveDraft = (value: unknown): string | number => isFloat ? formatFloat(value)
@@ -132,6 +150,24 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
       </div>
 
       {/* value input */}
+      {isList && data.variadic_input && (
+        <div style={{ padding: '4px 8px 0 16px', display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
+          <div style={{ position: 'relative', color: portColor(data.variadic_input.type), fontSize: 9, fontFamily: 'var(--font-ui)' }}>
+            <Handle type="target" position={Position.Left} id="__new__" style={{ left: -21, width: 11, height: 11, background: 'var(--node)', border: `2px dashed ${portColor(data.variadic_input.type)}` }} />
+            {nextVariadic} · connect to add
+          </div>
+          {variadicPorts.map(port => {
+            const edge = edges.find(candidate => candidate.target === id && candidate.targetHandle === port)
+            return (
+              <div key={port} style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', color: 'var(--tx2)', fontSize: 9, fontFamily: 'var(--font-mono)' }}>
+                <Handle type="target" position={Position.Left} id={port} style={{ left: -21, width: 9, height: 9, background: portColor(data.variadic_input?.type || 'Any') }} />
+                <span>{port}</span>
+                {edge && <button onClick={event => { event.stopPropagation(); void disconnectEdge(edge.id) }} style={{ border: 0, background: 'transparent', color: 'var(--tx3)', cursor: 'pointer', fontSize: 9 }}>×</button>}
+              </div>
+            )
+          })}
+        </div>
+      )}
       <div style={{
         padding: '6px 8px',
         display: 'flex',
@@ -388,19 +424,21 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
         )}
       </div>
 
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="value"
-        style={{
-          right: -5,
-          top: '50%',
-          background: pColor,
-          width: 9, height: 9,
-          border: `1.5px solid ${pColor}`,
-          borderRadius: 3,
-        }}
-      />
+      {showValueOutput && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="value"
+          style={{
+            right: -5,
+            top: '50%',
+            background: pColor,
+            width: 9, height: 9,
+            border: `1.5px solid ${pColor}`,
+            borderRadius: 3,
+          }}
+        />
+      )}
     </NodeFrame>
   )
 }

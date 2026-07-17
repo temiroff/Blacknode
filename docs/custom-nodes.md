@@ -70,6 +70,64 @@ def search(query: str, limit: int = 5) -> list:
     return []
 ```
 
+Variadic input format for collector nodes:
+
+```python
+from blacknode.node import Dict, List, node
+
+
+@node(
+    name="CameraList",
+    category="Vision",
+    inputs={},
+    outputs={"cameras": List[Dict]},
+    variadic_input=Dict,
+    variadic_prefix="camera",
+)
+def camera_list(ctx: dict) -> dict:
+    cameras = [
+        value
+        for name, value in sorted(ctx.items())
+        if name.startswith("camera_") and isinstance(value, dict)
+    ]
+    return {"cameras": cameras}
+```
+
+The editor renders a `camera_N · connect to add` socket and creates numbered
+inputs as connections are made, so the node can accept any number of cameras.
+The built-in `List` node uses the same contract with `item_N` inputs while
+retaining its literal JSON-list input for saved-workflow compatibility.
+
+Large nodes can declare their initial compact canvas surface while retaining
+all parameters in Properties:
+
+```python
+from blacknode.node import Any, Bool, Dict, Image, Int, Text, node
+
+
+@node(
+    name="Camera",
+    inputs={"trigger": Any, "selection": Int(default=0), "backend": Text(default="auto")},
+    outputs={"preview": Image, "frame_stream": Dict, "ready": Bool, "report": Text},
+    primary_inputs=["trigger"],
+    primary_outputs=["preview", "frame_stream", "report"],
+)
+```
+
+In Properties, right-click a parameter or output—or use its diamond pin—to
+promote or hide that socket. Connected sockets always remain visible. **Compact
+node** hides unconnected sockets; **Show all** restores the full port surface.
+
+Nodes with eight or more combined ports receive conservative compact defaults
+when the author does not declare primary ports: required data-bearing inputs
+remain wireable, configuration stays in Properties, and up to three payload
+outputs are shown. Repetitive status and diagnostic outputs remain available
+for promotion. Small nodes keep their complete socket surface.
+
+For readable sequencing, the canvas displays the compatibility input
+`trigger` as **run after** and the completion/report output `report` as
+**done**. Saved workflows and runtime APIs retain the original stable port IDs.
+
 ## Community Node PRs
 
 Community nodes live in `community-nodes/*.py`. A good PR includes:

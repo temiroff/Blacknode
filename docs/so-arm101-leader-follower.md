@@ -5,14 +5,18 @@ stream its calibrated joint coordinates into a separate follower arm.
 
 ## Prepare both arms
 
-1. Record the two USB serial values shown by `RobotUSBDiscovery`; never identify
-   the pair by COM-port order alone.
+1. Connect both arms and run each `Robot` with `action=check`.
 2. Select or create the logical profile for each arm. Matching arms may use the
    same profile because calibration is stored separately per USB serial.
 3. Calibrate each physical arm and successfully save both calibrations.
-4. Open **SO-ARM101 Leader Follower**. Set `leader_usb.port_filter` and
-   `follower_usb.port_filter` to their distinct USB serials.
+4. Open **SO-ARM101 Leader Follower**. It selects robot indexes `0` and `1` by
+   default. If leader and follower are reversed, swap the two indexes.
 5. Select each profile and keep the supplied `/leader` and `/follower` prefixes.
+
+Indexes are the easiest setup and do not require USB filters. For a permanent
+or unattended installation, open **Advanced**, promote `hardware_filter`, and
+bind each role to its reported adapter serial. This prevents identical robots
+from exchanging roles if operating-system discovery order changes.
 
 ## Start safely
 

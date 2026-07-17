@@ -235,17 +235,7 @@ def _check_import_dependencies(info: PackageInfo) -> None:
     ``blacknode packages list``, the ``/packages`` endpoint, and the editor's
     Packages tab.
     """
-    missing: list[str] = []
-    for raw in info.import_dependencies:
-        module = raw.strip()
-        if not module:
-            continue
-        try:
-            found = importlib.util.find_spec(module) is not None
-        except (ImportError, ValueError):
-            found = False
-        if not found:
-            missing.append(module)
+    missing = _missing_import_dependencies(info)
     if not missing:
         return
     requirements = Path(info.path) / "requirements.txt"
@@ -258,6 +248,67 @@ def _check_import_dependencies(info: PackageInfo) -> None:
         f"missing Python dependenc{plural}: {', '.join(missing)} — its nodes will "
         f"return errors until installed.\nFix: {fix}\n(or: blacknode packages setup {info.name})"
     )
+
+
+def _missing_import_dependencies(info: PackageInfo) -> list[str]:
+    missing: list[str] = []
+    for raw in info.import_dependencies:
+        module = raw.strip()
+        if not module:
+            continue
+        try:
+            found = importlib.util.find_spec(module) is not None
+        except (ImportError, ValueError):
+            found = False
+        if not found:
+            missing.append(module)
+    return missing
+
+
+def install_missing_python_dependencies(
+    infos: list[PackageInfo] | None = None,
+    progress: Callable[[str], None] = print,
+) -> dict[str, Any]:
+    """Install declared Python dependencies only for packages missing imports.
+
+    This is intentionally narrower than :func:`install_prerequisites`: normal
+    startup may repair Python packages, but it must not pull Docker images or
+    invoke package setup scripts on every launch.
+    """
+    selected = infos if infos is not None else installed_packages()
+    installed: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for info in selected:
+        missing = _missing_import_dependencies(info)
+        if not missing:
+            skipped.append({"name": info.name, "reason": "Python dependencies already available"})
+            continue
+        if info.source != "folder" or not info.path:
+            failed.append({"name": info.name, "missing": missing, "error": "package is not a local folder package"})
+            continue
+        package_path = Path(info.path).resolve()
+        requirements = package_path / "requirements.txt"
+        if requirements.is_file():
+            install_args = ["-r", str(requirements)]
+            source = str(requirements)
+        elif info.pip_dependencies:
+            install_args = list(info.pip_dependencies)
+            source = "manifest dependencies"
+        else:
+            install_args = missing
+            source = "declared import names"
+        progress(f"Installing missing Python dependencies for {info.name} from {source}")
+        pip = subprocess.run([
+            sys.executable, "-m", "pip", "install", *install_args,
+            "--disable-pip-version-check", "--no-warn-script-location",
+        ])
+        if pip.returncode == 0:
+            importlib.invalidate_caches()
+            installed.append({"name": info.name, "missing": missing, "source": source})
+        else:
+            failed.append({"name": info.name, "missing": missing, "error": f"pip exited with code {pip.returncode}"})
+    return {"ok": not failed, "installed": installed, "skipped": skipped, "failed": failed}
 
 
 def _record_failure(info: PackageInfo, error: str) -> PackageInfo:
@@ -701,6 +752,7 @@ __all__ = [
     "discover_packages",
     "install_from_git",
     "install_prerequisites",
+    "install_missing_python_dependencies",
     "installed_packages",
     "package_git_status",
     "package_statuses",

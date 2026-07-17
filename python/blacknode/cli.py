@@ -170,8 +170,12 @@ def _parser() -> argparse.ArgumentParser:
     packages_setup = packages_sub.add_parser(
         "setup", help="install the prerequisites (pip deps, Docker images) of an already-cloned package"
     )
-    packages_setup.add_argument("name", help="package folder name under packages/")
+    packages_setup.add_argument("name", nargs="?", help="package folder name under packages/")
     packages_setup.add_argument("--directory", type=Path, help="override the packages/ root folder")
+    packages_setup.add_argument(
+        "--missing", action="store_true",
+        help="install Python dependencies only for installed packages whose declared imports are missing",
+    )
 
     mcp = subcommands.add_parser("mcp", help="run the Blacknode MCP server")
     mcp.add_argument(
@@ -203,7 +207,7 @@ def _packages(args: Any) -> int:
     if args.packages_command == "install":
         return _packages_install(args.url, args.directory, args.no_deps)
     if args.packages_command == "setup":
-        return _packages_setup(args.name, args.directory)
+        return _packages_setup(args.name, args.directory, args.missing)
     print("usage: blacknode packages {list,status,update,install,setup}", file=sys.stderr)
     return 2
 
@@ -325,8 +329,28 @@ def _packages_install(url: str, directory: Path | None, no_deps: bool) -> int:
     return 1
 
 
-def _packages_setup(name: str, directory: Path | None) -> int:
+def _packages_setup(name: str | None, directory: Path | None, missing: bool = False) -> int:
     """(Re)install the prerequisites of an already-cloned package."""
+    if missing:
+        if name or directory:
+            print("error: --missing cannot be combined with a package name or --directory", file=sys.stderr)
+            return 2
+        import blacknode  # noqa: F401 - triggers package discovery
+
+        from .packages import install_missing_python_dependencies
+
+        result = install_missing_python_dependencies()
+        if not result["installed"] and not result["failed"]:
+            print("All installed package Python dependencies are already available.")
+        for item in result["installed"]:
+            print(f"installed {item['name']} Python dependencies")
+        for item in result["failed"]:
+            print(f"failed {item['name']}: {item['error']}", file=sys.stderr)
+        return 0 if result["ok"] else 1
+    if not name:
+        print("error: package name is required unless --missing is used", file=sys.stderr)
+        return 2
+
     from .packages import MANIFEST_NAME, install_prerequisites, load_package, packages_root
 
     root = (directory or packages_root()).expanduser().resolve()

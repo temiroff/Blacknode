@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="editor/public/blacknode-logo.svg" alt="Blacknode logo" width="96" height="96">
+</p>
+
 # Blacknode
 
 [![CI](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml/badge.svg)](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml)
@@ -115,6 +119,8 @@ or missing package never breaks the core. Manage everything from the editor's
 | Custom nodes | Persistent editor-created nodes, Python decorator nodes, auto-discovery, and community node packs. | [Custom Nodes](docs/custom-nodes.md) |
 | Extension packages | Modular node libraries in separate git repos (`blacknode-cuda`, ...) cloned into `packages/` — install, remove, or write your own without touching the core app. | [Extension Packages](docs/packages.md) |
 | Robotics and vision packages | Generic USB/driver setup through `blacknode-robot`, native/rosbridge ROS 2 transport/control through `blacknode-ros2`, and camera/CV2/VLM reasoning through `blacknode-vision`. | [Extension Packages](docs/packages.md) |
+| Robot episode datasets | Crash-recoverable synchronized teleoperation/camera recording, validation, ACT-style HDF5 and LeRobot v3 export, explicit Hugging Face upload, and a documented NVIDIA GR00T bridge through `blacknode-dataset`. | [Robot episode datasets](docs/episode-datasets.md), [NVIDIA Physical AI](docs/nvidia-physical-ai.md) |
+| Native robot policy training | Optional PyTorch vision-and-state action-chunking training, resumable checkpoints, metrics dashboards, and prediction-only evaluation without LeRobot through `blacknode-training`. | [Native robot policy training](docs/robot-policy-training.md) |
 | Learned nodes | MCP agents can create reusable Docker-sandboxed node types that appear live in the editor palette. | [Learned Nodes](docs/learned-nodes.md) |
 | Python round-trip | Export readable Python, import it back into the editor, and live-sync Python runs into replay. | [Python Round-Trip](docs/python-roundtrip.md) |
 | Framework export | Turn a visual graph into Python, LangGraph, CrewAI, AutoGen, OpenAI Swarm, or an NVIDIA Agent Stack manifest. | [Framework Export](docs/framework-export.md) |
@@ -167,6 +173,7 @@ See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
 | [NVIDIA Mission Control](docs/nvidia-mission-control.md) | NVIDIA nodes, templates, local readiness, local NIM launch, and benchmark flow. |
 | [NVIDIA Visual RAG Comparator](docs/nvidia-visual-rag.md) | Compare original and Q2E retrieval with NVIDIA embeddings, reranking, cited answers, and run replay. |
 | [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) | Connect AI-Q or NeMo Agent Toolkit to Blacknode over streamable HTTP MCP. |
+| [NVIDIA Physical AI](docs/nvidia-physical-ai.md) | Bridge Blacknode robot recording and datasets to LeRobot, GR00T fine-tuning, Isaac Lab-Arena evaluation, LEAPP, and Isaac ROS deployment. |
 
 ### Deployment
 

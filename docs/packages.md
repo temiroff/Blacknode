@@ -34,6 +34,12 @@ everything it declares — pip requirements and Docker images — with:
 blacknode packages setup blacknode-ros2
 ```
 
+`start.ps1` and `start.sh` automatically install missing declared Python
+dependencies for installed packages before starting the server. Set
+`BLACKNODE_PACKAGE_AUTO_SETUP=0` to disable that behavior. Automatic startup
+setup does not pull Docker images or run package setup scripts; use the command
+above when those additional prerequisites are required.
+
 The editor's **Packages** tab can do all of this too: paste a git URL and
 press **Install** (clones the repo and installs its prerequisites), or expand
 a package and press **Delete** to remove its folder and deregister its nodes —
@@ -100,6 +106,8 @@ development:
 | `blacknode-robot` | Generic USB robot discovery, serial permission help, driver descriptors, driver process launch, and the standard robot profile. |
 | `blacknode-ros2` | ROS 2 system checks, topic inspection, image snapshots, image streams, process launch/run controls, native `rclpy` robot control, rosbridge robot control, and robot dashboards. |
 | `blacknode-vision` | USB camera ROS package, VLM frame reasoning, live reasoning dashboards, OpenCV masks, color tracking streams, and graph-level Python exports. |
+| `blacknode-dataset` | Blacknode-native episode journals, synchronized robot/camera recording, dataset validation, ACT-style HDF5 and dependency-free LeRobot v3 export, explicit Hugging Face upload, and a documented NVIDIA GR00T bridge. |
+| `blacknode-training` | Optional PyTorch action-chunking training from Blacknode HDF5 episodes, managed jobs, resumable checkpoints, metrics dashboards, and prediction-only evaluation without LeRobot. |
 
 Keep the layers separate: `blacknode-robot` finds hardware and starts the right
 robot driver, robot-specific packages define the driver descriptor, and

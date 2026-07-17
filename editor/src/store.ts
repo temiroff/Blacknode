@@ -180,6 +180,7 @@ interface Store {
     copyIdMap: Record<string, string> | null,
   ) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
+  updatePortVisibility: (id: string, promotedInputs?: string[], promotedOutputs?: string[]) => Promise<void>
   cookNode: (id: string, port?: string, graphTargets?: GraphRunTarget[], runMode?: 'once' | 'live') => Promise<void>
   stopCook: () => void
   stopRuntimeServices: () => Promise<RuntimeStopResult>
@@ -295,6 +296,7 @@ function defFromMeta(meta: BnNodeMeta): BnNodeDef {
     input_types: meta.input_types,
     output_types: meta.output_types,
     input_defaults: meta.input_defaults ?? {},
+    variadic_input: meta.variadic_input,
   }
 }
 
@@ -327,6 +329,21 @@ function sortJointInputs(inputs: string[]): string[] {
   return [...inputs].sort((a, b) => {
     const ai = Number(a.split('_').pop())
     const bi = Number(b.split('_').pop())
+    return (Number.isFinite(ai) ? ai : Number.MAX_SAFE_INTEGER)
+      - (Number.isFinite(bi) ? bi : Number.MAX_SAFE_INTEGER) || a.localeCompare(b)
+  })
+}
+
+function nextVariadicInputName(inputs: string[], prefix: string): string {
+  let i = 1
+  while (inputs.includes(`${prefix}_${i}`)) i++
+  return `${prefix}_${i}`
+}
+
+function sortVariadicInputs(inputs: string[], prefix: string): string[] {
+  return [...inputs].sort((a, b) => {
+    const ai = Number(a.slice(prefix.length + 1))
+    const bi = Number(b.slice(prefix.length + 1))
     return (Number.isFinite(ai) ? ai : Number.MAX_SAFE_INTEGER)
       - (Number.isFinite(bi) ? bi : Number.MAX_SAFE_INTEGER) || a.localeCompare(b)
   })
@@ -395,6 +412,7 @@ function clearCookResults(data: NodeData): NodeData {
 function clearRuntimeNodeData(data: NodeData): NodeData {
   const base = { ...data, cooking: false, cookError: undefined }
   if (
+    data.type === 'Camera' ||
     data.type === 'ROS2ImageStream' ||
     data.type === 'CV2CameraStream' ||
     data.type === 'CV2ColorObjectStream' ||
@@ -896,6 +914,7 @@ function pruneDisconnectedDynamicPorts(
 ): { nodes: Node<NodeData>[]; changedIds: Set<string> } {
   const connectedToolPorts = new Map<string, Set<string>>()
   const connectedJointPorts = new Map<string, Set<string>>()
+  const connectedVariadicPorts = new Map<string, Set<string>>()
   edges.forEach(edge => {
     if (edge.targetHandle?.startsWith('tool_')) {
       if (!connectedToolPorts.has(edge.target)) connectedToolPorts.set(edge.target, new Set())
@@ -904,6 +923,12 @@ function pruneDisconnectedDynamicPorts(
     if (edge.targetHandle?.startsWith('joint_')) {
       if (!connectedJointPorts.has(edge.target)) connectedJointPorts.set(edge.target, new Set())
       connectedJointPorts.get(edge.target)!.add(edge.targetHandle)
+    }
+    const target = nodes.find(node => node.id === edge.target)
+    const prefix = target?.data.variadic_input?.prefix
+    if (prefix && edge.targetHandle?.match(new RegExp(`^${prefix}_[0-9]+$`))) {
+      if (!connectedVariadicPorts.has(edge.target)) connectedVariadicPorts.set(edge.target, new Set())
+      connectedVariadicPorts.get(edge.target)!.add(edge.targetHandle)
     }
   })
 
@@ -963,6 +988,19 @@ function pruneDisconnectedDynamicPorts(
         ...node,
         data: { ...node.data, inputs: connected, input_types: inputTypes, input_defaults: {} },
       }
+    }
+
+    if (node.data.variadic_input) {
+      const { prefix, type } = node.data.variadic_input
+      const dynamic = sortVariadicInputs(Array.from(connectedVariadicPorts.get(node.id) ?? []), prefix)
+      const baseInputs = (node.data.inputs ?? []).filter(port => !new RegExp(`^${prefix}_[0-9]+$`).test(port))
+      const inputs = [...baseInputs, ...dynamic]
+      if (inputs.length === (node.data.inputs ?? []).length && inputs.every((port, i) => port === node.data.inputs[i])) return node
+      changedIds.add(node.id)
+      const inputTypes = { ...(node.data.input_types ?? {}) }
+      Object.keys(inputTypes).forEach(port => { if (new RegExp(`^${prefix}_[0-9]+$`).test(port)) delete inputTypes[port] })
+      dynamic.forEach(port => { inputTypes[port] = type })
+      return { ...node, data: { ...node.data, inputs, input_types: inputTypes } }
     }
 
     if (node.data.type === 'SubnetOutput') {
@@ -1077,13 +1115,26 @@ function pruneDisconnectedDynamicPorts(
 function ensureConnectedToolBoxSlots(nodes: Node<NodeData>[], edges: Edge[]): Node<NodeData>[] {
   const connectedPorts = new Map<string, Set<string>>()
   edges.forEach(edge => {
-    if (!edge.targetHandle?.startsWith('tool_') && !edge.targetHandle?.startsWith('joint_')) return
+    const target = nodes.find(node => node.id === edge.target)
+    const prefix = target?.data.variadic_input?.prefix
+    const variadic = Boolean(prefix && edge.targetHandle?.match(new RegExp(`^${prefix}_[0-9]+$`)))
+    if (!edge.targetHandle?.startsWith('tool_') && !edge.targetHandle?.startsWith('joint_') && !variadic) return
+    if (!edge.targetHandle) return
     if (!connectedPorts.has(edge.target)) connectedPorts.set(edge.target, new Set())
     connectedPorts.get(edge.target)!.add(edge.targetHandle)
   })
 
   return nodes.map(node => {
-    if (node.data.type !== 'ToolBox' && node.data.type !== 'RobotJointList') return node
+    if (node.data.type !== 'ToolBox' && node.data.type !== 'RobotJointList' && !node.data.variadic_input) return node
+    if (node.data.variadic_input) {
+      const { prefix, type } = node.data.variadic_input
+      const dynamic = sortVariadicInputs(Array.from(connectedPorts.get(node.id) ?? []), prefix)
+      const baseInputs = (node.data.inputs ?? []).filter(port => !new RegExp(`^${prefix}_[0-9]+$`).test(port))
+      const inputs = [...baseInputs, ...dynamic]
+      const inputTypes = { ...(node.data.input_types ?? {}) }
+      dynamic.forEach(port => { inputTypes[port] = type })
+      return { ...node, data: { ...node.data, inputs, input_types: inputTypes } }
+    }
     const isJointList = node.data.type === 'RobotJointList'
     const connected = (isJointList ? sortJointInputs : sortToolInputs)(Array.from(connectedPorts.get(node.id) ?? []))
     if (
@@ -1291,8 +1342,9 @@ export const useStore = create<Store>((set, get) => ({
   loadRuntimeNodeOutputs: async () => {
     try {
       const status = await api.runtimeStatus()
-      const moduleStatus = status.modules?.ros2_live
-      const items = Array.isArray(moduleStatus?.node_outputs) ? moduleStatus.node_outputs : []
+      const items = Object.values(status.modules ?? {}).flatMap(moduleStatus =>
+        Array.isArray(moduleStatus?.node_outputs) ? moduleStatus.node_outputs : []
+      )
       if (items.length === 0) return
       set(s => ({
         nodes: propagateLiveTerminalValues(s.nodes.map(node => {
@@ -1301,8 +1353,8 @@ export const useStore = create<Store>((set, get) => ({
             if (!raw || typeof raw !== 'object') return false
             const record = raw as Record<string, unknown>
             if (String(record.node_id ?? '') === node.id) return true
-            const manual = node.data.type === 'ROS2ManualMove' || node.data.type === 'ROS2TeachMode'
-            return manual && String(record.run_id ?? '') === runId
+            const nodeType = String(record.node_type ?? '')
+            return nodeType === node.data.type && String(record.run_id ?? '') === runId
           })
           if (!item || typeof item !== 'object') return node
           const outputs = (item as Record<string, unknown>).outputs
@@ -2137,9 +2189,10 @@ export const useStore = create<Store>((set, get) => ({
 
     // Numbered collectors expose one synthetic socket and turn it into a
     // persistent tool_N or joint_N port when connected.
-    if (conn.targetHandle === '__new__' && (tgtNode?.data?.type === 'ToolBox' || tgtNode?.data?.type === 'RobotJointList')) {
+    if (conn.targetHandle === '__new__' && (tgtNode?.data?.type === 'ToolBox' || tgtNode?.data?.type === 'RobotJointList' || tgtNode?.data?.variadic_input)) {
       const isJointList = tgtNode.data.type === 'RobotJointList'
-      const expectedType = isJointList ? 'Dict' : 'Fn'
+      const variadic = tgtNode.data.variadic_input
+      const expectedType = variadic?.type || (isJointList ? 'Dict' : 'Fn')
       const fromType = srcNode?.data?.output_types?.[conn.sourceHandle!] ?? 'Any'
       if (!portsCompatible(fromType, expectedType)) return
       const existing: string[] = tgtNode.data.inputs ?? []
@@ -2150,14 +2203,14 @@ export const useStore = create<Store>((set, get) => ({
       )
       let portName = existing.find(p => !occupied.has(p))
       if (!portName) {
-        const newPortName = isJointList ? nextJointInputName(existing) : nextToolInputName(existing)
+        const newPortName = variadic ? nextVariadicInputName(existing, variadic.prefix) : isJointList ? nextJointInputName(existing) : nextToolInputName(existing)
         nodes = nodes.map(n =>
           n.id === conn.target
             ? {
                 ...n,
                 data: {
                   ...n.data,
-                  inputs: (isJointList ? sortJointInputs : sortToolInputs)([...existing, newPortName]),
+                  inputs: variadic ? sortVariadicInputs([...existing, newPortName], variadic.prefix) : (isJointList ? sortJointInputs : sortToolInputs)([...existing, newPortName]),
                   input_types: { ...(n.data.input_types ?? {}), [newPortName]: expectedType },
                 },
               }
@@ -2169,13 +2222,17 @@ export const useStore = create<Store>((set, get) => ({
       conn = { ...conn, targetHandle: portName }
     }
 
+    const dynamicTargetHandle = conn.targetHandle
     if (
-      (tgtNode?.data?.type === 'ToolBox' || tgtNode?.data?.type === 'RobotJointList')
-      && (conn.targetHandle?.startsWith('tool_') || conn.targetHandle?.startsWith('joint_'))
-      && !(tgtNode.data.inputs ?? []).includes(conn.targetHandle)
+      (tgtNode?.data?.type === 'ToolBox' || tgtNode?.data?.type === 'RobotJointList' || tgtNode?.data?.variadic_input)
+      && dynamicTargetHandle
+      && (dynamicTargetHandle.startsWith('tool_') || dynamicTargetHandle.startsWith('joint_')
+        || Boolean(tgtNode.data.variadic_input && dynamicTargetHandle.startsWith(`${tgtNode.data.variadic_input.prefix}_`)))
+      && !(tgtNode.data.inputs ?? []).includes(dynamicTargetHandle)
     ) {
       const isJointList = tgtNode.data.type === 'RobotJointList'
-      const nextInputs = (isJointList ? sortJointInputs : sortToolInputs)([...(tgtNode.data.inputs ?? []), conn.targetHandle])
+      const variadic = tgtNode.data.variadic_input
+      const nextInputs = variadic ? sortVariadicInputs([...(tgtNode.data.inputs ?? []), dynamicTargetHandle], variadic.prefix) : (isJointList ? sortJointInputs : sortToolInputs)([...(tgtNode.data.inputs ?? []), dynamicTargetHandle])
       nodes = nodes.map(n =>
         n.id === conn.target
           ? {
@@ -2183,7 +2240,7 @@ export const useStore = create<Store>((set, get) => ({
               data: {
                 ...n.data,
                 inputs: nextInputs,
-                input_types: { ...(n.data.input_types ?? {}), [conn.targetHandle!]: isJointList ? 'Dict' : 'Fn' },
+                input_types: { ...(n.data.input_types ?? {}), [dynamicTargetHandle]: variadic?.type || (isJointList ? 'Dict' : 'Fn') },
               },
             }
           : n
@@ -2270,9 +2327,10 @@ export const useStore = create<Store>((set, get) => ({
     let srcNode = nodes.find(n => n.id === conn.source)
     let tgtNode = nodes.find(n => n.id === conn.target)
 
-    if (conn.targetHandle === '__new__' && (tgtNode?.data?.type === 'ToolBox' || tgtNode?.data?.type === 'RobotJointList')) {
+    if (conn.targetHandle === '__new__' && (tgtNode?.data?.type === 'ToolBox' || tgtNode?.data?.type === 'RobotJointList' || tgtNode?.data?.variadic_input)) {
       const isJointList = tgtNode.data.type === 'RobotJointList'
-      const expectedType = isJointList ? 'Dict' : 'Fn'
+      const variadic = tgtNode.data.variadic_input
+      const expectedType = variadic?.type || (isJointList ? 'Dict' : 'Fn')
       const fromType = srcNode?.data?.output_types?.[conn.sourceHandle] ?? 'Any'
       if (!portsCompatible(fromType, expectedType)) return
       const existing: string[] = tgtNode.data.inputs ?? []
@@ -2283,14 +2341,14 @@ export const useStore = create<Store>((set, get) => ({
       )
       let portName = existing.find(p => !occupied.has(p))
       if (!portName) {
-        const newPortName = isJointList ? nextJointInputName(existing) : nextToolInputName(existing)
+        const newPortName = variadic ? nextVariadicInputName(existing, variadic.prefix) : isJointList ? nextJointInputName(existing) : nextToolInputName(existing)
         nodes = nodes.map(n =>
           n.id === conn.target
             ? {
                 ...n,
                 data: {
                   ...n.data,
-                  inputs: (isJointList ? sortJointInputs : sortToolInputs)([...existing, newPortName]),
+                  inputs: variadic ? sortVariadicInputs([...existing, newPortName], variadic.prefix) : (isJointList ? sortJointInputs : sortToolInputs)([...existing, newPortName]),
                   input_types: { ...(n.data.input_types ?? {}), [newPortName]: expectedType },
                 },
               }
@@ -2685,6 +2743,27 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
+  updatePortVisibility: async (id, promotedInputs, promotedOutputs) => {
+    const node = get().nodes.find(n => n.id === id)
+    if (!node) return
+    set(s => pushUndoSnapshot(s))
+    set(s => ({
+      nodes: s.nodes.map(n => n.id === id ? {
+        ...n,
+        data: {
+          ...n.data,
+          ...(promotedInputs !== undefined ? { promoted_inputs: promotedInputs } : {}),
+          ...(promotedOutputs !== undefined ? { promoted_outputs: promotedOutputs } : {}),
+        },
+      } : n),
+      ...markActiveTabDirty(s),
+    }))
+    await api.updatePortVisibility(id, {
+      ...(promotedInputs !== undefined ? { promoted_inputs: promotedInputs } : {}),
+      ...(promotedOutputs !== undefined ? { promoted_outputs: promotedOutputs } : {}),
+    })
+  },
+
   cookNode: async (id, port = 'output', graphTargets, runMode = 'once') => {
     const cookTabId = get().activeTabId
     const stack = get().subnetStack
@@ -2970,6 +3049,7 @@ export const useStore = create<Store>((set, get) => ({
       runReplay: EMPTY_REPLAY,
       nodes: s.nodes.map(n => {
         const runtimeNode = (
+          n.data.type === 'Camera' ||
           n.data.type === 'ROS2ImageStream' ||
           n.data.type === 'CV2CameraStream' ||
           n.data.type === 'CV2ColorObjectStream' ||

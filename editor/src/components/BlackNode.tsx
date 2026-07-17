@@ -7,6 +7,7 @@ import { portColor } from '../portColors'
 import { headerColor } from '../categories'
 import { isWireOnlyInput } from '../inputControls'
 import { copyTextToClipboard } from '../clipboard'
+import { portDisplayHint, portDisplayName } from '../portLabels'
 import NodeFrame from './NodeFrame'
 import type { NodeCookState } from '../types'
 
@@ -19,6 +20,8 @@ const TRIGGER_DRIVER: Record<string, string> = {
 }
 
 const LIVE_STREAM_NODE_TYPES = new Set([
+  'Camera',
+  'CV2CameraStream',
   'ROS2ImageStream',
   'CV2ColorObjectStream',
   'VisionReasoningStream',
@@ -50,6 +53,9 @@ interface NodeData extends NodeCookState {
   output_types: Record<string, string>
   params: Record<string, unknown>
   live_capable?: boolean
+  variadic_input?: { prefix: string; type: string } | null
+  promoted_inputs?: string[] | null
+  promoted_outputs?: string[] | null
 }
 
 function formatPortValue(v: unknown): string {
@@ -81,6 +87,7 @@ function PortRow({
   const isInput = dir === 'input'
   const resultText = result !== undefined ? formatPortValue(result) : ''
   const popupText = `${dir} · ${name} · ${type}${resultText ? `\n${resultText}` : ''}`
+  const displayName = portDisplayName(name, dir)
 
   const openTooltip = () => {
     if (closeTimer.current !== null) {
@@ -173,7 +180,7 @@ function PortRow({
         fontSize: 12,
         fontFamily: 'var(--font-ui)',
       }}>
-        {name}
+        {displayName}
       </span>
       {hovering && (type || resultText) && (
         <div
@@ -209,7 +216,7 @@ function PortRow({
               letterSpacing: '0.08em',
               textTransform: 'uppercase',
             }}>
-              {dir} · {name} · {type}
+              {displayName} · {type}
             </div>
             {resultText && (
               <button
@@ -231,6 +238,9 @@ function PortRow({
                 {copyState === 'copied' ? 'Copied' : copyState === 'error' ? 'Copy failed' : 'Copy value'}
               </button>
             )}
+          </div>
+          <div style={{ color: 'var(--tx3)', fontSize: 9, marginBottom: resultText ? 6 : 0 }}>
+            {portDisplayHint(name, dir)}
           </div>
           {resultText && (
             <div
@@ -295,6 +305,15 @@ function PortRow({
 
 const isImageSrc = (v: unknown): v is string =>
   typeof v === 'string' && (v.startsWith('data:image/') || /^https?:\/\//i.test(v))
+
+const normalizedImageSrc = (v: unknown): string | null => {
+  if (isImageSrc(v)) return v
+  if (typeof v !== 'string') return null
+  const svg = v.trim()
+  return svg.startsWith('<svg') && svg.endsWith('</svg>')
+    ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+    : null
+}
 
 const imgBtn: React.CSSProperties = {
   background: 'var(--lift)', border: '1px solid var(--line)', borderRadius: 5,
@@ -422,33 +441,61 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [rosRunStopPending, setRosRunStopPending] = useState(false)
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
+  const [episodePending, setEpisodePending] = useState<null | 'start' | 'pause' | 'resume' | 'save' | 'stop' | 'discard'>(null)
   const dashboardAutoFitDone = useRef(false)
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
   const isToolBox   = data.type === 'ToolBox'
   const isRobotJointList = data.type === 'RobotJointList'
+  const variadicInput = data.variadic_input ?? null
+  const isVariadic = Boolean(variadicInput)
   const isManualMove = data.type === 'ROS2ManualMove' || data.type === 'ROS2TeachMode'
   const isRobotCalibration = data.type === 'RobotCalibrationRecorder'
-  const visibleInputs = isRobotJointList
+  const isEpisodeRecorder = data.type === 'EpisodeRecorder'
+  const availableInputs = isRobotJointList
     ? (data.inputs ?? []).filter(port => edges.some(edge => edge.target === id && edge.targetHandle === port))
-    : (data.inputs ?? [])
+    : isVariadic
+      ? (data.inputs ?? []).filter(port => {
+          const dynamic = new RegExp(`^${(variadicInput?.prefix || 'item').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_[0-9]+$`).test(port)
+          return !dynamic || edges.some(edge => edge.target === id && edge.targetHandle === port)
+        })
+      : (data.inputs ?? [])
+  const visibleInputs = availableInputs.filter(port =>
+    edges.some(edge => edge.target === id && edge.targetHandle === port)
+    || data.promoted_inputs == null
+    || data.promoted_inputs.includes(port)
+  )
+  const visibleOutputs = (data.outputs ?? []).filter(port =>
+    edges.some(edge => edge.source === id && edge.sourceHandle === port)
+    || data.promoted_outputs == null
+    || data.promoted_outputs.includes(port)
+  )
   const usedJointNumbers = new Set(visibleInputs.map(port => {
     const value = Number(port.split('_').pop())
     return Number.isFinite(value) ? value : 0
   }))
   let nextJointNumber = 1
   while (usedJointNumbers.has(nextJointNumber)) nextJointNumber += 1
+  const variadicPrefix = variadicInput?.prefix || 'item'
+  const usedVariadicNumbers = new Set(visibleInputs.map(port => {
+    const match = port.match(new RegExp(`^${variadicPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_(\\d+)$`))
+    return match ? Number(match[1]) : 0
+  }))
+  let nextVariadicNumber = 1
+  while (usedVariadicNumbers.has(nextVariadicNumber)) nextVariadicNumber += 1
   const inputsKey = visibleInputs.join('|')
-  const outputsKey = (data.outputs ?? []).join('|')
+  const outputsKey = visibleOutputs.join('|')
   // Explicit OutputImage nodes always render their image. Dashboard producers
   // also render their dashboard image when that port is terminal, so a graph
   // can present status in place without requiring a redundant OutputImage.
   // Once dashboard is wired downstream, the inline panel disappears and the
   // connected node owns presentation instead.
   const nodeImage = (): string | null => {
-    if (isImageSrc(data.cookResult)) return data.cookResult
+    const cookedImage = normalizedImageSrc(data.cookResult)
+    if (cookedImage) return cookedImage
     for (const v of Object.values(data.portResults ?? {})) {
-      if (isImageSrc(v)) return v
+      const image = normalizedImageSrc(v)
+      if (image) return image
     }
     return null
   }
@@ -457,10 +504,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     port === 'dashboard'
     && data.output_types?.[port] === 'Image'
     && !edges.some(edge => edge.source === id && edge.sourceHandle === port)
-    && isImageSrc(data.portResults?.[port])
+    && normalizedImageSrc(data.portResults?.[port]) !== null
   )
   const inlineDashboardImage = inlineDashboardPort
-    ? data.portResults?.[inlineDashboardPort]
+    ? normalizedImageSrc(data.portResults?.[inlineDashboardPort])
     : null
   const showImageResult = data.type === 'OutputImage'
     ? imageResult
@@ -496,11 +543,37 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     .filter(([, update]) => Date.now() / 1000 - Number(update?.at ?? 0) <= 1.5)
     .sort(([, a], [, b]) => Number(b?.at ?? 0) - Number(a?.at ?? 0))[0]
   const calibrationSaved = isRobotCalibration && (data.portResults?.saved === true || calibrationState === 'saved')
+  const episodeRunning = isEpisodeRecorder && data.portResults?.running === true
+  const episodeRecording = isEpisodeRecorder && data.portResults?.recording === true
+  const episodePaused = isEpisodeRecorder && data.portResults?.paused === true
+  const episodeFrameCount = isEpisodeRecorder ? Number(data.portResults?.frame_count ?? 0) : 0
+  const episodeDroppedFrames = isEpisodeRecorder ? Number(data.portResults?.dropped_frames ?? 0) : 0
+  const episodeDuration = isEpisodeRecorder ? Number(data.portResults?.duration_seconds ?? 0) : 0
+  const episodeLastError = isEpisodeRecorder && data.portResults?.status && typeof data.portResults.status === 'object'
+    ? String((data.portResults.status as Record<string, unknown>).last_error ?? '')
+    : ''
+  const episodeInputsReady = isEpisodeRecorder
+    && edges.some(edge => edge.target === id && edge.targetHandle === 'dataset')
+    && edges.some(edge => edge.target === id && edge.targetHandle === 'robot_stream')
+    && edges.some(edge => edge.target === id && (edge.targetHandle === 'camera_stream' || edge.targetHandle === 'camera_streams'))
+  const hasLiveOutput = data.live_capable === true && (data.outputs ?? []).includes('live')
+  const liveStateReport = hasLiveOutput ? String(data.portResults?.report ?? '').trim() : ''
+  const liveServiceRunning = hasLiveOutput && data.portResults?.running === true
+  const liveBlocked = liveServiceRunning
+    && data.portResults?.live !== true
+    && /^(blocked|failed|error)\b/i.test(liveStateReport)
+  const liveWaiting = liveServiceRunning && data.portResults?.live !== true && !liveBlocked
+  const liveStateReason = liveStateReport
+    .replace(/^(blocked|failed|error)\s*:\s*/i, '')
+    .trim()
   const genericNodeLive = data.live_capable === true && data.portResults?.live === true && !manualMoveLive && !streamActive
   const snapshotResult = data.live_capable === true
     && !streamActive
     && !manualMoveLive
     && !genericNodeLive
+    && !liveBlocked
+    && !liveWaiting
+    && data.portResults?.running !== true
     && !data.cooking
     && Object.keys(data.portResults ?? {}).length > 0
   const rosRunActive = data.type === 'ROS2Run' && data.portResults?.running === true
@@ -643,6 +716,24 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       await cookNode(id, 'report', undefined, 'live')
     } finally {
       setCalibrationPending(null)
+    }
+  }
+
+  const runEpisodeAction = async (action: 'start' | 'pause' | 'resume' | 'save' | 'stop' | 'discard') => {
+    if (episodePending) return
+    if (action === 'discard' && !window.confirm(
+      'Discard this incomplete episode and all of its recorded frames? This cannot be undone.'
+    )) return
+    setEpisodePending(action)
+    try {
+      await updateParam(id, 'action', action)
+      await cookNode(id, 'dashboard', undefined, 'live')
+    } finally {
+      try {
+        await updateParam(id, 'action', 'status')
+      } finally {
+        setEpisodePending(null)
+      }
     }
   }
 
@@ -812,6 +903,34 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             boxShadow: `0 0 8px ${manualMoveReady ? 'var(--ok)' : 'var(--warn)'}`,
           }} />
           <span>{manualMoveReady ? `LIVE • ${manualMoveMode} • ${manualMoveJointCount} JOINTS` : 'LIVE • WAITING FOR JOINT DATA'}</span>
+        </div>
+      )}
+
+      {(liveBlocked || liveWaiting) && (
+        <div
+          className="nodrag"
+          title={liveStateReport || (liveBlocked ? 'Live service is blocked' : 'Live service is waiting for source data')}
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            position: 'absolute', left: 8, top: -28, zIndex: 22,
+            display: 'flex', alignItems: 'center', gap: 7,
+            maxWidth: 460, padding: '5px 8px', borderRadius: 6,
+            border: `1px solid ${liveBlocked ? 'var(--err)' : 'var(--warn)'}`,
+            background: 'var(--panel)', color: liveBlocked ? 'var(--err)' : 'var(--warn)',
+            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
+            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
+            letterSpacing: '0.03em', lineHeight: 1,
+          }}
+        >
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+            background: liveBlocked ? 'var(--err)' : 'var(--warn)',
+            boxShadow: `0 0 8px ${liveBlocked ? 'var(--err)' : 'var(--warn)'}`,
+          }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {liveBlocked ? 'BLOCKED' : 'LIVE • WAITING'}
+            {liveStateReason ? ` • ${liveStateReason}` : liveWaiting ? ' • waiting for source data' : ''}
+          </span>
         </div>
       )}
 
@@ -1147,6 +1266,85 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </div>
       )}
 
+      {isEpisodeRecorder && (
+        <div style={{
+          margin: '7px 9px 3px', padding: 8, borderRadius: 7,
+          border: `1px solid ${episodeRecording ? 'var(--err)' : episodePaused ? 'var(--warn)' : 'var(--line)'}`,
+          background: episodeRecording ? 'rgba(239,68,68,.08)' : 'rgba(255,255,255,.02)',
+        }}>
+          <div style={{
+            marginBottom: 7,
+            color: episodeRecording ? 'var(--err)' : episodePaused ? 'var(--warn)' : 'var(--tx2)',
+            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
+          }}>
+            {episodeRecording
+              ? `● RECORDING · ${episodeFrameCount} FRAMES · ${episodeDuration.toFixed(1)}s`
+              : episodePaused
+                ? `Ⅱ PAUSED · ${episodeFrameCount} FRAMES · ${episodeDuration.toFixed(1)}s`
+                : '○ READY FOR A NEW EPISODE'}
+            {episodeDroppedFrames > 0 ? ` · ${episodeDroppedFrames} DROPPED` : ''}
+          </div>
+          {episodeLastError && (
+            <div style={{ margin: '-3px 0 7px', color: 'var(--warn)', fontFamily: 'var(--font-ui)', fontSize: 9, lineHeight: 1.35 }}>
+              {episodeLastError}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button
+              disabled={Boolean(episodePending) || episodeRunning || !episodeInputsReady}
+              title={episodeInputsReady ? 'Start a new synchronized robot and camera episode' : 'Connect dataset, robot stream, and at least one camera stream first'}
+              onClick={e => { e.stopPropagation(); void runEpisodeAction('start') }}
+              style={driverBtn('var(--err)', Boolean(episodePending) || episodeRunning || !episodeInputsReady)}
+            >
+              {episodePending === 'start' ? 'Starting…' : '● Record'}
+            </button>
+            <button
+              disabled={Boolean(episodePending) || !episodeRecording}
+              title="Pause recording without losing captured frames"
+              onClick={e => { e.stopPropagation(); void runEpisodeAction('pause') }}
+              style={driverBtn('var(--warn)', Boolean(episodePending) || !episodeRecording)}
+            >
+              {episodePending === 'pause' ? 'Pausing…' : 'Ⅱ Pause'}
+            </button>
+            <button
+              disabled={Boolean(episodePending) || !episodePaused}
+              title="Continue the paused episode"
+              onClick={e => { e.stopPropagation(); void runEpisodeAction('resume') }}
+              style={driverBtn('var(--ok)', Boolean(episodePending) || !episodePaused)}
+            >
+              {episodePending === 'resume' ? 'Resuming…' : '▶ Resume'}
+            </button>
+            <button
+              disabled={Boolean(episodePending) || !episodeRunning}
+              title="Finalize and save this episode to the dataset"
+              onClick={e => { e.stopPropagation(); void runEpisodeAction('save') }}
+              style={driverBtn('var(--ok)', Boolean(episodePending) || !episodeRunning)}
+            >
+              {episodePending === 'save' ? 'Saving…' : '✓ Save episode'}
+            </button>
+            <button
+              disabled={Boolean(episodePending) || !episodeRunning}
+              title="Stop recording but keep the episode journal recoverable"
+              onClick={e => { e.stopPropagation(); void runEpisodeAction('stop') }}
+              style={driverBtn('var(--tx2)', Boolean(episodePending) || !episodeRunning)}
+            >
+              {episodePending === 'stop' ? 'Stopping…' : '■ Stop'}
+            </button>
+            <button
+              disabled={Boolean(episodePending) || !episodeRunning}
+              title="Permanently discard this incomplete episode"
+              onClick={e => { e.stopPropagation(); void runEpisodeAction('discard') }}
+              style={driverBtn('var(--err)', Boolean(episodePending) || !episodeRunning)}
+            >
+              {episodePending === 'discard' ? 'Discarding…' : 'Discard'}
+            </button>
+          </div>
+          <div style={{ marginTop: 6, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9, lineHeight: 1.35 }}>
+            Record starts a new episode. Save finalizes it. Stop keeps an incomplete episode recoverable.
+          </div>
+        </div>
+      )}
+
       {/* ports */}
       <div style={{
         flex: showImageResult ? '0 0 auto' : 1,
@@ -1155,7 +1353,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         flexDirection: 'column',
         minHeight: 0,
       }}>
-        {(isToolBox || isRobotJointList) && (
+        {(isToolBox || isRobotJointList || isVariadic) && (
           <div style={{
             position: 'relative',
             display: 'flex',
@@ -1171,19 +1369,19 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 background: 'var(--node)',
                 width: 11,
                 height: 11,
-                border: `2px dashed ${isRobotJointList ? portColor('Dict') : TOOLBOX_NEW_HANDLE_COLOR}`,
+                border: `2px dashed ${isVariadic ? portColor(variadicInput?.type || 'Any') : isRobotJointList ? portColor('Dict') : TOOLBOX_NEW_HANDLE_COLOR}`,
                 borderRadius: '50%',
               }}
             />
-            <span style={{ fontSize: 9, color: isRobotJointList ? portColor('Dict') : TOOLBOX_NEW_HANDLE_COLOR, fontFamily: 'var(--font-ui)', userSelect: 'none' }}>
-              {isRobotJointList ? `joint_${nextJointNumber} · connect to add` : '← drag to create'}
+            <span style={{ fontSize: 9, color: isVariadic ? portColor(variadicInput?.type || 'Any') : isRobotJointList ? portColor('Dict') : TOOLBOX_NEW_HANDLE_COLOR, fontFamily: 'var(--font-ui)', userSelect: 'none' }}>
+              {isVariadic ? `${variadicPrefix}_${nextVariadicNumber} · connect to add` : isRobotJointList ? `joint_${nextJointNumber} · connect to add` : '← drag to create'}
             </span>
           </div>
         )}
         {visibleInputs.map(inp => {
           const type = effectivePortType(inp, 'input')
           const connected = edges.some(e => e.target === id && e.targetHandle === inp)
-          if ((isManualMove || isRobotCalibration) && inp === 'action' && !connected) return null
+          if ((isManualMove || isRobotCalibration || isEpisodeRecorder) && inp === 'action' && !connected) return null
           const showImageInput = type === 'Image'
             && !connected
             && !isWireOnlyInput(data.type, inp, type)
@@ -1202,7 +1400,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 name={inp}
                 type={type}
                 dir="input"
-                onRemove={(isToolBox || isRobotJointList) ? () => removeToolSlot(inp) : undefined}
+                onRemove={(isToolBox || isRobotJointList || isVariadic) ? () => removeToolSlot(inp) : undefined}
               />
               {showImageInput && (
                 <NodeImageInput
@@ -1214,7 +1412,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             </div>
           )
         })}
-        {data.outputs.map(out => (
+        {visibleOutputs.map(out => (
           <PortRow
             key={out}
             name={out}

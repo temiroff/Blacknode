@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Handle, Position, NodeProps } from 'reactflow'
+import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
@@ -28,6 +28,7 @@ interface NodeData extends NodeCookState {
   params: Record<string, unknown>
   outputs: string[]
   output_types: Record<string, string>
+  promoted_outputs?: string[] | null
 }
 
 const LAST_MODELS_PARAM = 'last_models_by_provider'
@@ -40,7 +41,13 @@ function lastModelsFromParam(value: unknown): Record<string, string> {
 }
 
 function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
-  const { updateParam, apiKeys, apiKeyStatus, setApiKey, customModels, addCustomModel, removeCustomModel } = useStore()
+  const { updateParam, apiKeys, apiKeyStatus, setApiKey, customModels, addCustomModel, removeCustomModel, edges } = useStore()
+  const updateNodeInternals = useUpdateNodeInternals()
+  const showValueOutput = data.promoted_outputs == null
+    || data.promoted_outputs.includes('value')
+    || edges.some(edge => edge.source === id && edge.sourceHandle === 'value')
+
+  useEffect(() => { updateNodeInternals(id) }, [id, showValueOutput, updateNodeInternals])
 
   const current = String(data.params.value ?? DEFAULT_MODEL)
   const [providerId, setProviderId] = useState(providerIdForModelValue(current))
@@ -539,18 +546,20 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
 
       </div>
 
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="value"
-        style={{
-          right: -5,
-          background: portColor('Model'),
-          width: 9, height: 9,
-          border: `1.5px solid ${portColor('Model')}`,
-          borderRadius: 3,
-        }}
-      />
+      {showValueOutput && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="value"
+          style={{
+            right: -5,
+            background: portColor('Model'),
+            width: 9, height: 9,
+            border: `1.5px solid ${portColor('Model')}`,
+            borderRadius: 3,
+          }}
+        />
+      )}
     </NodeFrame>
   )
 }

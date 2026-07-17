@@ -286,6 +286,26 @@ function Open-Browser {
     Start-Process $EditorUrl
 }
 
+function Invoke-PythonCapture {
+    param([string[]] $Arguments)
+
+    # Windows PowerShell wraps native stderr as NativeCommandError records.
+    # Package managers legitimately use stderr for warnings, so capture with a
+    # non-terminating preference and decide success from the process exit code.
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $CapturedOutput = @(& $Python @Arguments 2>&1)
+        $CapturedExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+    return [PSCustomObject]@{
+        Output = $CapturedOutput
+        ExitCode = $CapturedExitCode
+    }
+}
+
 function Invoke-PackageHealthCheck {
     if ($env:BLACKNODE_SKIP_PACKAGE_CHECK -eq "1") {
         Write-Step "Package health check skipped (BLACKNODE_SKIP_PACKAGE_CHECK=1)."
@@ -297,11 +317,23 @@ function Invoke-PackageHealthCheck {
     try {
         if ($env:BLACKNODE_PACKAGE_AUTO_UPDATE -ne "0") {
             Write-Step "Updating extension packages (safe fast-forward only)..."
-            $Output = & $Python -m blacknode.cli packages update --all 2>&1
-            $ExitCode = $LASTEXITCODE
+            $Result = Invoke-PythonCapture -Arguments @("-m", "blacknode.cli", "packages", "update", "--all")
+            $Output = $Result.Output
+            $ExitCode = $Result.ExitCode
             if ($Output) { $Output | ForEach-Object { Write-Host "    $_" } }
             if ($ExitCode -ne 0) {
                 Write-Host "  Warning: package update failed." -ForegroundColor Yellow
+            }
+        }
+
+        if ($env:BLACKNODE_PACKAGE_AUTO_SETUP -ne "0") {
+            Write-Step "Installing missing extension package dependencies..."
+            $SetupResult = Invoke-PythonCapture -Arguments @("-m", "blacknode.cli", "packages", "setup", "--missing")
+            $SetupOutput = $SetupResult.Output
+            $SetupExitCode = $SetupResult.ExitCode
+            if ($SetupOutput) { $SetupOutput | ForEach-Object { Write-Host "    $_" } }
+            if ($SetupExitCode -ne 0) {
+                Write-Host "  Warning: automatic package dependency setup failed; startup will continue." -ForegroundColor Yellow
             }
         }
 
@@ -310,8 +342,9 @@ function Invoke-PackageHealthCheck {
         if ($env:BLACKNODE_PACKAGE_AUTO_UPDATE -eq "0" -and $env:BLACKNODE_PACKAGE_CHECK_REMOTE -eq "1") {
             $Args += "--fetch"
         }
-        $Output = & $Python @Args 2>&1
-        $ExitCode = $LASTEXITCODE
+        $Result = Invoke-PythonCapture -Arguments $Args
+        $Output = $Result.Output
+        $ExitCode = $Result.ExitCode
         $Text = ($Output -join "`n")
         if ($ExitCode -ne 0) {
             Write-Host "  Warning: package health check failed:" -ForegroundColor Yellow

@@ -59,10 +59,15 @@ Optional node fields:
 | Field | Type | Purpose |
 |---|---|---|
 | `multi_input_ports` | string array | Dynamic ports that accept multiple connections. |
+| `variadic_input` | object | Declares a typed, numbered input family such as `camera_1`, `camera_2`; the editor exposes a **connect to add** socket. |
+| `promoted_inputs` | string array | Input sockets shown on the compact node. Connected inputs remain visible regardless. |
+| `promoted_outputs` | string array | Output sockets shown on the compact node. Connected outputs remain visible regardless. |
 | `subgraph` | object | Nested graph for `Subnet`, `SubnetAsTool`, and `VisualAgentLoop` nodes. |
 | `metadata` | object | Extra JSON metadata that does not affect execution. |
 
 Runtime-only fields such as `cookResult`, `cookError`, `cooking`, and `cookPort` are intentionally excluded.
+Canvas labels may be friendlier than these stable IDs; notably `trigger` is
+shown as **run after** and `report` as **done**.
 
 ## Workflow Templates
 

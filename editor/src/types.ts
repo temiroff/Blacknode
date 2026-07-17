@@ -21,6 +21,9 @@ export interface BnNodeMeta {
   output_types: Record<string, string>
   input_defaults: Record<string, unknown>
   multi_input_ports?: string[]
+  variadic_input?: { prefix: string; type: string } | null
+  promoted_inputs?: string[] | null
+  promoted_outputs?: string[] | null
   live_capable?: boolean
   subgraph?: SubgraphData
 }
@@ -60,6 +63,9 @@ export interface BnNodeDef {
   package?: string  // extension package name, '' for built-ins
   hidden?: boolean  // compatibility node: loadable in saved graphs, omitted from the palette
   live_capable?: boolean // keeps producing runtime output when the graph is in Live mode
+  variadic_input?: { prefix: string; type: string } | null
+  primary_inputs?: string[] | null
+  primary_outputs?: string[] | null
 }
 
 export interface BnPackageGitStatus {

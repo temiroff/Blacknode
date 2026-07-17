@@ -81,7 +81,7 @@ Do not commit local planning notes, generated scratch exports, API keys, run log
 - Port: a named input or output on a node, with a type such as `Text`, `Float`, `Dict`, `Fn`, `Model`, or `Any`.
 - Edge: a connection from one output port to one input port.
 - Entrypoint: the node and port cooked by the CLI. Prefer an explicit `entrypoint`.
-- Output node: terminal node used by the editor and inferred by the CLI when there is exactly one.
+- Output node: terminal node used by the editor and inferred by the CLI when there is exactly one. It renders connected `Image` values—including live MJPEG URLs—as media, supports typed video values, and shows other values as text or structured JSON.
 - Subnet: nested workflow graph inside a node.
 - Template: a tracked workflow JSON file in `templates/` with `metadata.template: true`.
 - Learned node: a reusable MCP-created node type stored on disk and executed in
@@ -96,7 +96,7 @@ managed node can start a background service during that cook, but frames,
 detections, joint feedback, and commands must flow through the service rather
 than repeatedly re-cooking the graph.
 
-Examples include `CV2CameraStream`, `CV2ColorObjectStream`,
+Examples include `Camera`, `CV2ColorObjectStream`,
 `CUDAImageFilterStream`, robot-driver nodes, and
 `ROS2ContinuousFollowDetectionJoint`.
 
@@ -111,6 +111,24 @@ For MCP-controlled demos:
 
 The stop tool uses each package's normal shutdown path. A robot driver may
 disable actuator torque, so support the arm when gravity could move it.
+
+## Hardware Node Names
+
+Public workflows should use physical concepts, not implementation libraries or
+connection transports. Use `Robot` and `Camera` for the normal one-node setup;
+keep names such as OpenCV, USB, ROS 2, or vendor SDKs in hidden compatibility
+nodes or clearly advanced adapters. Additional modalities should follow the
+same shape—one `LiDAR`, `IMU`, depth-camera, or force-sensor facade per physical
+device, with discovery and transport details handled internally. Emit generic,
+typed stream descriptors so dataset and workflow nodes remain independent of
+the hardware library that produced them.
+
+Expose `selection` as the normal device choice: `0` for the first discovered
+camera or robot, `1` for the second, and so on. Keep transport filters, USB
+vendor/product IDs, serial-port probing, and explicit connection requirements
+under Advanced. A stable hardware-identity filter is optional during setup but
+recommended after calibration or when swapping identical devices would be
+unsafe.
 
 ## Learned Nodes vs PythonFn
 
@@ -187,6 +205,8 @@ Each node should include:
 - optional `subgraph`
 - optional `metadata`
 - optional `multi_input_ports`
+- optional `variadic_input` with `prefix` and `type` for unlimited numbered input sockets
+- optional `promoted_inputs` and `promoted_outputs` controlling compact canvas sockets
 
 When creating a workflow programmatically, start from an existing template or from editor output so ports stay complete and valid.
 

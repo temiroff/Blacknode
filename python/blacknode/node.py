@@ -172,6 +172,60 @@ def _parse_default(raw: str) -> object:
             return raw
 
 
+_COMPACT_PORT_THRESHOLD = 8
+_DATA_INPUT_TYPES = {"Any", "Dict", "Embedding", "Fn", "Image", "List"}
+_STATUS_OUTPUTS = {
+    "active", "armed", "command_ok", "connected", "count", "data_ready",
+    "device", "driver_running", "dropped_frames", "error", "found", "joint_count",
+    "launched", "live", "moved", "ok", "paused", "ready", "recording",
+    "metadata", "permissions", "raw", "report", "running", "saved", "selected",
+    "status", "streaming", "uploaded",
+    "usb_ready",
+}
+_OUTPUT_PRIORITY = (
+    "result", "output", "text", "answer", "image", "preview", "dashboard",
+    "robot", "dataset", "frame_stream", "sample_stream", "detection_stream",
+    "detection", "pose", "profile", "driver", "data", "messages",
+    "tool_calls", "embedding", "embeddings", "export", "camera", "command",
+    "stream_url", "snapshot_url", "summary",
+)
+
+
+def _automatic_primary_ports(
+    inputs: list[str],
+    input_types: dict[str, str],
+    input_defaults: dict[str, object],
+    outputs: list[str],
+) -> tuple[list[str] | None, list[str] | None]:
+    """Choose a conservative compact surface for large nodes.
+
+    Parameters remain editable in Properties. Required data-bearing inputs stay
+    wireable, repetitive status outputs stay out of the canvas, and connected
+    ports are always restored by the editor regardless of this default.
+    """
+    if len(inputs) + len(outputs) < _COMPACT_PORT_THRESHOLD:
+        return None, None
+
+    primary_inputs = [
+        port for port in inputs
+        if port == "trigger"
+        or (port not in input_defaults and input_types.get(port, "Any") in _DATA_INPUT_TYPES)
+    ]
+
+    candidates = [
+        port for port in outputs
+        if port not in _STATUS_OUTPUTS
+        and not port.endswith("_count")
+        and not port.endswith("_ms")
+    ]
+    ranked = [port for port in _OUTPUT_PRIORITY if port in candidates]
+    ranked.extend(port for port in candidates if port not in ranked)
+    primary_outputs = ranked[:3]
+    if not primary_outputs and outputs:
+        primary_outputs = [outputs[0]]
+    return primary_inputs, primary_outputs
+
+
 def node(
     inputs: list[str] | Mapping[str, TypingAny] | None = None,
     outputs: list[str] | Mapping[str, TypingAny] | None = None,
@@ -180,6 +234,10 @@ def node(
     description: str | None = None,
     hidden: bool = False,
     live: bool = False,
+    variadic_input: TypingAny = None,
+    variadic_prefix: str = "item",
+    primary_inputs: list[str] | None = None,
+    primary_outputs: list[str] | None = None,
 ):
     """Decorator that registers a function as a Blacknode node type.
 
@@ -210,9 +268,17 @@ def node(
 
         runtime_fn = fn if _expects_context(fn) else _wrap_direct_node(fn, in_names, in_defaults, out_names)
         _NODE_REGISTRY[type_name] = runtime_fn
-        _attach_metadata(runtime_fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description, hidden, live)
+        variadic = None
+        if variadic_input is not None:
+            spec = _coerce_port_spec(variadic_input)
+            prefix = str(variadic_prefix or "item").strip().rstrip("_") or "item"
+            variadic = {"prefix": prefix, "type": spec.type_name}
+        automatic_inputs, automatic_outputs = _automatic_primary_ports(in_names, in_types, in_defaults, out_names)
+        visible_inputs = [port for port in (primary_inputs or []) if port in in_names] if primary_inputs is not None else automatic_inputs
+        visible_outputs = [port for port in (primary_outputs or []) if port in out_names] if primary_outputs is not None else automatic_outputs
+        _attach_metadata(runtime_fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description, hidden, live, variadic, visible_inputs, visible_outputs)
         if runtime_fn is not fn:
-            _attach_metadata(fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description, hidden, live)
+            _attach_metadata(fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description, hidden, live, variadic, visible_inputs, visible_outputs)
         return fn
     return decorator
 
@@ -264,6 +330,9 @@ def _attach_metadata(
     description: str | None,
     hidden: bool,
     live: bool,
+    variadic_input: dict[str, str] | None,
+    primary_inputs: list[str] | None,
+    primary_outputs: list[str] | None,
 ) -> None:
     fn._bn_node = True
     fn._bn_type_name = type_name
@@ -275,6 +344,9 @@ def _attach_metadata(
     fn._bn_output_types = output_types
     fn._bn_hidden = hidden
     fn._bn_live_capable = live
+    fn._bn_variadic_input = variadic_input
+    fn._bn_primary_inputs = primary_inputs
+    fn._bn_primary_outputs = primary_outputs
     if category:
         fn._bn_category = category
     if description:
