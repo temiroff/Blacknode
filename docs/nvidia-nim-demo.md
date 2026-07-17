@@ -25,7 +25,7 @@ https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2
 For the Windows one-command path:
 
 ```bat
-start.bat
+.\start.bat
 ```
 
 For a manual two-terminal path:

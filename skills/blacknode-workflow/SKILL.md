@@ -66,7 +66,7 @@ Visual editor:
 On Windows:
 
 ```powershell
-start.bat
+.\start.bat
 ```
 
 CLI checks:

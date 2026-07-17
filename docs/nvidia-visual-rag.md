@@ -53,7 +53,7 @@ $env:NVIDIA_API_KEY="nvapi-..."
 Open the editor:
 
 ```powershell
-start.bat
+.\start.bat
 ```
 
 Alternatively, select any NVIDIA node and enter the key once in the

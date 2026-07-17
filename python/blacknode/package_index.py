@@ -118,6 +118,17 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "LeRobotV3Export",
         ],
     },
+    "blacknode-training": {
+        "name": "blacknode-training",
+        "git_url": "https://github.com/temiroff/blacknode-training.git",
+        "description": "Offline robot-policy dataset checks, managed PyTorch training, checkpoints, metrics, and prediction previews.",
+        "node_types": [
+            "TrainingDatasetCheck",
+            "ACTTraining",
+            "ACTCheckpointInspect",
+            "ACTPolicyPreview",
+        ],
+    },
 }
 
 _NODE_PACKAGE_INDEX: dict[str, dict[str, str]] = {

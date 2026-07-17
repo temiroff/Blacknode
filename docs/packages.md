@@ -96,6 +96,13 @@ If auto-update is disabled but you still want startup to fetch remote state, set
 Official packages are listed in the editor's Packages tab even when they are not
 installed. Press **Install** on an available package to clone it from the built-in
 Git URL without pasting a repository URL manually.
+
+On a Blacknode workspace's first editor session, the editor opens this tab
+behind a one-time welcome message. The message directs robotics users to install
+the official packages their workflows require and lets core-graph users
+continue immediately. After either choice, Blacknode records the acknowledgement
+in `.blacknode/onboarding.json` inside the repository and does not show the
+message again for that workspace.
 ## Official robotics and vision packages
 
 The robotics packages are separate repos but can live under `packages/` during

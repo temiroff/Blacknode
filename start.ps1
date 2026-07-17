@@ -184,7 +184,7 @@ function Write-PortBusyError {
         Write-Host ""
         Write-Host "  Listening process id(s): $(@($ProcessIds) -join ', ')"
     }
-    Write-Host "  Close that app or free port $Port, then run start.bat again."
+    Write-Host "  Close that app or free port $Port, then run .\start.bat again."
 }
 
 function Invoke-NativeProbe {

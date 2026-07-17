@@ -49,6 +49,10 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["Camera"]["package"] == "blacknode-vision"
     assert payload["nodes"]["CameraStream"]["package"] == "blacknode-vision"
     assert payload["nodes"]["CV2CameraStream"]["package"] == "blacknode-vision"
+    assert payload["nodes"]["ACTTraining"] == {
+        "package": "blacknode-training",
+        "git_url": "https://github.com/temiroff/blacknode-training.git",
+    }
 
 
 def test_resolver_finds_nested_nodes_and_indexed_package():

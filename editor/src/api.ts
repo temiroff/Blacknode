@@ -385,6 +385,9 @@ export const api = {
   getApiKeyStatus:  () => req<Record<string, ApiKeyStatus>>('GET', '/settings/api-key-status'),
   setApiKey:        (provider: string, key: string) =>
     req<{ ok: boolean; restarted?: string | null; credential?: ApiKeyStatus }>('POST', '/settings/api-key', { provider, key }),
+  getOnboarding:    () => req<{ package_welcome_seen: boolean }>('GET', '/settings/onboarding'),
+  setOnboarding:    (packageWelcomeSeen: boolean) =>
+    req<{ ok: boolean; package_welcome_seen: boolean }>('POST', '/settings/onboarding', { package_welcome_seen: packageWelcomeSeen }),
   getCustomModels:  () => req<string[]>('GET', '/settings/custom-models'),
   addCustomModel:   (value: string) => req('POST', '/settings/custom-models', { value }),
   removeCustomModel:(value: string) => req('DELETE', `/settings/custom-models?value=${encodeURIComponent(value)}`),
