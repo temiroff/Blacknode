@@ -39,7 +39,7 @@ visual editor, and opens the browser. Later starts reuse the installed files.
 Windows:
 
 ```bat
-start.bat
+.\start.bat
 ```
 
 macOS/Linux:
@@ -58,6 +58,13 @@ What this does:
 
 First-run time depends on network speed and whether pip/npm packages are already
 cached. Later starts normally complete in less than one minute.
+
+On the first launch of this Blacknode workspace, a welcome message opens the
+**Packages** tab. Use it to install the official packages needed by robotics,
+ROS 2, vision, CUDA, dataset, and training templates. Choose **Continue with
+core graph** when you want to begin with built-in nodes. Blacknode records the
+choice in `.blacknode/onboarding.json`; Packages stays available in the left
+sidebar.
 
 ## 3. Check the Local Setup
 
@@ -148,7 +155,7 @@ Expected result:
 - If an old Blacknode editor is already on port `3000`, the launcher restarts
   it and keeps the same URL.
 
-If you stopped the launcher, run `start.bat` or `./start.sh` again.
+If you stopped the launcher, run `.\start.bat` or `./start.sh` again.
 
 If the browser does not open, open this manually:
 
@@ -320,7 +327,7 @@ Windows:
 
 ```powershell
 $env:NVIDIA_API_KEY="your-key"
-start.bat
+.\start.bat
 ```
 
 macOS/Linux:
@@ -587,7 +594,7 @@ blacknode = "blacknode.cli:main"
 Run the launcher again:
 
 ```powershell
-start.bat
+.\start.bat
 ```
 
 or:

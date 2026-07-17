@@ -78,7 +78,7 @@ Expected result:
 ### 2. Open the visual workflow
 
 ```powershell
-start.bat
+.\start.bat
 ```
 
 Then open the **Templates** tab and load **NVIDIA Video Intelligence Mission

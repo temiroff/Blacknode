@@ -62,7 +62,7 @@ Windows:
 ```powershell
 git clone https://github.com/temiroff/Blacknode.git
 cd Blacknode
-start.bat
+.\start.bat
 ```
 
 macOS/Linux:
@@ -76,6 +76,13 @@ chmod +x start.sh
 
 Python 3.11+ and Node.js 20.19+ or 22.12+ are required. A warm start normally
 takes less than a minute; first-run time depends on network and package caches.
+
+On the first launch of a Blacknode workspace, the editor opens **Packages** with
+a one-time welcome message. Install the official packages needed for robotics,
+ROS 2, vision, CUDA, datasets, and training workflows, or continue directly
+with the core graph. The acknowledgement is stored locally in
+`.blacknode/onboarding.json`, and the Packages tab remains available in the
+left sidebar.
 
 Continue with the [Beginner Walkthrough](docs/walkthrough.md).
 

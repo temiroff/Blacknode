@@ -6,7 +6,7 @@ outside the editor.
 
 ## Editor
 
-1. Start Blacknode with `start.bat` on Windows or `./start.sh` on macOS/Linux.
+1. Start Blacknode with `.\start.bat` on Windows or `./start.sh` on macOS/Linux.
 2. Open or build a workflow that ends in an `Output` or `OutputImage` node.
 3. Press `Export` in the top bar.
 4. Choose `Plain Python`, `Python Class`, `LangGraph`, `CrewAI`, `AutoGen`, `OpenAI Swarm`, or `NVIDIA Agent Stack`.

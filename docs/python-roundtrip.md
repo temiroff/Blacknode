@@ -90,7 +90,7 @@ Invoke-RestMethod `
 
 Live sync lets a Python script push run events back into the editor.
 
-1. Start Blacknode with `start.bat`.
+1. Start Blacknode with `.\start.bat`.
 2. Export a workflow to Python.
 3. Run the script with `BLACKNODE_SYNC_URL` pointing at the editor backend.
 

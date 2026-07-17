@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { api } from '../api'
 import { useStore } from '../store'
 import { CATEGORIES } from '../categories'
 import { isPythonToolPreset, resolvePythonToolPreset } from '../pythonToolPresets'
@@ -19,6 +20,16 @@ const RAIL_W = 78
 const PANEL_DEFAULT_W = 240
 const PANEL_MIN_W = 188
 const PANEL_MAX_W = 520
+const welcomeButtonStyle: React.CSSProperties = {
+  border: '1px solid var(--line2)',
+  borderRadius: 6,
+  background: 'transparent',
+  color: 'var(--tx2)',
+  cursor: 'pointer',
+  fontFamily: 'var(--font-ui)',
+  fontSize: 12,
+  padding: '7px 12px',
+}
 
 const ICON_NODES = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -90,6 +101,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 export default function NodePalette() {
   const { nodeTypes, nodeDefs, addNode, loadNodeTypes, learnedNodeHighlight } = useStore()
   const [activeTab, setActiveTab] = useState<Tab | null>('nodes')
+  const [showPackageWelcome, setShowPackageWelcome] = useState(false)
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
@@ -97,6 +109,24 @@ export default function NodePalette() {
   useEffect(() => {
     if (activeTab === 'nodes') loadNodeTypes()
   }, [activeTab, loadNodeTypes])
+
+  useEffect(() => {
+    let active = true
+    api.getOnboarding()
+      .then(state => {
+        if (active && !state.package_welcome_seen) {
+          setActiveTab('packages')
+          setShowPackageWelcome(true)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setActiveTab('packages')
+          setShowPackageWelcome(true)
+        }
+      })
+    return () => { active = false }
+  }, [])
 
   useEffect(() => {
     if (!learnedNodeHighlight) return
@@ -161,6 +191,17 @@ export default function NodePalette() {
     })
   }
 
+  const finishPackageWelcome = async (tab: Tab) => {
+    try {
+      await api.setOnboarding(true)
+    } catch {
+      // Keep the editor usable; an unavailable server will cause the prompt
+      // to return on the next launch instead of losing the acknowledgement.
+    }
+    setShowPackageWelcome(false)
+    setActiveTab(tab)
+  }
+
   const renderGroupHeader = (group: string, color: string, count: number) => {
     const open = openGroups.has(group)
     return (
@@ -210,6 +251,63 @@ export default function NodePalette() {
 
   return (
     <div style={{ display: 'flex', flexShrink: 0, height: '100%' }}>
+
+      {showPackageWelcome && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="package-welcome-title"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1000,
+            background: 'rgba(4, 8, 18, 0.72)',
+            display: 'grid',
+            placeItems: 'center',
+            padding: 24,
+          }}
+        >
+          <div style={{
+            width: 'min(520px, calc(100vw - 48px))',
+            background: 'var(--panel)',
+            border: '1px solid var(--line2)',
+            borderRadius: 12,
+            boxShadow: '0 24px 80px rgba(0,0,0,.5)',
+            padding: 24,
+            color: 'var(--tx1)',
+            fontFamily: 'var(--font-ui)',
+          }}>
+            <div style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Welcome to Blacknode
+            </div>
+            <h1 id="package-welcome-title" style={{ margin: '8px 0 10px', fontSize: 22, lineHeight: 1.2 }}>
+              Prepare your robotics workspace
+            </h1>
+            <p style={{ margin: 0, color: 'var(--tx2)', fontSize: 13, lineHeight: 1.6 }}>
+              Start in Packages and install the official Blacknode capabilities for robot hardware, ROS 2, vision, CUDA, datasets, and training. Package-backed templates need their listed packages before they can run.
+            </p>
+            <p style={{ margin: '10px 0 0', color: 'var(--tx3)', fontSize: 12, lineHeight: 1.5 }}>
+              Core graph workflows are ready immediately. You can return to Packages at any time from the left sidebar.
+            </p>
+            <div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => finishPackageWelcome('nodes')}
+                style={welcomeButtonStyle}
+              >
+                Continue with core graph
+              </button>
+              <button
+                type="button"
+                onClick={() => finishPackageWelcome('packages')}
+                style={{ ...welcomeButtonStyle, padding: '7px 14px', color: '#fff', background: 'var(--accent)', borderColor: 'var(--accent)', fontWeight: 700 }}
+              >
+                Explore essential packages
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Icon rail ── */}
       <div style={{

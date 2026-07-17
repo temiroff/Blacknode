@@ -208,6 +208,9 @@ class SetApiKeyReq(BaseModel):
     provider: str
     key: str
 
+class SetOnboardingReq(BaseModel):
+    package_welcome_seen: bool = True
+
 class SaveWorkflowReq(BaseModel):
     name: str
     previous_slug: str | None = None
@@ -580,6 +583,39 @@ class AddCustomModelReq(BaseModel):
 
 
 _load_custom_models()
+
+# ── Workspace onboarding persistence ─────────────────────────────────────────
+
+_ONBOARDING_PATH = Path(__file__).resolve().parents[1] / ".blacknode" / "onboarding.json"
+_onboarding_state: dict[str, bool] = {"package_welcome_seen": False}
+
+
+def _load_onboarding_state() -> None:
+    global _onboarding_state
+    if not _ONBOARDING_PATH.exists():
+        _onboarding_state = {"package_welcome_seen": False}
+        return
+    try:
+        payload = json.loads(_ONBOARDING_PATH.read_text(encoding="utf-8"))
+        _onboarding_state = {
+            "package_welcome_seen": bool(payload.get("package_welcome_seen", False)),
+        }
+    except Exception as e:
+        _onboarding_state = {"package_welcome_seen": False}
+        print(f"[blacknode] Could not load onboarding state: {e}")
+
+
+def _save_onboarding_state() -> None:
+    try:
+        _ONBOARDING_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = _ONBOARDING_PATH.with_suffix(".json.tmp")
+        temp_path.write_text(json.dumps(_onboarding_state, indent=2) + "\n", encoding="utf-8")
+        temp_path.replace(_ONBOARDING_PATH)
+    except Exception as e:
+        print(f"[blacknode] Could not save onboarding state: {e}")
+
+
+_load_onboarding_state()
 
 
 def _toolbox_port_sort_key(port: str) -> tuple[int, str]:
@@ -2885,6 +2921,18 @@ def set_api_key(req: SetApiKeyReq):
         "restarted": restarted,
         "credential": _api_key_status().get(req.provider),
     }
+
+
+@app.get("/settings/onboarding")
+def get_onboarding_state():
+    return dict(_onboarding_state)
+
+
+@app.post("/settings/onboarding")
+def set_onboarding_state(req: SetOnboardingReq):
+    _onboarding_state["package_welcome_seen"] = req.package_welcome_seen
+    _save_onboarding_state()
+    return {"ok": True, **_onboarding_state}
 
 
 # ── Driver status bridge ──────────────────────────────────────────────────

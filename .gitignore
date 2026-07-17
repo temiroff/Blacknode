@@ -27,6 +27,7 @@ CLAUDE.md
 .claude/
 .local-notes/
 .local-logs/
+/.blacknode/
 docs/todays-goal.md
 docs/public-preview-checklist.md
 docs/future-ideas.md
