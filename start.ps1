@@ -6,6 +6,7 @@ $ServerOut = Join-Path $LogDir "server.out.log"
 $ServerErr = Join-Path $LogDir "server.err.log"
 $EditorOut = Join-Path $LogDir "editor.out.log"
 $EditorErr = Join-Path $LogDir "editor.err.log"
+$VenvDir = if ($env:BLACKNODE_VENV) { $env:BLACKNODE_VENV } else { Join-Path $Root ".venv" }
 
 $BackendProcess = $null
 $FrontendProcess = $null
@@ -36,6 +37,32 @@ function Resolve-RequiredCommand {
     }
 
     throw $ErrorMessage
+}
+
+function Assert-PythonVersion {
+    param([string] $Python)
+
+    if (-not (Invoke-NativeProbe -Command $Python -Arguments @("-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)"))) {
+        $Version = & $Python --version 2>&1
+        throw "Python 3.11+ is required. Found: $Version"
+    }
+}
+
+function Resolve-ProjectPython {
+    $SystemPython = Resolve-RequiredCommand -Names @("python", "py") -ErrorMessage "Python 3.11+ is required."
+    Assert-PythonVersion -Python $SystemPython
+
+    $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $VenvPython)) {
+        Write-Step "Creating Python virtual environment (.venv)..."
+        & $SystemPython -m venv $VenvDir
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $VenvPython)) {
+            throw "Could not create the Python virtual environment at $VenvDir."
+        }
+    }
+
+    Assert-PythonVersion -Python $VenvPython
+    return $VenvPython
 }
 
 function Stop-ProcessTree {
@@ -387,7 +414,7 @@ try {
 
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 
-    $Python = Resolve-RequiredCommand -Names @("python", "py") -ErrorMessage "Python 3.11+ is required."
+    $Python = Resolve-ProjectPython
     $Npm = Resolve-RequiredCommand -Names @("npm.cmd", "npm") -ErrorMessage "npm is required. Install Node.js 20.19+ or 22.12+."
 
     Write-Step "Checking Python dependencies..."
@@ -396,23 +423,12 @@ try {
         throw "Python dependency install failed."
     }
 
-    if (-not (Test-PythonDistribution -Python $Python -Name "blacknode")) {
+    if ((-not (Test-PythonDistribution -Python $Python -Name "blacknode")) -or
+        (-not (Test-PythonModule -Python $Python -Name "blacknode"))) {
         Write-Step "Installing blacknode package for the CLI..."
         & $Python -m pip install -e $Root -q --disable-pip-version-check
         if ($LASTEXITCODE -ne 0) {
             throw "Blacknode package install failed."
-        }
-    }
-
-    # Optional: install CuPy for the GPU/CUDA nodes when an NVIDIA GPU is present.
-    # Non-fatal: a failure here never blocks the editor.
-    if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-        if (-not (Test-PythonModule -Python $Python -Name "cupy")) {
-            Write-Step "NVIDIA GPU detected - installing CuPy for CUDA nodes (one-time, large download)..."
-            & $Python -m pip install cupy-cuda12x -q --disable-pip-version-check
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "  CuPy install failed; GPU/CUDA nodes stay unavailable but the editor will run." -ForegroundColor Yellow
-            }
         }
     }
 
@@ -427,6 +443,11 @@ try {
 
     Write-Step "Done."
     Write-Host ""
+
+    if ($env:BLACKNODE_BOOTSTRAP_ONLY -eq "1") {
+        Write-Step "Bootstrap complete (BLACKNODE_BOOTSTRAP_ONLY=1)."
+        return
+    }
 
     Stop-PortListener -Port $BackendPort
 

@@ -30,54 +30,65 @@ macOS/Linux:
 cd path/to/Blacknode
 ```
 
-## 2. Install Blacknode
+## 2. Start Blacknode
 
-Run this once. It installs the Python package, the `blacknode` command, and MCP
-support.
+The launcher performs first-run setup automatically. It creates a project-local
+`.venv`, installs Blacknode and the editor dependencies, starts the backend and
+visual editor, and opens the browser. Later starts reuse the installed files.
 
 Windows:
 
-```powershell
-pip install -e ".[mcp]"
-cd editor-server
-pip install -r requirements.txt
-cd ..\editor
-npm install
-cd ..
+```bat
+start.bat
 ```
 
 macOS/Linux:
 
 ```bash
-pip install -e ".[mcp]"
-cd editor-server
-pip install -r requirements.txt
-cd ../editor
-npm install
-cd ..
+chmod +x start.sh
+./start.sh
 ```
 
 What this does:
 
-- `pip install -e ".[mcp]"` creates the `blacknode` terminal command from
-  `pyproject.toml`.
-- `editor-server` dependencies run the local backend on port `7777`.
-- `editor` dependencies run the browser UI on port `3000`.
+- Creates `.venv` and installs the Python runtime, CLI, backend, and MCP support.
+- Installs the visual editor dependencies under `editor/node_modules`.
+- Starts the backend on port `7777` and the browser UI on port `3000`.
+- Opens `http://localhost:3000` when possible.
+
+First-run time depends on network speed and whether pip/npm packages are already
+cached. Later starts normally complete in less than one minute.
 
 ## 3. Check the Local Setup
 
-Run:
+Keep Blacknode running. In a second terminal, activate its environment once;
+the remaining `blacknode` commands in this guide will then work directly.
+
+Windows:
 
 ```powershell
+.\.venv\Scripts\Activate.ps1
 blacknode doctor
+```
+
+macOS/Linux:
+
+```bash
+source .venv/bin/activate
+blacknode doctor
+```
+
+If PowerShell blocks activation, call the executable directly:
+
+```powershell
+.\.venv\Scripts\blacknode.exe doctor
 ```
 
 Expected result:
 
 - Green `[OK]` means that part is ready.
 - Red `[NOT OK]` means install or fix that required part.
-- Yellow `[WARN] Editor server: not running` is normal before starting the
-  editor.
+- The editor-server check should be green because the launcher is still running.
 - The final line should say `Required checks passed.`
 
 ## 4. Run the First Workflow Without the Browser
@@ -124,20 +135,10 @@ Expected result:
 - `import-python` recreates workflow JSON from the exported Python file.
 - `python workflow.py` prints `Hello World`.
 
-## 5. Start the Visual Editor
+## 5. Open the Visual Editor
 
-Windows:
-
-```bat
-start.bat
-```
-
-macOS/Linux:
-
-```bash
-chmod +x start.sh
-./start.sh
-```
+The launcher from step 2 keeps the backend and visual editor running. Return to
+the browser window it opened.
 
 Expected result:
 
@@ -146,6 +147,8 @@ Expected result:
 - Browser opens automatically when possible.
 - If an old Blacknode editor is already on port `3000`, the launcher restarts
   it and keeps the same URL.
+
+If you stopped the launcher, run `start.bat` or `./start.sh` again.
 
 If the browser does not open, open this manually:
 
@@ -560,14 +563,20 @@ Expected result:
 
 ### `blacknode` command not found
 
-Run:
+Activate the project environment:
 
 ```powershell
-pip install -e ".[mcp]"
+.\.venv\Scripts\Activate.ps1
 ```
 
-Then close and reopen the terminal. The command is created by the package entry
-point:
+or run the executable directly:
+
+```powershell
+.\.venv\Scripts\blacknode.exe doctor
+```
+
+On macOS/Linux, run `source .venv/bin/activate`. The command is created by the
+package entry point:
 
 ```text
 blacknode = "blacknode.cli:main"

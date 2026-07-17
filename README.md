@@ -53,7 +53,31 @@ process, workstation, Jetson, robot, simulator, or cloud runtime.
 
 ## Start Here
 
-**New users should begin with the [Beginner Walkthrough](docs/walkthrough.md).**
+Clone Blacknode and run its launcher. The first run creates an isolated Python
+environment, installs the backend and editor dependencies, starts both services,
+and opens the browser. Later starts reuse the installed dependencies.
+
+Windows:
+
+```powershell
+git clone https://github.com/temiroff/Blacknode.git
+cd Blacknode
+start.bat
+```
+
+macOS/Linux:
+
+```bash
+git clone https://github.com/temiroff/Blacknode.git
+cd Blacknode
+chmod +x start.sh
+./start.sh
+```
+
+Python 3.11+ and Node.js 20.19+ or 22.12+ are required. A warm start normally
+takes less than a minute; first-run time depends on network and package caches.
+
+Continue with the [Beginner Walkthrough](docs/walkthrough.md).
 
 It shows the exact commands to run, buttons to press, templates to open, results
 to expect, NVIDIA NIM paths, MCP setup, framework export, Docker Compose,

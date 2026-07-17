@@ -475,28 +475,22 @@ ensure_python_environment
 echo "  Checking Python dependencies..."
 pip_install -r "$ROOT_DIR/editor-server/requirements.txt" -q --disable-pip-version-check
 
-if ! "$PYTHON_BIN" -c "import importlib.metadata; importlib.metadata.version('blacknode')" >/dev/null 2>&1; then
+if ! "$PYTHON_BIN" -c "import blacknode, importlib.metadata; importlib.metadata.version('blacknode')" >/dev/null 2>&1; then
   echo "  Installing blacknode package for the CLI..."
   pip_install -e "$ROOT_DIR" -q --disable-pip-version-check
 fi
 ensure_blacknode_command
-
-# Optional: install CuPy for the GPU/CUDA nodes when an NVIDIA GPU is present.
-# macOS has no NVIDIA CUDA GPUs, so nvidia-smi is absent and this is skipped.
-# Non-fatal: a failure here never blocks the editor.
-if command -v nvidia-smi >/dev/null 2>&1; then
-  if ! "$PYTHON_BIN" -c "import cupy" >/dev/null 2>&1; then
-    echo "  NVIDIA GPU detected - installing CuPy for CUDA nodes (one-time, large download)..."
-    pip_install cupy-cuda12x -q --disable-pip-version-check \
-      || echo "  CuPy install failed; GPU/CUDA nodes stay unavailable but the editor will run."
-  fi
-fi
 
 check_package_dependencies
 ensure_frontend_dependencies
 
 echo "  Done."
 echo
+
+if [[ "${BLACKNODE_BOOTSTRAP_ONLY:-0}" == "1" ]]; then
+  echo "  Bootstrap complete (BLACKNODE_BOOTSTRAP_ONLY=1)."
+  exit 0
+fi
 
 stop_port_listener "$BACKEND_PORT"
 wait_port_free "$BACKEND_PORT" || {
