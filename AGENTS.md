@@ -58,3 +58,15 @@ cargo test
 
 Package changes must also run the package's own tests from that package
 worktree. See `CONTRIBUTING.md` and `docs/agent-guide.md` for the public guide.
+
+## Documentation voice
+
+- Describe Blacknode through its own capabilities, workflows, nodes, artifacts,
+  and user outcomes.
+- Lead with what the product does. Avoid positioning it through negation or
+  comparisons such as "not X", "without X", or "unlike X".
+- Mention another product only when it is an actual supported integration,
+  provider, file format, protocol, or required configuration in the documented
+  workflow.
+- Keep speculative integrations and competitor comparisons in internal plans
+  or issues unless the user explicitly requests a dedicated integration guide.

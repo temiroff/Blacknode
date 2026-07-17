@@ -1,9 +1,8 @@
 # Robot episode datasets
 
-Blacknode records demonstrations through `blacknode-dataset`, independently
-of LeRobot. The native format is optimized for safe acquisition and recovery;
-separate export steps create ACT-style HDF5 episodes or the current LeRobot v3
-Parquet/MP4 layout.
+`blacknode-dataset` records synchronized robot demonstrations as recoverable
+Blacknode episodes. A recording can include follower observations, leader
+positions, commanded actions, and any number of camera streams.
 
 ## Architecture
 
@@ -12,69 +11,139 @@ ROS2LeaderFollower.sample_stream ─┐
                                   ├─> EpisodeRecorder ─> native dataset
 Camera.frame_stream ──────────────┘                         │
                                                           ├─> validate
-                                                          ├─> HDF5 episode export
-                                                          └─> LeRobot v3 export ─> Hugging Face ─> GR00T
+                                                          ├─> HDF5 export
+                                                          ├─> Parquet/MP4 export
+                                                          └─> repository upload
 ```
 
-The robot stream contains the synchronized leader pose, follower observation,
-and action that was computed for the follower. All joint vectors use the same
-ordered joint names and radians. The camera stream supplies fresh JPEG frames
-with capture sequence and nanosecond timestamps. These are generic HTTP handle
-contracts, so the recorder has no ROS, camera-library, or LeRobot dependency.
+The robot sample stream carries synchronized leader pose, follower observation,
+and the action computed for the follower. Joint vectors use stable ordered
+joint names and radians. Each camera stream carries fresh JPEG frames, capture
+sequence numbers, and nanosecond timestamps.
 
-The `Camera` node discovers connected cameras, selects camera `0`, starts its
-stream, and displays its live preview. To add a camera, duplicate `Camera` and
-its preview, choose selection `1`, `2`, and so on, and drag the new
-`frame_stream` to the camera list's dashed **connect to add** socket. The editor
-creates `camera_1`, `camera_2`, and further inputs dynamically, so the recorder
-does not impose a camera-count limit.
+Both are Blacknode latest-value HTTP stream handles. This keeps acquisition
+nodes reusable across robot drivers, camera implementations, exporters, and
+training workflows.
 
-## Safe workflow
+## Add cameras
+
+The `Camera` node discovers connected cameras, selects one by index, starts its
+stream, and displays a live preview. Use `selection=0` for the first camera.
+Duplicate the node and choose `1`, `2`, and so on for additional cameras.
+
+Connect every `frame_stream` to the camera list's dashed **connect to add**
+socket. The list grows dynamically as connections are added, so an episode can
+record any practical number of cameras. Assign a unique camera name to each
+input and keep those names stable across the dataset.
+
+## Record an episode
 
 Install `blacknode-robot`, `blacknode-ros2`, `blacknode-vision`, and
 `blacknode-dataset`, then open **SO-ARM101 Teleoperation Episode Recording**.
 The template selects robot indexes `0` and `1`; swap them if the discovered
-leader/follower order is reversed. Calibrate both robots before recording. For
-a permanent setup, optionally pin each role to its adapter serial in the
-Robot's **Advanced** properties. The template starts the follower disarmed and
-the recorder with `action=status`.
+leader and follower order is reversed. Calibrate both robots before recording.
+For a permanent setup, pin each role to its adapter serial in the Robot node's
+**Advanced** properties.
 
-For each demonstration:
+The template starts with the follower disarmed and the recorder set to
+`action=status`.
 
-1. Confirm leader/follower and camera dashboards are live.
-2. Arm teleoperation, then set the recorder action to `start`.
-3. Use `pause` and `resume` if the demonstration is interrupted.
-4. Use `save`/`finalize` for a successful episode, or `discard` for a failed one.
-5. Run `EpisodeDatasetValidate` before export.
+1. Confirm the leader, follower, and camera dashboards are live.
+2. Arm teleoperation.
+3. Set `EpisodeRecorder.action=start`.
+4. Use `pause` and `resume` when needed.
+5. Use `save` or `finalize` for a successful episode.
+6. Use `discard` for a failed demonstration.
+7. Run `EpisodeDatasetValidate` before export or training.
 
-`stop` and Blacknode **Stop All** halt capture but preserve the journal under
-`incomplete/<run-id>`. This prevents an application or device failure from
-silently deleting the acquisition. Three consecutive stale or unavailable
-source reads automatically pause the recorder. After reopening Blacknode, use
-the same dataset and run ID with `save`/`finalize` to commit that journal, or
-`discard` to remove it.
+`stop` and Blacknode **Stop All** halt capture while preserving the journal
+under `incomplete/<run-id>`. Three consecutive stale or unavailable source
+reads pause the recorder automatically. Reopen the same dataset and run ID to
+`save`/`finalize` the journal or `discard` it.
 
-## LeRobot and Hugging Face
+## Native dataset
+
+The native layout separates durable metadata, synchronized numeric samples,
+camera frames, and incomplete journals:
+
+```text
+<dataset>/
+  dataset.json
+  episodes/
+    episode_000000/
+      episode.json
+      samples.parquet
+      cameras/
+        front/
+        wrist/
+  incomplete/
+    <run-id>/
+```
+
+Episode metadata records the task, robot identity, joint schema, units, camera
+schema, FPS, source timestamps, sample counts, and completion state. Writes use
+temporary files and atomic replacement so a completed episode is never exposed
+half-written.
+
+## Validation
+
+`EpisodeDatasetValidate` checks:
+
+- stable state and action dimensions
+- stable joint order and units
+- finite numeric values
+- camera names, resolutions, and frame counts
+- timestamp monotonicity and stream freshness
+- matching sample counts across episode artifacts
+
+Resolve validation errors before export or training. The validator reports
+specific episode and field locations so damaged or inconsistent demonstrations
+can be isolated.
+
+## Export and publish
 
 `HDF5EpisodeExport` defaults to the non-mutating `check` action. With
-`action=export`, it writes one `episode_<index>.hdf5` per episode with
-`observations/qpos`, `observations/leader`, `action`, RGB camera arrays,
-ordered joint names, and original robot/camera/wall-clock timing. This is an
-ACT-style robotics layout, not a claim that all HDF5-based tools share one
-schema. In particular, NVIDIA Isaac Lab-Arena uses its own HDF5 field layout.
+`action=export`, it writes one `episode_<index>.hdf5` per episode containing:
 
-`LeRobotV3Export` writes LeRobot v3 metadata, chunked Parquet episodes, and MP4
-camera files without installing or importing LeRobot. This clean boundary lets
-recording stay stable while downstream formats evolve. Pin and validate the
-specific LeRobot release used by your training environment, since its schema
-can change after this exporter ships.
+```text
+/observations/qpos
+/observations/leader
+/observations/images/<camera>
+/action
+/metadata/joint_names
+/metadata/source_timestamps
+```
 
-`HuggingFaceDatasetUpload` defaults to `check`. Publishing only occurs after
-setting `action=upload`; authentication uses the normal Hugging Face login or
-`HF_TOKEN`, and credentials are not persisted in the dataset.
+`LeRobotV3Export` is the structured Parquet/MP4 export profile. It writes
+chunked tabular episode data, encoded camera video, and dataset metadata for
+tools that consume that schema. Pin the schema version used by the target
+environment and validate the exported directory before publishing it.
 
-For the NVIDIA GR00T path and the exact boundary between current support and
-future orchestration nodes, see [NVIDIA Physical AI with Blacknode](nvidia-physical-ai.md).
+`HuggingFaceDatasetUpload` publishes an already-exported directory only when
+its action is set to `upload`. Authentication comes from the configured
+repository login or token environment. Credentials are never stored in the
+workflow or dataset.
 
-To train directly from HDF5 without LeRobot, Hugging Face, or GR00T, continue
-with [Native robot policy training](robot-policy-training.md).
+For Blacknode policy training, export HDF5 episodes and continue with
+[Native robot policy training](robot-policy-training.md).
+
+## Nodes
+
+| Node | Purpose |
+| --- | --- |
+| `EpisodeDatasetCreate` | Create or inspect native dataset metadata. |
+| `EpisodeRecorder` | Start, pause, resume, save, discard, and recover synchronized recordings. |
+| `EpisodeDatasetValidate` | Validate native dataset structure and episode consistency. |
+| `HDF5EpisodeExport` | Check or export one HDF5 file per episode. |
+| `LeRobotV3Export` | Check or create the structured Parquet/MP4 export profile. |
+| `HuggingFaceDatasetUpload` | Explicitly publish an exported directory to a dataset repository. |
+
+## Operational rules
+
+- Recording only consumes streams and never commands motion.
+- Every robot and camera role uses a unique selection index in shipped
+  templates.
+- Camera names and joint order remain stable across all episodes.
+- Interrupted recordings remain recoverable until explicitly saved or
+  discarded.
+- Upload is always a separate explicit action after local validation.

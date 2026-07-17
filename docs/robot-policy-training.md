@@ -1,8 +1,9 @@
 # Native robot policy training
 
 `blacknode-training` trains a camera-and-joint action-chunking policy directly
-from Blacknode HDF5 episodes. It does not install or import LeRobot, use the
-Hugging Face Hub, or connect to robot hardware.
+from Blacknode HDF5 episodes. It manages dataset checks, background training,
+resumable checkpoints, metrics, checkpoint inspection, and recorded-frame
+prediction previews.
 
 ```text
 EpisodeRecorder
@@ -54,11 +55,11 @@ job. `stop` requests cooperative shutdown and writes a checkpoint after the
 current step. Set `resume=true` only when the output directory already contains
 a compatible checkpoint from the same configuration.
 
-The package is deliberately separated from any future live policy controller.
-A controller must add explicit arming, calibration verification, stale-camera
-and stale-state checks, joint and velocity clamps, reduced-speed testing, and
-an emergency stop. Prediction preview does not grant permission to move a
-robot.
+Live policy control is a separate safety-gated workflow. Its controller must
+add explicit arming, calibration verification, stale-camera and stale-state
+checks, joint and velocity clamps, reduced-speed testing, and an emergency
+stop. A prediction preview is an inspection result and does not authorize
+robot motion.
 
 The installed package includes a complete node, model, checkpoint, and testing
 contract in `packages/blacknode-training/README.md`.

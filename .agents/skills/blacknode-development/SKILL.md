@@ -141,4 +141,11 @@ Update the closest public contract alongside code:
 - `CONTRIBUTING.md` for contributor setup and verification.
 - The affected package README for package-specific behavior.
 
+Write public documentation in a product-first voice: explain Blacknode's nodes,
+workflows, artifacts, and outcomes directly. Avoid framing capabilities as the
+absence of another product or comparing Blacknode with another ecosystem.
+Reference external names only for implemented providers, protocols, formats, or
+explicitly requested integration guides. Keep speculative integrations in
+internal plans or issues.
+
 Keep `skills/` and `.agents/skills/` synchronized when editing a shipped skill.
