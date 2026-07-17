@@ -115,10 +115,22 @@ checks, controlled movement, shutdown, and the visual-follow workflow.
 
 ## Why Blacknode
 
-Chat agents are good at intent and iteration. They are weak at showing durable
-workflow state. Blacknode gives agents a typed workflow editor: they can create
-nodes, connect ports, validate the graph, run it, debug failures, replay the
-execution, and export the result as code.
+Blacknode turns AI, GPU computing, automation, and robotics systems into typed,
+visible, runnable workflows. Developers can connect data pipelines, model
+calls, tools, APIs, files, custom Python, and CUDA operations; validate every
+connection; inspect results; replay executions; and export the workflow as
+code.
+
+For robotics, the same visual runtime connects USB hardware, ROS 2, cameras,
+computer vision, datasets, and policy training. Live dashboards expose robot
+and service state, managed runtimes keep continuous processes visible, and
+explicit controls support safe startup, motion, and shutdown.
+
+AI agents use the same workflow surface through MCP, HTTP, and WebSocket APIs.
+They can create nodes, connect ports, validate graphs, run workflows, inspect
+failures, and produce durable artifacts that developers can review and reuse.
+This shared runtime supports general workflow automation and the complete path
+from building and training robots to deploying and operating them.
 
 ## Extension Packages
 
