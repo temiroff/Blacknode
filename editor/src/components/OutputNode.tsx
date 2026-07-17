@@ -17,20 +17,30 @@ interface NodeData extends NodeCookState {
 
 const COLOR = '#8b5cf6'
 
+const isMediaSource = (value: unknown, dataPrefix: string): value is string =>
+  typeof value === 'string'
+  && (value.startsWith(dataPrefix) || /^https?:\/\//i.test(value))
+
+const imageSourceFrom = (value: unknown): string | null => {
+  if (isMediaSource(value, 'data:image/')) return value
+  if (typeof value !== 'string') return null
+  const svg = value.trim()
+  return svg.startsWith('<svg') && svg.endsWith('</svg>')
+    ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+    : null
+}
+
 function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode   = useStore(s => s.cookNode)
   const edges      = useStore(s => s.edges)
   const nodes      = useStore(s => s.nodes)
 
-  const valueHandleColor = (() => {
-    const edge = edges.find(e => e.target === id && e.targetHandle === 'value')
-    if (edge) {
-      const src = nodes.find(n => n.id === edge.source)
-      const t = src?.data?.output_types?.[edge.sourceHandle!] ?? 'Any'
-      if (t !== 'Any') return portColor(t)
-    }
-    return portColor('Any')
-  })()
+  const valueEdge = edges.find(e => e.target === id && e.targetHandle === 'value')
+  const sourceNode = valueEdge ? nodes.find(n => n.id === valueEdge.source) : undefined
+  const sourceType = valueEdge
+    ? sourceNode?.data?.output_types?.[valueEdge.sourceHandle!] ?? 'Any'
+    : 'Any'
+  const valueHandleColor = portColor(sourceType)
 
   const { cooking, cookResult, cookError, replayResult, replayError, replayStatus } = data
   const liveInput = data.portResults?.live === true
@@ -52,6 +62,12 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
     ? (typeof replayResult === 'object' ? JSON.stringify(replayResult, null, 2) : String(replayResult))
     : null
   const isReplayValue = !cooking && cookResult === undefined && !cookError && replayHasResult
+  const displayValue = cookResult !== undefined ? cookResult : replayResult
+  const imageSource = !cookError && !replayError && sourceType === 'Image'
+    ? imageSourceFrom(displayValue) : null
+  const videoSource = !cookError && !replayError && sourceType === 'Video'
+    && isMediaSource(displayValue, 'data:video/') ? displayValue : null
+  const hasMedia = imageSource !== null || videoSource !== null
 
   return (
     <NodeFrame
@@ -138,7 +154,9 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
             borderRadius: 3,
           }}
         />
-        <span style={{ color: 'var(--tx2)', fontSize: 12, fontFamily: 'var(--font-ui)' }}>value</span>
+        <span style={{ color: 'var(--tx2)', fontSize: 12, fontFamily: 'var(--font-ui)' }}>
+          value{sourceType !== 'Any' ? ` · ${sourceType}` : ''}
+        </span>
       </div>
 
       {/* result area */}
@@ -151,12 +169,13 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
         flex: '1 1 0',
         minWidth: 0,
         minHeight: 0,
-        overflowX: 'auto',
-        overflowY: 'scroll',
+        overflowX: hasMedia ? 'hidden' : 'auto',
+        overflowY: hasMedia ? 'hidden' : 'scroll',
         overscrollBehavior: 'contain',
         scrollbarGutter: 'stable',
-        padding: '10px 12px',
-        cursor: 'text',
+        padding: hasMedia ? 6 : '10px 12px',
+        cursor: hasMedia ? 'default' : 'text',
+        position: 'relative',
       }}>
         {cooking && (
           <div style={{
@@ -177,7 +196,47 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
           </div>
         )}
 
-        {!cooking && hasResult && (
+        {!cooking && hasResult && hasMedia && (
+          <>
+            {isReplayValue && (
+              <div style={{
+                position: 'absolute',
+                margin: 7,
+                padding: '2px 6px',
+                borderRadius: 4,
+                background: 'rgba(0,0,0,.65)',
+                color: 'var(--tx2)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 10,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                zIndex: 1,
+              }}>
+                replay preview
+              </div>
+            )}
+            {imageSource && (
+              <img
+                src={imageSource}
+                alt={label}
+                draggable={false}
+                style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain', borderRadius: 5 }}
+              />
+            )}
+            {videoSource && (
+              <video
+                src={videoSource}
+                controls
+                autoPlay
+                muted
+                playsInline
+                style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain', borderRadius: 5 }}
+              />
+            )}
+          </>
+        )}
+
+        {!cooking && hasResult && !hasMedia && (
           <>
             {isReplayValue && (
               <div style={{

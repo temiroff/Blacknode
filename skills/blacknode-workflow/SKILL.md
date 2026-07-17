@@ -106,7 +106,7 @@ or type error, inspect `get_node_schema` and fix the graph instead of guessing.
 - `Run once` evaluates every required node once. `Go live` starts or updates
   nodes declared `live=True` and evaluates non-live dependencies once; it does
   not make every node a polling loop.
-- Nodes such as `CV2CameraStream`, `CV2ColorObjectStream`,
+- Nodes such as `Camera`, `CV2ColorObjectStream`,
   `CUDAImageFilterStream`, robot drivers, and
   `ROS2ManualMove`, `ROS2MotionDashboard`, and
   `ROS2ContinuousFollowDetectionJoint` own or consume persistent background
@@ -126,9 +126,9 @@ or type error, inspect `get_node_schema` and fix the graph instead of guessing.
 
 ## Robot Manual-Move Semantics
 
-- Prefer the generic nodes `ROS2Status`, `ROS2RobotDiscovery`, `ROS2JointState`,
-  `ROS2SetJoint`, and `ROS2ManualMove`. Native/rosbridge-specific names are
-  compatibility implementations and should not appear in new user templates.
+- Prefer `Robot` for setup, then `ROS2Status`, `ROS2JointState`,
+  `ROS2SetJoint`, and `ROS2ManualMove`. Transport-specific discovery names are
+  advanced compatibility implementations and should not appear in new user templates.
 - Treat torque control and pose streaming as independent state:
   - `Release + live pose` disables torque and keeps joint feedback live. Support
     the arm because gravity may move it.

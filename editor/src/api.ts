@@ -344,6 +344,8 @@ export const api = {
     req('PATCH', `/nodes/${id}/params`, { key, value }),
   updatePorts:(id: string, patch: Partial<Pick<BnNodeMeta, 'inputs' | 'outputs' | 'input_types' | 'output_types' | 'input_defaults' | 'multi_input_ports'>>) =>
     req<BnNodeMeta>('PATCH', `/nodes/${id}/ports`, patch),
+  updatePortVisibility:(id: string, patch: Pick<BnNodeMeta, 'promoted_inputs' | 'promoted_outputs'>) =>
+    req<BnNodeMeta>('PATCH', `/nodes/${id}/presentation`, patch),
   updatePos:  (id: string, pos: [number,number]) =>
     req('PATCH', `/nodes/${id}/pos`, pos),
   connect:    (from_id: string, from_port: string, to_id: string, to_port: string) =>

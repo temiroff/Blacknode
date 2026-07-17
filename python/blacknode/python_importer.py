@@ -138,6 +138,10 @@ class _PythonWorkflowImporter(ast.NodeVisitor):
             "output_types": getattr(fn, "_bn_output_types", {}),
             "input_defaults": getattr(fn, "_bn_input_defaults", {}),
         }
+        if fn is not None and getattr(fn, "_bn_primary_inputs", None) is not None:
+            meta["promoted_inputs"] = list(fn._bn_primary_inputs)
+        if fn is not None and getattr(fn, "_bn_primary_outputs", None) is not None:
+            meta["promoted_outputs"] = list(fn._bn_primary_outputs)
         if type_name in SUBGRAPH_NODE_TYPES:
             meta["subgraph"] = {"node_meta": {}, "edges": []}
         self.node_meta[node_id] = meta
@@ -156,6 +160,9 @@ class _PythonWorkflowImporter(ast.NodeVisitor):
             "output_types",
             "input_defaults",
             "multi_input_ports",
+            "variadic_input",
+            "promoted_inputs",
+            "promoted_outputs",
             "subgraph",
         )
         for node_id, meta in self.node_meta.items():

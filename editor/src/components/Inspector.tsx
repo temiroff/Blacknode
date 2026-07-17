@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { isWireOnlyInput } from '../inputControls'
 import { NVIDIA_API_KEY_PROVIDER, usesNvidiaCredential } from '../credentials'
+import { portDisplayHint, portDisplayName } from '../portLabels'
 
 // Bot tokens for chat-driver nodes. Saved to the local key store (api_keys.json,
 // keyed by env-var name) — never into the graph — so templates stay shareable.
@@ -32,6 +33,46 @@ const RAIL_W = 78
 const PANEL_DEFAULT_W = 260
 const PANEL_MIN_W = 200
 const PANEL_MAX_W = 560
+const ROBOT_ADVANCED_INPUTS = new Set([
+  'hardware', 'usb', 'driver', 'hardware_selection', 'hardware_filter', 'port_filter',
+  'match_vendor_id', 'match_product_id', 'probe_open', 'auto_discover',
+  'require_hardware', 'require_usb', 'serial_port', 'host', 'port', 'state_topic',
+  'command_topic', 'config_topic', 'control_topic', 'units', 'topic_prefix', 'rate_hz',
+])
+const CAMERA_ADVANCED_INPUTS = new Set([
+  'stream_id', 'camera', 'device', 'backend', 'max_devices', 'width', 'height',
+  'host', 'port', 'max_fps', 'max_width', 'jpeg_quality',
+])
+
+function isAdvancedInput(nodeType: string, port: string): boolean {
+  if (nodeType === 'Robot') return ROBOT_ADVANCED_INPUTS.has(port)
+  if (nodeType === 'Camera') return CAMERA_ADVANCED_INPUTS.has(port)
+  return false
+}
+
+function parameterDisplayName(nodeType: string, port: string): string {
+  if (nodeType === 'Robot' && port === 'selection') return 'robot index'
+  if (nodeType === 'Camera' && port === 'selection') return 'camera index'
+  if (nodeType === 'Robot' && port === 'auto_discover') return 'find automatically'
+  if (nodeType === 'Robot' && port === 'probe_open') return 'test by opening serial ports'
+  if (nodeType === 'Robot' && port === 'match_vendor_id') return 'USB vendor ID filter'
+  if (nodeType === 'Robot' && port === 'match_product_id') return 'USB product ID filter'
+  if (nodeType === 'Robot' && port === 'hardware_filter') return 'stable hardware identity'
+  return portDisplayName(port, 'input')
+}
+
+function parameterDisplayHint(nodeType: string, port: string): string {
+  if ((nodeType === 'Robot' || nodeType === 'Camera') && port === 'selection') {
+    return `Choose the discovered ${nodeType.toLowerCase()} by index: 0 is first, 1 is second.`
+  }
+  if (nodeType === 'Robot' && port === 'auto_discover') return 'Find connected robot hardware automatically. Enabled for normal setup.'
+  if (nodeType === 'Robot' && port === 'probe_open') return 'Diagnostic option that opens candidate serial ports. Leave off normally.'
+  if (nodeType === 'Robot' && port === 'match_vendor_id') return 'Optional hexadecimal USB vendor filter; not required for index selection.'
+  if (nodeType === 'Robot' && port === 'match_product_id') return 'Optional hexadecimal USB product filter; not required for index selection.'
+  if (nodeType === 'Robot' && port === 'hardware_filter') return 'Optional serial or identity filter that keeps one physical robot assigned to this node.'
+  if (nodeType === 'Robot' && (port === 'require_hardware' || port === 'require_usb')) return 'Compatibility safety setting; normal Robot setup already checks the selected hardware.'
+  return portDisplayHint(port, 'input')
+}
 // Mirrors packages/blacknode-vision/nodes/vision.py's _PROVIDER_DEFAULT_ENDPOINTS
 // / _PROVIDER_DEFAULT_MODELS. A saved "model"/"endpoint_url" param that exactly
 // matches one of these is a placeholder left over from switching provider, not
@@ -372,12 +413,15 @@ const ICON_PARAMS = (
 )
 
 export default function Inspector() {
-  const { nodes, edges, nodeDefs, selectedId, updateParam, cookNode, stopCook, removeNode } = useStore()
+  const { nodes, edges, nodeDefs, selectedId, updateParam, updatePortVisibility, cookNode, stopCook, removeNode } = useStore()
   const node = nodes.find(n => n.id === selectedId)
 
   const [open, setOpen]             = useState(true)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
+
+  useEffect(() => { setShowAdvanced(false) }, [selectedId])
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -413,8 +457,31 @@ export default function Inspector() {
     const connectedPorts = new Set(
       edges.filter(e => e.target === node.id).map(e => e.targetHandle).filter(Boolean)
     )
+    const connectedOutputPorts = new Set(
+      edges.filter(e => e.source === node.id).map(e => e.sourceHandle).filter(Boolean)
+    )
     const nvidiaCredential = usesNvidiaCredential(data.type)
-    const visibleInputs = data.inputs.filter(inp => !(nvidiaCredential && inp === 'api_key'))
+    const propertyInputs = data.inputs.filter(inp => !(nvidiaCredential && inp === 'api_key'))
+    const advancedInputs = propertyInputs.filter(inp => isAdvancedInput(data.type, inp))
+    const visibleInputs = propertyInputs.filter(inp =>
+      !isAdvancedInput(data.type, inp) || showAdvanced || connectedPorts.has(inp)
+    )
+    const inputPromoted = (port: string) => connectedPorts.has(port)
+      || data.promoted_inputs == null || data.promoted_inputs.includes(port)
+    const outputPromoted = (port: string) => connectedOutputPorts.has(port)
+      || data.promoted_outputs == null || data.promoted_outputs.includes(port)
+    const toggleInput = (port: string) => {
+      if (connectedPorts.has(port)) return
+      const current = data.promoted_inputs == null ? [...data.inputs] : [...data.promoted_inputs]
+      const next = current.includes(port) ? current.filter(item => item !== port) : [...current, port]
+      void updatePortVisibility(node.id, next, undefined)
+    }
+    const toggleOutput = (port: string) => {
+      if (connectedOutputPorts.has(port)) return
+      const current = data.promoted_outputs == null ? [...data.outputs] : [...data.promoted_outputs]
+      const next = current.includes(port) ? current.filter(item => item !== port) : [...current, port]
+      void updatePortVisibility(node.id, undefined, next)
+    }
 
     return (
       <>
@@ -435,6 +502,38 @@ export default function Inspector() {
 
         {/* params */}
         <div style={{ padding: '12px 16px', flex: 1, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+            <button
+              type="button"
+              onClick={() => void updatePortVisibility(
+                node.id,
+                data.inputs.filter(port => connectedPorts.has(port)),
+                data.outputs.filter(port => connectedOutputPorts.has(port)),
+              )}
+              style={portModeButtonStyle}
+              title="Hide every unconnected socket; promote individual sockets below"
+            >
+              Compact node
+            </button>
+            <button
+              type="button"
+              onClick={() => void updatePortVisibility(node.id, [...data.inputs], [...data.outputs])}
+              style={portModeButtonStyle}
+              title="Show every input and output socket"
+            >
+              Show all
+            </button>
+            {advancedInputs.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(value => !value)}
+                style={portModeButtonStyle}
+                title="Show low-level connection and transport settings"
+              >
+                {showAdvanced ? 'Hide advanced' : `Advanced (${advancedInputs.length})`}
+              </button>
+            )}
+          </div>
           {visibleInputs.length > 0 ? (
             <>
               <div style={{
@@ -522,12 +621,16 @@ export default function Inspector() {
                     key={`${node.id}-${inp}`}
                     nodeType={data.type}
                     label={inp}
+                    displayLabel={parameterDisplayName(data.type, inp)}
+                    hint={parameterDisplayHint(data.type, inp)}
                     type={type}
                     ollamaEndpoint={ollamaEndpoint}
                     value={isOllamaModel ? ollamaModelValue : data.params[inp]}
                     defaultValue={def}
                     choices={choices}
                     connected={connectedPorts.has(inp)}
+                    promoted={inputPromoted(inp)}
+                    onTogglePort={() => toggleInput(inp)}
                     onChange={changeParam}
                   />
                 )
@@ -536,6 +639,28 @@ export default function Inspector() {
           ) : (
             <div style={{ color: 'var(--tx2)', fontSize: 13 }}>
               {data.type === 'ToolBox' ? 'No tools connected' : 'No inputs'}
+            </div>
+          )}
+          {data.outputs.length > 0 && (
+            <div style={{ marginTop: 18 }}>
+              <div style={{
+                color: 'var(--tx2)', fontSize: 12, fontWeight: 700,
+                letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8,
+              }}>
+                Outputs
+              </div>
+              {data.outputs.map(out => (
+                <PortVisibilityRow
+                  key={`${node.id}-output-${out}`}
+                  label={out}
+                  displayLabel={portDisplayName(out, 'output')}
+                  hint={portDisplayHint(out, 'output')}
+                  type={data.output_types?.[out] ?? 'Any'}
+                  connected={connectedOutputPorts.has(out)}
+                  promoted={outputPromoted(out)}
+                  onToggle={() => toggleOutput(out)}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -972,14 +1097,62 @@ function SecretField({ label, placeholder, value, onCommit }: {
   )
 }
 
-function ParamRow({ nodeType, label, type, value, defaultValue, choices, connected, onChange, ollamaEndpoint }: {
+const portModeButtonStyle: React.CSSProperties = {
+  flex: 1,
+  border: '1px solid var(--line)',
+  borderRadius: 6,
+  background: 'var(--lift)',
+  color: 'var(--tx2)',
+  padding: '5px 7px',
+  fontSize: 10,
+  fontFamily: 'var(--font-ui)',
+  cursor: 'pointer',
+}
+
+function PortVisibilityRow({ label, displayLabel, hint, type, promoted, connected, onToggle }: {
+  label: string
+  displayLabel: string
+  hint: string
+  type: string
+  promoted: boolean
+  connected: boolean
+  onToggle: () => void
+}) {
+  const color = portColor(type)
+  return (
+    <div
+      onContextMenu={event => { event.preventDefault(); onToggle() }}
+      title={connected ? `Connected sockets always stay visible. ${hint}` : `${hint} Right-click or use the pin to show/hide this socket.`}
+      style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 0', borderBottom: '1px solid var(--line)' }}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={connected}
+        aria-label={`${promoted ? 'Hide' : 'Promote'} ${label} socket`}
+        style={{ border: 0, background: 'transparent', color: promoted ? color : 'var(--tx3)', cursor: connected ? 'default' : 'pointer', padding: 0, width: 16 }}
+      >
+        {promoted ? '◆' : '◇'}
+      </button>
+      <span style={{ flex: 1, color: 'var(--tx1)', fontSize: 12 }}>{displayLabel}</span>
+      <span style={{ color, fontSize: 10, fontFamily: 'var(--font-mono)' }}>{type}</span>
+      {connected && <span style={{ color: 'var(--tx3)', fontSize: 9 }}>connected</span>}
+    </div>
+  )
+}
+
+function ParamRow({ nodeType, label, displayLabel, hint, type, value, defaultValue, choices, connected, promoted, onTogglePort, onChange, ollamaEndpoint }: {
   nodeType: string
   label: string
+  displayLabel: string
+  hint: string
   type: string
   value: unknown
   defaultValue: unknown
   choices?: string[]
   connected: boolean
+  promoted: boolean
+  onTogglePort: () => void
   onChange: (v: unknown) => void
   ollamaEndpoint?: string
 }) {
@@ -991,22 +1164,40 @@ function ParamRow({ nodeType, label, type, value, defaultValue, choices, connect
 
   return (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-        <span style={{ color: 'var(--tx1)', fontSize: 12, fontWeight: 500, textTransform: 'capitalize' }}>
-          {label}
-        </span>
-        <span style={{
-          fontSize: 10,
-          fontWeight: 600,
-          fontFamily: 'var(--font-mono)',
-          color,
-          background: `${color}22`,
-          borderRadius: 4,
-          padding: '1px 5px',
-          letterSpacing: '0.02em',
-        }}>
-          {displayType}
-        </span>
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}
+        onContextMenu={event => { event.preventDefault(); onTogglePort() }}
+        title={connected ? `Connected sockets always stay visible. ${hint}` : `${hint} Right-click to promote or hide this input socket.`}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <button
+            type="button"
+            onClick={onTogglePort}
+            disabled={connected}
+            aria-label={`${promoted ? 'Hide' : 'Promote'} ${label} socket`}
+            style={{ border: 0, background: 'transparent', color: promoted ? color : 'var(--tx3)', cursor: connected ? 'default' : 'pointer', padding: 0, width: 16 }}
+          >
+            {promoted ? '◆' : '◇'}
+          </button>
+          <span style={{ color: 'var(--tx1)', fontSize: 12, fontWeight: 500, textTransform: 'capitalize' }}>
+            {displayLabel}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          {connected && <span style={{ color: 'var(--tx3)', fontSize: 9 }}>connected</span>}
+          <span style={{
+            fontSize: 10,
+            fontWeight: 600,
+            fontFamily: 'var(--font-mono)',
+            color,
+            background: `${color}22`,
+            borderRadius: 4,
+            padding: '1px 5px',
+            letterSpacing: '0.02em',
+          }}>
+            {displayType}
+          </span>
+        </div>
       </div>
 
       {connected ? (

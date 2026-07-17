@@ -1016,9 +1016,17 @@ export default function App() {
     n.data.portResults?.streaming === true
   )).length
   const managedRunCount = nodes.filter(n => n.data.type === 'ROS2Run' && n.data.portResults?.running === true).length
-  const controllerCount = nodes.filter(n => (
-    (n.data.type === 'ROS2ContinuousFollowDetectionJoint' || n.data.type === 'ROS2LeaderFollower') && n.data.portResults?.running === true
+  const controllerNodes = nodes.filter(n => (
+    n.data.type === 'ROS2ContinuousFollowDetectionJoint' || n.data.type === 'ROS2LeaderFollower'
+  ))
+  const controllerRunningCount = controllerNodes.filter(n => n.data.portResults?.running === true).length
+  const controllerCount = controllerNodes.filter(n => n.data.portResults?.live === true).length
+  const blockedControllerCount = controllerNodes.filter(n => (
+    n.data.portResults?.running === true
+    && n.data.portResults?.live !== true
+    && /^(blocked|failed|error)\b/i.test(String(n.data.portResults?.report ?? '').trim())
   )).length
+  const waitingControllerCount = Math.max(0, controllerRunningCount - controllerCount - blockedControllerCount)
   const manualMoveCount = nodes.filter(n => n.data.type === 'ROS2ManualMove' && n.data.portResults?.live === true).length
   const liveDashboardCount = nodes.filter(n => n.data.type === 'ROS2MotionDashboard' && n.data.portResults?.live === true).length
   const liveOutputCount = nodes.filter(n => (
@@ -1027,8 +1035,8 @@ export default function App() {
   const liveCapableCount = nodes.filter(n => n.data.live_capable).length
   const runOnceNodeCount = Math.max(0, nodes.length - liveCapableCount)
   const activelyUpdatingCount = liveStreamCount + managedRunCount + controllerCount + manualMoveCount + liveDashboardCount + liveOutputCount
-  const lastRunNodeCount = Math.max(0, nodes.length - activelyUpdatingCount)
-  const runtimeActive = liveStreamCount > 0 || managedRunCount > 0 || controllerCount > 0 || manualMoveCount > 0
+  const lastRunNodeCount = Math.max(0, nodes.length - activelyUpdatingCount - blockedControllerCount - waitingControllerCount)
+  const runtimeActive = liveStreamCount > 0 || managedRunCount > 0 || controllerRunningCount > 0 || manualMoveCount > 0
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
       <NodePalette />
@@ -1043,15 +1051,10 @@ export default function App() {
           display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px',
           height: topbarH,
         }}>
-          <span style={{
-            color: 'var(--tx2)',
-            fontWeight: 700,
-            fontSize: 15,
-            letterSpacing: 0,
-            fontFamily: 'var(--font-ui)',
-          }}>
-            BLACKNODE
-          </span>
+          <div className="bn-brand" aria-label="Blacknode">
+            <img className="bn-brand-logo" src="/blacknode-logo.svg" alt="" />
+            <span>BLACKNODE</span>
+          </div>
 
           <div style={{ flex: 1 }} />
 
@@ -1115,7 +1118,9 @@ export default function App() {
               title={`Graph is mixed: ${liveCapableCount} live-capable node${liveCapableCount === 1 ? '' : 's'} and ${runOnceNodeCount} run-once node${runOnceNodeCount === 1 ? '' : 's'}. Stop active streams and ROS 2 processes.`}
             >
               <span className="bn-top-live-dot" />
-              <span>{runtimeStopPending ? 'Stopping...' : `LIVE · ${activelyUpdatingCount} updating · ${lastRunNodeCount} last-run`}</span>
+              <span>{runtimeStopPending
+                ? 'Stopping...'
+                : `LIVE · ${activelyUpdatingCount} updating${blockedControllerCount ? ` · ${blockedControllerCount} blocked` : ''}${waitingControllerCount ? ` · ${waitingControllerCount} waiting` : ''} · ${lastRunNodeCount} last-run`}</span>
               <span className="bn-top-streaming-stop">Stop</span>
             </button>
           )}

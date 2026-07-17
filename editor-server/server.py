@@ -176,6 +176,10 @@ class UpdatePortsReq(BaseModel):
     input_defaults: dict[str, Any] | None = None
     multi_input_ports: list[str] | None = None
 
+class UpdatePortVisibilityReq(BaseModel):
+    promoted_inputs: list[str] | None = None
+    promoted_outputs: list[str] | None = None
+
 class CookReq(BaseModel):
     node_id: str
     port: str = "output"
@@ -310,6 +314,7 @@ _RUNTIME_MODULES = {
     "vision": "blacknode.pkg.blacknode_vision.cv2_runtime",
     "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
     "robot": "blacknode.pkg.blacknode_robot.robot",
+    "dataset": "blacknode.pkg.blacknode_dataset.runtime",
 }
 
 # Package reloads replace node functions before sys.modules is always updated.
@@ -629,6 +634,25 @@ def _sync_joint_list_ports(meta: dict, edges: list[dict] | None = None) -> None:
     meta["input_defaults"] = {}
 
 
+def _sync_variadic_ports(meta: dict, edges: list[dict] | None = None) -> None:
+    spec = meta.get("variadic_input") if isinstance(meta.get("variadic_input"), dict) else {}
+    prefix = str(spec.get("prefix") or "item").rstrip("_")
+    port_type = str(spec.get("type") or "Any")
+    pattern = re.compile(rf"^{re.escape(prefix)}_(\d+)$")
+    fn = _NODE_REGISTRY.get(str(meta.get("type") or ""))
+    base_inputs = list(getattr(fn, "_bn_inputs", []))
+    dynamic = [str(port) for port in meta.get("inputs", []) if pattern.fullmatch(str(port))]
+    if edges is not None:
+        dynamic = sorted({
+            str(edge.get("to_port")) for edge in edges
+            if edge.get("to") == meta.get("id") and pattern.fullmatch(str(edge.get("to_port") or ""))
+        }, key=lambda port: int(pattern.fullmatch(port).group(1)))
+    meta["inputs"] = [*base_inputs, *dynamic]
+    base_types = dict(getattr(fn, "_bn_input_types", {}))
+    meta["input_types"] = {**base_types, **{port: port_type for port in dynamic}}
+    meta["input_defaults"] = dict(getattr(fn, "_bn_input_defaults", {}))
+
+
 def _default_visual_agent_loop_subgraph() -> dict:
     node_meta = {
         "loop_in": {
@@ -913,12 +937,18 @@ def _meta_fingerprint(meta: dict) -> str:
 def _sync_dynamic_node_meta(meta: dict, edges: list[dict] | None = None) -> bool:
     """Refresh dynamic node metadata and mirror it into the runtime graph entry."""
     before = _meta_fingerprint(meta)
+    fn = _NODE_REGISTRY.get(str(meta.get("type") or ""))
+    declared_variadic = getattr(fn, "_bn_variadic_input", None)
+    if declared_variadic:
+        meta["variadic_input"] = dict(declared_variadic)
     if meta.get("type") in _SUBGRAPH_NODE_TYPES:
         _sync_subgraph_node_ports(meta)
     elif meta.get("type") in _TOOLBOX_NODE_TYPES:
         _sync_toolbox_ports(meta, edges)
     elif meta.get("type") in _JOINT_LIST_NODE_TYPES:
         _sync_joint_list_ports(meta, edges)
+    elif isinstance(meta.get("variadic_input"), dict):
+        _sync_variadic_ports(meta, edges)
     changed = before != _meta_fingerprint(meta)
 
     node_id = meta.get("id")
@@ -1003,6 +1033,9 @@ def _node_def_payload(name: str, fn: Any) -> dict[str, Any]:
         "output_types": getattr(fn, "_bn_output_types", {}),
         "input_defaults": getattr(fn, "_bn_input_defaults", {}),
         "input_choices": getattr(fn, "_bn_input_choices", {}),
+        "variadic_input": getattr(fn, "_bn_variadic_input", None),
+        "primary_inputs": getattr(fn, "_bn_primary_inputs", None),
+        "primary_outputs": getattr(fn, "_bn_primary_outputs", None),
         "doc": doc.split("\n", 1)[0] if doc else "",
         "source": getattr(fn, "_bn_source_path", ""),
     }
@@ -1022,7 +1055,12 @@ def get_graph():
     for meta in _session.node_meta.values():
         fn = _NODE_REGISTRY.get(meta["type"])
         _sync_dynamic_node_meta(meta, _session.graph._edges)
-        if meta["type"] in _DYNAMIC_PORT_TYPES or fn is None:
+        if fn is not None:
+            if "promoted_inputs" not in meta and getattr(fn, "_bn_primary_inputs", None) is not None:
+                meta["promoted_inputs"] = list(fn._bn_primary_inputs)
+            if "promoted_outputs" not in meta and getattr(fn, "_bn_primary_outputs", None) is not None:
+                meta["promoted_outputs"] = list(fn._bn_primary_outputs)
+        if meta["type"] in _DYNAMIC_PORT_TYPES or isinstance(meta.get("variadic_input"), dict) or fn is None:
             nodes.append({**meta})
         else:
             nodes.append({
@@ -1093,7 +1131,13 @@ def add_node(req: AddNodeReq):
         "input_types":    getattr(fn, "_bn_input_types",    {}),
         "output_types":   getattr(fn, "_bn_output_types",   {}),
         "input_defaults": getattr(fn, "_bn_input_defaults", {}),
+        "variadic_input": getattr(fn, "_bn_variadic_input", None),
+        "promoted_inputs": list(getattr(fn, "_bn_primary_inputs", None) or []) if getattr(fn, "_bn_primary_inputs", None) is not None else None,
+        "promoted_outputs": list(getattr(fn, "_bn_primary_outputs", None) or []) if getattr(fn, "_bn_primary_outputs", None) is not None else None,
     }
+    if getattr(fn, "_bn_variadic_input", None):
+        meta["variadic_input"] = dict(fn._bn_variadic_input)
+        _sync_variadic_ports(meta)
     if req.type_name in _TOOLBOX_NODE_TYPES:
         _sync_toolbox_ports(meta)
     _session.node_meta[proxy._id] = meta
@@ -1159,7 +1203,7 @@ def update_ports(node_id: str, req: UpdatePortsReq):
     if node_id not in _session.node_meta:
         raise HTTPException(404, "Node not found")
     meta = _session.node_meta[node_id]
-    if meta["type"] not in _NUMBERED_INPUT_NODE_TYPES:
+    if meta["type"] not in _NUMBERED_INPUT_NODE_TYPES and not isinstance(meta.get("variadic_input"), dict):
         raise HTTPException(400, "This node does not support editable root ports")
 
     if req.inputs is not None:
@@ -1177,9 +1221,26 @@ def update_ports(node_id: str, req: UpdatePortsReq):
 
     if meta["type"] in _TOOLBOX_NODE_TYPES:
         _sync_toolbox_ports(meta)
-    else:
+    elif meta["type"] in _JOINT_LIST_NODE_TYPES:
         _sync_joint_list_ports(meta)
+    else:
+        _sync_variadic_ports(meta)
     _session.graph._mark_dirty(node_id)
+    _save()
+    return meta
+
+
+@app.patch("/nodes/{node_id}/presentation")
+def update_port_visibility(node_id: str, req: UpdatePortVisibilityReq):
+    if node_id not in _session.node_meta:
+        raise HTTPException(404, "Node not found")
+    meta = _session.node_meta[node_id]
+    if req.promoted_inputs is not None:
+        allowed = set(meta.get("inputs", []))
+        meta["promoted_inputs"] = [port for port in req.promoted_inputs if port in allowed]
+    if req.promoted_outputs is not None:
+        allowed = set(meta.get("outputs", []))
+        meta["promoted_outputs"] = [port for port in req.promoted_outputs if port in allowed]
     _save()
     return meta
 
@@ -1212,6 +1273,8 @@ def connect(req: ConnectReq):
             meta["inputs"] = [*inputs, req.to_port]
             meta["input_types"] = {**meta.get("input_types", {}), req.to_port: "Dict"}
         _sync_joint_list_ports(meta)
+    elif meta and isinstance(meta.get("variadic_input"), dict):
+        _sync_variadic_ports(meta, _session.graph._edges)
     _save()
     return {"ok": True}
 
@@ -1228,6 +1291,8 @@ def disconnect(from_id: str, from_port: str, to_id: str, to_port: str):
         _sync_toolbox_ports(meta, _session.graph._edges)
     elif meta and meta.get("type") in _JOINT_LIST_NODE_TYPES:
         _sync_joint_list_ports(meta, _session.graph._edges)
+    elif meta and isinstance(meta.get("variadic_input"), dict):
+        _sync_variadic_ports(meta, _session.graph._edges)
     _save()
     return {"ok": True}
 

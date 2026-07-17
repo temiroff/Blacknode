@@ -172,6 +172,25 @@
           },
           "uniqueItems": true
         },
+        "variadic_input": {
+          "type": ["object", "null"],
+          "properties": {
+            "prefix": { "$ref": "#/$defs/identifier" },
+            "type": { "$ref": "#/$defs/identifier" }
+          },
+          "required": ["prefix", "type"],
+          "additionalProperties": false
+        },
+        "promoted_inputs": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/identifier" },
+          "uniqueItems": true
+        },
+        "promoted_outputs": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/identifier" },
+          "uniqueItems": true
+        },
         "subgraph": {
           "$ref": "#/$defs/graph"
         },

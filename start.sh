@@ -309,6 +309,16 @@ check_package_dependencies() {
     status_args+=(--fetch)
   fi
 
+  if [[ "${BLACKNODE_PACKAGE_AUTO_SETUP:-1}" == "1" ]]; then
+    echo "  Installing missing extension package dependencies..."
+    if ! output="$(PYTHONPATH="$ROOT_DIR/python" "$PYTHON_BIN" -m blacknode.cli packages setup --missing 2>&1)"; then
+      printf '%s\n' "$output" | sed 's/^/    /'
+      echo "  Warning: automatic package dependency setup failed; startup will continue."
+    elif [[ -n "$output" ]]; then
+      printf '%s\n' "$output" | sed 's/^/    /'
+    fi
+  fi
+
   echo "  Checking package health..."
   if ! output="$(PYTHONPATH="$ROOT_DIR/python" "$PYTHON_BIN" -m blacknode.cli packages "${status_args[@]}" 2>&1)"; then
     echo "  Warning: package health check failed:"

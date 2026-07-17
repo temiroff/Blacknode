@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Blacknode</title>
+  <rect width="128" height="128" rx="12" fill="#000"/>
+  <g fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 64 35 28M9 64l22 32 31-32 34-36 21 36-23 32"/>
+  </g>
+  <g fill="#fff">
+    <circle cx="9" cy="64" r="8"/>
+    <circle cx="35" cy="28" r="7"/>
+    <circle cx="31" cy="96" r="8"/>
+    <circle cx="62" cy="64" r="11"/>
+    <circle cx="96" cy="28" r="7"/>
+    <circle cx="117" cy="64" r="7"/>
+    <circle cx="94" cy="96" r="8"/>
+  </g>
+</svg>
