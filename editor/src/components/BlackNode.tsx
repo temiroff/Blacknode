@@ -442,6 +442,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const driverNotInstalled = driverName ? drivers[driverName]?.packages_installed === false : false
   const [driverPending, setDriverPending] = useState<null | 'start' | 'stop'>(null)
   const [streamStopPending, setStreamStopPending] = useState(false)
+  const [streamStartPending, setStreamStartPending] = useState(false)
   const [rosRunStopPending, setRosRunStopPending] = useState(false)
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
@@ -593,8 +594,12 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     .replace(/^(blocked|failed|error)\s*:\s*/i, '')
     .trim()
   const genericNodeLive = data.live_capable === true && data.portResults?.live === true && !manualMoveLive && !streamActive
+  // StreamPublisher gets its own Go live / Stop controls, so it should never fall
+  // back to the generic "snapshot" badge — that badge is what read as "broken".
+  const streamStartable = data.type === 'StreamPublisher' && !streamActive
   const snapshotResult = data.live_capable === true
     && !streamActive
+    && !streamStartable
     && !manualMoveLive
     && !genericNodeLive
     && !liveBlocked
@@ -675,6 +680,16 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       await stopDriver(driverName!)
     } finally {
       setDriverPending(null)
+    }
+  }
+
+  const onStartStream = async () => {
+    setStreamStartPending(true)
+    try {
+      await updateParam(id, 'action', 'start')
+      await cookNode(id, 'dashboard')
+    } finally {
+      setStreamStartPending(false)
     }
   }
 
@@ -974,6 +989,28 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {liveBlocked ? 'BLOCKED' : 'LIVE • WAITING'}
             {liveStateReason ? ` • ${liveStateReason}` : liveWaiting ? ' • waiting for source data' : ''}
+          </span>
+        </div>
+      )}
+
+      {streamStartable && (
+        <div className="nodrag" onMouseDown={e => e.stopPropagation()}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px 2px' }}>
+          <button
+            disabled={streamStartPending}
+            onClick={e => { e.stopPropagation(); void onStartStream() }}
+            style={{
+              padding: '4px 10px', borderRadius: 5, border: '1px solid var(--ok)',
+              background: 'rgba(34,197,94,.18)',
+              color: streamStartPending ? 'var(--tx3)' : 'var(--tx1)',
+              cursor: streamStartPending ? 'default' : 'pointer',
+              fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700, letterSpacing: 0,
+            }}
+          >
+            {streamStartPending ? 'Starting…' : 'Go live'}
+          </button>
+          <span style={{ color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9 }}>
+            starts the WebSocket stream (action=start)
           </span>
         </div>
       )}
