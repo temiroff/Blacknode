@@ -80,14 +80,10 @@ body {
 }
 
 .bn-brand-logo {
-  border-radius: 5px;
   display: block;
-  height: 28px;
-  width: 28px;
-}
-
-html[data-theme="light"] .bn-brand-logo {
-  filter: invert(1);
+  height: 36px;
+  object-fit: contain;
+  width: 36px;
 }
 
 /* ── ReactFlow overrides ───────────────────────── */

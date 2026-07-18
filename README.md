@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="editor/public/blacknode-logo.svg" alt="Blacknode logo" width="96" height="96">
+  <img src="editor/public/blacknode-logo.png" alt="Blacknode logo" width="128" height="128">
 </p>
 
 # Blacknode
