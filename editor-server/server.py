@@ -179,6 +179,11 @@ class DatasetTrimReq(BaseModel):
     frame_index: int
     side: str
 
+class DatasetReplayEventReq(BaseModel):
+    token: str
+    frame_index: int
+    event: str
+
 class UpdatePortsReq(BaseModel):
     inputs: list[str] | None = None
     outputs: list[str] | None = None
@@ -1250,6 +1255,27 @@ def control_node(node_id: str, req: NodeControlReq):
     meta = _session.node_meta.get(node_id)
     if meta is None:
         raise HTTPException(404, "Node not found")
+    if meta.get("type") == "TrajectorySmoother":
+        if req.action != "apply":
+            raise HTTPException(400, "TrajectorySmoother supports the apply control")
+        control_fn = _runtime_callable("dataset", _RUNTIME_MODULES["dataset"], "apply_configured_smoother")
+        if control_fn is None:
+            raise HTTPException(503, "blacknode-dataset smoother runtime is not loaded")
+        params = dict(meta.get("params") or {})
+        try:
+            outputs = dict(control_fn(
+                node_id,
+                str(params.get("method") or "spline"),
+                float(params.get("strength") if params.get("strength") is not None else 1.0),
+                preview_source=str(params.get("preview_source") or "action"),
+                preview_joint=str(params.get("preview_joint") or ""),
+            ))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        for port, value in outputs.items():
+            _session.graph._cache[(node_id, port)] = value
+        _session.graph._dirty.discard(node_id)
+        return {"ok": True, "node_id": node_id, "outputs": outputs}
     if meta.get("type") != "EpisodeRecorder":
         raise HTTPException(400, "This node does not expose direct controls")
     control_fn = _runtime_callable("dataset", _RUNTIME_MODULES["dataset"], "control_configured_recorder")
@@ -2410,6 +2436,18 @@ def dataset_trim(req: DatasetTrimReq):
         raise HTTPException(409, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(500, str(exc)) from exc
+
+
+@app.post("/api/dataset/replay-event")
+@app.post("/dataset/replay-event")
+def dataset_replay_event(req: DatasetReplayEventReq):
+    publish_fn = _runtime_callable("dataset", _RUNTIME_MODULES["dataset"], "publish_replay_event")
+    if publish_fn is None:
+        raise HTTPException(503, "blacknode-dataset replay stream runtime is not loaded")
+    try:
+        return dict(publish_fn(req.token, req.frame_index, req.event))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @app.post("/runtime/stop")

@@ -195,6 +195,37 @@ class EditorRuntimeTests(unittest.TestCase):
         finally:
             server._session.node_meta.pop("recorder-control-test", None)
 
+    def test_trajectory_smoother_control_recomputes_only_smoother(self):
+        node_id = "smoother-control-test"
+        server._session.node_meta[node_id] = {
+            "id": node_id, "type": "TrajectorySmoother",
+            "params": {"method": "gaussian", "strength": 2.5,
+                       "preview_source": "leader", "preview_joint": "elbow"},
+        }
+        server._session.graph._dirty.add(node_id)
+        apply = lambda node_id, method, strength, **preview: {
+            "stream": {"token": "smoothed"}, "preview": "image",
+            "report": f"{node_id}:{method}:{strength}:{preview['preview_source']}:{preview['preview_joint']}",
+        }
+        try:
+            with (
+                patch.object(server, "_runtime_callable", return_value=apply),
+                patch.object(server, "_prepare_cook") as prepare_cook,
+            ):
+                response = TestClient(server.app).post(
+                    f"/nodes/{node_id}/control", json={"action": "apply"},
+                )
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("gaussian:2.5:leader:elbow", response.json()["outputs"]["report"])
+            self.assertEqual(server._session.graph._cache[(node_id, "stream")], {"token": "smoothed"})
+            self.assertNotIn(node_id, server._session.graph._dirty)
+            prepare_cook.assert_not_called()
+        finally:
+            server._session.node_meta.pop(node_id, None)
+            server._session.graph._dirty.discard(node_id)
+            for key in [key for key in server._session.graph._cache if key[0] == node_id]:
+                server._session.graph._cache.pop(key, None)
+
     def test_dataset_media_endpoint_serves_only_runtime_registered_video(self):
         with tempfile.TemporaryDirectory() as tmp:
             video = Path(tmp) / "episode.mp4"
@@ -254,6 +285,20 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertEqual(response.json()["frame_index"], 4)
         self.assertEqual(response.json()["side"], "before")
         self.assertEqual(expired.status_code, 409)
+
+    def test_dataset_replay_event_endpoint_forwards_browser_playback(self):
+        publish = lambda token, index, event: {
+            "ok": True, "token": token, "frame_index": index, "event": event,
+            "publishers": 1, "subscribers": 1,
+        }
+        with patch.object(server, "_runtime_callable", return_value=publish):
+            response = TestClient(server.app).post(
+                "/dataset/replay-event",
+                json={"token": "episode", "frame_index": 12, "event": "seek"},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["frame_index"], 12)
+        self.assertEqual(response.json()["event"], "seek")
 
 
 if __name__ == "__main__":

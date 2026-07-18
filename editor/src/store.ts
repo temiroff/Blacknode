@@ -2777,6 +2777,20 @@ export const useStore = create<Store>((set, get) => ({
       ...markActiveTabDirty(s),
     }))
     await api.updateParam(id, key, value)
+    if (node.data.type === 'TrajectorySmoother'
+      && ['method', 'strength', 'preview_source', 'preview_joint'].includes(key)) {
+      try {
+        await get().controlNode(id, 'apply')
+      } catch (error) {
+        window.dispatchEvent(new CustomEvent('blacknode:notice', {
+          detail: {
+            kind: 'error',
+            title: 'Smoother update needs an input',
+            message: error instanceof Error ? error.message : String(error),
+          },
+        }))
+      }
+    }
     if (profileChanged) {
       window.dispatchEvent(new CustomEvent('blacknode:notice', {
         detail: {

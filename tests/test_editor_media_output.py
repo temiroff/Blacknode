@@ -89,3 +89,13 @@ def test_dataset_replay_switches_units_and_keeps_canvas_wheel_zoom() -> None:
     assert "✂ Cut after" in browser
     assert "The selected frame is kept" in browser
     assert "trimDatasetEpisode" in api
+    assert "publishDatasetReplayFrame" in api
+    assert "requestVideoFrameCallback" in browser
+    assert "onSeeking=" in browser
+
+
+def test_smoother_parameter_updates_use_direct_control_instead_of_graph_cook() -> None:
+    store = (ROOT / "editor" / "src" / "store.ts").read_text(encoding="utf-8")
+
+    assert "node.data.type === 'TrajectorySmoother'" in store
+    assert "await get().controlNode(id, 'apply')" in store

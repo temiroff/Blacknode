@@ -3,6 +3,10 @@ import { api } from '../api'
 import { useStore } from '../store'
 
 type AnyRecord = Record<string, any>
+type FrameCallbackVideo = HTMLVideoElement & {
+  requestVideoFrameCallback?: (callback: (now: number, metadata: { mediaTime: number }) => void) => number
+  cancelVideoFrameCallback?: (id: number) => void
+}
 
 const panel: React.CSSProperties = {
   margin: '7px 9px 3px', padding: 10, borderRadius: 8,
@@ -41,6 +45,7 @@ export default function DatasetBrowserPanel({ id, data }: {
   const [trimPending, setTrimPending] = useState<'before' | 'after' | null>(null)
   const [trimMessage, setTrimMessage] = useState('')
   const lastFrame = useRef(-1)
+  const lastPublishedFrame = useRef(-1)
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
   const catalog = data.portResults?.catalog && typeof data.portResults.catalog === 'object'
@@ -62,6 +67,7 @@ export default function DatasetBrowserPanel({ id, data }: {
     setFrame(null)
     setPlaying(false)
     lastFrame.current = -1
+    lastPublishedFrame.current = -1
   }, [token])
 
   const refresh = async (patch: Record<string, unknown> = {}) => {
@@ -93,6 +99,40 @@ export default function DatasetBrowserPanel({ id, data }: {
       // Playback remains usable even if one metadata request races a selection change.
     }
   }
+
+  const publishReplayPosition = (time: number, event: 'play' | 'seek', force = false) => {
+    if (!token || !fps || totalFrames <= 0) return
+    const index = Math.min(totalFrames - 1, Math.max(0, Math.floor(time * fps)))
+    if (!force && index === lastPublishedFrame.current) return
+    lastPublishedFrame.current = index
+    void api.publishDatasetReplayFrame(token, index, event).catch(() => {
+      // A publisher is optional; local dataset replay remains usable by itself.
+    })
+  }
+
+  useEffect(() => {
+    const player = videoRef.current as FrameCallbackVideo | null
+    if (!playing || !player || !token || !fps || totalFrames <= 0) return
+    let cancelled = false
+    let callbackId: number | null = null
+    let timerId: number | null = null
+    const publishFrame = (_now?: number, metadata?: { mediaTime: number }) => {
+      if (cancelled || player.paused) return
+      publishReplayPosition(metadata?.mediaTime ?? player.currentTime, 'play')
+      if (player.requestVideoFrameCallback) callbackId = player.requestVideoFrameCallback(publishFrame)
+    }
+    if (player.requestVideoFrameCallback) {
+      callbackId = player.requestVideoFrameCallback(publishFrame)
+    } else {
+      timerId = window.setInterval(() => publishReplayPosition(player.currentTime, 'play'),
+        Math.max(16, 1000 / fps))
+    }
+    return () => {
+      cancelled = true
+      if (callbackId !== null && player.cancelVideoFrameCallback) player.cancelVideoFrameCallback(callbackId)
+      if (timerId !== null) window.clearInterval(timerId)
+    }
+  }, [playing, token, fps, totalFrames])
 
   const jointNames = frame && Array.isArray(frame.joint_names) ? frame.joint_names.map(String) : []
   const leader = (frame?.leader ?? {}) as AnyRecord
@@ -251,7 +291,14 @@ export default function DatasetBrowserPanel({ id, data }: {
             onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
             onLoadedMetadata={event => void updateReplayFrame(event.currentTarget.currentTime)}
             onTimeUpdate={event => void updateReplayFrame(event.currentTarget.currentTime)}
-            onSeeked={event => void updateReplayFrame(event.currentTarget.currentTime)}
+            onSeeking={event => {
+              void updateReplayFrame(event.currentTarget.currentTime)
+              publishReplayPosition(event.currentTarget.currentTime, 'seek')
+            }}
+            onSeeked={event => {
+              void updateReplayFrame(event.currentTarget.currentTime)
+              publishReplayPosition(event.currentTarget.currentTime, 'seek', true)
+            }}
             style={{ width: '100%', maxHeight: 470, background: '#020617', borderRadius: 7, objectFit: 'contain' }} />
           <div style={{ minWidth: 0 }}>
             <div style={{ color: 'var(--tx2)', fontFamily: 'var(--font-mono)', fontSize: 10, lineHeight: 1.55 }}>
