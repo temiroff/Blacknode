@@ -80,9 +80,10 @@ takes less than a minute; first-run time depends on network and package caches.
 On the first launch of a Blacknode workspace, the editor opens **Packages** with
 a one-time welcome message. Install the official packages needed for robotics,
 ROS 2, vision, CUDA, datasets, and training workflows, or continue directly
-with the core graph. The acknowledgement is stored locally in
+with the core templates. The acknowledgement is stored locally in
 `.blacknode/onboarding.json`, and the Packages tab remains available in the
-left sidebar.
+left sidebar. After onboarding, normal editor sessions start in **Templates**;
+the full Nodes palette remains available when building a graph manually.
 
 Continue with the [Beginner Walkthrough](docs/walkthrough.md).
 

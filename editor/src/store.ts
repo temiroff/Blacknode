@@ -13,6 +13,8 @@ import type { GraphRunTarget } from './graphRun'
 
 const MODEL_NODE_TYPES  = new Set(['Model'])
 const OUTPUT_NODE_TYPES = new Set(['Output'])
+const MEDIA_OUTPUT_NODE_SIZE = { width: 860, height: 720 } as const
+const MEDIA_OUTPUT_TYPES = new Set(['Image', 'Video'])
 const SUBGRAPH_NODE_TYPES = new Set(['Subnet', 'SubnetAsTool', 'VisualAgentLoop'])
 
 // In-flight cook stream, so a Stop button can abort a running/stuck cook.
@@ -180,6 +182,8 @@ interface Store {
     copyIdMap: Record<string, string> | null,
   ) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
+  controlNode: (id: string, action: string) => Promise<void>
+  pickDirectory: (initialPath?: string) => Promise<string | null>
   updatePortVisibility: (id: string, promotedInputs?: string[], promotedOutputs?: string[]) => Promise<void>
   cookNode: (id: string, port?: string, graphTargets?: GraphRunTarget[], runMode?: 'once' | 'live') => Promise<void>
   stopCook: () => void
@@ -213,6 +217,7 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'Dict'   ? { style: { width: 260, height: 150 } } : {}),
     ...(meta.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
     ...(meta.type === 'OutputImage' ? { style: { width: 760, height: 620 } } : {}),
+    ...(meta.type === 'DatasetBrowser' ? { style: { width: 980, height: 860 } } : {}),
     ...(hasDashboardImage ? { style: { width: 860, height: 720 } } : {}),
     ...(meta.type === 'ROS2VisualDashboard' ? { style: { width: 840, height: 760 } } : {}),
     ...(meta.type === 'ROS2CompressedImageSnapshot' ? { style: { width: 700, height: 600 } } : {}),
@@ -221,6 +226,38 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'ROS2Run' ? { style: { width: 520, height: 360 } } : {}),
     ...(meta.type === 'ROS2MotionDashboard' ? { style: { width: 860, height: 720 } } : {}),
   }
+}
+
+function ensureMediaOutputNodeSizes(
+  nodes: Node<NodeData>[],
+  edges: Edge[],
+): Node<NodeData>[] {
+  const byId = new Map(nodes.map(node => [node.id, node]))
+  const mediaOutputIds = new Set<string>()
+  edges.forEach(edge => {
+    const target = byId.get(edge.target)
+    const source = byId.get(edge.source)
+    const sourceType = edge.sourceHandle
+      ? source?.data.output_types?.[edge.sourceHandle]
+      : undefined
+    if (target?.data.type === 'Output' && sourceType && MEDIA_OUTPUT_TYPES.has(sourceType)) {
+      mediaOutputIds.add(target.id)
+    }
+  })
+
+  return nodes.map(node => {
+    if (!mediaOutputIds.has(node.id)) return node
+    const styleWidth = typeof node.style?.width === 'number' ? node.style.width : 0
+    const styleHeight = typeof node.style?.height === 'number' ? node.style.height : 0
+    const width = Math.max(node.width ?? 0, styleWidth, MEDIA_OUTPUT_NODE_SIZE.width)
+    const height = Math.max(node.height ?? 0, styleHeight, MEDIA_OUTPUT_NODE_SIZE.height)
+    return {
+      ...node,
+      width,
+      height,
+      style: { ...(node.style ?? {}), width, height },
+    }
+  })
 }
 
 function parseGraph(bnNodes: BnNodeMeta[], bnEdges: any[]): { nodes: Node<NodeData>[]; edges: Edge[] } {
@@ -236,7 +273,7 @@ function parseGraph(bnNodes: BnNodeMeta[], bnEdges: any[]): { nodes: Node<NodeDa
       style: { stroke: portColor(fromType), strokeWidth: 1.5 },
     }
   })
-  return { nodes, edges }
+  return { nodes: ensureMediaOutputNodeSizes(nodes, edges), edges }
 }
 
 function propagateLiveTerminalValues(nodes: Node<NodeData>[], edges: Edge[]): Node<NodeData>[] {
@@ -1968,15 +2005,19 @@ export const useStore = create<Store>((set, get) => ({
       await api.connect(nextConn.source, nextConn.sourceHandle, nextConn.target, nextConn.targetHandle)
     }
 
-    set(s => ({
-      nodes: [...s.nodes, node],
-      edges: nextConn?.source && nextConn.target ? addEdge({
+    set(s => {
+      const nextEdges = nextConn?.source && nextConn.target ? addEdge({
         ...nextConn,
         id: nextEdgeId(),
         style: { stroke: portColor(edgeType), strokeWidth: 1.5 },
-      }, s.edges) : s.edges,
-      ...markActiveTabDirty(s),
-    }))
+      }, s.edges) : s.edges
+      const nextNodes = ensureMediaOutputNodeSizes([...s.nodes, node], nextEdges)
+      return {
+        nodes: nextNodes,
+        edges: nextEdges,
+        ...markActiveTabDirty(s),
+      }
+    })
   },
 
   removeNode: async (id) => {
@@ -2279,7 +2320,10 @@ export const useStore = create<Store>((set, get) => ({
       await api.connect(conn.source!, conn.sourceHandle!, conn.target!, conn.targetHandle!)
     }
 
-    const nextNodes = ensureConnectedToolBoxSlots(nodes, updatedEdges)
+    const nextNodes = ensureMediaOutputNodeSizes(
+      ensureConnectedToolBoxSlots(nodes, updatedEdges),
+      updatedEdges,
+    )
     set(s => ({ nodes: nextNodes, edges: updatedEdges, ...markActiveTabDirty(s) }))
   },
 
@@ -2377,7 +2421,8 @@ export const useStore = create<Store>((set, get) => ({
         style: { stroke: portColor(fromType), strokeWidth: 1.5 },
       }])
     const removedForPrune = [oldEdge, conflictingEdge].filter(Boolean) as Edge[]
-    const { nodes: nextNodes, changedIds: prunedDynamicNodes } = pruneDisconnectedDynamicPorts(nodes, nextEdges, removedForPrune)
+    const { nodes: prunedNodes, changedIds: prunedDynamicNodes } = pruneDisconnectedDynamicPorts(nodes, nextEdges, removedForPrune)
+    const nextNodes = ensureMediaOutputNodeSizes(prunedNodes, nextEdges)
 
     if (subnetStack.length > 0) {
       const frame = subnetStack[subnetStack.length - 1]
@@ -2741,6 +2786,24 @@ export const useStore = create<Store>((set, get) => ({
         },
       }))
     }
+  },
+
+  controlNode: async (id, action) => {
+    const result = await api.controlNode(id, action)
+    set(s => ({
+      nodes: propagateLiveTerminalValues(s.nodes.map(node => node.id === id ? {
+        ...node,
+        data: {
+          ...node.data,
+          portResults: { ...(node.data.portResults ?? {}), ...result.outputs },
+        },
+      } : node), s.edges),
+    }))
+  },
+
+  pickDirectory: async (initialPath = '') => {
+    const result = await api.pickDirectory(initialPath)
+    return result.cancelled || !result.selected ? null : result.selected
   },
 
   updatePortVisibility: async (id, promotedInputs, promotedOutputs) => {

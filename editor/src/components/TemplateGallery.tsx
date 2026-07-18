@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   api,
   templateDependencyError,
@@ -16,6 +16,46 @@ export default function TemplateGallery() {
   const [installing, setInstalling] = useState<{ slug: string; packageName: string } | null>(null)
   const [missing, setMissing] = useState<Record<string, TemplateDependencyError>>({})
   const [error, setError] = useState<string | null>(null)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
+  const [query, setQuery] = useState('')
+
+  const templateGroups = useMemo(() => {
+    const groups = new Map<string, { name: string; color: string; templates: TemplateMeta[] }>()
+    templates.forEach(template => {
+      const name = template.group || 'Core'
+      const current = groups.get(name)
+      if (current) current.templates.push(template)
+      else groups.set(name, {
+        name,
+        color: template.group_color || '#6366f1',
+        templates: [template],
+      })
+    })
+    return Array.from(groups.values())
+  }, [templates])
+
+  const filteredTemplateGroups = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return templateGroups
+    return templateGroups
+      .map(group => ({
+        ...group,
+        templates: group.templates.filter(template =>
+          [template.name, template.description, template.slug, group.name]
+            .some(value => value.toLowerCase().includes(needle))
+        ),
+      }))
+      .filter(group => group.templates.length > 0)
+  }, [query, templateGroups])
+
+  const toggleGroup = (name: string) => {
+    setExpandedGroups(current => {
+      const next = new Set(current)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
 
   const refreshTemplates = async () => {
     try {
@@ -107,6 +147,26 @@ export default function TemplateGallery() {
         One-click starter graphs. Loads into the canvas.
       </div>
 
+      <input
+        type="search"
+        value={query}
+        onChange={event => setQuery(event.target.value)}
+        placeholder="Search templates or categories..."
+        aria-label="Search templates"
+        style={{
+          width: '100%',
+          minHeight: 38,
+          padding: '8px 10px',
+          color: 'var(--tx1)',
+          background: 'var(--lift)',
+          border: '1px solid var(--line2)',
+          borderRadius: 8,
+          outline: 'none',
+          fontFamily: 'var(--font-ui)',
+          fontSize: 12,
+        }}
+      />
+
       {error && (
         <div style={{
           color: 'var(--danger)',
@@ -126,7 +186,43 @@ export default function TemplateGallery() {
         </div>
       )}
 
-      {templates.map(template => {
+      {!error && templates.length > 0 && query.trim() && filteredTemplateGroups.length === 0 && (
+        <div style={{ color: 'var(--tx3)', fontSize: 12, padding: '8px 4px' }}>
+          No templates match “{query.trim()}”.
+        </div>
+      )}
+
+      {filteredTemplateGroups.map(group => {
+        const isExpanded = Boolean(query.trim()) || expandedGroups.has(group.name)
+        return (
+          <section key={group.name} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button
+              type="button"
+              aria-expanded={isExpanded}
+              onClick={() => toggleGroup(group.name)}
+              style={{
+                width: '100%',
+                minHeight: 42,
+                padding: '8px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 9,
+                background: 'var(--lift)',
+                border: '1px solid var(--line2)',
+                borderRadius: 8,
+                color: 'var(--tx1)',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-ui)',
+                textAlign: 'left',
+              }}
+            >
+              <span style={{ color: group.color, fontSize: 12, width: 12 }}>
+                {isExpanded ? '▾' : '▸'}
+              </span>
+              <span style={{ flex: 1, fontSize: 12, fontWeight: 650 }}>{group.name}</span>
+              <span style={{ color: 'var(--tx3)', fontSize: 11 }}>{group.templates.length}</span>
+            </button>
+            {isExpanded && group.templates.map(template => {
         const isLoading = loading === template.slug
         const wasLoaded = loaded === template.slug
         const dependencyError = missing[template.slug]
@@ -137,25 +233,25 @@ export default function TemplateGallery() {
             key={template.slug}
             style={{
               background: 'var(--lift)',
-              border: `1px solid ${dependencyError ? 'var(--warn)' : wasLoaded ? template.color : 'var(--line2)'}`,
+              border: `1px solid ${dependencyError ? 'var(--warn)' : group.color}`,
               borderRadius: 8,
               padding: '10px 12px',
               cursor: isBusy ? 'default' : 'pointer',
               transition: 'border-color 0.2s',
             }}
             onMouseEnter={e => {
-              if (!isBusy && !dependencyError) (e.currentTarget as HTMLElement).style.borderColor = template.color
+              if (!isBusy && !dependencyError) (e.currentTarget as HTMLElement).style.borderColor = group.color
             }}
             onMouseLeave={e => {
               if (!wasLoaded) {
-                (e.currentTarget as HTMLElement).style.borderColor = dependencyError ? 'var(--warn)' : 'var(--line2)'
+                (e.currentTarget as HTMLElement).style.borderColor = dependencyError ? 'var(--warn)' : group.color
               }
             }}
             onClick={() => !isBusy && loadTemplate(template)}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
               <span style={{
-                color: template.color,
+                color: group.color,
                 fontSize: 13,
                 fontWeight: 600,
                 overflow: 'hidden',
@@ -167,7 +263,7 @@ export default function TemplateGallery() {
               <span style={{
                 flex: '0 0 auto',
                 fontSize: 11,
-                color: dependencyError ? 'var(--warn)' : wasLoaded ? template.color : 'var(--tx3)',
+                color: dependencyError ? 'var(--warn)' : wasLoaded ? group.color : 'var(--tx3)',
                 fontFamily: 'var(--font-ui)',
               }}>
                 {isLoading
@@ -250,6 +346,9 @@ export default function TemplateGallery() {
               </div>
             )}
           </div>
+        )
+            })}
+          </section>
         )
       })}
     </div>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -173,6 +174,86 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertEqual(response.json(), runtime_result)
         stop_cook.assert_called_once()
         fresh_cook.assert_called_once()
+
+    def test_episode_recorder_control_does_not_cook_graph(self):
+        server._session.node_meta["recorder-control-test"] = {
+            "id": "recorder-control-test", "type": "EpisodeRecorder",
+            "params": {"run_id": "episode-test"},
+        }
+        control = lambda run_id, action: {"running": False, "frame_count": 12, "report": f"{run_id}:{action}"}
+        try:
+            with (
+                patch.object(server, "_runtime_callable", return_value=control),
+                patch.object(server, "_prepare_cook") as prepare_cook,
+            ):
+                response = TestClient(server.app).post(
+                    "/nodes/recorder-control-test/control", json={"action": "save"},
+                )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["outputs"]["frame_count"], 12)
+            prepare_cook.assert_not_called()
+        finally:
+            server._session.node_meta.pop("recorder-control-test", None)
+
+    def test_dataset_media_endpoint_serves_only_runtime_registered_video(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "episode.mp4"
+            video.write_bytes(b"synthetic-mp4")
+            with patch.object(server, "_runtime_callable", return_value=lambda token: video if token == "known" else None):
+                client = TestClient(server.app)
+                response = client.get("/dataset/media/known")
+                api_response = client.get("/api/dataset/media/known")
+                missing = client.get("/dataset/media/unknown")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"synthetic-mp4")
+        self.assertEqual(api_response.content, b"synthetic-mp4")
+        self.assertEqual(missing.status_code, 404)
+
+    def test_directory_picker_endpoint_returns_native_selection(self):
+        with patch.object(server, "_pick_directory", return_value=r"E:\RobotData") as picker:
+            response = TestClient(server.app).post(
+                "/filesystem/pick-directory", json={"initial_path": r"C:\Users\robot"},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"selected": r"E:\RobotData", "cancelled": False})
+        picker.assert_called_once_with(r"C:\Users\robot")
+
+    def test_dataset_frame_endpoint_returns_synchronized_robot_values(self):
+        frame = {
+            "frame_index": 12,
+            "timestamp": 0.4,
+            "leader": {"joint": 0.1},
+            "observation": {"joint": 0.09},
+            "action": {"joint": 0.1},
+        }
+        with patch.object(server, "_runtime_callable", return_value=lambda token, index: frame if (token, index) == ("known", 12) else None):
+            client = TestClient(server.app)
+            response = client.get("/dataset/frame/known?index=12")
+            missing = client.get("/dataset/frame/unknown?index=12")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), frame)
+        self.assertEqual(missing.status_code, 404)
+
+    def test_dataset_trim_endpoint_forwards_confirmed_frame_and_side(self):
+        def trim(token, frame_index, side):
+            if token != "known":
+                raise ValueError("replay selection expired")
+            return {"ok": True, "frames": 8, "removed_frames": 4,
+                    "frame_index": frame_index, "side": side}
+
+        with patch.object(server, "_runtime_callable", return_value=trim):
+            client = TestClient(server.app)
+            response = client.post(
+                "/dataset/trim", json={"token": "known", "frame_index": 4, "side": "before"},
+            )
+            expired = client.post(
+                "/dataset/trim", json={"token": "expired", "frame_index": 4, "side": "after"},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["removed_frames"], 4)
+        self.assertEqual(response.json()["frame_index"], 4)
+        self.assertEqual(response.json()["side"], "before")
+        self.assertEqual(expired.status_code, 409)
 
 
 if __name__ == "__main__":

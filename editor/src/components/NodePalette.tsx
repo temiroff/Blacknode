@@ -100,7 +100,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 
 export default function NodePalette() {
   const { nodeTypes, nodeDefs, addNode, loadNodeTypes, learnedNodeHighlight } = useStore()
-  const [activeTab, setActiveTab] = useState<Tab | null>('nodes')
+  const [activeTab, setActiveTab] = useState<Tab | null>('templates')
   const [showPackageWelcome, setShowPackageWelcome] = useState(false)
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
@@ -292,10 +292,10 @@ export default function NodePalette() {
             <div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                onClick={() => finishPackageWelcome('nodes')}
+                onClick={() => finishPackageWelcome('templates')}
                 style={welcomeButtonStyle}
               >
-                Continue with core graph
+                Explore core templates
               </button>
               <button
                 type="button"

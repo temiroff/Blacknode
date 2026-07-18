@@ -26,6 +26,16 @@ def test_core_launchers_do_not_install_optional_cuda_dependencies():
     assert "pip_install cupy" not in shell.lower()
 
 
+def test_launchers_stream_extension_dependency_setup_output():
+    powershell = (ROOT / "start.ps1").read_text(encoding="utf-8")
+    shell = (ROOT / "start.sh").read_text(encoding="utf-8")
+
+    assert "& $Python @SetupArguments" in powershell
+    assert "Dependency download and installation output will appear below." in powershell
+    assert 'output="$(PYTHONPATH="$ROOT_DIR/python" "$PYTHON_BIN" -m blacknode.cli packages setup --missing' not in shell
+    assert 'PYTHONPATH="$ROOT_DIR/python" "$PYTHON_BIN" -m blacknode.cli packages setup --missing' in shell
+
+
 def test_windows_markdown_launch_commands_are_powershell_explicit():
     markdown_files = [ROOT / "README.md", *ROOT.joinpath("docs").rglob("*.md")]
     markdown_files.extend([
