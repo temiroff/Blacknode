@@ -17,6 +17,8 @@ export interface TemplateMeta {
   name: string
   description: string
   color: string
+  group: string
+  group_color: string
   saved_at: string
   node_count: number
 }
@@ -342,6 +344,18 @@ export const api = {
   removeNode: (id: string)                  => req('DELETE', `/nodes/${id}`),
   updateParam:(id: string, key: string, value: unknown) =>
     req('PATCH', `/nodes/${id}/params`, { key, value }),
+  controlNode:(id: string, action: string) =>
+    req<{ ok: boolean; node_id: string; outputs: Record<string, unknown> }>('POST', `/nodes/${id}/control`, { action }),
+  pickDirectory:(initialPath = '') =>
+    req<{ selected: string; cancelled: boolean }>('POST', '/filesystem/pick-directory', { initial_path: initialPath }),
+  datasetFrame:(token: string, index: number) =>
+    req<Record<string, unknown>>('GET', `/dataset/frame/${encodeURIComponent(token)}?index=${Math.max(0, Math.floor(index))}`),
+  trimDatasetEpisode:(token: string, frameIndex: number, side: 'before' | 'after') =>
+    req<Record<string, unknown>>('POST', '/dataset/trim', { token, frame_index: Math.max(0, Math.floor(frameIndex)), side }, 120000),
+  publishDatasetReplayFrame:(token: string, frameIndex: number, event: 'play' | 'seek') =>
+    req<Record<string, unknown>>('POST', '/dataset/replay-event', {
+      token, frame_index: Math.max(0, Math.floor(frameIndex)), event,
+    }),
   updatePorts:(id: string, patch: Partial<Pick<BnNodeMeta, 'inputs' | 'outputs' | 'input_types' | 'output_types' | 'input_defaults' | 'multi_input_ports'>>) =>
     req<BnNodeMeta>('PATCH', `/nodes/${id}/ports`, patch),
   updatePortVisibility:(id: string, patch: Pick<BnNodeMeta, 'promoted_inputs' | 'promoted_outputs'>) =>

@@ -355,12 +355,14 @@ function Invoke-PackageHealthCheck {
 
         if ($env:BLACKNODE_PACKAGE_AUTO_SETUP -ne "0") {
             Write-Step "Installing missing extension package dependencies..."
-            $SetupResult = Invoke-PythonCapture -Arguments @("-m", "blacknode.cli", "packages", "setup", "--missing")
-            $SetupOutput = $SetupResult.Output
-            $SetupExitCode = $SetupResult.ExitCode
-            if ($SetupOutput) { $SetupOutput | ForEach-Object { Write-Host "    $_" } }
+            Write-Host "  Dependency download and installation output will appear below."
+            $SetupArguments = @("-m", "blacknode.cli", "packages", "setup", "--missing")
+            & $Python @SetupArguments
+            $SetupExitCode = $LASTEXITCODE
             if ($SetupExitCode -ne 0) {
                 Write-Host "  Warning: automatic package dependency setup failed; startup will continue." -ForegroundColor Yellow
+            } else {
+                Write-Step "Extension package dependency setup complete."
             }
         }
 

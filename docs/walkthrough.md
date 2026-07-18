@@ -168,7 +168,7 @@ http://localhost:3000
 In the browser:
 
 1. Look at the left sidebar.
-2. Click the **Templates** tab.
+2. Use the **Templates** tab, which is open by default after onboarding.
 3. Click **Text Pipeline**.
 4. Click the **Output** node on the canvas.
 5. In the right **Properties** panel, click **Cook**.
@@ -178,6 +178,10 @@ Expected result:
 - The Output node shows `Hello World`.
 - A small run status appears while the graph cooks once.
 - The run is saved in the **Runs** tab.
+
+An Output node connected to a typed image or video port opens at the same large
+dashboard size used by robot monitoring nodes. Live camera frames and video
+controls stay inside the node.
 
 ## 7. Build the Same Workflow by Hand
 

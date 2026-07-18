@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
@@ -167,6 +167,22 @@ class ConnectReq(BaseModel):
 class UpdateParamReq(BaseModel):
     key: str
     value: Any
+
+class NodeControlReq(BaseModel):
+    action: str
+
+class PickDirectoryReq(BaseModel):
+    initial_path: str = ""
+
+class DatasetTrimReq(BaseModel):
+    token: str
+    frame_index: int
+    side: str
+
+class DatasetReplayEventReq(BaseModel):
+    token: str
+    frame_index: int
+    event: str
 
 class UpdatePortsReq(BaseModel):
     inputs: list[str] | None = None
@@ -1232,6 +1248,78 @@ def update_param(node_id: str, req: UpdateParamReq):
     _push_live_node_param_update(meta, req.key, req.value, old_params)
     _save()
     return meta
+
+
+@app.post("/nodes/{node_id}/control")
+def control_node(node_id: str, req: NodeControlReq):
+    meta = _session.node_meta.get(node_id)
+    if meta is None:
+        raise HTTPException(404, "Node not found")
+    if meta.get("type") == "TrajectorySmoother":
+        if req.action != "apply":
+            raise HTTPException(400, "TrajectorySmoother supports the apply control")
+        control_fn = _runtime_callable("dataset", _RUNTIME_MODULES["dataset"], "apply_configured_smoother")
+        if control_fn is None:
+            raise HTTPException(503, "blacknode-dataset smoother runtime is not loaded")
+        params = dict(meta.get("params") or {})
+        try:
+            outputs = dict(control_fn(
+                node_id,
+                str(params.get("method") or "spline"),
+                float(params.get("strength") if params.get("strength") is not None else 1.0),
+                preview_source=str(params.get("preview_source") or "action"),
+                preview_joint=str(params.get("preview_joint") or ""),
+            ))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        for port, value in outputs.items():
+            _session.graph._cache[(node_id, port)] = value
+        _session.graph._dirty.discard(node_id)
+        return {"ok": True, "node_id": node_id, "outputs": outputs}
+    if meta.get("type") != "EpisodeRecorder":
+        raise HTTPException(400, "This node does not expose direct controls")
+    control_fn = _runtime_callable("dataset", _RUNTIME_MODULES["dataset"], "control_configured_recorder")
+    if control_fn is None:
+        raise HTTPException(503, "blacknode-dataset recorder runtime is not loaded")
+    run_id = str(meta.get("params", {}).get("run_id") or "episode_recorder").strip() or "episode_recorder"
+    try:
+        outputs = dict(control_fn(run_id, req.action))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "node_id": node_id, "outputs": outputs}
+
+
+def _pick_directory(initial_path: str = "") -> str:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:  # pragma: no cover - depends on the local Python GUI build
+        raise RuntimeError(f"native folder picker is unavailable: {exc}") from exc
+    initial = Path(str(initial_path or "")).expanduser()
+    if not initial.is_dir():
+        initial = Path.home()
+    root = tk.Tk()
+    try:
+        root.withdraw()
+        root.attributes("-topmost", True)
+        root.update()
+        return str(filedialog.askdirectory(
+            parent=root,
+            title="Choose a folder that will contain Blacknode datasets",
+            initialdir=str(initial),
+            mustexist=True,
+        ) or "")
+    finally:
+        root.destroy()
+
+
+@app.post("/filesystem/pick-directory")
+def pick_directory(req: PickDirectoryReq):
+    try:
+        selected = _pick_directory(req.initial_path)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return {"selected": selected, "cancelled": not bool(selected)}
 
 
 @app.patch("/nodes/{node_id}/ports")
@@ -2311,6 +2399,55 @@ def ollama_models(endpoint_url: str = "http://127.0.0.1:11434"):
 @app.get("/runtime/status")
 def runtime_status():
     return _runtime_status()
+
+
+@app.get("/api/dataset/media/{token}")
+@app.get("/dataset/media/{token}")
+def dataset_media(token: str):
+    resolve_fn = _runtime_callable("dataset", _RUNTIME_MODULES["dataset"], "replay_media_path")
+    path = resolve_fn(token) if resolve_fn is not None else None
+    if path is None:
+        raise HTTPException(404, "Replay media not found")
+    return FileResponse(path, media_type="video/mp4")
+
+
+@app.get("/api/dataset/frame/{token}")
+@app.get("/dataset/frame/{token}")
+def dataset_frame(token: str, index: int = 0):
+    frame_fn = _runtime_callable("dataset", _RUNTIME_MODULES["dataset"], "replay_frame")
+    try:
+        frame = frame_fn(token, index) if frame_fn is not None else None
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if frame is None:
+        raise HTTPException(404, "Replay frame not found")
+    return frame
+
+
+@app.post("/api/dataset/trim")
+@app.post("/dataset/trim")
+def dataset_trim(req: DatasetTrimReq):
+    trim_fn = _runtime_callable("dataset", _RUNTIME_MODULES["dataset"], "trim_replay_episode")
+    if trim_fn is None:
+        raise HTTPException(503, "blacknode-dataset trim runtime is not loaded")
+    try:
+        return dict(trim_fn(req.token, req.frame_index, req.side))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+@app.post("/api/dataset/replay-event")
+@app.post("/dataset/replay-event")
+def dataset_replay_event(req: DatasetReplayEventReq):
+    publish_fn = _runtime_callable("dataset", _RUNTIME_MODULES["dataset"], "publish_replay_event")
+    if publish_fn is None:
+        raise HTTPException(503, "blacknode-dataset replay stream runtime is not loaded")
+    try:
+        return dict(publish_fn(req.token, req.frame_index, req.event))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @app.post("/runtime/stop")
@@ -3530,6 +3667,21 @@ def _template_dirs() -> list[str]:
     return [_TEMPLATES_DIR, *package_template_dirs()]
 
 
+def _template_sources() -> list[tuple[str, str, str]]:
+    """Return template directories with stable editor grouping metadata."""
+    sources = [(_TEMPLATES_DIR, "Core", "#6366f1")]
+    for info in installed_packages():
+        if not info.ok or not info.templates_dir:
+            continue
+        if info.categories:
+            group, color = next(iter(info.categories.items()))
+        else:
+            group = info.name.removeprefix("blacknode-").replace("-", " ").title()
+            color = "#6366f1"
+        sources.append((info.templates_dir, group, color))
+    return sources
+
+
 def _template_path(slug: str) -> str:
     if not re.fullmatch(r"[a-zA-Z0-9_-]{1,60}", slug):
         raise HTTPException(400, "Invalid template slug")
@@ -3549,7 +3701,13 @@ def _read_workflow_file(path: str) -> dict[str, Any]:
     return data
 
 
-def _workflow_summary(slug: str, data: dict[str, Any]) -> dict[str, Any]:
+def _workflow_summary(
+    slug: str,
+    data: dict[str, Any],
+    *,
+    group: str = "Core",
+    group_color: str = "#6366f1",
+) -> dict[str, Any]:
     metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
     return {
         "slug": slug,
@@ -3558,6 +3716,8 @@ def _workflow_summary(slug: str, data: dict[str, Any]) -> dict[str, Any]:
         "description": metadata.get("description", ""),
         "color": metadata.get("color", "#6366f1"),
         "node_count": len(data.get("node_meta", {}) or {}),
+        "group": group,
+        "group_color": group_color,
     }
 
 
@@ -3722,7 +3882,7 @@ def list_workflows():
 def list_templates():
     result = []
     seen: set[str] = set()
-    for templates_dir in _template_dirs():
+    for templates_dir, group, group_color in _template_sources():
         if not os.path.isdir(templates_dir):
             continue
         for fname in sorted(os.listdir(templates_dir)):
@@ -3733,7 +3893,12 @@ def list_templates():
                 continue
             try:
                 data = _read_workflow_file(os.path.join(templates_dir, fname))
-                result.append(_workflow_summary(slug, data))
+                result.append(_workflow_summary(
+                    slug,
+                    data,
+                    group=group,
+                    group_color=group_color,
+                ))
                 seen.add(slug)
             except Exception:
                 pass

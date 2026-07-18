@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -73,3 +74,35 @@ def test_template_load_returns_installable_missing_package(tmp_path):
         "installed": False,
         "load_error": "",
     }]
+
+
+def test_template_list_groups_core_and_package_templates(tmp_path: Path):
+    core_dir = tmp_path / "core"
+    robot_dir = tmp_path / "robot" / "templates"
+    core_dir.mkdir()
+    robot_dir.mkdir(parents=True)
+    (core_dir / "text-pipeline.json").write_text(
+        json.dumps(_template("TextInput")), encoding="utf-8",
+    )
+    (robot_dir / "motion-test.json").write_text(
+        json.dumps(_template("Robot")), encoding="utf-8",
+    )
+    robot_package = SimpleNamespace(
+        name="blacknode-robot",
+        ok=True,
+        templates_dir=str(robot_dir),
+        categories={"Robot": "#14b8a6"},
+    )
+
+    with (
+        patch.object(server, "_TEMPLATES_DIR", str(core_dir)),
+        patch.object(server, "installed_packages", return_value=[robot_package]),
+    ):
+        response = TestClient(server.app).get("/templates")
+
+    assert response.status_code == 200
+    templates = {template["slug"]: template for template in response.json()}
+    assert templates["text-pipeline"]["group"] == "Core"
+    assert templates["text-pipeline"]["group_color"] == "#6366f1"
+    assert templates["motion-test"]["group"] == "Robot"
+    assert templates["motion-test"]["group_color"] == "#14b8a6"
