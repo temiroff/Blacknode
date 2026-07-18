@@ -1052,7 +1052,11 @@ export default function App() {
           height: topbarH,
         }}>
           <div className="bn-brand" aria-label="Blacknode">
-            <img className="bn-brand-logo" src="/blacknode-logo.svg" alt="" />
+            <img
+              className="bn-brand-logo"
+              src={isDark ? '/blacknode-logo-white.png' : '/blacknode-logo.png'}
+              alt=""
+            />
             <span>BLACKNODE</span>
           </div>
 
