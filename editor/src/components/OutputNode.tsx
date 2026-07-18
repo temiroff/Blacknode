@@ -19,7 +19,7 @@ const COLOR = '#8b5cf6'
 
 const isMediaSource = (value: unknown, dataPrefix: string): value is string =>
   typeof value === 'string'
-  && (value.startsWith(dataPrefix) || /^https?:\/\//i.test(value))
+  && (value.startsWith(dataPrefix) || value.startsWith('/') || /^https?:\/\//i.test(value))
 
 const imageSourceFrom = (value: unknown): string | null => {
   if (isMediaSource(value, 'data:image/')) return value
@@ -68,6 +68,9 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
   const videoSource = !cookError && !replayError && sourceType === 'Video'
     && isMediaSource(displayValue, 'data:video/') ? displayValue : null
   const hasMedia = imageSource !== null || videoSource !== null
+  const hasVisualMediaInput = sourceType === 'Image' || sourceType === 'Video'
+  const mediaMinWidth = hasVisualMediaInput ? 860 : 240
+  const mediaMinHeight = hasVisualMediaInput ? 720 : 120
 
   return (
     <NodeFrame
@@ -79,15 +82,15 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
       style={{
         width: '100%',
         height: '100%',
-        minWidth: 240,
-        minHeight: 120,
+        minWidth: mediaMinWidth,
+        minHeight: mediaMinHeight,
         display: 'flex',
         flexDirection: 'column',
       }}
     >
       <NodeResizer
-        minWidth={240}
-        minHeight={120}
+        minWidth={mediaMinWidth}
+        minHeight={mediaMinHeight}
         isVisible={selected}
         lineStyle={{ borderColor: COLOR }}
         handleStyle={{ background: COLOR, borderColor: COLOR, width: 8, height: 8, borderRadius: 2 }}
@@ -161,10 +164,9 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
 
       {/* result area */}
       <div
-        className="nodrag nowheel bn-output-scroll"
+        className="nodrag bn-output-scroll"
         tabIndex={0}
         aria-label="Scrollable output value"
-        onWheel={e => e.stopPropagation()}
         style={{
         flex: '1 1 0',
         minWidth: 0,

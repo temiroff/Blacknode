@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_generic_output_renders_typed_images_and_video_instead_of_urls() -> None:
     source = (ROOT / "editor" / "src" / "components" / "OutputNode.tsx").read_text(encoding="utf-8")
+    store = (ROOT / "editor" / "src" / "store.ts").read_text(encoding="utf-8")
 
     assert "sourceType === 'Image'" in source
     assert "sourceType === 'Video'" in source
@@ -13,6 +14,12 @@ def test_generic_output_renders_typed_images_and_video_instead_of_urls() -> None
     assert "<video" in source
     assert "data:image/" in source
     assert "data:video/" in source
+    assert "sourceType === 'Image' || sourceType === 'Video'" in source
+    assert "hasVisualMediaInput ? 860 : 240" in source
+    assert "hasVisualMediaInput ? 720 : 120" in source
+    assert "MEDIA_OUTPUT_NODE_SIZE = { width: 860, height: 720 }" in store
+    assert "MEDIA_OUTPUT_TYPES = new Set(['Image', 'Video'])" in store
+    assert "ensureMediaOutputNodeSizes(nodes, edges)" in store
 
 
 def test_generic_output_converts_legacy_raw_svg_images_to_data_urls() -> None:
@@ -64,3 +71,21 @@ def test_live_nodes_distinguish_blocked_waiting_and_snapshot_states() -> None:
     assert "&& !liveWaiting" in black_node
     assert "blockedControllerCount" in app
     assert "waitingControllerCount" in app
+
+
+def test_dataset_replay_switches_units_and_keeps_canvas_wheel_zoom() -> None:
+    browser = (ROOT / "editor" / "src" / "components" / "DatasetBrowserPanel.tsx").read_text(encoding="utf-8")
+    output = (ROOT / "editor" / "src" / "components" / "OutputNode.tsx").read_text(encoding="utf-8")
+    api = (ROOT / "editor" / "src" / "api.ts").read_text(encoding="utf-8")
+
+    assert "setAngleUnit('radians')" in browser
+    assert "setAngleUnit('degrees')" in browser
+    assert "numeric * 180 / Math.PI" in browser
+    assert "numeric * Math.PI / 180" in browser
+    assert 'className="nodrag"' in browser
+    assert 'className="nodrag nowheel"' not in browser
+    assert 'className="nodrag nowheel bn-output-scroll"' not in output
+    assert "✂ Cut before" in browser
+    assert "✂ Cut after" in browser
+    assert "The selected frame is kept" in browser
+    assert "trimDatasetEpisode" in api

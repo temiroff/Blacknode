@@ -35,7 +35,9 @@ blacknode packages setup blacknode-ros2
 ```
 
 `start.ps1` and `start.sh` automatically install missing declared Python
-dependencies for installed packages before starting the server. Set
+dependencies for installed packages before starting the server. The launchers
+stream package names, dependency resolution, downloads, and pip installation
+output while this step runs. Set
 `BLACKNODE_PACKAGE_AUTO_SETUP=0` to disable that behavior. Automatic startup
 setup does not pull Docker images or run package setup scripts; use the command
 above when those additional prerequisites are required.
@@ -96,6 +98,11 @@ If auto-update is disabled but you still want startup to fetch remote state, set
 Official packages are listed in the editor's Packages tab even when they are not
 installed. Press **Install** on an available package to clone it from the built-in
 Git URL without pasting a repository URL manually.
+
+The editor's **Templates** tab groups starter workflows by Core or their source
+package category. Every group starts collapsed, its templates inherit the
+category color, and the search field filters across category names, template
+names, slugs, and descriptions.
 
 On a Blacknode workspace's first editor session, the editor opens this tab
 behind a one-time welcome message. The message directs robotics users to install

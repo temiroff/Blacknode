@@ -9,6 +9,7 @@ import { isWireOnlyInput } from '../inputControls'
 import { copyTextToClipboard } from '../clipboard'
 import { portDisplayHint, portDisplayName } from '../portLabels'
 import NodeFrame from './NodeFrame'
+import DatasetBrowserPanel from './DatasetBrowserPanel'
 import type { NodeCookState } from '../types'
 
 const TOOLBOX_NEW_HANDLE_COLOR = '#ef444488'
@@ -26,6 +27,7 @@ const LIVE_STREAM_NODE_TYPES = new Set([
   'CV2ColorObjectStream',
   'VisionReasoningStream',
   'CUDAImageFilterStream',
+  'StreamPublisher',
 ])
 
 function driverBtn(color: string, disabled = false): React.CSSProperties {
@@ -424,6 +426,8 @@ function NodeImageInput({
 function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const cookNode    = useStore(s => s.cookNode)
   const updateParam = useStore(s => s.updateParam)
+  const controlNode = useStore(s => s.controlNode)
+  const pickDirectory = useStore(s => s.pickDirectory)
   const resizeNode  = useStore(s => s.resizeNode)
   const disconnectEdge = useStore(s => s.disconnectEdge)
   const edges       = useStore(s => s.edges)
@@ -442,6 +446,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
   const [episodePending, setEpisodePending] = useState<null | 'start' | 'pause' | 'resume' | 'save' | 'stop' | 'discard'>(null)
+  const [datasetFolderPending, setDatasetFolderPending] = useState(false)
   const dashboardAutoFitDone = useRef(false)
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
@@ -452,6 +457,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const isManualMove = data.type === 'ROS2ManualMove' || data.type === 'ROS2TeachMode'
   const isRobotCalibration = data.type === 'RobotCalibrationRecorder'
   const isEpisodeRecorder = data.type === 'EpisodeRecorder'
+  const isDatasetCreate = data.type === 'DatasetCreate'
+  const isDatasetBrowser = data.type === 'DatasetBrowser'
   const availableInputs = isRobotJointList
     ? (data.inputs ?? []).filter(port => edges.some(edge => edge.target === id && edge.targetHandle === port))
     : isVariadic
@@ -552,10 +559,29 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const episodeLastError = isEpisodeRecorder && data.portResults?.status && typeof data.portResults.status === 'object'
     ? String((data.portResults.status as Record<string, unknown>).last_error ?? '')
     : ''
+  const episodeRecoverable = isEpisodeRecorder && data.portResults?.status && typeof data.portResults.status === 'object'
+    ? (data.portResults.status as Record<string, unknown>).recoverable === true
+    : false
+  const episodeStoragePath = isEpisodeRecorder && data.portResults?.status && typeof data.portResults.status === 'object'
+    ? String(
+        (data.portResults.status as Record<string, unknown>).saved_path
+        ?? (data.portResults.status as Record<string, unknown>).work_path
+        ?? (data.portResults.status as Record<string, unknown>).dataset_path
+        ?? (data.portResults.dataset && typeof data.portResults.dataset === 'object'
+          ? (data.portResults.dataset as Record<string, unknown>).path
+          : '')
+        ?? ''
+      )
+    : ''
   const episodeInputsReady = isEpisodeRecorder
     && edges.some(edge => edge.target === id && edge.targetHandle === 'dataset')
     && edges.some(edge => edge.target === id && edge.targetHandle === 'robot_stream')
     && edges.some(edge => edge.target === id && (edge.targetHandle === 'camera_stream' || edge.targetHandle === 'camera_streams'))
+  const datasetRoot = isDatasetCreate ? String(data.params?.root ?? '').trim() : ''
+  const datasetId = isDatasetCreate ? String(data.params?.dataset_id ?? 'dataset').trim() || 'dataset' : ''
+  const datasetResolvedPath = isDatasetCreate && typeof data.portResults?.path === 'string'
+    ? data.portResults.path
+    : ''
   const hasLiveOutput = data.live_capable === true && (data.outputs ?? []).includes('live')
   const liveStateReport = hasLiveOutput ? String(data.portResults?.report ?? '').trim() : ''
   const liveServiceRunning = hasLiveOutput && data.portResults?.running === true
@@ -726,14 +752,32 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     )) return
     setEpisodePending(action)
     try {
-      await updateParam(id, 'action', action)
-      await cookNode(id, 'dashboard', undefined, 'live')
-    } finally {
       try {
-        await updateParam(id, 'action', 'status')
-      } finally {
-        setEpisodePending(null)
+        await controlNode(id, action)
+      } catch (error) {
+        // A fresh graph has no resolved recorder handles yet. Record may cook
+        // once to configure them; every subsequent control is runtime-only.
+        if (action !== 'start') throw error
+        await updateParam(id, 'action', action)
+        try {
+          await cookNode(id, 'dashboard', undefined, 'live')
+        } finally {
+          await updateParam(id, 'action', 'status')
+        }
       }
+    } finally {
+      setEpisodePending(null)
+    }
+  }
+
+  const chooseDatasetFolder = async () => {
+    if (datasetFolderPending) return
+    setDatasetFolderPending(true)
+    try {
+      const selected = await pickDirectory(String(data.params?.root ?? ''))
+      if (selected) await updateParam(id, 'root', selected)
+    } finally {
+      setDatasetFolderPending(false)
     }
   }
 
@@ -1266,6 +1310,46 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </div>
       )}
 
+      {isDatasetBrowser && <DatasetBrowserPanel id={id} data={data} />}
+
+      {isDatasetCreate && (
+        <div style={{
+          margin: '7px 9px 3px', padding: 8, borderRadius: 7,
+          border: '1px solid var(--line)', background: 'rgba(255,255,255,.02)',
+        }}>
+          <div style={{ color: 'var(--tx2)', fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800 }}>
+            DATASET STORAGE
+          </div>
+          <div title={datasetRoot || '~/.blacknode/datasets'} style={{ marginTop: 5, color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 9, lineHeight: 1.35, wordBreak: 'break-all' }}>
+            Root: {datasetRoot || '~/.blacknode/datasets (default)'}
+          </div>
+          <div style={{ marginTop: 2, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9 }}>
+            Blacknode stores this dataset in a “{datasetId}” subfolder.
+          </div>
+          {datasetResolvedPath && (
+            <div title={datasetResolvedPath} style={{ marginTop: 3, color: 'var(--ok)', fontFamily: 'var(--font-mono)', fontSize: 9, lineHeight: 1.35, wordBreak: 'break-all' }}>
+              Current: {datasetResolvedPath}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
+            <button
+              disabled={datasetFolderPending}
+              onClick={e => { e.stopPropagation(); void chooseDatasetFolder() }}
+              style={driverBtn('var(--accent)', datasetFolderPending)}
+            >
+              {datasetFolderPending ? 'Choosing…' : 'Choose folder…'}
+            </button>
+            <button
+              disabled={datasetFolderPending || !datasetRoot}
+              onClick={e => { e.stopPropagation(); void updateParam(id, 'root', '') }}
+              style={driverBtn('var(--tx2)', datasetFolderPending || !datasetRoot)}
+            >
+              Use default
+            </button>
+          </div>
+        </div>
+      )}
+
       {isEpisodeRecorder && (
         <div style={{
           margin: '7px 9px 3px', padding: 8, borderRadius: 7,
@@ -1281,7 +1365,9 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               ? `● RECORDING · ${episodeFrameCount} FRAMES · ${episodeDuration.toFixed(1)}s`
               : episodePaused
                 ? `Ⅱ PAUSED · ${episodeFrameCount} FRAMES · ${episodeDuration.toFixed(1)}s`
-                : '○ READY FOR A NEW EPISODE'}
+                : episodeRecoverable
+                  ? `↻ RECOVERABLE · ${episodeFrameCount} FRAMES · ${episodeDuration.toFixed(1)}s`
+                  : '○ READY FOR A NEW EPISODE'}
             {episodeDroppedFrames > 0 ? ` · ${episodeDroppedFrames} DROPPED` : ''}
           </div>
           {episodeLastError && (
@@ -1289,12 +1375,17 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               {episodeLastError}
             </div>
           )}
+          {episodeStoragePath && (
+            <div title={episodeStoragePath} style={{ margin: '-2px 0 7px', color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 9, lineHeight: 1.35, wordBreak: 'break-all' }}>
+              Saving to: {episodeStoragePath}
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button
-              disabled={Boolean(episodePending) || episodeRunning || !episodeInputsReady}
-              title={episodeInputsReady ? 'Start a new synchronized robot and camera episode' : 'Connect dataset, robot stream, and at least one camera stream first'}
+              disabled={Boolean(episodePending) || episodeRunning || episodeRecoverable || !episodeInputsReady}
+              title={episodeRecoverable ? 'Save or discard the recoverable episode first' : episodeInputsReady ? 'Start a new synchronized robot and camera episode' : 'Connect dataset, robot stream, and at least one camera stream first'}
               onClick={e => { e.stopPropagation(); void runEpisodeAction('start') }}
-              style={driverBtn('var(--err)', Boolean(episodePending) || episodeRunning || !episodeInputsReady)}
+              style={driverBtn('var(--err)', Boolean(episodePending) || episodeRunning || episodeRecoverable || !episodeInputsReady)}
             >
               {episodePending === 'start' ? 'Starting…' : '● Record'}
             </button>
@@ -1315,10 +1406,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               {episodePending === 'resume' ? 'Resuming…' : '▶ Resume'}
             </button>
             <button
-              disabled={Boolean(episodePending) || !episodeRunning}
+              disabled={Boolean(episodePending) || (!episodeRunning && (!episodeRecoverable || episodeFrameCount === 0))}
               title="Finalize and save this episode to the dataset"
               onClick={e => { e.stopPropagation(); void runEpisodeAction('save') }}
-              style={driverBtn('var(--ok)', Boolean(episodePending) || !episodeRunning)}
+              style={driverBtn('var(--ok)', Boolean(episodePending) || (!episodeRunning && (!episodeRecoverable || episodeFrameCount === 0)))}
             >
               {episodePending === 'save' ? 'Saving…' : '✓ Save episode'}
             </button>
@@ -1331,10 +1422,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               {episodePending === 'stop' ? 'Stopping…' : '■ Stop'}
             </button>
             <button
-              disabled={Boolean(episodePending) || !episodeRunning}
+              disabled={Boolean(episodePending) || (!episodeRunning && !episodeRecoverable)}
               title="Permanently discard this incomplete episode"
               onClick={e => { e.stopPropagation(); void runEpisodeAction('discard') }}
-              style={driverBtn('var(--err)', Boolean(episodePending) || !episodeRunning)}
+              style={driverBtn('var(--err)', Boolean(episodePending) || (!episodeRunning && !episodeRecoverable))}
             >
               {episodePending === 'discard' ? 'Discarding…' : 'Discard'}
             </button>

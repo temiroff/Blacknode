@@ -311,11 +311,11 @@ check_package_dependencies() {
 
   if [[ "${BLACKNODE_PACKAGE_AUTO_SETUP:-1}" == "1" ]]; then
     echo "  Installing missing extension package dependencies..."
-    if ! output="$(PYTHONPATH="$ROOT_DIR/python" "$PYTHON_BIN" -m blacknode.cli packages setup --missing 2>&1)"; then
-      printf '%s\n' "$output" | sed 's/^/    /'
+    echo "  Dependency download and installation output will appear below."
+    if ! PYTHONPATH="$ROOT_DIR/python" "$PYTHON_BIN" -m blacknode.cli packages setup --missing; then
       echo "  Warning: automatic package dependency setup failed; startup will continue."
-    elif [[ -n "$output" ]]; then
-      printf '%s\n' "$output" | sed 's/^/    /'
+    else
+      echo "  Extension package dependency setup complete."
     fi
   fi
 

@@ -45,6 +45,7 @@ Fn = PortType("Fn")
 Model = PortType("Model")
 Number = PortType("Number")
 Image = PortType("Image")
+Video = PortType("Video")
 Any = PortType("Any")
 
 
@@ -173,7 +174,7 @@ def _parse_default(raw: str) -> object:
 
 
 _COMPACT_PORT_THRESHOLD = 8
-_DATA_INPUT_TYPES = {"Any", "Dict", "Embedding", "Fn", "Image", "List"}
+_DATA_INPUT_TYPES = {"Any", "Dict", "Embedding", "Fn", "Image", "Video", "List"}
 _STATUS_OUTPUTS = {
     "active", "armed", "command_ok", "connected", "count", "data_ready",
     "device", "driver_running", "dropped_frames", "error", "found", "joint_count",
