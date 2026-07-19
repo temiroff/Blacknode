@@ -20,6 +20,10 @@ import server  # noqa: E402
 
 
 class EditorRuntimeTests(unittest.TestCase):
+    def test_isaac_runtime_is_managed_through_registered_bridge_state(self):
+        self.assertEqual(server._RUNTIME_MODULES["isaac"], "blacknode.pkg.blacknode_isaac.runtime")
+        self.assertEqual(server._RUNTIME_REGISTRY_ANCHORS["isaac"], "IsaacPolicyBridge")
+
     def test_robot_runtime_helpers_follow_registered_launcher_state(self):
         status_fn = lambda: {"ok": True, "active": True, "managed_runs": [{"run_id": "robot"}]}
         stop_fn = lambda: {"ok": True, "stopped": {"managed_runs": 1}}

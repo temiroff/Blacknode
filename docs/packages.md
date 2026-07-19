@@ -118,10 +118,11 @@ development:
 | Package | Role |
 |---|---|
 | `blacknode-robot` | Generic USB robot discovery, serial permission help, driver descriptors, driver process launch, and the standard robot profile. |
-| `blacknode-ros2` | ROS 2 system checks, topic inspection, image snapshots, image streams, process launch/run controls, native `rclpy` robot control, rosbridge robot control, and robot dashboards. |
+| `blacknode-ros2` | ROS 2 system checks, topic inspection, image streams, process controls, robot control, safety gates, and managed policy execution. |
 | `blacknode-vision` | USB camera ROS package, VLM frame reasoning, live reasoning dashboards, OpenCV masks, color tracking streams, and graph-level Python exports. |
 | `blacknode-dataset` | Blacknode-native episode journals, synchronized robot/camera recording, dataset validation, HDF5 and structured Parquet/MP4 export profiles, and explicit repository publishing. |
-| `blacknode-training` | Optional PyTorch action-chunking training from Blacknode HDF5 episodes, managed jobs, resumable checkpoints, metrics dashboards, and recorded-frame policy previews. |
+| `blacknode-training` | PyTorch action-chunking training from Blacknode HDF5 episodes, managed jobs, resumable checkpoints, recorded-frame previews, and deployable policy artifacts. |
+| `blacknode-isaac` | Direct closed-loop policy deployment using Isaac Sim articulation state, named RGB sensors, safety-gated targets, and runtime replay logs. |
 
 Keep the layers separate: `blacknode-robot` finds hardware and starts the right
 robot driver, robot-specific packages define the driver descriptor, and

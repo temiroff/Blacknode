@@ -45,7 +45,11 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "git_url": "https://github.com/temiroff/blacknode-dataset.git",
     }
     assert payload["nodes"]["DatasetCameraStreamList"]["package"] == "blacknode-dataset"
+    assert payload["nodes"]["DatasetBrowser"]["package"] == "blacknode-dataset"
+    assert payload["nodes"]["HDF5EpisodeExport"]["package"] == "blacknode-dataset"
+    assert payload["nodes"]["StreamPublisher"]["package"] == "blacknode-dataset"
     assert payload["nodes"]["ROS2LeaderFollower"]["package"] == "blacknode-ros2"
+    assert payload["nodes"]["PolicyRuntime"]["package"] == "blacknode-ros2"
     assert payload["nodes"]["Camera"]["package"] == "blacknode-vision"
     assert payload["nodes"]["CameraStream"]["package"] == "blacknode-vision"
     assert payload["nodes"]["CV2CameraStream"]["package"] == "blacknode-vision"
@@ -53,6 +57,14 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "package": "blacknode-training",
         "git_url": "https://github.com/temiroff/blacknode-training.git",
     }
+    assert payload["nodes"]["ACTPolicyExport"]["package"] == "blacknode-training"
+    assert payload["nodes"]["ACTPolicyReplay"]["package"] == "blacknode-training"
+    assert payload["nodes"]["PolicyArtifactLoad"]["package"] == "blacknode-training"
+    assert payload["nodes"]["IsaacPolicyBridge"] == {
+        "package": "blacknode-isaac",
+        "git_url": "https://github.com/temiroff/blacknode-isaac.git",
+    }
+    assert payload["nodes"]["IsaacPolicyRuntime"]["package"] == "blacknode-isaac"
 
 
 def test_resolver_finds_nested_nodes_and_indexed_package():

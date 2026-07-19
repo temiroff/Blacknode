@@ -334,13 +334,15 @@ _RUNTIME_MODULES = {
     "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
     "robot": "blacknode.pkg.blacknode_robot.robot",
     "dataset": "blacknode.pkg.blacknode_dataset.runtime",
+    "training": "blacknode.pkg.blacknode_training.runtime",
+    "isaac": "blacknode.pkg.blacknode_isaac.runtime",
 }
 
 # Package reloads replace node functions before sys.modules is always updated.
 # Resolve stateful robot runtime helpers through the registered launcher—the
 # exact module globals that own the live subprocess table—so status and Stop
 # All cannot silently look at an empty duplicate module.
-_RUNTIME_REGISTRY_ANCHORS = {"robot": "RobotDriverLauncher"}
+_RUNTIME_REGISTRY_ANCHORS = {"robot": "RobotDriverLauncher", "isaac": "IsaacPolicyBridge"}
 
 
 def _runtime_module(module_name: str):

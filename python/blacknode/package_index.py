@@ -24,7 +24,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     "blacknode-ros2": {
         "name": "blacknode-ros2",
         "git_url": "https://github.com/temiroff/blacknode-ros2.git",
-        "description": "ROS 2 topics, services, visual tests, image streams, process launch/run controls, and robot interface nodes.",
+        "description": "ROS 2 topics, streams, robot interfaces, and safety-gated policy deployment.",
         "node_types": [
             "ROS2Command",
             "ROS2CompressedImageSnapshot",
@@ -57,6 +57,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "ROS2TopicList",
             "ROS2TopicPublish",
             "ROS2VisualDashboard",
+            "PolicySafetyGate",
+            "PolicyRuntime",
         ],
     },
     "blacknode-robot": {
@@ -110,23 +112,39 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
         "description": "Native episode recording, recovery, validation, LeRobot v3 export, and explicit Hugging Face dataset upload.",
         "node_types": [
             "DatasetCameraStreamList",
+            "DatasetBrowser",
             "DatasetCreate",
             "EpisodeDatasetSummary",
             "EpisodeDatasetValidate",
             "EpisodeRecorder",
             "HuggingFaceDatasetUpload",
+            "HDF5EpisodeExport",
             "LeRobotV3Export",
+            "StreamPublisher",
         ],
     },
     "blacknode-training": {
         "name": "blacknode-training",
         "git_url": "https://github.com/temiroff/blacknode-training.git",
-        "description": "Offline robot-policy dataset checks, managed PyTorch training, checkpoints, metrics, and prediction previews.",
+        "description": "Robot-policy dataset checks, managed PyTorch training, checkpoints, previews, and deployable policy artifacts.",
         "node_types": [
             "TrainingDatasetCheck",
             "ACTTraining",
             "ACTCheckpointInspect",
             "ACTPolicyPreview",
+            "ACTPolicyReplay",
+            "ACTPolicyExport",
+            "PolicyArtifactLoad",
+        ],
+    },
+    "blacknode-isaac": {
+        "name": "blacknode-isaac",
+        "git_url": "https://github.com/temiroff/blacknode-isaac.git",
+        "description": "Closed-loop policy deployment for Isaac Sim articulations and named RGB sensors.",
+        "node_types": [
+            "IsaacPolicySafetyGate",
+            "IsaacPolicyBridge",
+            "IsaacPolicyRuntime",
         ],
     },
 }
