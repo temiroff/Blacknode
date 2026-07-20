@@ -339,7 +339,7 @@ def _stop_active_cook() -> None:
 _RUNTIME_MODULES = {
     "ros2": "blacknode.pkg.blacknode_ros2.ros2_runtime",
     "ros2_live": "blacknode.pkg.blacknode_ros2.ros2_live",
-    "vision": "blacknode.pkg.blacknode_vision.cv2_runtime",
+    "vision": "blacknode.pkg.blacknode_perception.cv2_runtime",
     "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
     "robot": "blacknode.pkg.blacknode_robot.robot",
     "dataset": "blacknode.pkg.blacknode_dataset.runtime",

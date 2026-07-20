@@ -45,7 +45,7 @@ same runtime and safety workflow.
 
 ## Milestone: 20 demonstrations to interrupted deployment
 
-Install `blacknode-robot`, `blacknode-ros2`, `blacknode-vision`,
+Install `blacknode-robot`, `blacknode-ros2`, `blacknode-perception`,
 `blacknode-dataset`, and `blacknode-training`. Calibrate the leader and follower
 arms, bind each calibration to its physical USB identity, support both arms
 whenever torque may be released, and keep a person at the controls.

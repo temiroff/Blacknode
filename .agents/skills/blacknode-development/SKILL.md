@@ -5,7 +5,7 @@ description: >
   ecosystem. Use when changing the Python or Rust runtime, MCP server, editor,
   package manager, exporters, node contracts, managed services, creating a
   reusable core/custom/community node, authoring an extension package, or
-  modifying blacknode-cuda, blacknode-vision, blacknode-ros2, or
+  modifying blacknode-cuda, blacknode-perception, blacknode-ros2, or
   blacknode-robot. Use blacknode-workflow when the requested result is only a
   workflow graph built from existing capabilities.
 ---

@@ -42,7 +42,7 @@ before enabling torque to prevent movement toward a stale target.
 
 ## Follow a Colored Cube
 
-Open **Blacknode Vision CV2 Cube Continuous Follow** from `blacknode-vision`.
+Open **Blacknode Vision CV2 Cube Continuous Follow** from `blacknode-perception`.
 The workflow is:
 
 ```text

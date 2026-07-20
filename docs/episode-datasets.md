@@ -38,7 +38,7 @@ input and keep those names stable across the dataset.
 
 ## Record an episode
 
-Install `blacknode-robot`, `blacknode-ros2`, `blacknode-vision`, and
+Install `blacknode-robot`, `blacknode-ros2`, `blacknode-perception`, and
 `blacknode-dataset`, then open **SO-ARM101 Teleoperation Episode Recording**.
 The template selects robot indexes `0` and `1`; swap them if the discovered
 leader and follower order is reversed. Calibrate both robots before recording.

@@ -11,7 +11,13 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
         "components": {
             "follow-person": {
                 "name": "follow-person", "default": False, "node_types": [],
-                "adapters": {"ros2": {"name": "ros2", "default": False, "node_types": []}},
+                "adapters": {"ros2": {
+                    "name": "ros2", "default": False,
+                    "node_types": [
+                        "ROS2NativeFollowDetectionJoint", "ROS2FollowDetectionJoint",
+                        "ROS2ContinuousFollowDetectionJoint", "ROS2LeaderFollower",
+                    ],
+                }},
             },
             **{
                 name: {"name": name, "default": False, "node_types": []}
@@ -20,7 +26,10 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
         },
         "git_url": "https://github.com/temiroff/blacknode-skills.git",
         "description": "Reusable task-level robot skills composed from stable capabilities.",
-        "node_types": [],
+        "node_types": [
+            "ROS2NativeFollowDetectionJoint", "ROS2FollowDetectionJoint",
+            "ROS2ContinuousFollowDetectionJoint", "ROS2LeaderFollower",
+        ],
     },
     "blacknode-agent": {
         "name": "blacknode-agent",
@@ -129,9 +138,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "capabilities": ["integration.ros2", "transport.ros2", "transport.rosbridge"],
                 "node_types": [
                     "ROS2BridgeEcho", "ROS2BridgePublish", "ROS2Command", "ROS2CompressedImageSnapshot",
-                    "ROS2ContinuousFollowDetectionJoint", "ROS2DemoPublisher", "ROS2FollowDetectionJoint",
+                    "ROS2DemoPublisher",
                     "ROS2ImageSnapshot", "ROS2ImageStream", "ROS2InterfaceShow", "ROS2JointState", "ROS2Launch",
-                    "ROS2LeaderFollower", "ROS2ManualMove", "ROS2MotionDashboard", "ROS2NativeFollowDetectionJoint",
+                    "ROS2ManualMove", "ROS2MotionDashboard",
                     "ROS2NativeJointState", "ROS2NativeRobotDiscovery", "ROS2NativeSetJoint", "ROS2NativeStatus",
                     "ROS2NodeList", "ROS2PackageExecutables", "ROS2RobotDiscovery", "ROS2RosbridgeServer",
                     "ROS2RosbridgeStatus", "ROS2RotateJoint", "ROS2Run", "ROS2ServiceList", "ROS2SetJoint",
@@ -147,18 +156,14 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "ROS2BridgePublish",
             "ROS2Command",
             "ROS2CompressedImageSnapshot",
-            "ROS2ContinuousFollowDetectionJoint",
             "ROS2DemoPublisher",
             "ROS2ImageSnapshot",
             "ROS2ImageStream",
             "ROS2InterfaceShow",
-            "ROS2FollowDetectionJoint",
             "ROS2JointState",
-            "ROS2LeaderFollower",
             "ROS2ManualMove",
             "ROS2Launch",
             "ROS2MotionDashboard",
-            "ROS2NativeFollowDetectionJoint",
             "ROS2NativeJointState",
             "ROS2NativeRobotDiscovery",
             "ROS2NativeSetJoint",
@@ -217,8 +222,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "RobotUSBDiscovery",
         ],
     },
-    "blacknode-vision": {
-        "name": "blacknode-vision",
+    "blacknode-perception": {
+        "name": "blacknode-perception",
         "layer": "perception",
         "components": {
             "camera": {

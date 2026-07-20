@@ -38,7 +38,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
 
     assert payload["schema_version"] == 2
     assert payload["packages"]["blacknode-robot"]["layer"] == "robot"
-    assert payload["packages"]["blacknode-vision"]["layer"] == "perception"
+    assert payload["packages"]["blacknode-perception"]["layer"] == "perception"
     assert payload["packages"]["blacknode-ros2"]["layer"] == "ros2"
     assert payload["packages"]["blacknode-ros2"]["components"]["core"]["default"] is True
     assert payload["packages"]["blacknode-skills"]["layer"] == "skills"
@@ -70,12 +70,12 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["DatasetBrowser"]["package"] == "blacknode-dataset"
     assert payload["nodes"]["HDF5EpisodeExport"]["package"] == "blacknode-dataset"
     assert payload["nodes"]["StreamPublisher"]["package"] == "blacknode-dataset"
-    assert payload["nodes"]["ROS2LeaderFollower"]["package"] == "blacknode-ros2"
+    assert payload["nodes"]["ROS2LeaderFollower"]["package"] == "blacknode-skills"
     assert payload["nodes"]["PolicyRuntime"]["package"] == "blacknode-controllers"
     assert payload["nodes"]["BaseSafetyGate"]["package"] == "blacknode-controllers"
-    assert payload["nodes"]["Camera"]["package"] == "blacknode-vision"
-    assert payload["nodes"]["CameraStream"]["package"] == "blacknode-vision"
-    assert payload["nodes"]["CV2CameraStream"]["package"] == "blacknode-vision"
+    assert payload["nodes"]["Camera"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["CameraStream"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["CV2CameraStream"]["package"] == "blacknode-perception"
     assert payload["nodes"]["ACTTraining"] == {
         "package": "blacknode-training",
         "git_url": "https://github.com/temiroff/blacknode-training.git",

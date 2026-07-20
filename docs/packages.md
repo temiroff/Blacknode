@@ -121,7 +121,7 @@ development:
 | `blacknode-robot` | Generic USB robot discovery, serial permission help, driver descriptors, driver process launch, and the standard robot profile. |
 | `blacknode-controllers` | Mobile-base, navigation, manipulation, policy, arbitration, and safety controllers with optional transport adapters. |
 | `blacknode-ros2` | ROS 2 graph discovery, topics, services, native/rosbridge transport, managed processes, and diagnostics. |
-| `blacknode-vision` | Compatibility package identity for the `blacknode-perception` repository: camera, tracking, VLM, and spatial-perception components. |
+| `blacknode-perception` | Camera, tracking, VLM, and spatial-perception components, organized as selectable components. |
 | `blacknode-dataset` | Blacknode-native episode journals, synchronized robot/camera recording, dataset validation, HDF5 and structured Parquet/MP4 export profiles, and explicit repository publishing. |
 | `blacknode-training` | PyTorch action-chunking training from Blacknode HDF5 episodes, managed jobs, resumable checkpoints, recorded-frame previews, and deployable policy artifacts. |
 | `blacknode-isaac` | Direct closed-loop policy deployment using Isaac Sim articulation state, named RGB sensors, safety-gated targets, and runtime replay logs. |
@@ -131,8 +131,9 @@ generic robot contract; `blacknode-drivers` owns physical protocol access and
 driver-boundary safeguards; and `blacknode-ros2` owns ROS graph and transport
 behavior. Optional adapters stay nested under the component they integrate.
 
-The current `blacknode-vision` CV2 local-reasoning template routes target
-selection through the VLM:
+The `blacknode-skills/follow-person@ros2` CV2 local-reasoning template
+(camera and VLM nodes from `blacknode-perception`) routes target selection
+through the VLM:
 
 ```text
 Text target prompt

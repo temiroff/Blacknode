@@ -402,7 +402,7 @@ def export_workflow_python(data: Mapping[str, Any], *, style: str = "flat") -> s
         "    _blacknode_live_runtime_stopped = True",
         "    for module_name in (",
         "        'blacknode.pkg.blacknode_ros2.ros2_runtime',",
-        "        'blacknode.pkg.blacknode_vision.cv2_runtime',",
+        "        'blacknode.pkg.blacknode_perception.cv2_runtime',",
         "    ):",
         "        try:",
         "            module = __import__(module_name, fromlist=['stop_runtime_services'])",

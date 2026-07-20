@@ -86,7 +86,7 @@ across a dataset and emits the `success`-only subset whose path feeds
 
 - **Vision pass inside `EpisodeEvaluator`** — sample frames from the episode's
   camera mp4, judge against the episode's own `task` string via the
-  `blacknode-vision` provider stack, confidence-blend with the rule/reference
+  `blacknode-perception` provider stack, confidence-blend with the rule/reference
   verdict, and route disagreement to review. (Deliberately not in the first
   slice: keeps the core deterministic and hardware-free.)
 - **`EpisodeReasoner`** — maps `signals` → `likely_causes`, where every cause
