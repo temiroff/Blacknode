@@ -12,7 +12,9 @@ from blacknode.node import _NODE_REGISTRY
 from blacknode.packages import (
     _PACKAGE_REGISTRY,
     component_dependency_plan,
+    component_dependency_install_plan,
     discover_packages,
+    ensure_component_enabled,
     install_from_git,
     install_prerequisites,
     load_package,
@@ -303,6 +305,55 @@ def test_component_dependency_plan_enables_installed_dependencies_in_order(tmp_p
     set_component_enabled("bn-dependent-layer", "adapter", False)
     dependency_info = set_component_enabled("bn-dependency-layer", "base", False)
     assert dependency_info.enabled_components == []
+
+
+def test_ensure_component_installs_official_missing_dependency(tmp_path, monkeypatch):
+    source = _write_package(
+        tmp_path / "sources",
+        name="bn-auto-dependency",
+        node_name="_AutoDependencyRoot",
+        component_metadata='''
+        [components.base]
+        default = false
+        nodes = ["components/base/nodes"]
+        ''',
+    )
+    _write_component_node(source, "base", "_AutoDependencyBase")
+    git = ["git", "-C", str(source), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git[:3], "init", "-q"], check=True)
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "init"], check=True)
+
+    target = _write_package(
+        tmp_path / "installed",
+        name="bn-auto-target",
+        node_name="_AutoTargetRoot",
+        component_metadata='''
+        [components.adapter]
+        default = false
+        nodes = ["components/adapter/nodes"]
+        [components.adapter.dependencies]
+        requires = [{ package = "bn-auto-dependency", component = "base", version = ">=0.0.1" }]
+        ''',
+    )
+    _write_component_node(target, "adapter", "_AutoTargetAdapter")
+    assert load_package(target).ok
+    monkeypatch.setattr(
+        "blacknode.packages.indexed_package",
+        lambda name: {"git_url": str(source)} if name == "bn-auto-dependency" else None,
+    )
+
+    preflight = component_dependency_install_plan("bn-auto-target", "adapter")
+    assert preflight["actions"][0]["action"] == "install"
+
+    enabled = ensure_component_enabled(
+        "bn-auto-target", "adapter", progress=lambda _line: None
+    )
+
+    assert enabled.enabled_components == ["adapter"]
+    assert _PACKAGE_REGISTRY["bn-auto-dependency"].enabled_components == ["base"]
+    assert "_AutoDependencyBase" in _NODE_REGISTRY
+    assert "_AutoTargetAdapter" in _NODE_REGISTRY
 
 
 def test_component_dependency_cycle_and_version_conflict_do_not_change_state(tmp_path):

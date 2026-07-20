@@ -1,6 +1,7 @@
 from blacknode.package_index import (
     package_index_payload,
     resolve_workflow_dependencies,
+    template_component_requirements,
     template_package_requirements,
     workflow_node_types,
 )
@@ -137,3 +138,49 @@ def test_installed_explicit_package_does_not_block_available_workflow():
 
     assert result["ok"]
     assert result["missing_packages"] == []
+
+
+def test_workflow_declares_direct_component_and_reports_disabled_state():
+    workflow = _workflow("FeetechROS2Adapter")
+    workflow["metadata"]["required_components"] = [{
+        "package": "blacknode-drivers",
+        "component": "feetech-ros2",
+        "version": ">=0.1.0,<1.0.0",
+    }]
+    installed = {
+        "blacknode-drivers": {
+            "ok": True,
+            "version": "0.1.0",
+            "components": {"feetech-ros2": {"enabled": False}},
+        },
+    }
+
+    assert template_component_requirements(workflow) == [{
+        "package": "blacknode-drivers",
+        "component": "feetech-ros2",
+        "version": ">=0.1.0,<1.0.0",
+        "git_url": "https://github.com/temiroff/blacknode-drivers.git",
+    }]
+    result = resolve_workflow_dependencies(
+        workflow,
+        available_node_types={"FeetechROS2Adapter", "NestedNode"},
+        installed_packages=installed,
+    )
+
+    assert result["code"] == "missing_components"
+    assert result["missing_components"][0]["reason"] == "component is disabled"
+
+
+def test_workflow_component_requirement_adds_missing_official_package():
+    workflow = _workflow("FeetechROS2Adapter")
+    workflow["metadata"]["required_components"] = ["blacknode-drivers/feetech-ros2"]
+
+    result = resolve_workflow_dependencies(
+        workflow,
+        available_node_types={"NestedNode"},
+        installed_packages={},
+    )
+
+    assert result["code"] == "missing_packages"
+    assert result["missing_packages"][0]["name"] == "blacknode-drivers"
+    assert result["missing_components"][0]["reason"] == "package is not installed"

@@ -419,10 +419,14 @@ def _packages_components(name: str | None) -> int:
 def _packages_set_component(name: str, component: str, enabled: bool) -> int:
     import blacknode  # noqa: F401 - triggers package discovery
 
-    from .packages import set_component_enabled
+    from .packages import ensure_component_enabled, set_component_enabled
 
     try:
-        info = set_component_enabled(name, component, enabled)
+        info = (
+            ensure_component_enabled(name, component)
+            if enabled
+            else set_component_enabled(name, component, False)
+        )
     except (ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -435,19 +439,21 @@ def _packages_set_component(name: str, component: str, enabled: bool) -> int:
 def _packages_component_dependencies(name: str, component: str) -> int:
     import blacknode  # noqa: F401 - triggers package discovery
 
-    from .packages import component_dependency_plan
+    from .packages import component_dependency_install_plan
 
-    try:
-        resolution = component_dependency_plan(name, component)
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+    resolution = component_dependency_install_plan(name, component)
+    if not resolution["ok"]:
+        print(f"error: {'; '.join(resolution['conflicts'])}", file=sys.stderr)
         return 1
-    for item in resolution["plan"]:
+    if not resolution["actions"]:
+        print(f"{name}/{component}: dependencies satisfied; no changes")
+        return 0
+    for item in resolution["actions"]:
         target = item["package"]
         if item["component"]:
             target += f"/{item['component']}"
-        state = "enabled" if item["enabled"] else "will enable"
-        print(f"{target} {item['version'] or '?'} [{state}]")
+        source = f" from {item['source']}" if item.get("source") else ""
+        print(f"{item['action']} {target} {item['version'] or '?'}{source}")
     return 0
 
 

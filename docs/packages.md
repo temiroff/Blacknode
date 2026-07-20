@@ -199,6 +199,28 @@ Third-party templates can carry their own resolution:
 The install still requires an explicit click. Templates do not clone or execute
 package code automatically.
 
+Templates that depend on one selectable component declare it directly. The
+resolver checks package version and enabled state, then returns the transitive
+component install/enable plan alongside missing-node results:
+
+```json
+{
+  "metadata": {
+    "required_components": [
+      {
+        "package": "blacknode-drivers",
+        "component": "feetech-ros2",
+        "version": ">=0.1.0,<1.0.0"
+      }
+    ]
+  }
+}
+```
+
+The compact string form `"blacknode-drivers/feetech-ros2"` is also accepted.
+Component activation remains an explicit package action, so resolving a
+template never arms hardware or silently changes the environment.
+
 ## Package layout
 
 ```
@@ -297,20 +319,22 @@ requires = [
 ]
 ```
 
-Blacknode resolves the complete installed graph before changing activation
-state. It enables dependencies before dependents, reuses enabled compatible
-versions, rejects cycles and incompatible versions, rolls back the whole
-activation change if a package reload fails, and prevents disabling a component
+Blacknode preflights the complete graph before changing activation state. It
+installs missing official packages, safely fast-forwards a clean behind-only
+checkout when that can satisfy a version requirement, enables dependencies
+before dependents, reuses enabled compatible versions, rejects cycles and
+incompatible or dirty checkouts, rolls back newly cloned packages and the whole
+activation change if setup or reload fails, and prevents disabling a component
 or removing a package that an enabled component requires. The Packages UI shows each component's
 direct requirements. `GET /packages/{name}/components/{component}/dependencies`
 returns the resolved plan for other clients.
 
-This resolver stage does not silently clone or upgrade repositories. A missing
-official dependency returns the exact `blacknode packages install <git-url>`
-command. Successful installs, removals, and component changes atomically write
+The dependency plan is explicit in `blacknode packages dependencies`; the
+enable operation applies it. Third-party dependencies without a catalog source
+return an actionable error instead of guessing a repository. Successful
+installs, removals, and component changes atomically write
 `packages/.blacknode-package-lock.json`, recording versions, Git revisions,
-sources, and enabled components. Explicit compatible install/upgrade planning
-remains a future stage.
+sources, and enabled components.
 
 `setup` installs shared requirements plus pip dependencies of the components
 that are currently enabled. pip reuses already satisfied dependencies and
@@ -324,8 +348,8 @@ package-wide dependencies continue to load as one implicit component. A
 manifest can also publish descriptive `[components.*]` entries without opting
 into component mode; the UI marks those entries as included.
 
-Automatic dependency checkout, compatible upgrade planning, and lockfile
-reproduction are the next resolver stage.
+Lockfile reproduction and version selection across multiple compatible remote
+releases remain future resolver stages.
 
 The initial organizational layers are `skills`, `agent`, `robot`,
 `perception`, `controllers`, and `drivers`. `ros2` identifies the horizontal

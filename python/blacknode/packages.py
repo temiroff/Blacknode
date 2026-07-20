@@ -535,6 +535,143 @@ def component_dependency_plan(package_name: str, component_name: str) -> dict[st
     }
 
 
+def component_dependency_install_plan(package_name: str, component_name: str) -> dict[str, Any]:
+    """Plan official installs, safe fast-forward updates, and activation.
+
+    This preflight never changes package contents. Missing packages must have
+    an official catalog URL. Incompatible installed versions are upgradable
+    only from a clean, behind-only Git checkout.
+    """
+    target_package = _package_name(package_name)
+    target_component = _component_name(component_name)
+    actions: list[dict[str, Any]] = []
+    conflicts: list[str] = []
+    visited: set[tuple[str, str, str]] = set()
+    visiting: list[tuple[str, str]] = []
+
+    def visit(current_package: str, current_component: str, version: str = "") -> None:
+        signature = (current_package, current_component, version)
+        if signature in visited:
+            return
+        key = (current_package, current_component)
+        if key in visiting:
+            cycle = visiting[visiting.index(key):] + [key]
+            conflicts.append("Component dependency cycle: " + " -> ".join(
+                f"{package}/{component}" if component else package
+                for package, component in cycle
+            ))
+            return
+        info = _PACKAGE_REGISTRY.get(current_package)
+        if info is None:
+            indexed = indexed_package(current_package) or {}
+            source = str(indexed.get("git_url") or "")
+            if not source:
+                conflicts.append(f"Required package '{current_package}' is not installed and has no catalog source")
+                return
+            actions.append({
+                "action": "install",
+                "package": current_package,
+                "component": current_component,
+                "version": version,
+                "source": source,
+            })
+            visited.add(signature)
+            return
+        if version and (not info.version or not _version_constraint_satisfied(version, info.version)):
+            state = package_git_status(info.path, fetch=True) if info.source == "folder" and info.path else {}
+            if state.get("can_fast_forward"):
+                actions.append({
+                    "action": "update",
+                    "package": current_package,
+                    "component": current_component,
+                    "version": version,
+                    "source": state.get("remote") or "",
+                })
+            else:
+                reason = "working tree is dirty" if state.get("dirty") else "no clean fast-forward update is available"
+                conflicts.append(
+                    f"Package '{current_package}' {info.version or '?'} does not satisfy {version}; {reason}"
+                )
+            visited.add(signature)
+            return
+        if not current_component:
+            visited.add(signature)
+            return
+        if current_component not in info.components:
+            conflicts.append(f"Required package '{current_package}' has no component '{current_component}'")
+            return
+        if not info.component_mode:
+            conflicts.append(f"Package '{current_package}' does not support selective component activation")
+            return
+        component = info.components[current_component]
+        if component.get("requirement_errors"):
+            conflicts.extend(
+                f"Invalid dependency for {current_package}/{current_component}: {error}"
+                for error in component["requirement_errors"]
+            )
+            return
+        visiting.append(key)
+        for requirement in component.get("requirements", []):
+            visit(
+                requirement.get("package") or current_package,
+                requirement.get("component") or "",
+                requirement.get("version") or "",
+            )
+        visiting.pop()
+        if not component.get("enabled"):
+            actions.append({
+                "action": "enable",
+                "package": current_package,
+                "component": current_component,
+                "version": info.version,
+                "source": "",
+            })
+        visited.add(signature)
+
+    visit(target_package, target_component)
+    return {
+        "target": {"package": target_package, "component": target_component},
+        "ok": not conflicts,
+        "actions": actions,
+        "conflicts": conflicts,
+    }
+
+
+def ensure_component_enabled(
+    package_name: str,
+    component_name: str,
+    *,
+    progress: Callable[[str], None] = print,
+) -> PackageInfo:
+    """Install/update official dependencies, then transactionally activate."""
+    target = _component_package_info(_package_name(package_name), _component_name(component_name))
+    root = Path(target.path).resolve().parent
+    newly_installed: list[str] = []
+    try:
+        for _attempt in range(10):
+            preflight = component_dependency_install_plan(package_name, component_name)
+            if not preflight["ok"]:
+                raise ValueError("; ".join(preflight["conflicts"]))
+            mutations = [item for item in preflight["actions"] if item["action"] in {"install", "update"}]
+            if not mutations:
+                return set_component_enabled(package_name, component_name, True)
+            for item in mutations:
+                if item["action"] == "install":
+                    result = install_from_git(item["source"], root=root, install_deps=True, progress=progress)
+                    if not result.get("ok"):
+                        raise RuntimeError(result.get("error") or f"Could not install {item['package']}")
+                    newly_installed.append(str(result["package"]["name"]))
+                else:
+                    result = update_packages([item["package"]], install_deps=True, progress=progress)
+                    if not result.get("ok") or not result.get("updated"):
+                        raise RuntimeError(f"Could not update required package {item['package']}")
+        raise RuntimeError("Dependency installation did not converge after 10 passes")
+    except Exception:
+        for name in reversed(newly_installed):
+            remove_package(name, root=root)
+        raise
+
+
 def set_component_enabled(package_name: str, component_name: str, enabled: bool) -> PackageInfo:
     """Activate a component dependency graph or safely disable one component.
 

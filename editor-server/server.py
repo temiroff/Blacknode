@@ -31,6 +31,7 @@ from blacknode.packages import installed_packages, package_category_colors, pack
 from blacknode.packages import load_package as bn_load_package
 from blacknode.packages import packages_root as bn_packages_root
 from blacknode.packages import remove_package as bn_remove_package
+from blacknode.packages import ensure_component_enabled as bn_ensure_component_enabled
 from blacknode.packages import set_component_enabled as bn_set_component_enabled
 from blacknode.python_importer import import_workflow_python
 from blacknode.workflow import validate_graph as validate_bn_graph
@@ -3476,7 +3477,11 @@ def set_package_component(name: str, component: str, action: str):
     if action not in {"enable", "disable"}:
         raise HTTPException(400, "Component action must be enable or disable")
     try:
-        info = bn_set_component_enabled(name, component, action == "enable")
+        info = (
+            bn_ensure_component_enabled(name, component)
+            if action == "enable"
+            else bn_set_component_enabled(name, component, False)
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:
