@@ -43,6 +43,26 @@ under `packages/` are separate Git repositories and carry their own `AGENTS.md`.
 - Keep physical motion disarmed by default. Retain stale-data, joint-limit, and
   shutdown safeguards in every transport path.
 
+## Hardware modularity invariants
+
+- Base robot contracts, profiles, and capability inspection must load and work
+  when no vendor driver, sensor SDK, ROS installation, simulator, or accelerator
+  package is present. Missing providers report a structured unavailable state;
+  they do not break package discovery or unrelated capabilities.
+- Applications, skills, planners, and controllers depend on stable capability
+  contracts such as `Camera`, `LiDAR`, `MobileBase`, `Pick`, or `Navigate`.
+  They must not depend directly on a vendor SDK, device path, transport, or
+  component implementation.
+- Robot profiles bind required capabilities to replaceable components and carry
+  provider configuration. Replacing a compatible camera, LiDAR, actuator bus,
+  simulator, or compute provider should change the profile/component selection,
+  not mission logic, workflow connections, or semantic node names.
+- Keep calibration, limits, and sensor extrinsics bound to stable physical
+  hardware identity rather than only a component or driver name.
+- Every hardware capability needs a mock or replay implementation for
+  hardware-free development. Claim interchangeability only after the same
+  contract tests pass against the mock and each supported provider.
+
 ## Verification
 
 Run the smallest relevant checks first, then the wider suite when shared
