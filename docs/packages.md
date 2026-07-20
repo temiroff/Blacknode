@@ -301,32 +301,36 @@ Blacknode resolves the complete installed graph before changing activation
 state. It enables dependencies before dependents, reuses enabled compatible
 versions, rejects cycles and incompatible versions, rolls back the whole
 activation change if a package reload fails, and prevents disabling a component
-that an enabled component requires. The Packages UI shows each component's
+or removing a package that an enabled component requires. The Packages UI shows each component's
 direct requirements. `GET /packages/{name}/components/{component}/dependencies`
 returns the resolved plan for other clients.
 
 This resolver stage does not silently clone or upgrade repositories. A missing
 official dependency returns the exact `blacknode packages install <git-url>`
-command; automatic install/upgrade planning and the workspace lockfile remain
-explicit future stages.
+command. Successful installs, removals, and component changes atomically write
+`packages/.blacknode-package-lock.json`, recording versions, Git revisions,
+sources, and enabled components. Explicit compatible install/upgrade planning
+remains a future stage.
 
 `setup` installs shared requirements plus pip dependencies of the components
 that are currently enabled. pip reuses already satisfied dependencies and
 checks declared version constraints. Component node modules use aliases such as
 `blacknode.pkg.blacknode_drivers.feetech.<module>`.
+During a compatibility migration, one component can set `module-root = true`
+to retain an existing alias such as `blacknode.pkg.blacknode_ros2.<module>`.
 
 Existing flat manifests remain compatible: their root `nodes/` directory and
 package-wide dependencies continue to load as one implicit component. A
 manifest can also publish descriptive `[components.*]` entries without opting
 into component mode; the UI marks those entries as included.
 
-Automatic dependency checkout, compatible upgrade planning, and a reproducible
-workspace lockfile are the next resolver stage.
+Automatic dependency checkout, compatible upgrade planning, and lockfile
+reproduction are the next resolver stage.
 
 The initial organizational layers are `skills`, `agent`, `robot`,
-`perception`, `controllers`, and `drivers`. `integration`, `learning`,
-`compute`, and `simulation` identify horizontal or supporting packages such as
-ROS 2, training, CUDA, and simulator adapters.
+`perception`, `controllers`, and `drivers`. `ros2` identifies the horizontal
+ROS graph and transport layer. `learning`, `compute`, and `simulation`
+identify supporting packages such as training, CUDA, and simulator adapters.
 
 ### Agent guidance
 

@@ -47,6 +47,7 @@ _DEFAULT_PACKAGE_GIT_BASE = "https://github.com/temiroff"
 _PACKAGE_GIT_BASE_ENV = "BLACKNODE_PACKAGE_GIT_BASE"
 _SCP_GIT_URL_RE = re.compile(r"^[^/\s@]+@[^:\s]+:.+")
 _COMPONENT_STATE_NAME = ".blacknode-components.json"
+_PACKAGE_LOCK_NAME = ".blacknode-package-lock.json"
 
 
 @dataclass
@@ -178,6 +179,7 @@ def _package_components(value: Any) -> dict[str, dict[str, Any]]:
             }) if isinstance(capabilities, list) else [],
             "node_types": _string_list(config.get("node-types", config.get("node_types", []))),
             "node_paths": _string_list(node_paths),
+            "module_root": bool(config.get("module-root", False)),
             "pip_dependencies": _string_list(dependencies.get("pip", config.get("pip", []))),
             "import_dependencies": _string_list(dependencies.get("imports", config.get("imports", []))),
             "docker_images": _string_list(dependencies.get("docker", config.get("docker", []))),
@@ -417,10 +419,17 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
                     module_suffix = _safe_module_name(component_name)
                     if index:
                         module_suffix += f"_{index + 1}"
-                    _import_nodes_module(
-                        f"{_PKG_MODULE_ROOT}.{snake_name}.{module_suffix}",
-                        nodes_dir,
-                    )
+                    if component.get("module_root"):
+                        if index:
+                            raise ValueError(
+                                f"Component '{component_name}' may mount only one node path at the package module root"
+                            )
+                        _import_nodes_package(snake_name, nodes_dir, clear=False)
+                    else:
+                        _import_nodes_module(
+                            f"{_PKG_MODULE_ROOT}.{snake_name}.{module_suffix}",
+                            nodes_dir,
+                        )
                     _tag_new_package_nodes(before, info.name, nodes_dir, component_name)
         else:
             nodes_dir = pkg_path / "nodes"
@@ -609,7 +618,9 @@ def _activate_component_plan(resolution: Mapping[str, Any]) -> PackageInfo:
             if registered and registered.path:
                 load_package(Path(registered.path))
         raise
-    return _component_package_info(target["package"], target["component"])
+    updated = _component_package_info(target["package"], target["component"])
+    write_package_lock(Path(updated.path).parent)
+    return updated
 
 
 def _set_single_component(info: PackageInfo, component_name: str, enabled: bool) -> PackageInfo:
@@ -622,6 +633,7 @@ def _set_single_component(info: PackageInfo, component_name: str, enabled: bool)
     _write_component_override(pkg_path, info.name, component_name, enabled)
     updated = load_package(pkg_path)
     if updated.ok:
+        write_package_lock(pkg_path.parent)
         return updated
     _write_component_override(
         pkg_path,
@@ -647,6 +659,55 @@ def _enabled_component_dependents(package_name: str, component_name: str) -> lis
                 if dependency_package == package_name and requirement.get("component") == component_name:
                     dependents.append(f"{info.name}/{candidate_name}")
     return sorted(set(dependents))
+
+
+def _enabled_package_dependents(package_name: str) -> list[str]:
+    """Return enabled components that require any part of a package."""
+    dependents: list[str] = []
+    for info in _PACKAGE_REGISTRY.values():
+        if info.name == package_name:
+            continue
+        for candidate_name in info.enabled_components:
+            candidate = info.components.get(candidate_name, {})
+            for requirement in candidate.get("requirements", []):
+                if (requirement.get("package") or info.name) == package_name:
+                    dependents.append(f"{info.name}/{candidate_name}")
+    return sorted(set(dependents))
+
+
+def package_lock_path(root: str | Path | None = None) -> Path:
+    """Return the workspace-local package lockfile path."""
+    base = Path(root).expanduser().resolve() if root else packages_root().resolve()
+    return base / _PACKAGE_LOCK_NAME
+
+
+def write_package_lock(root: str | Path | None = None) -> dict[str, Any]:
+    """Atomically snapshot installed package versions and enabled components."""
+    path = package_lock_path(root)
+    packages: dict[str, Any] = {}
+    for info in sorted(_PACKAGE_REGISTRY.values(), key=lambda item: item.name):
+        if info.source != "folder" or not info.path:
+            continue
+        pkg_path = Path(info.path).resolve()
+        try:
+            if pkg_path.parent != path.parent:
+                continue
+        except OSError:
+            continue
+        git = package_git_status(pkg_path, fetch=False)
+        revision = _git_stdout(_run_git(pkg_path, ["rev-parse", "HEAD"])) if git.get("is_git_repo") else ""
+        packages[info.name] = {
+            "version": info.version,
+            "source": git.get("remote") or info.source,
+            "revision": revision,
+            "enabled_components": sorted(info.enabled_components),
+        }
+    payload = {"schema_version": 1, "packages": packages}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.replace(path)
+    return {"path": str(path), **payload}
 
 
 def _merge_strings(existing: list[str], additions: list[str]) -> list[str]:
@@ -1134,6 +1195,7 @@ def install_from_git(
         install_prerequisites(dest, progress=progress)
     info = load_package(dest)
     if info.ok:
+        write_package_lock(target_root)
         progress(f"Installed {info.name} {info.version}: {len(info.node_types)} nodes")
         return {"ok": True, "package": info.to_dict(), "error": ""}
     return {"ok": False, "package": info.to_dict(), "error": info.error}
@@ -1190,6 +1252,13 @@ def remove_package(name: str, root: str | Path | None = None) -> dict[str, Any]:
     if info.source != "folder":
         return {"ok": False, "error": f"'{name}' was installed via pip; remove it with: pip uninstall {name}"}
 
+    dependents = _enabled_package_dependents(name)
+    if dependents:
+        return {
+            "ok": False,
+            "error": f"Cannot remove {name}; required by enabled components: {', '.join(dependents)}",
+        }
+
     path = Path(info.path).resolve()
     allowed_roots = [Path(root).expanduser().resolve()] if root else [Path(p).resolve() for p in default_package_dirs()]
     if not any(allowed in path.parents for allowed in allowed_roots):
@@ -1206,6 +1275,7 @@ def remove_package(name: str, root: str | Path | None = None) -> dict[str, Any]:
     _clear_package_modules(_safe_module_name(name))
     _remove_package_component_state(path, name)
     del _PACKAGE_REGISTRY[name]
+    write_package_lock(path.parent)
     return {"ok": True, "error": ""}
 
 

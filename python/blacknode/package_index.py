@@ -5,6 +5,42 @@ from typing import Any, Iterable, Mapping
 
 
 _CORE_PACKAGES: dict[str, dict[str, Any]] = {
+    "blacknode-skills": {
+        "name": "blacknode-skills",
+        "layer": "skills",
+        "components": {
+            name: {"name": name, "default": False, "node_types": []}
+            for name in ("pick-place", "follow-person", "delivery", "docking", "inspection")
+        },
+        "git_url": "https://github.com/temiroff/blacknode-skills.git",
+        "description": "Reusable task-level robot skills composed from stable capabilities.",
+        "node_types": [],
+    },
+    "blacknode-agent": {
+        "name": "blacknode-agent",
+        "layer": "agent",
+        "components": {
+            name: {"name": name, "default": False, "node_types": []}
+            for name in ("planner", "skill-registry", "mission-review", "confirmation", "memory")
+        },
+        "git_url": "https://github.com/temiroff/blacknode-agent.git",
+        "description": "Planning, memory, review, confirmation, and skill orchestration.",
+        "node_types": [],
+    },
+    "blacknode-controllers": {
+        "name": "blacknode-controllers",
+        "layer": "controllers",
+        "components": {
+            name: {"name": name, "default": False, "node_types": []}
+            for name in (
+                "mobile-base", "nav2", "manipulation", "policy",
+                "command-arbitration", "safety-supervisors",
+            )
+        },
+        "git_url": "https://github.com/temiroff/blacknode-controllers.git",
+        "description": "Generic motion, manipulation, policy, arbitration, and safety controllers.",
+        "node_types": [],
+    },
     "blacknode-drivers": {
         "name": "blacknode-drivers",
         "layer": "drivers",
@@ -20,12 +56,20 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 ],
                 "node_types": ["FeetechBusConfig", "FeetechBusProbe"],
             },
+            "feetech-ros2": {
+                "name": "feetech-ros2",
+                "description": "ROS 2 and rosbridge process adapter for the Feetech joint driver.",
+                "default": False,
+                "capabilities": ["adapter.feetech.ros2", "robot.joint-state-transport"],
+                "node_types": ["FeetechROS2Adapter"],
+            },
         },
         "git_url": "https://github.com/temiroff/blacknode-drivers.git",
         "description": "Physical hardware drivers and firmware adapters, organized as selectively enabled components.",
         "node_types": [
             "FeetechBusConfig",
             "FeetechBusProbe",
+            "FeetechROS2Adapter",
         ],
     },
     "blacknode-cuda": {
@@ -48,8 +92,15 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-ros2": {
         "name": "blacknode-ros2",
-        "layer": "integration",
-        "components": {},
+        "layer": "ros2",
+        "components": {
+            "core": {
+                "name": "core",
+                "default": True,
+                "capabilities": ["integration.ros2", "transport.ros2", "transport.rosbridge"],
+                "node_types": [],
+            },
+        },
         "git_url": "https://github.com/temiroff/blacknode-ros2.git",
         "description": "ROS 2 topics, streams, robot interfaces, and safety-gated policy deployment.",
         "node_types": [
@@ -98,7 +149,14 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     "blacknode-robot": {
         "name": "blacknode-robot",
         "layer": "robot",
-        "components": {},
+        "components": {
+            "core": {
+                "name": "core",
+                "default": True,
+                "capabilities": ["robot.contracts", "robot.profiles", "robot.calibration", "robot.discovery"],
+                "node_types": [],
+            },
+        },
         "git_url": "https://github.com/temiroff/blacknode-robot.git",
         "description": "Generic robot setup: USB discovery, serial permission diagnostics, driver launch, and standard robot profiles.",
         "node_types": [

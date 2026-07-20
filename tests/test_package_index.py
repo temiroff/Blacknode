@@ -37,7 +37,11 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["schema_version"] == 2
     assert payload["packages"]["blacknode-robot"]["layer"] == "robot"
     assert payload["packages"]["blacknode-vision"]["layer"] == "perception"
-    assert payload["packages"]["blacknode-ros2"]["layer"] == "integration"
+    assert payload["packages"]["blacknode-ros2"]["layer"] == "ros2"
+    assert payload["packages"]["blacknode-ros2"]["components"]["core"]["default"] is True
+    assert payload["packages"]["blacknode-skills"]["layer"] == "skills"
+    assert payload["packages"]["blacknode-agent"]["layer"] == "agent"
+    assert payload["packages"]["blacknode-controllers"]["layer"] == "controllers"
     assert payload["packages"]["blacknode-dataset"]["layer"] == "learning"
     drivers = payload["packages"]["blacknode-drivers"]
     assert drivers["layer"] == "drivers"
@@ -46,6 +50,8 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "FeetechBusConfig",
         "FeetechBusProbe",
     ]
+    assert drivers["components"]["feetech-ros2"]["default"] is False
+    assert payload["nodes"]["FeetechROS2Adapter"]["package"] == "blacknode-drivers"
     assert payload["nodes"]["FeetechBusProbe"]["package"] == "blacknode-drivers"
     assert payload["nodes"]["CUDAKernelLab"] == {
         "package": "blacknode-cuda",

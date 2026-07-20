@@ -1,6 +1,7 @@
 """Extension package discovery: folder packages register nodes, gate on the
 core version, and report failures without breaking startup."""
 import subprocess
+import sys
 import textwrap
 from types import SimpleNamespace
 
@@ -17,6 +18,7 @@ from blacknode.packages import (
     load_package,
     remove_package,
     set_component_enabled,
+    write_package_lock,
 )
 
 
@@ -159,6 +161,28 @@ def test_component_package_loads_only_enabled_nodes_and_dependencies(tmp_path):
     assert disabled.enabled_components == ["core"]
     assert "_PkgComponentOptional" not in _NODE_REGISTRY
     assert "_PkgComponentCore" in _NODE_REGISTRY
+
+
+def test_component_can_preserve_legacy_package_module_root(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-root-mounted",
+        node_name="_PkgRootIgnored",
+        component_metadata='''
+        [components.core]
+        default = true
+        nodes = ["components/core/nodes"]
+        module-root = true
+        ''',
+    )
+    _write_component_node(pkg, "core", "_PkgRootMounted")
+
+    info = load_package(pkg)
+
+    assert info.ok
+    assert info.components["core"]["module_root"] is True
+    assert "blacknode.pkg.bn_root_mounted.probe" in sys.modules
+    assert _NODE_REGISTRY["_PkgRootMounted"]._bn_component == "core"
 
 
 def test_component_activation_rejects_paths_outside_package_and_rolls_back(tmp_path):
@@ -436,6 +460,9 @@ def test_install_from_git_and_remove(tmp_path):
     assert result["ok"], result["error"]
     assert result["package"]["name"] == "bn-git-pkg"
     assert "_PkgGit" in _NODE_REGISTRY
+    lock = root / ".blacknode-package-lock.json"
+    assert lock.is_file()
+    assert '"bn-git-pkg"' in lock.read_text(encoding="utf-8")
 
     # cloning the same package twice is rejected
     again = install_from_git(str(src), root=root, install_deps=False, progress=lambda _line: None)
@@ -447,6 +474,51 @@ def test_install_from_git_and_remove(tmp_path):
     assert "_PkgGit" not in _NODE_REGISTRY
     assert "bn-git-pkg" not in _PACKAGE_REGISTRY
     assert not (root / "src").exists()
+    assert '"bn-git-pkg"' not in lock.read_text(encoding="utf-8")
+
+
+def test_remove_blocks_enabled_cross_package_dependents(tmp_path):
+    dependency = _write_package(tmp_path, name="bn-remove-dependency", node_name="_RemoveDependency")
+    target = _write_package(
+        tmp_path,
+        name="bn-remove-target",
+        node_name="_RemoveTargetRoot",
+        component_metadata='''
+        [components.adapter]
+        default = true
+        nodes = ["components/adapter/nodes"]
+        [components.adapter.dependencies]
+        requires = [{ package = "bn-remove-dependency", version = ">=0.0.1" }]
+        ''',
+    )
+    _write_component_node(target, "adapter", "_RemoveTargetAdapter")
+    assert load_package(dependency).ok
+    assert load_package(target).ok
+
+    result = remove_package("bn-remove-dependency", root=tmp_path)
+
+    assert not result["ok"]
+    assert "required by enabled components: bn-remove-target/adapter" in result["error"]
+    assert dependency.exists()
+
+
+def test_write_package_lock_records_enabled_components(tmp_path):
+    package = _write_package(
+        tmp_path,
+        name="bn-lock-layer",
+        component_metadata='''
+        [components.core]
+        default = true
+        nodes = ["components/core/nodes"]
+        ''',
+    )
+    _write_component_node(package, "core", "_LockCore")
+    assert load_package(package).ok
+
+    result = write_package_lock(tmp_path)
+
+    assert result["packages"]["bn-lock-layer"]["enabled_components"] == ["core"]
+    assert (tmp_path / ".blacknode-package-lock.json").is_file()
 
 
 def test_remove_unknown_package_is_structured_error():
