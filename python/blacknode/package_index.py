@@ -250,7 +250,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "name": "vlm", "default": True,
                 "node_types": [
                     "DetectionPrompt", "FramePrompt", "ReasoningDashboard",
-                    "ReasoningStream", "StreamStatus", "VLM",
+                    "ReasoningStream", "CameraDashboard", "VLM",
                 ],
             },
             **{
@@ -277,7 +277,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "FramePrompt",
             "ReasoningDashboard",
             "ReasoningStream",
-            "StreamStatus",
+            "CameraDashboard",
             "VLM",
         ],
     },
