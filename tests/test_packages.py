@@ -1,5 +1,6 @@
 """Extension package discovery: folder packages register nodes, gate on the
 core version, and report failures without breaking startup."""
+import json
 import subprocess
 import sys
 import textwrap
@@ -11,6 +12,7 @@ import blacknode  # noqa: F401  triggers built-in + package discovery
 from blacknode.node import _NODE_REGISTRY
 from blacknode.packages import (
     _PACKAGE_REGISTRY,
+    adapter_dependency_plan,
     component_dependency_plan,
     component_dependency_install_plan,
     discover_packages,
@@ -20,6 +22,7 @@ from blacknode.packages import (
     load_package,
     remove_package,
     set_component_enabled,
+    set_adapter_enabled,
     write_package_lock,
 )
 
@@ -113,6 +116,19 @@ def _write_component_node(pkg, component, node_name):
     """), encoding="utf-8")
 
 
+def _write_adapter_node(pkg, component, adapter, node_name):
+    nodes = pkg / "components" / component / "adapters" / adapter / "nodes"
+    nodes.mkdir(parents=True)
+    (nodes / "probe.py").write_text(textwrap.dedent(f"""
+        from blacknode.node import Text, node
+
+
+        @node(name="{node_name}", category="Test Pkg", inputs={{"text": Text}}, outputs={{"out": Text}})
+        def probe(text: str) -> str:
+            return text
+    """), encoding="utf-8")
+
+
 def test_component_package_loads_only_enabled_nodes_and_dependencies(tmp_path):
     pkg = _write_package(
         tmp_path,
@@ -185,6 +201,64 @@ def test_component_can_preserve_legacy_package_module_root(tmp_path):
     assert info.components["core"]["module_root"] is True
     assert "blacknode.pkg.bn_root_mounted.probe" in sys.modules
     assert _NODE_REGISTRY["_PkgRootMounted"]._bn_component == "core"
+
+
+def test_component_owns_optional_nested_adapter(tmp_path):
+    dependency = _write_package(
+        tmp_path,
+        name="bn-adapter-dependency",
+        component_metadata='''
+        [components.core]
+        default = true
+        nodes = ["components/core/nodes"]
+        ''',
+    )
+    _write_component_node(dependency, "core", "_AdapterDependencyCore")
+    owner = _write_package(
+        tmp_path,
+        name="bn-adapter-owner",
+        component_metadata='''
+        [components.feetech]
+        default = true
+        nodes = ["components/feetech/nodes"]
+
+        [components.feetech.adapters.ros2]
+        default = false
+        nodes = ["components/feetech/adapters/ros2/nodes"]
+
+        [components.feetech.adapters.ros2.dependencies]
+        requires = [{ package = "bn-adapter-dependency", component = "core", version = ">=0.0.1" }]
+        ''',
+    )
+    _write_component_node(owner, "feetech", "_AdapterOwnerFeetech")
+    _write_adapter_node(owner, "feetech", "ros2", "_AdapterOwnerROS2")
+    assert load_package(dependency).ok
+    info = load_package(owner)
+    assert info.ok
+    assert set(info.components) == {"feetech"}
+    assert info.components["feetech"]["adapters"]["ros2"]["enabled"] is False
+    assert "_AdapterOwnerROS2" not in _NODE_REGISTRY
+
+    plan = adapter_dependency_plan("bn-adapter-owner", "feetech", "ros2")
+    assert plan["target"] == {
+        "package": "bn-adapter-owner", "component": "feetech", "adapter": "ros2"
+    }
+    enabled = set_adapter_enabled("bn-adapter-owner", "feetech", "ros2", True)
+
+    assert enabled.enabled_components == ["feetech"]
+    assert enabled.enabled_adapters == ["feetech/ros2"]
+    assert _NODE_REGISTRY["_AdapterOwnerROS2"]._bn_component == "feetech"
+    assert _NODE_REGISTRY["_AdapterOwnerROS2"]._bn_adapter == "ros2"
+    assert "blacknode.pkg.bn_adapter_owner.feetech.adapters.ros2.probe" in sys.modules
+    lock = json.loads((tmp_path / ".blacknode-package-lock.json").read_text(encoding="utf-8"))
+    assert lock["packages"]["bn-adapter-owner"]["enabled_components"] == ["feetech"]
+    assert lock["packages"]["bn-adapter-owner"]["enabled_adapters"] == ["feetech/ros2"]
+    with pytest.raises(ValueError, match="adapter ros2"):
+        set_component_enabled("bn-adapter-owner", "feetech", False)
+
+    disabled = set_adapter_enabled("bn-adapter-owner", "feetech", "ros2", False)
+    assert disabled.enabled_adapters == []
+    assert "_AdapterOwnerROS2" not in _NODE_REGISTRY
 
 
 def test_component_activation_rejects_paths_outside_package_and_rolls_back(tmp_path):

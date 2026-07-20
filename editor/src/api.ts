@@ -341,6 +341,11 @@ export const api = {
       'POST',
       `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/${enabled ? 'enable' : 'disable'}`,
     ),
+  setPackageAdapter: (name: string, component: string, adapter: string, enabled: boolean) =>
+    req<{ ok: boolean; package: BnPackage }>(
+      'POST',
+      `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/adapters/${encodeURIComponent(adapter)}/${enabled ? 'enable' : 'disable'}`,
+    ),
   packageComponentDependencies: (name: string, component: string) =>
     req<{
       target: { package: string; component: string }

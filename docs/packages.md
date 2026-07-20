@@ -128,7 +128,7 @@ development:
 Keep the layers separate: `blacknode-robot` owns profiles, calibration, and the
 generic robot contract; `blacknode-drivers` owns physical protocol access and
 driver-boundary safeguards; and `blacknode-ros2` owns ROS graph and transport
-behavior. Explicit adapter components connect those contracts.
+behavior. Optional adapters stay nested under the component they integrate.
 
 The current `blacknode-vision` CV2 local-reasoning template routes target
 selection through the VLM:
@@ -199,17 +199,19 @@ Third-party templates can carry their own resolution:
 The install still requires an explicit click. Templates do not clone or execute
 package code automatically.
 
-Templates that depend on one selectable component declare it directly. The
+Templates declare selectable components and optional adapters separately. The
 resolver checks package version and enabled state, then returns the transitive
-component install/enable plan alongside missing-node results:
+install/enable plan alongside missing-node results:
 
 ```json
 {
   "metadata": {
-    "required_components": [
+    "required_components": ["blacknode-drivers/feetech"],
+    "required_adapters": [
       {
         "package": "blacknode-drivers",
-        "component": "feetech-ros2",
+        "component": "feetech",
+        "adapter": "ros2",
         "version": ">=0.1.0,<1.0.0"
       }
     ]
@@ -217,7 +219,7 @@ component install/enable plan alongside missing-node results:
 }
 ```
 
-The compact string form `"blacknode-drivers/feetech-ros2"` is also accepted.
+The compact adapter form `"blacknode-drivers/feetech@ros2"` is also accepted.
 Component activation remains an explicit package action, so resolving a
 template never arms hardware or silently changes the environment.
 
@@ -276,6 +278,16 @@ requires = [
   { package = "blacknode-robot", version = ">=0.1.0,<1.0.0" }
 ]
 
+[components.feetech.adapters.ros2]
+description = "Optional ROS 2 transport adapter."
+default = false
+nodes = ["components/feetech/adapters/ros2/nodes"]
+
+[components.feetech.adapters.ros2.dependencies]
+requires = [
+  { package = "blacknode-ros2", component = "core", version = ">=0.2.0,<1.0.0" }
+]
+
 [components.stm32]
 description = "STM32 serial bridge."
 default = false
@@ -303,7 +315,10 @@ Manage components in the editor's Packages tab or from the CLI:
 blacknode packages components blacknode-drivers
 blacknode packages dependencies blacknode-drivers feetech
 blacknode packages enable blacknode-drivers feetech
+blacknode packages dependencies blacknode-drivers feetech --adapter ros2
+blacknode packages enable blacknode-drivers feetech --adapter ros2
 blacknode packages setup blacknode-drivers
+blacknode packages disable blacknode-drivers feetech --adapter ros2
 blacknode packages disable blacknode-drivers feetech
 ```
 
@@ -312,10 +327,9 @@ require another component in the same package by omitting `package`, or require
 a component in another layer repository:
 
 ```toml
-[components.feetech-ros2.dependencies]
+[components.feetech.adapters.ros2.dependencies]
 requires = [
-  { component = "feetech", version = ">=0.1.0,<1.0.0" },
-  { package = "blacknode-ros2", component = "core", version = ">=0.1.0,<1.0.0" }
+  { package = "blacknode-ros2", component = "core", version = ">=0.2.0,<1.0.0" }
 ]
 ```
 
@@ -336,10 +350,12 @@ installs, removals, and component changes atomically write
 `packages/.blacknode-package-lock.json`, recording versions, Git revisions,
 sources, and enabled components.
 
-`setup` installs shared requirements plus pip dependencies of the components
-that are currently enabled. pip reuses already satisfied dependencies and
-checks declared version constraints. Component node modules use aliases such as
+`setup` installs shared requirements plus pip dependencies of enabled
+components and their enabled adapters. pip reuses already satisfied
+dependencies and checks declared version constraints. Component node modules use aliases such as
 `blacknode.pkg.blacknode_drivers.feetech.<module>`.
+Adapter modules use nested aliases such as
+`blacknode.pkg.blacknode_drivers.feetech.adapters.ros2.<module>`.
 During a compatibility migration, one component can set `module-root = true`
 to retain an existing alias such as `blacknode.pkg.blacknode_ros2.<module>`.
 

@@ -55,18 +55,19 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "robot.joint-driver",
                 ],
                 "node_types": ["FeetechBusConfig", "FeetechBusProbe"],
-            },
-            "feetech-ros2": {
-                "name": "feetech-ros2",
-                "description": "ROS 2 and rosbridge process adapter for the Feetech joint driver.",
-                "default": False,
-                "capabilities": ["adapter.feetech.ros2", "robot.joint-state-transport"],
-                "node_types": ["FeetechROS2Adapter"],
-                "dependencies": {
-                    "requires": [
-                        {"component": "feetech", "version": ">=0.1.0,<1.0.0"},
-                        {"package": "blacknode-ros2", "component": "core", "version": ">=0.2.0,<1.0.0"},
-                    ],
+                "adapters": {
+                    "ros2": {
+                        "name": "ros2",
+                        "description": "ROS 2 and rosbridge process adapter for the Feetech joint driver.",
+                        "default": False,
+                        "capabilities": ["adapter.feetech.ros2", "robot.joint-state-transport"],
+                        "node_types": ["FeetechROS2Adapter"],
+                        "dependencies": {
+                            "requires": [
+                                {"package": "blacknode-ros2", "component": "core", "version": ">=0.2.0,<1.0.0"},
+                            ],
+                        },
+                    },
                 },
             },
         },
@@ -401,6 +402,42 @@ def template_component_requirements(workflow: Mapping[str, Any]) -> list[dict[st
     return list(requirements.values())
 
 
+def template_adapter_requirements(workflow: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Read optional adapters nested under directly required components."""
+    metadata = workflow.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return []
+    raw_requirements = metadata.get("required_adapters")
+    if not isinstance(raw_requirements, list):
+        return []
+    requirements: dict[tuple[str, str, str], dict[str, str]] = {}
+    for raw in raw_requirements:
+        if isinstance(raw, str):
+            owner, separator, adapter = raw.strip().partition("@")
+            package, component_separator, component = owner.partition("/")
+            version = ""
+        elif isinstance(raw, Mapping):
+            package = str(raw.get("package") or raw.get("name") or "").strip()
+            component = str(raw.get("component") or "").strip()
+            adapter = str(raw.get("adapter") or "").strip()
+            version = str(raw.get("version") or "").strip()
+            separator = "@" if adapter else ""
+            component_separator = "/" if package and component else ""
+        else:
+            continue
+        if not separator or not component_separator or not package or not component or not adapter:
+            continue
+        indexed = _CORE_PACKAGES.get(package, {})
+        requirements[(package, component, adapter)] = {
+            "package": package,
+            "component": component,
+            "adapter": adapter,
+            "version": version,
+            "git_url": str(indexed.get("git_url") or ""),
+        }
+    return list(requirements.values())
+
+
 def resolve_workflow_dependencies(
     workflow: Mapping[str, Any],
     *,
@@ -416,8 +453,10 @@ def resolve_workflow_dependencies(
         for requirement in template_package_requirements(workflow)
     }
     explicit_components = template_component_requirements(workflow)
+    explicit_adapters = template_adapter_requirements(workflow)
     missing_packages: dict[str, dict[str, Any]] = {}
     missing_components: list[dict[str, Any]] = []
+    missing_adapters: list[dict[str, Any]] = []
     component_plans: list[dict[str, Any]] = []
     unresolved_node_types: list[str] = []
 
@@ -476,6 +515,51 @@ def resolve_workflow_dependencies(
         except Exception:
             pass
 
+    for requirement in explicit_adapters:
+        package_name = requirement["package"]
+        component_name = requirement["component"]
+        adapter_name = requirement["adapter"]
+        state = installed.get(package_name)
+        if state is None or not bool(state.get("ok", False)):
+            add_package({
+                "name": package_name,
+                "git_url": requirement["git_url"],
+                "source": "template_adapter",
+            })
+            missing_adapters.append({**requirement, "reason": "package is not installed"})
+            continue
+        if requirement["version"]:
+            try:
+                from .packages import _version_constraint_satisfied
+                version_ok = _version_constraint_satisfied(
+                    requirement["version"], str(state.get("version") or "")
+                )
+            except Exception:
+                version_ok = False
+            if not version_ok:
+                missing_adapters.append({
+                    **requirement,
+                    "reason": f"installed version {state.get('version') or '?'} is incompatible",
+                })
+                continue
+        components = state.get("components", {})
+        component = components.get(component_name) if isinstance(components, Mapping) else None
+        adapters = component.get("adapters", {}) if isinstance(component, Mapping) else {}
+        adapter = adapters.get(adapter_name) if isinstance(adapters, Mapping) else None
+        if not isinstance(adapter, Mapping):
+            missing_adapters.append({**requirement, "reason": "adapter is not published by the installed component"})
+            continue
+        if not bool(component.get("enabled", False)):
+            missing_adapters.append({**requirement, "reason": "parent component is disabled"})
+        elif not bool(adapter.get("enabled", False)):
+            missing_adapters.append({**requirement, "reason": "adapter is disabled"})
+        try:
+            from .packages import adapter_dependency_install_plan
+            plan = adapter_dependency_install_plan(package_name, component_name, adapter_name)
+            component_plans.append({**requirement, **plan})
+        except Exception:
+            pass
+
     for node_type in missing_node_types:
         requirement = next(
             (item for item in explicit.values() if node_type in item["node_types"]),
@@ -512,10 +596,16 @@ def resolve_workflow_dependencies(
             f"{item['package']}/{item['component']} ({item['reason']})"
             for item in missing_components
         ))
+    if missing_adapters:
+        parts.append("Required adapters need attention: " + ", ".join(
+            f"{item['package']}/{item['component']}@{item['adapter']} ({item['reason']})"
+            for item in missing_adapters
+        ))
     return {
-        "ok": not packages and not missing_node_types and not missing_components,
+        "ok": not packages and not missing_node_types and not missing_components and not missing_adapters,
         "code": (
             "missing_packages" if packages
+            else "missing_adapters" if missing_adapters
             else "missing_components" if missing_components
             else "missing_node_types" if missing_node_types
             else "ok"
@@ -524,7 +614,9 @@ def resolve_workflow_dependencies(
         "missing_node_types": missing_node_types,
         "missing_packages": packages,
         "required_components": explicit_components,
+        "required_adapters": explicit_adapters,
         "missing_components": missing_components,
+        "missing_adapters": missing_adapters,
         "component_plans": component_plans,
         "unresolved_node_types": unresolved_node_types,
     }
@@ -534,6 +626,7 @@ __all__ = [
     "indexed_package",
     "package_index_payload",
     "resolve_workflow_dependencies",
+    "template_adapter_requirements",
     "template_component_requirements",
     "template_package_requirements",
     "workflow_node_types",

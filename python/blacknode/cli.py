@@ -183,14 +183,17 @@ def _parser() -> argparse.ArgumentParser:
     packages_enable = packages_sub.add_parser("enable", help="enable one package component")
     packages_enable.add_argument("name", help="installed package name")
     packages_enable.add_argument("component", help="component name")
+    packages_enable.add_argument("--adapter", help="optional adapter nested under the component")
     packages_disable = packages_sub.add_parser("disable", help="disable one package component")
     packages_disable.add_argument("name", help="installed package name")
     packages_disable.add_argument("component", help="component name")
+    packages_disable.add_argument("--adapter", help="optional adapter nested under the component")
     packages_dependencies = packages_sub.add_parser(
         "dependencies", help="show the resolved installed dependency plan for one component"
     )
     packages_dependencies.add_argument("name", help="installed package name")
     packages_dependencies.add_argument("component", help="component name")
+    packages_dependencies.add_argument("--adapter", help="optional adapter nested under the component")
 
     mcp = subcommands.add_parser("mcp", help="run the Blacknode MCP server")
     mcp.add_argument(
@@ -226,11 +229,11 @@ def _packages(args: Any) -> int:
     if args.packages_command == "components":
         return _packages_components(args.name)
     if args.packages_command == "enable":
-        return _packages_set_component(args.name, args.component, True)
+        return _packages_set_component(args.name, args.component, True, args.adapter)
     if args.packages_command == "disable":
-        return _packages_set_component(args.name, args.component, False)
+        return _packages_set_component(args.name, args.component, False, args.adapter)
     if args.packages_command == "dependencies":
-        return _packages_component_dependencies(args.name, args.component)
+        return _packages_component_dependencies(args.name, args.component, args.adapter)
     print("usage: blacknode packages {list,status,update,install,setup,components,enable,disable,dependencies}", file=sys.stderr)
     return 2
 
@@ -410,48 +413,72 @@ def _packages_components(name: str | None) -> int:
             state = "enabled" if component.get("enabled") else "disabled"
             default = " (default)" if component.get("default") else ""
             print(f"  {component['name']}: {state}{default}")
+            for adapter in component.get("adapters", {}).values():
+                adapter_state = "enabled" if adapter.get("enabled") else "disabled"
+                print(f"    adapter {adapter['name']}: {adapter_state}")
     if not shown:
         target = f"Package '{name}' has" if name else "Installed packages have"
         print(f"{target} no declared components.")
     return 0
 
 
-def _packages_set_component(name: str, component: str, enabled: bool) -> int:
+def _packages_set_component(
+    name: str, component: str, enabled: bool, adapter: str | None = None
+) -> int:
     import blacknode  # noqa: F401 - triggers package discovery
 
-    from .packages import ensure_component_enabled, set_component_enabled
+    from .packages import (
+        ensure_adapter_enabled,
+        ensure_component_enabled,
+        set_adapter_enabled,
+        set_component_enabled,
+    )
 
     try:
-        info = (
-            ensure_component_enabled(name, component)
-            if enabled
-            else set_component_enabled(name, component, False)
-        )
+        if adapter:
+            info = (
+                ensure_adapter_enabled(name, component, adapter)
+                if enabled else set_adapter_enabled(name, component, adapter, False)
+            )
+        else:
+            info = (
+                ensure_component_enabled(name, component)
+                if enabled else set_component_enabled(name, component, False)
+            )
     except (ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     action = "enabled" if enabled else "disabled"
-    print(f"{action} {name}/{component}: {len(info.node_types)} package nodes active")
+    target = f"{name}/{component}" + (f" adapter {adapter}" if adapter else "")
+    print(f"{action} {target}: {len(info.node_types)} package nodes active")
     _print_package_warnings(info)
     return 0
 
 
-def _packages_component_dependencies(name: str, component: str) -> int:
+def _packages_component_dependencies(
+    name: str, component: str, adapter: str | None = None
+) -> int:
     import blacknode  # noqa: F401 - triggers package discovery
 
-    from .packages import component_dependency_install_plan
+    from .packages import adapter_dependency_install_plan, component_dependency_install_plan
 
-    resolution = component_dependency_install_plan(name, component)
+    resolution = (
+        adapter_dependency_install_plan(name, component, adapter)
+        if adapter else component_dependency_install_plan(name, component)
+    )
     if not resolution["ok"]:
         print(f"error: {'; '.join(resolution['conflicts'])}", file=sys.stderr)
         return 1
     if not resolution["actions"]:
-        print(f"{name}/{component}: dependencies satisfied; no changes")
+        target = f"{name}/{component}" + (f" adapter {adapter}" if adapter else "")
+        print(f"{target}: dependencies satisfied; no changes")
         return 0
     for item in resolution["actions"]:
         target = item["package"]
         if item["component"]:
             target += f"/{item['component']}"
+        if item.get("adapter"):
+            target += f" adapter {item['adapter']}"
         source = f" from {item['source']}" if item.get("source") else ""
         print(f"{item['action']} {target} {item['version'] or '?'}{source}")
     return 0

@@ -110,7 +110,10 @@ export interface BnPackageComponent {
   }>
   requirement_errors?: string[]
   enabled?: boolean
+  adapters?: Record<string, BnPackageAdapter>
 }
+
+export type BnPackageAdapter = Omit<BnPackageComponent, 'adapters'>
 
 export interface BnPackageIndex {
   schema_version: number
@@ -125,6 +128,7 @@ export interface BnPackage {
   components: Record<string, BnPackageComponent>
   component_mode: boolean
   enabled_components: string[]
+  enabled_adapters: string[]
   path: string
   source: string  // 'folder' | 'entry-point'
   requires_blacknode: string

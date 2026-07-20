@@ -59,6 +59,7 @@ class PackageInfo:
     components: dict[str, dict[str, Any]] = field(default_factory=dict)
     component_mode: bool = False
     enabled_components: list[str] = field(default_factory=list)
+    enabled_adapters: list[str] = field(default_factory=list)
     path: str = ""
     source: str = "folder"  # folder | entry-point
     requires_blacknode: str = ""
@@ -185,9 +186,53 @@ def _package_components(value: Any) -> dict[str, dict[str, Any]]:
             "docker_images": _string_list(dependencies.get("docker", config.get("docker", []))),
             "requirements": requirements,
             "requirement_errors": requirement_errors,
+            "adapters": _package_adapters(config.get("adapters")),
             "enabled": False,
         }
     return components
+
+
+def _package_adapters(value: Any) -> dict[str, dict[str, Any]]:
+    """Normalize optional adapters nested under one owned component."""
+    if not isinstance(value, Mapping):
+        return {}
+    adapters: dict[str, dict[str, Any]] = {}
+    for raw_name, raw_config in value.items():
+        name = _component_name(raw_name)
+        if not name:
+            continue
+        config = raw_config if isinstance(raw_config, Mapping) else {}
+        dependencies = config.get("dependencies", {})
+        if not isinstance(dependencies, Mapping):
+            dependencies = {}
+        node_paths = config.get("nodes", config.get("node-paths", []))
+        if isinstance(node_paths, str):
+            node_paths = [node_paths]
+        capabilities = config.get("capabilities", [])
+        requirements, requirement_errors = _component_requirements(dependencies.get("requires", []))
+        adapters[name] = {
+            "name": name,
+            "description": str(config.get("description") or ""),
+            "default": bool(config.get("default", False)),
+            "capabilities": sorted({
+                str(capability).strip()
+                for capability in capabilities
+                if str(capability).strip()
+            }) if isinstance(capabilities, list) else [],
+            "node_types": _string_list(config.get("node-types", config.get("node_types", []))),
+            "node_paths": _string_list(node_paths),
+            "pip_dependencies": _string_list(dependencies.get("pip", config.get("pip", []))),
+            "import_dependencies": _string_list(dependencies.get("imports", config.get("imports", []))),
+            "docker_images": _string_list(dependencies.get("docker", config.get("docker", []))),
+            "requirements": requirements,
+            "requirement_errors": requirement_errors,
+            "enabled": False,
+        }
+    return adapters
+
+
+def _adapter_state_key(component_name: str, adapter_name: str) -> str:
+    return f"{component_name}@{adapter_name}"
 
 
 def _component_requirements(value: Any) -> tuple[list[dict[str, str]], list[str]]:
@@ -330,6 +375,23 @@ def _audit_enabled_component_dependencies(infos: list[PackageInfo]) -> None:
                     f"{component_name}: required components are disabled: "
                     + ", ".join(missing_activation)
                 )
+        for adapter_ref in info.enabled_adapters:
+            component_name, adapter_name = adapter_ref.split("/", 1)
+            try:
+                resolution = adapter_dependency_plan(info.name, component_name, adapter_name)
+            except ValueError as exc:
+                errors.append(f"{component_name} adapter {adapter_name}: {exc}")
+                continue
+            missing_activation = [
+                f"{item['package']}/{item['component']}"
+                for item in resolution["changes"]
+                if not item.get("adapter")
+            ]
+            if missing_activation:
+                errors.append(
+                    f"{component_name} adapter {adapter_name}: required components are disabled: "
+                    + ", ".join(missing_activation)
+                )
         if not errors:
             continue
         _deregister_package_nodes(info.name)
@@ -383,12 +445,30 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
         info.pip_dependencies = _merge_strings(info.pip_dependencies, component["pip_dependencies"])
         info.import_dependencies = _merge_strings(info.import_dependencies, component["import_dependencies"])
         info.docker_images = _merge_strings(info.docker_images, component["docker_images"])
+        for adapter_name, adapter in component.get("adapters", {}).items():
+            adapter["enabled"] = overrides.get(
+                _adapter_state_key(component_name, adapter_name),
+                adapter["default"],
+            )
+            if not adapter["enabled"]:
+                continue
+            info.enabled_adapters.append(f"{component_name}/{adapter_name}")
+            info.pip_dependencies = _merge_strings(info.pip_dependencies, adapter["pip_dependencies"])
+            info.import_dependencies = _merge_strings(info.import_dependencies, adapter["import_dependencies"])
+            info.docker_images = _merge_strings(info.docker_images, adapter["docker_images"])
 
     invalid_requirements = [
         f"{component_name}: {error}"
         for component_name in info.enabled_components
         for error in info.components[component_name]["requirement_errors"]
     ]
+    invalid_requirements.extend(
+        f"{component_name}/{adapter_name}: {error}"
+        for component_name in info.enabled_components
+        for adapter_name, adapter in info.components[component_name].get("adapters", {}).items()
+        if adapter.get("enabled")
+        for error in adapter["requirement_errors"]
+    )
     if invalid_requirements:
         _deregister_package_nodes(info.name)
         _clear_package_modules(_safe_module_name(info.name))
@@ -431,6 +511,22 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
                             nodes_dir,
                         )
                     _tag_new_package_nodes(before, info.name, nodes_dir, component_name)
+                for adapter_name, adapter in component.get("adapters", {}).items():
+                    if not adapter.get("enabled"):
+                        continue
+                    for index, nodes_dir in enumerate(
+                        _component_node_dirs(pkg_path, f"{component_name}/{adapter_name}", adapter)
+                    ):
+                        before = dict(_NODE_REGISTRY)
+                        adapter_parent = f"{_PKG_MODULE_ROOT}.{snake_name}.{_safe_module_name(component_name)}.adapters"
+                        _ensure_namespace_module(adapter_parent, nodes_dir.parents[1])
+                        module_name = f"{adapter_parent}.{_safe_module_name(adapter_name)}"
+                        if index:
+                            module_name += f"_{index + 1}"
+                        _import_nodes_module(module_name, nodes_dir)
+                        _tag_new_package_nodes(
+                            before, info.name, nodes_dir, component_name, adapter_name
+                        )
         else:
             nodes_dir = pkg_path / "nodes"
             if not nodes_dir.is_dir():
@@ -535,7 +631,9 @@ def component_dependency_plan(package_name: str, component_name: str) -> dict[st
     }
 
 
-def component_dependency_install_plan(package_name: str, component_name: str) -> dict[str, Any]:
+def component_dependency_install_plan(
+    package_name: str, component_name: str, required_version: str = ""
+) -> dict[str, Any]:
     """Plan official installs, safe fast-forward updates, and activation.
 
     This preflight never changes package contents. Missing packages must have
@@ -628,9 +726,99 @@ def component_dependency_install_plan(package_name: str, component_name: str) ->
             })
         visited.add(signature)
 
-    visit(target_package, target_component)
+    visit(target_package, target_component, str(required_version or "").strip())
     return {
         "target": {"package": target_package, "component": target_component},
+        "ok": not conflicts,
+        "actions": actions,
+        "conflicts": conflicts,
+    }
+
+
+def adapter_dependency_plan(
+    package_name: str, component_name: str, adapter_name: str
+) -> dict[str, Any]:
+    """Resolve one nested adapter and its component dependencies."""
+    package = _package_name(package_name)
+    component = _component_name(component_name)
+    adapter = _component_name(adapter_name)
+    info, adapter_info = _adapter_package_info(package, component, adapter)
+    combined: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def extend(resolution: Mapping[str, Any]) -> None:
+        for item in resolution.get("plan", []):
+            key = (item["package"], item.get("component") or "", item.get("adapter") or "")
+            if key not in seen:
+                combined.append(dict(item))
+                seen.add(key)
+
+    extend(component_dependency_plan(package, component))
+    for requirement in adapter_info.get("requirements", []):
+        extend(component_dependency_plan(
+            requirement.get("package") or package,
+            requirement.get("component") or "",
+        ))
+        dependency = _PACKAGE_REGISTRY.get(requirement.get("package") or package)
+        if requirement.get("version") and dependency is not None:
+            if not _version_constraint_satisfied(requirement["version"], dependency.version):
+                raise ValueError(
+                    f"Package '{dependency.name}' {dependency.version} does not satisfy required version {requirement['version']}"
+                )
+    target_item = {
+        "package": package,
+        "component": component,
+        "adapter": adapter,
+        "version": info.version,
+        "enabled": bool(adapter_info.get("enabled")),
+    }
+    combined.append(target_item)
+    return {
+        "target": {"package": package, "component": component, "adapter": adapter},
+        "plan": combined,
+        "changes": [item for item in combined if not item.get("enabled", True)],
+    }
+
+
+def adapter_dependency_install_plan(
+    package_name: str, component_name: str, adapter_name: str
+) -> dict[str, Any]:
+    """Preflight installs and activation for a nested adapter."""
+    package = _package_name(package_name)
+    component = _component_name(component_name)
+    adapter = _component_name(adapter_name)
+    info, adapter_info = _adapter_package_info(package, component, adapter)
+    plans = [component_dependency_install_plan(package, component)]
+    for requirement in adapter_info.get("requirements", []):
+        plans.append(component_dependency_install_plan(
+            requirement.get("package") or package,
+            requirement.get("component") or "",
+            requirement.get("version") or "",
+        ))
+    actions: list[dict[str, Any]] = []
+    conflicts: list[str] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for plan in plans:
+        conflicts.extend(plan.get("conflicts", []))
+        for item in plan.get("actions", []):
+            key = (
+                item["action"], item["package"], item.get("component") or "",
+                item.get("version") or "",
+            )
+            if key not in seen:
+                actions.append(dict(item))
+                seen.add(key)
+    if not adapter_info.get("enabled"):
+        actions.append({
+            "action": "enable-adapter",
+            "package": package,
+            "component": component,
+            "adapter": adapter,
+            "version": info.version,
+            "source": "",
+        })
+    return {
+        "target": {"package": package, "component": component, "adapter": adapter},
         "ok": not conflicts,
         "actions": actions,
         "conflicts": conflicts,
@@ -672,6 +860,51 @@ def ensure_component_enabled(
         raise
 
 
+def ensure_adapter_enabled(
+    package_name: str,
+    component_name: str,
+    adapter_name: str,
+    *,
+    progress: Callable[[str], None] = print,
+) -> PackageInfo:
+    """Install official dependencies, then enable one nested adapter."""
+    target, _adapter = _adapter_package_info(
+        _package_name(package_name), _component_name(component_name), _component_name(adapter_name)
+    )
+    root = Path(target.path).resolve().parent
+    newly_installed: list[str] = []
+    try:
+        for _attempt in range(10):
+            preflight = adapter_dependency_install_plan(package_name, component_name, adapter_name)
+            if not preflight["ok"]:
+                raise ValueError("; ".join(preflight["conflicts"]))
+            mutations = [
+                item for item in preflight["actions"]
+                if item["action"] in {"install", "update"}
+            ]
+            if not mutations:
+                return set_adapter_enabled(package_name, component_name, adapter_name, True)
+            for item in mutations:
+                if item["action"] == "install":
+                    result = install_from_git(
+                        item["source"], root=root, install_deps=True, progress=progress
+                    )
+                    if not result.get("ok"):
+                        raise RuntimeError(result.get("error") or f"Could not install {item['package']}")
+                    newly_installed.append(str(result["package"]["name"]))
+                else:
+                    result = update_packages(
+                        [item["package"]], install_deps=True, progress=progress
+                    )
+                    if not result.get("ok") or not result.get("updated"):
+                        raise RuntimeError(f"Could not update required package {item['package']}")
+        raise RuntimeError("Adapter dependency installation did not converge after 10 passes")
+    except Exception:
+        for name in reversed(newly_installed):
+            remove_package(name, root=root)
+        raise
+
+
 def set_component_enabled(package_name: str, component_name: str, enabled: bool) -> PackageInfo:
     """Activate a component dependency graph or safely disable one component.
 
@@ -695,6 +928,19 @@ def set_component_enabled(package_name: str, component_name: str, enabled: bool)
     return _set_single_component(info, normalized_component, False)
 
 
+def set_adapter_enabled(
+    package_name: str, component_name: str, adapter_name: str, enabled: bool
+) -> PackageInfo:
+    """Enable or disable an optional adapter nested under one component."""
+    package = _package_name(package_name)
+    component = _component_name(component_name)
+    adapter = _component_name(adapter_name)
+    info, _adapter = _adapter_package_info(package, component, adapter)
+    if enabled:
+        return _activate_component_plan(adapter_dependency_plan(package, component, adapter))
+    return _set_single_adapter(info, component, adapter, False)
+
+
 def _component_package_info(package_name: str, component_name: str) -> PackageInfo:
     info = _PACKAGE_REGISTRY.get(package_name)
     if info is None:
@@ -708,6 +954,18 @@ def _component_package_info(package_name: str, component_name: str) -> PackageIn
             f"Package '{package_name}' only publishes component labels; its manifest has not enabled selective loading"
         )
     return info
+
+
+def _adapter_package_info(
+    package_name: str, component_name: str, adapter_name: str
+) -> tuple[PackageInfo, dict[str, Any]]:
+    info = _component_package_info(package_name, component_name)
+    adapters = info.components[component_name].get("adapters", {})
+    if adapter_name not in adapters:
+        raise ValueError(
+            f"Component '{package_name}/{component_name}' has no adapter '{adapter_name}'"
+        )
+    return info, adapters[adapter_name]
 
 
 def _activate_component_plan(resolution: Mapping[str, Any]) -> PackageInfo:
@@ -726,14 +984,21 @@ def _activate_component_plan(resolution: Mapping[str, Any]) -> PackageInfo:
             if state_error:
                 raise ValueError(state_error)
             component_name = item["component"]
+            adapter_name = item.get("adapter") or ""
+            if adapter_name:
+                _adapter_package_info(info.name, component_name, adapter_name)
+            state_key = (
+                _adapter_state_key(component_name, adapter_name)
+                if adapter_name else component_name
+            )
             snapshots.append((
                 pkg_path,
                 info.name,
-                component_name,
-                component_name in overrides,
-                overrides.get(component_name),
+                state_key,
+                state_key in overrides,
+                overrides.get(state_key),
             ))
-            _write_component_override(pkg_path, info.name, component_name, True)
+            _write_component_override(pkg_path, info.name, state_key, True)
             if info.name not in package_order:
                 package_order.append(info.name)
 
@@ -784,6 +1049,32 @@ def _set_single_component(info: PackageInfo, component_name: str, enabled: bool)
     raise RuntimeError(f"Could not {action} {info.name}/{component_name}: {detail}")
 
 
+def _set_single_adapter(
+    info: PackageInfo, component_name: str, adapter_name: str, enabled: bool
+) -> PackageInfo:
+    pkg_path = Path(info.path).resolve()
+    state_key = _adapter_state_key(component_name, adapter_name)
+    overrides, state_error = _read_component_overrides(pkg_path, info.name)
+    if state_error:
+        raise ValueError(state_error)
+    had_previous = state_key in overrides
+    previous = overrides.get(state_key)
+    _write_component_override(pkg_path, info.name, state_key, enabled)
+    updated = load_package(pkg_path)
+    if updated.ok:
+        write_package_lock(pkg_path.parent)
+        return updated
+    _write_component_override(
+        pkg_path, info.name, state_key, previous if had_previous else None
+    )
+    load_package(pkg_path)
+    action = "enable" if enabled else "disable"
+    detail = updated.error.strip().splitlines()[-1] if updated.error.strip() else "package reload failed"
+    raise RuntimeError(
+        f"Could not {action} {info.name}/{component_name} adapter {adapter_name}: {detail}"
+    )
+
+
 def _enabled_component_dependents(package_name: str, component_name: str) -> list[str]:
     dependents: list[str] = []
     for info in _PACKAGE_REGISTRY.values():
@@ -795,6 +1086,18 @@ def _enabled_component_dependents(package_name: str, component_name: str) -> lis
                 dependency_package = requirement.get("package") or info.name
                 if dependency_package == package_name and requirement.get("component") == component_name:
                     dependents.append(f"{info.name}/{candidate_name}")
+            for adapter_name, adapter in candidate.get("adapters", {}).items():
+                if not adapter.get("enabled"):
+                    continue
+                for requirement in adapter.get("requirements", []):
+                    dependency_package = requirement.get("package") or info.name
+                    if dependency_package == package_name and requirement.get("component") == component_name:
+                        dependents.append(f"{info.name}/{candidate_name} adapter {adapter_name}")
+    owner = _PACKAGE_REGISTRY.get(package_name)
+    if owner is not None:
+        for adapter_name, adapter in owner.components.get(component_name, {}).get("adapters", {}).items():
+            if adapter.get("enabled"):
+                dependents.append(f"{package_name}/{component_name} adapter {adapter_name}")
     return sorted(set(dependents))
 
 
@@ -809,6 +1112,12 @@ def _enabled_package_dependents(package_name: str) -> list[str]:
             for requirement in candidate.get("requirements", []):
                 if (requirement.get("package") or info.name) == package_name:
                     dependents.append(f"{info.name}/{candidate_name}")
+            for adapter_name, adapter in candidate.get("adapters", {}).items():
+                if not adapter.get("enabled"):
+                    continue
+                for requirement in adapter.get("requirements", []):
+                    if (requirement.get("package") or info.name) == package_name:
+                        dependents.append(f"{info.name}/{candidate_name} adapter {adapter_name}")
     return sorted(set(dependents))
 
 
@@ -838,6 +1147,7 @@ def write_package_lock(root: str | Path | None = None) -> dict[str, Any]:
             "source": git.get("remote") or info.source,
             "revision": revision,
             "enabled_components": sorted(info.enabled_components),
+            "enabled_adapters": sorted(info.enabled_adapters),
         }
     payload = {"schema_version": 1, "packages": packages}
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -876,12 +1186,14 @@ def _tag_new_package_nodes(
     package_name: str,
     nodes_dir: Path,
     component_name: str = "",
+    adapter_name: str = "",
 ) -> None:
     for name, fn in _NODE_REGISTRY.items():
         if before.get(name) is fn:
             continue
         fn._bn_package = package_name
         fn._bn_component = component_name
+        fn._bn_adapter = adapter_name
         if not getattr(fn, "_bn_source_path", ""):
             fn._bn_source_path = str(nodes_dir)
 
@@ -903,9 +1215,18 @@ def _check_indexed_nodes(info: PackageInfo) -> None:
         indexed_components = _package_components(indexed.get("components"))
         for component_name, component in info.components.items():
             if component.get("enabled"):
-                continue
-            declared = component.get("node_types") or indexed_components.get(component_name, {}).get("node_types", [])
-            expected_set.difference_update(str(node_type) for node_type in declared)
+                indexed_component = indexed_components.get(component_name, {})
+                indexed_adapters = indexed_component.get("adapters", {})
+                for adapter_name, adapter in component.get("adapters", {}).items():
+                    if adapter.get("enabled"):
+                        continue
+                    declared = adapter.get("node_types") or indexed_adapters.get(adapter_name, {}).get("node_types", [])
+                    expected_set.difference_update(str(node_type) for node_type in declared)
+            else:
+                declared = component.get("node_types") or indexed_components.get(component_name, {}).get("node_types", [])
+                expected_set.difference_update(str(node_type) for node_type in declared)
+                for adapter in component.get("adapters", {}).values():
+                    expected_set.difference_update(str(node_type) for node_type in adapter.get("node_types", []))
     expected = sorted(expected_set)
     info.expected_node_types = expected
     info.missing_node_types = sorted(set(expected) - set(info.node_types))
@@ -1052,6 +1373,19 @@ def _prepare_component_package(snake_name: str, pkg_path: Path) -> types.ModuleT
     module.__path__ = [str(pkg_path)]
     sys.modules[module_name] = module
     setattr(root, snake_name, module)
+    return module
+
+
+def _ensure_namespace_module(module_name: str, path: Path) -> types.ModuleType:
+    module = sys.modules.get(module_name)
+    if module is None:
+        module = types.ModuleType(module_name)
+        module.__path__ = [str(path)]
+        sys.modules[module_name] = module
+        parent_name, _, child_name = module_name.rpartition(".")
+        parent = sys.modules.get(parent_name)
+        if parent is not None:
+            setattr(parent, child_name, module)
     return module
 
 

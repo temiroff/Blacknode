@@ -193,6 +193,23 @@ export default function PackagesPanel() {
     }
   }
 
+  const setAdapter = async (
+    packageName: string, componentName: string, adapterName: string, enabled: boolean,
+  ) => {
+    const key = `${packageName}/${componentName}@${adapterName}`
+    setComponentBusy(key)
+    setError(null)
+    try {
+      await api.setPackageAdapter(packageName, componentName, adapterName, enabled)
+      await refresh()
+      await loadNodeTypes()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setComponentBusy(null)
+    }
+  }
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -362,7 +379,8 @@ export default function PackagesPanel() {
                       const changing = componentBusy === key
                       const enabled = component.enabled !== false
                       return (
-                        <div key={component.name} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 7px', border: '1px solid var(--line)', borderRadius: 5 }}>
+                        <div key={component.name} style={{ padding: '5px 7px', border: '1px solid var(--line)', borderRadius: 5 }}>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                           <span style={{ width: 6, height: 6, borderRadius: '50%', background: enabled ? 'var(--ok)' : 'var(--tx3)', flexShrink: 0 }} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--tx2)' }}>
@@ -397,6 +415,34 @@ export default function PackagesPanel() {
                           ) : (
                             <span style={{ color: 'var(--tx3)', fontSize: 9, fontFamily: 'var(--font-mono)' }}>included</span>
                           )}
+                          </div>
+                          {Object.values(component.adapters ?? {}).map(adapter => {
+                            const adapterKey = `${pkg.name}/${component.name}@${adapter.name}`
+                            const adapterChanging = componentBusy === adapterKey
+                            const adapterEnabled = adapter.enabled === true
+                            return (
+                              <div key={adapter.name} style={{ margin: '5px 0 0 14px', paddingTop: 5, borderTop: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center' }}>
+                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: adapterEnabled ? 'var(--ok)' : 'var(--tx3)', flexShrink: 0 }} />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--tx2)' }}>
+                                    adapter · {adapter.name}
+                                  </div>
+                                  {adapter.description && <div style={{ color: 'var(--tx3)', fontSize: 9 }}>{adapter.description}</div>}
+                                </div>
+                                <button
+                                  onClick={() => setAdapter(pkg.name, component.name, adapter.name, !adapterEnabled)}
+                                  disabled={busy || componentBusy !== null || !enabled}
+                                  style={{
+                                    ...buttonStyle(busy || componentBusy !== null || !enabled),
+                                    color: adapterEnabled ? 'var(--tx3)' : 'var(--ok)',
+                                    borderColor: adapterEnabled ? 'var(--line2)' : 'var(--ok)',
+                                  }}
+                                >
+                                  {adapterChanging ? 'Working...' : adapterEnabled ? 'Disable' : 'Enable'}
+                                </button>
+                              </div>
+                            )
+                          })}
                         </div>
                       )
                     })}

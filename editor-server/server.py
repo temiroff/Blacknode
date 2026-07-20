@@ -24,6 +24,7 @@ from blacknode.nodes import ai as ai_nodes
 from blacknode.package_index import package_index_payload, resolve_workflow_dependencies
 from blacknode.packages import MANIFEST_NAME as BN_MANIFEST_NAME
 from blacknode.packages import component_dependency_plan as bn_component_dependency_plan
+from blacknode.packages import adapter_dependency_plan as bn_adapter_dependency_plan
 from blacknode.packages import discover_packages as discover_bn_packages
 from blacknode.packages import install_from_git as bn_install_from_git
 from blacknode.packages import install_prerequisites as bn_install_prerequisites
@@ -32,7 +33,9 @@ from blacknode.packages import load_package as bn_load_package
 from blacknode.packages import packages_root as bn_packages_root
 from blacknode.packages import remove_package as bn_remove_package
 from blacknode.packages import ensure_component_enabled as bn_ensure_component_enabled
+from blacknode.packages import ensure_adapter_enabled as bn_ensure_adapter_enabled
 from blacknode.packages import set_component_enabled as bn_set_component_enabled
+from blacknode.packages import set_adapter_enabled as bn_set_adapter_enabled
 from blacknode.python_importer import import_workflow_python
 from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
@@ -3497,6 +3500,37 @@ def get_package_component_dependencies(name: str, component: str):
         raise HTTPException(400, "Invalid component name")
     try:
         return bn_component_dependency_plan(name, component)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.post("/packages/{name}/components/{component}/adapters/{adapter}/{action}")
+def set_package_adapter(name: str, component: str, adapter: str, action: str):
+    for value, label in ((name, "package"), (component, "component"), (adapter, "adapter")):
+        if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", value):
+            raise HTTPException(400, f"Invalid {label} name")
+    if action not in {"enable", "disable"}:
+        raise HTTPException(400, "Adapter action must be enable or disable")
+    try:
+        info = (
+            bn_ensure_adapter_enabled(name, component, adapter)
+            if action == "enable"
+            else bn_set_adapter_enabled(name, component, adapter, False)
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "package": info.to_dict()}
+
+
+@app.get("/packages/{name}/components/{component}/adapters/{adapter}/dependencies")
+def get_package_adapter_dependencies(name: str, component: str, adapter: str):
+    for value, label in ((name, "package"), (component, "component"), (adapter, "adapter")):
+        if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", value):
+            raise HTTPException(400, f"Invalid {label} name")
+    try:
+        return bn_adapter_dependency_plan(name, component, adapter)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
 
