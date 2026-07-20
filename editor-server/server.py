@@ -23,6 +23,7 @@ from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
 from blacknode.package_index import package_index_payload, resolve_workflow_dependencies
 from blacknode.packages import MANIFEST_NAME as BN_MANIFEST_NAME
+from blacknode.packages import component_dependency_plan as bn_component_dependency_plan
 from blacknode.packages import discover_packages as discover_bn_packages
 from blacknode.packages import install_from_git as bn_install_from_git
 from blacknode.packages import install_prerequisites as bn_install_prerequisites
@@ -3481,6 +3482,18 @@ def set_package_component(name: str, component: str, action: str):
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
     return {"ok": True, "package": info.to_dict()}
+
+
+@app.get("/packages/{name}/components/{component}/dependencies")
+def get_package_component_dependencies(name: str, component: str):
+    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", name):
+        raise HTTPException(400, "Invalid package name")
+    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", component):
+        raise HTTPException(400, "Invalid component name")
+    try:
+        return bn_component_dependency_plan(name, component)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @app.delete("/packages/{name}")

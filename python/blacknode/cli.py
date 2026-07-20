@@ -186,6 +186,11 @@ def _parser() -> argparse.ArgumentParser:
     packages_disable = packages_sub.add_parser("disable", help="disable one package component")
     packages_disable.add_argument("name", help="installed package name")
     packages_disable.add_argument("component", help="component name")
+    packages_dependencies = packages_sub.add_parser(
+        "dependencies", help="show the resolved installed dependency plan for one component"
+    )
+    packages_dependencies.add_argument("name", help="installed package name")
+    packages_dependencies.add_argument("component", help="component name")
 
     mcp = subcommands.add_parser("mcp", help="run the Blacknode MCP server")
     mcp.add_argument(
@@ -224,7 +229,9 @@ def _packages(args: Any) -> int:
         return _packages_set_component(args.name, args.component, True)
     if args.packages_command == "disable":
         return _packages_set_component(args.name, args.component, False)
-    print("usage: blacknode packages {list,status,update,install,setup,components,enable,disable}", file=sys.stderr)
+    if args.packages_command == "dependencies":
+        return _packages_component_dependencies(args.name, args.component)
+    print("usage: blacknode packages {list,status,update,install,setup,components,enable,disable,dependencies}", file=sys.stderr)
     return 2
 
 
@@ -422,6 +429,25 @@ def _packages_set_component(name: str, component: str, enabled: bool) -> int:
     action = "enabled" if enabled else "disabled"
     print(f"{action} {name}/{component}: {len(info.node_types)} package nodes active")
     _print_package_warnings(info)
+    return 0
+
+
+def _packages_component_dependencies(name: str, component: str) -> int:
+    import blacknode  # noqa: F401 - triggers package discovery
+
+    from .packages import component_dependency_plan
+
+    try:
+        resolution = component_dependency_plan(name, component)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    for item in resolution["plan"]:
+        target = item["package"]
+        if item["component"]:
+            target += f"/{item['component']}"
+        state = "enabled" if item["enabled"] else "will enable"
+        print(f"{target} {item['version'] or '?'} [{state}]")
     return 0
 
 

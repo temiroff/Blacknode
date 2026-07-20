@@ -76,6 +76,27 @@ def test_template_load_returns_installable_missing_package(tmp_path):
     }]
 
 
+def test_component_dependency_plan_endpoint():
+    plan = {
+        "target": {"package": "blacknode-adapter", "component": "camera"},
+        "plan": [
+            {"package": "blacknode-camera", "component": "core", "version": "0.1.0", "enabled": True},
+            {"package": "blacknode-adapter", "component": "camera", "version": "0.1.0", "enabled": False},
+        ],
+        "changes": [
+            {"package": "blacknode-adapter", "component": "camera", "version": "0.1.0", "enabled": False},
+        ],
+    }
+    with patch.object(server, "bn_component_dependency_plan", return_value=plan) as resolver:
+        response = TestClient(server.app).get(
+            "/packages/blacknode-adapter/components/camera/dependencies"
+        )
+
+    assert response.status_code == 200
+    assert response.json() == plan
+    resolver.assert_called_once_with("blacknode-adapter", "camera")
+
+
 def test_template_list_groups_core_and_package_templates(tmp_path: Path):
     core_dir = tmp_path / "core"
     robot_dir = tmp_path / "robot" / "templates"

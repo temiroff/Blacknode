@@ -103,6 +103,12 @@ export interface BnPackageComponent {
   pip_dependencies?: string[]
   import_dependencies?: string[]
   docker_images?: string[]
+  requirements?: Array<{
+    package: string
+    component: string
+    version: string
+  }>
+  requirement_errors?: string[]
   enabled?: boolean
 }
 

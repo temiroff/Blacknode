@@ -166,6 +166,7 @@ def _package_components(value: Any) -> dict[str, dict[str, Any]]:
         node_paths = config.get("nodes", config.get("node-paths", []))
         if isinstance(node_paths, str):
             node_paths = [node_paths]
+        requirements, requirement_errors = _component_requirements(dependencies.get("requires", []))
         components[name] = {
             "name": name,
             "description": str(config.get("description") or ""),
@@ -180,9 +181,45 @@ def _package_components(value: Any) -> dict[str, dict[str, Any]]:
             "pip_dependencies": _string_list(dependencies.get("pip", config.get("pip", []))),
             "import_dependencies": _string_list(dependencies.get("imports", config.get("imports", []))),
             "docker_images": _string_list(dependencies.get("docker", config.get("docker", []))),
+            "requirements": requirements,
+            "requirement_errors": requirement_errors,
             "enabled": False,
         }
     return components
+
+
+def _component_requirements(value: Any) -> tuple[list[dict[str, str]], list[str]]:
+    """Normalize versioned package/component dependency descriptors."""
+    if value in (None, ""):
+        return [], []
+    if not isinstance(value, list):
+        return [], ["dependencies.requires must be an array of tables"]
+    requirements: list[dict[str, str]] = []
+    errors: list[str] = []
+    for index, raw in enumerate(value, start=1):
+        if not isinstance(raw, Mapping):
+            errors.append(f"dependency {index} must be a table")
+            continue
+        package = _package_name(raw.get("package"))
+        component = _component_name(raw.get("component"))
+        version = str(raw.get("version") or "").strip()
+        if not package and not component:
+            errors.append(f"dependency {index} needs package or component")
+            continue
+        requirements.append({
+            "package": package,
+            "component": component,
+            "version": version,
+        })
+    return requirements, errors
+
+
+def _package_name(value: Any) -> str:
+    return re.sub(r"[^a-z0-9._-]+", "-", str(value or "").strip().lower()).strip("-")
+
+
+def _component_name(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
 
 
 def _string_list(value: Any) -> list[str]:
@@ -252,8 +289,7 @@ def _write_component_override(
 
 
 def discover_packages(paths: list[str | Path] | None = None) -> dict[str, Any]:
-    loaded: list[dict[str, Any]] = []
-    failed: list[dict[str, Any]] = []
+    infos: list[PackageInfo] = []
     for root in paths or default_package_dirs():
         root_path = Path(root).expanduser()
         if not root_path.exists():
@@ -261,11 +297,45 @@ def discover_packages(paths: list[str | Path] | None = None) -> dict[str, Any]:
         for pkg_dir in sorted(root_path.iterdir()):
             if not pkg_dir.is_dir() or not (pkg_dir / MANIFEST_NAME).exists():
                 continue
-            info = load_package(pkg_dir)
-            (loaded if info.ok else failed).append(info.to_dict())
-    for info in _load_entry_point_packages():
-        (loaded if info.ok else failed).append(info.to_dict())
-    return {"loaded": loaded, "failed": failed}
+            infos.append(load_package(pkg_dir))
+    infos.extend(_load_entry_point_packages())
+    _audit_enabled_component_dependencies(infos)
+    return {
+        "loaded": [info.to_dict() for info in infos if info.ok],
+        "failed": [info.to_dict() for info in infos if not info.ok],
+    }
+
+
+def _audit_enabled_component_dependencies(infos: list[PackageInfo]) -> None:
+    """Reject persisted/default activation states with unavailable requirements."""
+    for info in infos:
+        if not info.ok or not info.component_mode:
+            continue
+        errors: list[str] = []
+        for component_name in info.enabled_components:
+            try:
+                resolution = component_dependency_plan(info.name, component_name)
+            except ValueError as exc:
+                errors.append(f"{component_name}: {exc}")
+                continue
+            missing_activation = [
+                f"{item['package']}/{item['component']}"
+                for item in resolution["changes"]
+                if not (item["package"] == info.name and item["component"] == component_name)
+            ]
+            if missing_activation:
+                errors.append(
+                    f"{component_name}: required components are disabled: "
+                    + ", ".join(missing_activation)
+                )
+        if not errors:
+            continue
+        _deregister_package_nodes(info.name)
+        _clear_package_modules(_safe_module_name(info.name))
+        _record_failure(
+            info,
+            "Enabled component dependency audit failed:\n- " + "\n- ".join(errors),
+        )
 
 
 def load_package(pkg_dir: str | Path) -> PackageInfo:
@@ -311,6 +381,19 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
         info.pip_dependencies = _merge_strings(info.pip_dependencies, component["pip_dependencies"])
         info.import_dependencies = _merge_strings(info.import_dependencies, component["import_dependencies"])
         info.docker_images = _merge_strings(info.docker_images, component["docker_images"])
+
+    invalid_requirements = [
+        f"{component_name}: {error}"
+        for component_name in info.enabled_components
+        for error in info.components[component_name]["requirement_errors"]
+    ]
+    if invalid_requirements:
+        _deregister_package_nodes(info.name)
+        _clear_package_modules(_safe_module_name(info.name))
+        return _record_failure(
+            info,
+            "Invalid enabled component dependencies:\n- " + "\n- ".join(invalid_requirements),
+        )
 
     templates_dir = pkg_path / "templates"
     if templates_dir.is_dir():
@@ -361,46 +444,209 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
     return info
 
 
-def set_component_enabled(package_name: str, component_name: str, enabled: bool) -> PackageInfo:
-    """Persist one local component override and reload its package.
+def component_dependency_plan(package_name: str, component_name: str) -> dict[str, Any]:
+    """Resolve installed dependencies in activation order without mutation."""
+    target_package = _package_name(package_name)
+    target_component = _component_name(component_name)
+    plan: list[dict[str, Any]] = []
+    visited: set[tuple[str, str]] = set()
+    visiting: list[tuple[str, str]] = []
 
-    Activation state lives beside the package repositories, so selecting a
-    component never dirties the layer repository itself.
+    def visit(current_package: str, current_component: str, version: str = "") -> None:
+        key = (current_package, current_component)
+        if key in visiting:
+            cycle = visiting[visiting.index(key):] + [key]
+            rendered = " -> ".join(
+                f"{package}/{component}" if component else package
+                for package, component in cycle
+            )
+            raise ValueError(f"Component dependency cycle: {rendered}")
+        info = _PACKAGE_REGISTRY.get(current_package)
+        if info is None:
+            indexed = indexed_package(current_package) or {}
+            git_url = str(indexed.get("git_url") or "")
+            fix = f"; install it with: blacknode packages install {git_url}" if git_url else ""
+            raise ValueError(f"Required package '{current_package}' is not installed{fix}")
+        if version:
+            if not info.version:
+                raise ValueError(
+                    f"Required package '{current_package}' does not declare a version; needs {version}"
+                )
+            if not _version_constraint_satisfied(version, info.version):
+                raise ValueError(
+                    f"Package '{current_package}' {info.version} does not satisfy required version {version}"
+                )
+        if key in visited:
+            return
+        if not current_component:
+            visited.add(key)
+            plan.append({
+                "package": current_package,
+                "component": "",
+                "version": info.version,
+                "enabled": True,
+            })
+            return
+        if current_component not in info.components:
+            raise ValueError(
+                f"Required package '{current_package}' has no component '{current_component}'"
+            )
+        if not info.component_mode:
+            raise ValueError(
+                f"Package '{current_package}' does not support selective component activation"
+            )
+        component = info.components[current_component]
+        if component.get("requirement_errors"):
+            raise ValueError(
+                f"Invalid dependencies for {current_package}/{current_component}: "
+                + "; ".join(component["requirement_errors"])
+            )
+        visiting.append(key)
+        for requirement in component.get("requirements", []):
+            dependency_package = requirement.get("package") or current_package
+            visit(
+                dependency_package,
+                requirement.get("component") or "",
+                requirement.get("version") or "",
+            )
+        visiting.pop()
+        visited.add(key)
+        plan.append({
+            "package": current_package,
+            "component": current_component,
+            "version": info.version,
+            "enabled": bool(component.get("enabled")),
+        })
+
+    visit(target_package, target_component)
+    return {
+        "target": {"package": target_package, "component": target_component},
+        "plan": plan,
+        "changes": [item for item in plan if item["component"] and not item["enabled"]],
+    }
+
+
+def set_component_enabled(package_name: str, component_name: str, enabled: bool) -> PackageInfo:
+    """Activate a component dependency graph or safely disable one component.
+
+    Activation state lives beside package repositories. Enable resolves the
+    complete installed graph before writing any override and rolls every change
+    back if a package reload fails.
     """
+    normalized_package = _package_name(package_name)
+    normalized_component = _component_name(component_name)
+    info = _component_package_info(normalized_package, normalized_component)
+    if enabled:
+        plan = component_dependency_plan(normalized_package, normalized_component)
+        return _activate_component_plan(plan)
+
+    dependents = _enabled_component_dependents(normalized_package, normalized_component)
+    if dependents:
+        raise ValueError(
+            f"Cannot disable {normalized_package}/{normalized_component}; required by: "
+            + ", ".join(dependents)
+        )
+    return _set_single_component(info, normalized_component, False)
+
+
+def _component_package_info(package_name: str, component_name: str) -> PackageInfo:
     info = _PACKAGE_REGISTRY.get(package_name)
     if info is None:
         raise ValueError(f"No package named '{package_name}' is installed")
     if info.source != "folder" or not info.path:
         raise ValueError("Selective components currently require a folder package")
-    normalized = re.sub(r"[^a-z0-9]+", "-", component_name.strip().lower()).strip("-")
-    if normalized not in info.components:
+    if component_name not in info.components:
         raise ValueError(f"Package '{package_name}' has no component '{component_name}'")
     if not info.component_mode:
         raise ValueError(
             f"Package '{package_name}' only publishes component labels; its manifest has not enabled selective loading"
         )
+    return info
 
+
+def _activate_component_plan(resolution: Mapping[str, Any]) -> PackageInfo:
+    changes = list(resolution.get("changes") or [])
+    target = resolution["target"]
+    if not changes:
+        return _component_package_info(target["package"], target["component"])
+
+    snapshots: list[tuple[Path, str, str, bool, bool | None]] = []
+    package_order: list[str] = []
+    try:
+        for item in changes:
+            info = _component_package_info(item["package"], item["component"])
+            pkg_path = Path(info.path).resolve()
+            overrides, state_error = _read_component_overrides(pkg_path, info.name)
+            if state_error:
+                raise ValueError(state_error)
+            component_name = item["component"]
+            snapshots.append((
+                pkg_path,
+                info.name,
+                component_name,
+                component_name in overrides,
+                overrides.get(component_name),
+            ))
+            _write_component_override(pkg_path, info.name, component_name, True)
+            if info.name not in package_order:
+                package_order.append(info.name)
+
+        for name in package_order:
+            updated = load_package(Path(_PACKAGE_REGISTRY[name].path))
+            if not updated.ok:
+                detail = updated.error.strip().splitlines()[-1] if updated.error.strip() else "package reload failed"
+                raise RuntimeError(f"Could not activate dependency graph: {name}: {detail}")
+    except Exception:
+        for pkg_path, name, component, had_previous, previous in reversed(snapshots):
+            _write_component_override(
+                pkg_path,
+                name,
+                component,
+                previous if had_previous else None,
+            )
+        for name in package_order:
+            registered = _PACKAGE_REGISTRY.get(name)
+            if registered and registered.path:
+                load_package(Path(registered.path))
+        raise
+    return _component_package_info(target["package"], target["component"])
+
+
+def _set_single_component(info: PackageInfo, component_name: str, enabled: bool) -> PackageInfo:
     pkg_path = Path(info.path).resolve()
-    overrides, state_error = _read_component_overrides(pkg_path, package_name)
+    overrides, state_error = _read_component_overrides(pkg_path, info.name)
     if state_error:
         raise ValueError(state_error)
-    had_previous = normalized in overrides
-    previous = overrides.get(normalized)
-    _write_component_override(pkg_path, package_name, normalized, bool(enabled))
+    had_previous = component_name in overrides
+    previous = overrides.get(component_name)
+    _write_component_override(pkg_path, info.name, component_name, enabled)
     updated = load_package(pkg_path)
     if updated.ok:
         return updated
-
     _write_component_override(
         pkg_path,
-        package_name,
-        normalized,
+        info.name,
+        component_name,
         previous if had_previous else None,
     )
     load_package(pkg_path)
     action = "enable" if enabled else "disable"
     detail = updated.error.strip().splitlines()[-1] if updated.error.strip() else "package reload failed"
-    raise RuntimeError(f"Could not {action} {package_name}/{normalized}: {detail}")
+    raise RuntimeError(f"Could not {action} {info.name}/{component_name}: {detail}")
+
+
+def _enabled_component_dependents(package_name: str, component_name: str) -> list[str]:
+    dependents: list[str] = []
+    for info in _PACKAGE_REGISTRY.values():
+        for candidate_name in info.enabled_components:
+            if info.name == package_name and candidate_name == component_name:
+                continue
+            candidate = info.components.get(candidate_name, {})
+            for requirement in candidate.get("requirements", []):
+                dependency_package = requirement.get("package") or info.name
+                if dependency_package == package_name and requirement.get("component") == component_name:
+                    dependents.append(f"{info.name}/{candidate_name}")
+    return sorted(set(dependents))
 
 
 def _merge_strings(existing: list[str], additions: list[str]) -> list[str]:
@@ -1038,6 +1284,35 @@ def _join_git_base(base: str, package: str) -> str:
     return f"{clean_base}/{clean_package}.git"
 
 
+def _version_constraint_satisfied(spec: str, current: str) -> bool:
+    """Evaluate a comma-separated numeric version constraint strictly."""
+    have = _version_tuple(current)
+    if have is None:
+        raise ValueError(f"invalid installed version '{current}'")
+    clauses = [clause.strip() for clause in str(spec or "").split(",") if clause.strip()]
+    for clause in clauses:
+        match = re.fullmatch(r"(>=|<=|==|>|<)?\s*(\d+(?:\.\d+)*)", clause)
+        if not match:
+            raise ValueError(f"unsupported version constraint '{clause}'")
+        operator = match.group(1) or "=="
+        want = _version_tuple(match.group(2))
+        if want is None:
+            raise ValueError(f"invalid required version '{match.group(2)}'")
+        width = max(len(have), len(want))
+        comparable_have = have + (0,) * (width - len(have))
+        comparable_want = want + (0,) * (width - len(want))
+        satisfied = {
+            "==": comparable_have == comparable_want,
+            ">=": comparable_have >= comparable_want,
+            "<=": comparable_have <= comparable_want,
+            ">": comparable_have > comparable_want,
+            "<": comparable_have < comparable_want,
+        }[operator]
+        if not satisfied:
+            return False
+    return True
+
+
 def _version_satisfied(spec: str, current: str) -> bool:
     spec = spec.strip()
     op = ">="
@@ -1068,6 +1343,7 @@ __all__ = [
     "ENTRY_POINT_GROUP",
     "MANIFEST_NAME",
     "PackageInfo",
+    "component_dependency_plan",
     "default_package_dirs",
     "default_package_git_base",
     "discover_packages",

@@ -373,6 +373,14 @@ export default function PackagesPanel() {
                                 {component.description}
                               </div>
                             )}
+                            {(component.requirements?.length ?? 0) > 0 && (
+                              <div style={{ color: 'var(--tx3)', fontSize: 9, fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                requires: {component.requirements!.map(requirement => {
+                                  const owner = requirement.package || pkg.name
+                                  return `${owner}${requirement.component ? `/${requirement.component}` : ''}${requirement.version ? ` ${requirement.version}` : ''}`
+                                }).join(', ')}
+                              </div>
+                            )}
                           </div>
                           {pkg.component_mode ? (
                             <button

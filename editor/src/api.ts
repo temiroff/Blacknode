@@ -341,6 +341,12 @@ export const api = {
       'POST',
       `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/${enabled ? 'enable' : 'disable'}`,
     ),
+  packageComponentDependencies: (name: string, component: string) =>
+    req<{
+      target: { package: string; component: string }
+      plan: Array<{ package: string; component: string; version: string; enabled: boolean }>
+      changes: Array<{ package: string; component: string; version: string; enabled: boolean }>
+    }>('GET', `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/dependencies`),
   deletePackage: (name: string)              => req<{ ok: boolean }>('DELETE', `/packages/${encodeURIComponent(name)}`),
   getGraph:  ()                              => req<{ nodes: any[]; edges: any[] }>('GET', '/graph'),
   setGraph:  (nodes: any[], edges: any[])    => req<{ nodes: any[]; edges: any[] }>('POST', '/graph', { nodes, edges }),

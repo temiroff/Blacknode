@@ -250,6 +250,9 @@ node-types = ["FeetechBus", "FeetechServo"]
 [components.feetech.dependencies]
 pip = ["pyserial>=3.5"]
 imports = ["serial"]
+requires = [
+  { package = "blacknode-robot", version = ">=0.1.0,<1.0.0" }
+]
 
 [components.stm32]
 description = "STM32 serial bridge."
@@ -276,12 +279,38 @@ Manage components in the editor's Packages tab or from the CLI:
 
 ```bash
 blacknode packages components blacknode-drivers
+blacknode packages dependencies blacknode-drivers feetech
 blacknode packages enable blacknode-drivers feetech
 blacknode packages setup blacknode-drivers
 blacknode packages disable blacknode-drivers feetech
 ```
 
-`setup` installs the shared requirements plus dependencies of the components
+`dependencies` prints the complete installed activation order. A component can
+require another component in the same package by omitting `package`, or require
+a component in another layer repository:
+
+```toml
+[components.feetech-ros2.dependencies]
+requires = [
+  { component = "feetech", version = ">=0.1.0,<1.0.0" },
+  { package = "blacknode-ros2", component = "core", version = ">=0.1.0,<1.0.0" }
+]
+```
+
+Blacknode resolves the complete installed graph before changing activation
+state. It enables dependencies before dependents, reuses enabled compatible
+versions, rejects cycles and incompatible versions, rolls back the whole
+activation change if a package reload fails, and prevents disabling a component
+that an enabled component requires. The Packages UI shows each component's
+direct requirements. `GET /packages/{name}/components/{component}/dependencies`
+returns the resolved plan for other clients.
+
+This resolver stage does not silently clone or upgrade repositories. A missing
+official dependency returns the exact `blacknode packages install <git-url>`
+command; automatic install/upgrade planning and the workspace lockfile remain
+explicit future stages.
+
+`setup` installs shared requirements plus pip dependencies of the components
 that are currently enabled. pip reuses already satisfied dependencies and
 checks declared version constraints. Component node modules use aliases such as
 `blacknode.pkg.blacknode_drivers.feetech.<module>`.
@@ -291,10 +320,8 @@ package-wide dependencies continue to load as one implicit component. A
 manifest can also publish descriptive `[components.*]` entries without opting
 into component mode; the UI marks those entries as included.
 
-Package/component dependencies and compatible-version resolution across layer
-repositories are the next resolver stage. That contract will let a future
-`feetech-ros2` component require both `feetech` and a compatible
-`blacknode-ros2` base.
+Automatic dependency checkout, compatible upgrade planning, and a reproducible
+workspace lockfile are the next resolver stage.
 
 The initial organizational layers are `skills`, `agent`, `robot`,
 `perception`, `controllers`, and `drivers`. `integration`, `learning`,
