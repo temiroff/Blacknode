@@ -5,8 +5,33 @@ from typing import Any, Iterable, Mapping
 
 
 _CORE_PACKAGES: dict[str, dict[str, Any]] = {
+    "blacknode-drivers": {
+        "name": "blacknode-drivers",
+        "layer": "drivers",
+        "components": {
+            "feetech": {
+                "name": "feetech",
+                "description": "Feetech STS/SMS serial-bus configuration, read-only probing, and safety primitives.",
+                "default": True,
+                "capabilities": [
+                    "driver.feetech",
+                    "driver.serial-servo",
+                    "robot.joint-driver",
+                ],
+                "node_types": ["FeetechBusConfig", "FeetechBusProbe"],
+            },
+        },
+        "git_url": "https://github.com/temiroff/blacknode-drivers.git",
+        "description": "Physical hardware drivers and firmware adapters, organized as selectively enabled components.",
+        "node_types": [
+            "FeetechBusConfig",
+            "FeetechBusProbe",
+        ],
+    },
     "blacknode-cuda": {
         "name": "blacknode-cuda",
+        "layer": "compute",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-cuda.git",
         "description": "Real GPU compute nodes: CUDA kernel lab, custom NVRTC kernels, GPU image filters, Tensor Core GEMM, and CUTLASS.",
         "node_types": [
@@ -23,6 +48,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-ros2": {
         "name": "blacknode-ros2",
+        "layer": "integration",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-ros2.git",
         "description": "ROS 2 topics, streams, robot interfaces, and safety-gated policy deployment.",
         "node_types": [
@@ -70,6 +97,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-robot": {
         "name": "blacknode-robot",
+        "layer": "robot",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-robot.git",
         "description": "Generic robot setup: USB discovery, serial permission diagnostics, driver launch, and standard robot profiles.",
         "node_types": [
@@ -91,6 +120,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-vision": {
         "name": "blacknode-vision",
+        "layer": "perception",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-vision.git",
         "description": "Robot vision workflows: USB cameras, ROS 2 image streams, VLM reasoning dashboards, and OpenCV object tracking.",
         "node_types": [
@@ -115,6 +146,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-dataset": {
         "name": "blacknode-dataset",
+        "layer": "learning",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-dataset.git",
         "description": "Native episode recording, recovery, validation, LeRobot v3 export, and explicit Hugging Face dataset upload.",
         "node_types": [
@@ -132,6 +165,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-training": {
         "name": "blacknode-training",
+        "layer": "learning",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-training.git",
         "description": "Robot-policy dataset checks, managed PyTorch training, checkpoints, previews, and deployable policy artifacts.",
         "node_types": [
@@ -146,6 +181,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-isaac": {
         "name": "blacknode-isaac",
+        "layer": "simulation",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-isaac.git",
         "description": "Closed-loop policy deployment for Isaac Sim articulations and named RGB sensors.",
         "node_types": [
@@ -169,7 +206,7 @@ _NODE_PACKAGE_INDEX: dict[str, dict[str, str]] = {
 def package_index_payload() -> dict[str, Any]:
     """Return a JSON-safe copy of the package and node lookup index."""
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "packages": {
             name: {
                 **package,

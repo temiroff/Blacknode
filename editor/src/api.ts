@@ -336,6 +336,11 @@ export const api = {
   reloadPackages: ()                         => req<{ ok: boolean }>('POST', '/packages/reload'),
   installPackage: (url: string)              => req<{ ok: boolean; package: BnPackage | null; error: string; log: string[] }>('POST', '/packages/install', { url }),
   setupPackage: (name: string)               => req<{ ok: boolean; package: BnPackage | null; log: string[] }>('POST', `/packages/${encodeURIComponent(name)}/setup`),
+  setPackageComponent: (name: string, component: string, enabled: boolean) =>
+    req<{ ok: boolean; package: BnPackage }>(
+      'POST',
+      `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/${enabled ? 'enable' : 'disable'}`,
+    ),
   deletePackage: (name: string)              => req<{ ok: boolean }>('DELETE', `/packages/${encodeURIComponent(name)}`),
   getGraph:  ()                              => req<{ nodes: any[]; edges: any[] }>('GET', '/graph'),
   setGraph:  (nodes: any[], edges: any[])    => req<{ nodes: any[]; edges: any[] }>('POST', '/graph', { nodes, edges }),

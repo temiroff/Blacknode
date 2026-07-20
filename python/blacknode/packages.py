@@ -1,8 +1,9 @@
 """Blacknode extension packages.
 
 A package is a folder (usually a separate git repo cloned into ``packages/``)
-with a ``blacknode-package.toml`` manifest, a ``nodes/`` directory of ``@node``
-modules, and optionally a ``templates/`` directory of workflow JSON files.
+with a ``blacknode-package.toml`` manifest, node modules, and optionally a
+``templates/`` directory of workflow JSON files. Flat packages use ``nodes/``;
+component packages can declare several selectively enabled node directories.
 
 Discovery order at import time: built-in nodes -> packages -> custom-nodes.
 Loaded package node modules get a stable import alias
@@ -18,6 +19,7 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -29,7 +31,7 @@ import traceback
 import types
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from ._version import __version__ as _CORE_VERSION
 from .node import _NODE_REGISTRY
@@ -44,6 +46,7 @@ _DEFAULT_PACKAGE_DIRS = (_REPO_ROOT / "packages",)
 _DEFAULT_PACKAGE_GIT_BASE = "https://github.com/temiroff"
 _PACKAGE_GIT_BASE_ENV = "BLACKNODE_PACKAGE_GIT_BASE"
 _SCP_GIT_URL_RE = re.compile(r"^[^/\s@]+@[^:\s]+:.+")
+_COMPONENT_STATE_NAME = ".blacknode-components.json"
 
 
 @dataclass
@@ -51,6 +54,10 @@ class PackageInfo:
     name: str
     version: str = ""
     description: str = ""
+    layer: str = "extensions"
+    components: dict[str, dict[str, Any]] = field(default_factory=dict)
+    component_mode: bool = False
+    enabled_components: list[str] = field(default_factory=list)
     path: str = ""
     source: str = "folder"  # folder | entry-point
     requires_blacknode: str = ""
@@ -136,6 +143,114 @@ def package_template_dirs() -> list[str]:
     return [info.templates_dir for info in _PACKAGE_REGISTRY.values() if info.ok and info.templates_dir]
 
 
+def _package_layer(value: Any) -> str:
+    """Normalize a manifest/catalog layer into a stable grouping identifier."""
+    layer = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    return layer or "extensions"
+
+
+def _package_components(value: Any) -> dict[str, dict[str, Any]]:
+    """Normalize component metadata from a manifest or catalog."""
+    if not isinstance(value, Mapping):
+        return {}
+    components: dict[str, dict[str, Any]] = {}
+    for raw_name, raw_config in value.items():
+        name = re.sub(r"[^a-z0-9]+", "-", str(raw_name).strip().lower()).strip("-")
+        if not name:
+            continue
+        config = raw_config if isinstance(raw_config, Mapping) else {}
+        capabilities = config.get("capabilities", [])
+        dependencies = config.get("dependencies", {})
+        if not isinstance(dependencies, Mapping):
+            dependencies = {}
+        node_paths = config.get("nodes", config.get("node-paths", []))
+        if isinstance(node_paths, str):
+            node_paths = [node_paths]
+        components[name] = {
+            "name": name,
+            "description": str(config.get("description") or ""),
+            "default": bool(config.get("default", False)),
+            "capabilities": sorted({
+                str(capability).strip()
+                for capability in capabilities
+                if str(capability).strip()
+            }) if isinstance(capabilities, list) else [],
+            "node_types": _string_list(config.get("node-types", config.get("node_types", []))),
+            "node_paths": _string_list(node_paths),
+            "pip_dependencies": _string_list(dependencies.get("pip", config.get("pip", []))),
+            "import_dependencies": _string_list(dependencies.get("imports", config.get("imports", []))),
+            "docker_images": _string_list(dependencies.get("docker", config.get("docker", []))),
+            "enabled": False,
+        }
+    return components
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return list(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
+
+
+def _component_state_path(pkg_path: Path) -> Path:
+    """Keep local activation outside the extension repository worktree."""
+    return pkg_path.parent / _COMPONENT_STATE_NAME
+
+
+def _read_component_overrides(pkg_path: Path, package_name: str) -> tuple[dict[str, bool], str]:
+    state_path = _component_state_path(pkg_path)
+    if not state_path.is_file():
+        return {}, ""
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        packages = payload.get("packages", {}) if isinstance(payload, Mapping) else {}
+        raw = packages.get(package_name, {}) if isinstance(packages, Mapping) else {}
+        if not isinstance(raw, Mapping):
+            return {}, ""
+        return {
+            str(name): enabled
+            for name, enabled in raw.items()
+            if isinstance(enabled, bool)
+        }, ""
+    except Exception as exc:
+        return {}, f"could not read component state {state_path}: {exc}"
+
+
+def _write_component_override(
+    pkg_path: Path,
+    package_name: str,
+    component_name: str,
+    enabled: bool | None,
+) -> None:
+    state_path = _component_state_path(pkg_path)
+    payload: dict[str, Any] = {"schema_version": 1, "packages": {}}
+    if state_path.is_file():
+        try:
+            loaded = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                payload = loaded
+        except Exception:
+            pass
+    payload["schema_version"] = 1
+    packages = payload.setdefault("packages", {})
+    if not isinstance(packages, dict):
+        packages = {}
+        payload["packages"] = packages
+    package_state = packages.setdefault(package_name, {})
+    if not isinstance(package_state, dict):
+        package_state = {}
+        packages[package_name] = package_state
+    if enabled is None:
+        package_state.pop(component_name, None)
+    else:
+        package_state[component_name] = enabled
+    if not package_state:
+        packages.pop(package_name, None)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = state_path.with_suffix(state_path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(state_path)
+
+
 def discover_packages(paths: list[str | Path] | None = None) -> dict[str, Any]:
     loaded: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
@@ -163,44 +278,174 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
 
     meta = manifest.get("package", {}) or {}
     info.name = str(meta.get("name") or pkg_path.name)
+    indexed = indexed_package(info.name) or {}
     info.version = str(meta.get("version", ""))
     info.description = str(meta.get("description", ""))
+    info.layer = _package_layer(meta.get("layer") or indexed.get("layer"))
+    manifest_components = manifest.get("components")
+    info.components = _package_components(manifest_components or indexed.get("components"))
+    info.component_mode = bool(meta.get("component-mode", False)) or (
+        isinstance(manifest_components, Mapping)
+        and any(component["node_paths"] for component in info.components.values())
+    )
     info.requires_blacknode = str(meta.get("requires-blacknode", ""))
     info.categories = {str(k): str(v) for k, v in (manifest.get("categories", {}) or {}).items()}
     deps = manifest.get("dependencies", {}) or {}
-    info.pip_dependencies = [str(d) for d in (deps.get("pip", []) or [])]
-    info.import_dependencies = [str(d) for d in (deps.get("imports", []) or [])]
-    info.docker_images = [str(d) for d in (deps.get("docker", []) or [])]
+    info.pip_dependencies = _string_list(deps.get("pip", []))
+    info.import_dependencies = _string_list(deps.get("imports", []))
+    info.docker_images = _string_list(deps.get("docker", []))
+
+    overrides: dict[str, bool] = {}
+    if info.component_mode:
+        overrides, state_warning = _read_component_overrides(pkg_path, info.name)
+        if state_warning:
+            info.warnings.append(state_warning)
+    for component_name, component in info.components.items():
+        component["enabled"] = (
+            overrides.get(component_name, component["default"])
+            if info.component_mode else True
+        )
+        if not component["enabled"]:
+            continue
+        info.enabled_components.append(component_name)
+        info.pip_dependencies = _merge_strings(info.pip_dependencies, component["pip_dependencies"])
+        info.import_dependencies = _merge_strings(info.import_dependencies, component["import_dependencies"])
+        info.docker_images = _merge_strings(info.docker_images, component["docker_images"])
 
     templates_dir = pkg_path / "templates"
     if templates_dir.is_dir():
         info.templates_dir = str(templates_dir)
 
     if info.requires_blacknode and not _version_satisfied(info.requires_blacknode, _CORE_VERSION):
+        _deregister_package_nodes(info.name)
+        _clear_package_modules(_safe_module_name(info.name))
         return _record_failure(info, f"Requires blacknode {info.requires_blacknode}, this is {_CORE_VERSION}")
 
-    nodes_dir = pkg_path / "nodes"
-    if not nodes_dir.is_dir():
-        return _record_failure(info, "Package has no nodes/ directory")
-
-    before = dict(_NODE_REGISTRY)
+    _deregister_package_nodes(info.name)
+    snake_name = _safe_module_name(info.name)
+    _clear_package_modules(snake_name)
     try:
-        _import_nodes_package(_safe_module_name(info.name), nodes_dir)
+        if info.component_mode:
+            _prepare_component_package(snake_name, pkg_path)
+            for component_name in info.enabled_components:
+                component = info.components[component_name]
+                for index, nodes_dir in enumerate(_component_node_dirs(pkg_path, component_name, component)):
+                    before = dict(_NODE_REGISTRY)
+                    module_suffix = _safe_module_name(component_name)
+                    if index:
+                        module_suffix += f"_{index + 1}"
+                    _import_nodes_module(
+                        f"{_PKG_MODULE_ROOT}.{snake_name}.{module_suffix}",
+                        nodes_dir,
+                    )
+                    _tag_new_package_nodes(before, info.name, nodes_dir, component_name)
+        else:
+            nodes_dir = pkg_path / "nodes"
+            if not nodes_dir.is_dir():
+                raise FileNotFoundError("Package has no nodes/ directory")
+            before = dict(_NODE_REGISTRY)
+            _import_nodes_package(snake_name, nodes_dir, clear=False)
+            _tag_new_package_nodes(before, info.name, nodes_dir)
     except Exception:
+        _deregister_package_nodes(info.name)
+        _clear_package_modules(snake_name)
         return _record_failure(info, traceback.format_exc())
 
     info.node_types = sorted(
-        name for name, fn in _NODE_REGISTRY.items() if before.get(name) is not fn
+        name for name, fn in _NODE_REGISTRY.items()
+        if getattr(fn, "_bn_package", "") == info.name
     )
-    for name in info.node_types:
-        fn = _NODE_REGISTRY[name]
-        fn._bn_package = info.name
-        if not getattr(fn, "_bn_source_path", ""):
-            fn._bn_source_path = str(nodes_dir)
     _check_import_dependencies(info)
     _check_indexed_nodes(info)
     _PACKAGE_REGISTRY[info.name] = info
     return info
+
+
+def set_component_enabled(package_name: str, component_name: str, enabled: bool) -> PackageInfo:
+    """Persist one local component override and reload its package.
+
+    Activation state lives beside the package repositories, so selecting a
+    component never dirties the layer repository itself.
+    """
+    info = _PACKAGE_REGISTRY.get(package_name)
+    if info is None:
+        raise ValueError(f"No package named '{package_name}' is installed")
+    if info.source != "folder" or not info.path:
+        raise ValueError("Selective components currently require a folder package")
+    normalized = re.sub(r"[^a-z0-9]+", "-", component_name.strip().lower()).strip("-")
+    if normalized not in info.components:
+        raise ValueError(f"Package '{package_name}' has no component '{component_name}'")
+    if not info.component_mode:
+        raise ValueError(
+            f"Package '{package_name}' only publishes component labels; its manifest has not enabled selective loading"
+        )
+
+    pkg_path = Path(info.path).resolve()
+    overrides, state_error = _read_component_overrides(pkg_path, package_name)
+    if state_error:
+        raise ValueError(state_error)
+    had_previous = normalized in overrides
+    previous = overrides.get(normalized)
+    _write_component_override(pkg_path, package_name, normalized, bool(enabled))
+    updated = load_package(pkg_path)
+    if updated.ok:
+        return updated
+
+    _write_component_override(
+        pkg_path,
+        package_name,
+        normalized,
+        previous if had_previous else None,
+    )
+    load_package(pkg_path)
+    action = "enable" if enabled else "disable"
+    detail = updated.error.strip().splitlines()[-1] if updated.error.strip() else "package reload failed"
+    raise RuntimeError(f"Could not {action} {package_name}/{normalized}: {detail}")
+
+
+def _merge_strings(existing: list[str], additions: list[str]) -> list[str]:
+    return list(dict.fromkeys([*existing, *additions]))
+
+
+def _component_node_dirs(
+    pkg_path: Path,
+    component_name: str,
+    component: Mapping[str, Any],
+) -> list[Path]:
+    directories: list[Path] = []
+    for raw_path in component.get("node_paths", []):
+        nodes_dir = (pkg_path / str(raw_path)).resolve()
+        if nodes_dir != pkg_path and pkg_path not in nodes_dir.parents:
+            raise ValueError(
+                f"Component '{component_name}' node path escapes the package: {raw_path}"
+            )
+        if not nodes_dir.is_dir():
+            raise FileNotFoundError(
+                f"Component '{component_name}' node path does not exist: {raw_path}"
+            )
+        directories.append(nodes_dir)
+    return directories
+
+
+def _tag_new_package_nodes(
+    before: Mapping[str, Any],
+    package_name: str,
+    nodes_dir: Path,
+    component_name: str = "",
+) -> None:
+    for name, fn in _NODE_REGISTRY.items():
+        if before.get(name) is fn:
+            continue
+        fn._bn_package = package_name
+        fn._bn_component = component_name
+        if not getattr(fn, "_bn_source_path", ""):
+            fn._bn_source_path = str(nodes_dir)
+
+
+def _deregister_package_nodes(package_name: str) -> None:
+    for node_name, fn in list(_NODE_REGISTRY.items()):
+        if getattr(fn, "_bn_package", "") == package_name:
+            del _NODE_REGISTRY[node_name]
 
 
 def _check_indexed_nodes(info: PackageInfo) -> None:
@@ -209,7 +454,15 @@ def _check_indexed_nodes(info: PackageInfo) -> None:
     if indexed is None:
         return
 
-    expected = sorted(str(node_type) for node_type in indexed.get("node_types", []) if str(node_type))
+    expected_set = {str(node_type) for node_type in indexed.get("node_types", []) if str(node_type)}
+    if info.component_mode:
+        indexed_components = _package_components(indexed.get("components"))
+        for component_name, component in info.components.items():
+            if component.get("enabled"):
+                continue
+            declared = component.get("node_types") or indexed_components.get(component_name, {}).get("node_types", [])
+            expected_set.difference_update(str(node_type) for node_type in declared)
+    expected = sorted(expected_set)
     info.expected_node_types = expected
     info.missing_node_types = sorted(set(expected) - set(info.node_types))
     if not info.missing_node_types:
@@ -289,12 +542,16 @@ def install_missing_python_dependencies(
             continue
         package_path = Path(info.path).resolve()
         requirements = package_path / "requirements.txt"
-        if requirements.is_file():
-            install_args = ["-r", str(requirements)]
-            source = str(requirements)
-        elif info.pip_dependencies:
-            install_args = list(info.pip_dependencies)
-            source = "manifest dependencies"
+        if requirements.is_file() or info.pip_dependencies:
+            install_args = []
+            sources = []
+            if requirements.is_file():
+                install_args.extend(["-r", str(requirements)])
+                sources.append(str(requirements))
+            if info.pip_dependencies:
+                install_args.extend(info.pip_dependencies)
+                sources.append("enabled manifest dependencies")
+            source = " and ".join(sources)
         else:
             install_args = missing
             source = "declared import names"
@@ -335,12 +592,42 @@ def _pkg_root_module() -> types.ModuleType:
     return root
 
 
-def _import_nodes_package(snake_name: str, nodes_dir: Path) -> types.ModuleType:
-    root = _pkg_root_module()
+def _clear_package_modules(snake_name: str) -> None:
     module_name = f"{_PKG_MODULE_ROOT}.{snake_name}"
-    # Drop any previous load so a reload re-executes the node modules.
     for key in [k for k in sys.modules if k == module_name or k.startswith(module_name + ".")]:
         del sys.modules[key]
+    root = sys.modules.get(_PKG_MODULE_ROOT)
+    if root is not None and hasattr(root, snake_name):
+        delattr(root, snake_name)
+
+
+def _prepare_component_package(snake_name: str, pkg_path: Path) -> types.ModuleType:
+    root = _pkg_root_module()
+    module_name = f"{_PKG_MODULE_ROOT}.{snake_name}"
+    module = types.ModuleType(module_name)
+    module.__path__ = [str(pkg_path)]
+    sys.modules[module_name] = module
+    setattr(root, snake_name, module)
+    return module
+
+
+def _import_nodes_package(
+    snake_name: str,
+    nodes_dir: Path,
+    *,
+    clear: bool = True,
+) -> types.ModuleType:
+    root = _pkg_root_module()
+    module_name = f"{_PKG_MODULE_ROOT}.{snake_name}"
+    if clear:
+        _clear_package_modules(snake_name)
+    module = _import_nodes_module(module_name, nodes_dir)
+    setattr(root, snake_name, module)
+    return module
+
+
+def _import_nodes_module(module_name: str, nodes_dir: Path) -> types.ModuleType:
+    """Import one directory as a package and execute each public top-level module."""
 
     init_py = nodes_dir / "__init__.py"
     if init_py.exists():
@@ -360,7 +647,6 @@ def _import_nodes_package(snake_name: str, nodes_dir: Path) -> types.ModuleType:
         module = types.ModuleType(module_name)
         module.__path__ = [str(nodes_dir)]
         sys.modules[module_name] = module
-    setattr(root, snake_name, module)
 
     # Import every top-level node module __init__ did not already pull in.
     for path in sorted(nodes_dir.glob("*.py")):
@@ -387,6 +673,14 @@ def _load_entry_point_packages() -> list[PackageInfo]:
         info.version = str(getattr(module, "__version__", ""))
         info.description = (module.__doc__ or "").strip().split("\n")[0]
         info.path = getattr(module, "__file__", "") or ""
+        indexed = indexed_package(info.name) or {}
+        info.layer = _package_layer(getattr(module, "BLACKNODE_LAYER", "") or indexed.get("layer"))
+        info.components = _package_components(
+            getattr(module, "BLACKNODE_COMPONENTS", {}) or indexed.get("components")
+        )
+        for component_name, component in info.components.items():
+            component["enabled"] = True
+            info.enabled_components.append(component_name)
         info.categories = {
             str(k): str(v)
             for k, v in (getattr(module, "BLACKNODE_CATEGORIES", {}) or {}).items()
@@ -604,11 +898,20 @@ def install_prerequisites(pkg_dir: str | Path, progress: Callable[[str], None] =
     images. Returns warning strings; never raises."""
     pkg_path = Path(pkg_dir).expanduser().resolve()
     warnings: list[str] = []
+    info = load_package(pkg_path)
 
     requirements = pkg_path / "requirements.txt"
-    if requirements.exists():
-        progress(f"Installing pip dependencies from {requirements}")
-        pip = subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(requirements)])
+    install_args: list[str] = []
+    sources: list[str] = []
+    if requirements.is_file():
+        install_args.extend(["-r", str(requirements)])
+        sources.append(str(requirements))
+    if info.pip_dependencies:
+        install_args.extend(info.pip_dependencies)
+        sources.append("enabled manifest dependencies")
+    if install_args:
+        progress(f"Installing pip dependencies from {' and '.join(sources)}")
+        pip = subprocess.run([sys.executable, "-m", "pip", "install", *install_args])
         if pip.returncode != 0:
             warnings.append("pip install failed; the package may not load until deps are installed")
 
@@ -653,11 +956,29 @@ def remove_package(name: str, root: str | Path | None = None) -> dict[str, Any]:
     except Exception as exc:
         return {"ok": False, "error": f"Could not delete {path}: {exc}"}
 
-    for node_name, fn in list(_NODE_REGISTRY.items()):
-        if getattr(fn, "_bn_package", "") == name:
-            del _NODE_REGISTRY[node_name]
+    _deregister_package_nodes(name)
+    _clear_package_modules(_safe_module_name(name))
+    _remove_package_component_state(path, name)
     del _PACKAGE_REGISTRY[name]
     return {"ok": True, "error": ""}
+
+
+def _remove_package_component_state(pkg_path: Path, package_name: str) -> None:
+    state_path = _component_state_path(pkg_path)
+    if not state_path.is_file():
+        return
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        packages = payload.get("packages", {})
+        if not isinstance(packages, dict) or package_name not in packages:
+            return
+        packages.pop(package_name, None)
+        temporary = state_path.with_suffix(state_path.suffix + ".tmp")
+        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(state_path)
+    except Exception:
+        # Package deletion succeeded; stale preferences must not make deletion fail.
+        return
 
 
 def _rmtree_force(path: Path) -> None:
@@ -761,6 +1082,7 @@ __all__ = [
     "package_template_dirs",
     "packages_root",
     "remove_package",
+    "set_component_enabled",
     "update_packages",
     "resolve_package_git_url",
 ]

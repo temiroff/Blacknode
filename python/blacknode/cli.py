@@ -176,6 +176,16 @@ def _parser() -> argparse.ArgumentParser:
         "--missing", action="store_true",
         help="install Python dependencies only for installed packages whose declared imports are missing",
     )
+    packages_components = packages_sub.add_parser(
+        "components", help="show selectively managed components and their activation state"
+    )
+    packages_components.add_argument("name", nargs="?", help="limit output to one installed package")
+    packages_enable = packages_sub.add_parser("enable", help="enable one package component")
+    packages_enable.add_argument("name", help="installed package name")
+    packages_enable.add_argument("component", help="component name")
+    packages_disable = packages_sub.add_parser("disable", help="disable one package component")
+    packages_disable.add_argument("name", help="installed package name")
+    packages_disable.add_argument("component", help="component name")
 
     mcp = subcommands.add_parser("mcp", help="run the Blacknode MCP server")
     mcp.add_argument(
@@ -208,7 +218,13 @@ def _packages(args: Any) -> int:
         return _packages_install(args.url, args.directory, args.no_deps)
     if args.packages_command == "setup":
         return _packages_setup(args.name, args.directory, args.missing)
-    print("usage: blacknode packages {list,status,update,install,setup}", file=sys.stderr)
+    if args.packages_command == "components":
+        return _packages_components(args.name)
+    if args.packages_command == "enable":
+        return _packages_set_component(args.name, args.component, True)
+    if args.packages_command == "disable":
+        return _packages_set_component(args.name, args.component, False)
+    print("usage: blacknode packages {list,status,update,install,setup,components,enable,disable}", file=sys.stderr)
     return 2
 
 
@@ -365,6 +381,48 @@ def _packages_setup(name: str | None, directory: Path | None, missing: bool = Fa
         return 0
     print(f"Package still fails to load:\n{info.error}", file=sys.stderr)
     return 1
+
+
+def _packages_components(name: str | None) -> int:
+    import blacknode  # noqa: F401 - triggers package discovery
+
+    from .packages import installed_packages
+
+    packages = [info for info in installed_packages() if not name or info.name == name]
+    if name and not packages:
+        print(f"error: no package named '{name}' is installed", file=sys.stderr)
+        return 1
+    shown = False
+    for info in packages:
+        if not info.components:
+            continue
+        shown = True
+        mode = "selective" if info.component_mode else "catalog only"
+        print(f"{info.name} [{mode}]")
+        for component in info.components.values():
+            state = "enabled" if component.get("enabled") else "disabled"
+            default = " (default)" if component.get("default") else ""
+            print(f"  {component['name']}: {state}{default}")
+    if not shown:
+        target = f"Package '{name}' has" if name else "Installed packages have"
+        print(f"{target} no declared components.")
+    return 0
+
+
+def _packages_set_component(name: str, component: str, enabled: bool) -> int:
+    import blacknode  # noqa: F401 - triggers package discovery
+
+    from .packages import set_component_enabled
+
+    try:
+        info = set_component_enabled(name, component, enabled)
+    except (ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    action = "enabled" if enabled else "disabled"
+    print(f"{action} {name}/{component}: {len(info.node_types)} package nodes active")
+    _print_package_warnings(info)
+    return 0
 
 
 def _validate(path: Path) -> int:

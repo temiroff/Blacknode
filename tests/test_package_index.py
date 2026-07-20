@@ -34,6 +34,19 @@ def _workflow(node_type: str, required_packages=None):
 def test_core_index_maps_official_node_types_to_git_packages():
     payload = package_index_payload()
 
+    assert payload["schema_version"] == 2
+    assert payload["packages"]["blacknode-robot"]["layer"] == "robot"
+    assert payload["packages"]["blacknode-vision"]["layer"] == "perception"
+    assert payload["packages"]["blacknode-ros2"]["layer"] == "integration"
+    assert payload["packages"]["blacknode-dataset"]["layer"] == "learning"
+    drivers = payload["packages"]["blacknode-drivers"]
+    assert drivers["layer"] == "drivers"
+    assert drivers["components"]["feetech"]["default"] is True
+    assert drivers["components"]["feetech"]["node_types"] == [
+        "FeetechBusConfig",
+        "FeetechBusProbe",
+    ]
+    assert payload["nodes"]["FeetechBusProbe"]["package"] == "blacknode-drivers"
     assert payload["nodes"]["CUDAKernelLab"] == {
         "package": "blacknode-cuda",
         "git_url": "https://github.com/temiroff/blacknode-cuda.git",

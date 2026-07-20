@@ -2,6 +2,7 @@
 core version, and report failures without breaking startup."""
 import subprocess
 import textwrap
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,12 +12,21 @@ from blacknode.packages import (
     _PACKAGE_REGISTRY,
     discover_packages,
     install_from_git,
+    install_prerequisites,
     load_package,
     remove_package,
+    set_component_enabled,
 )
 
 
-def _write_package(tmp_path, name="bn-test-pkg", node_name="_PkgProbe", requires=""):
+def _write_package(
+    tmp_path,
+    name="bn-test-pkg",
+    node_name="_PkgProbe",
+    requires="",
+    package_metadata="",
+    component_metadata="",
+):
     pkg = tmp_path / name
     (pkg / "nodes").mkdir(parents=True)
     requires_line = f'requires-blacknode = "{requires}"' if requires else ""
@@ -26,9 +36,12 @@ def _write_package(tmp_path, name="bn-test-pkg", node_name="_PkgProbe", requires
         version = "0.0.1"
         description = "test package"
         {requires_line}
+        {package_metadata}
 
         [categories]
         "Test Pkg" = "#123456"
+
+        {component_metadata}
     """), encoding="utf-8")
     (pkg / "nodes" / "probe.py").write_text(textwrap.dedent(f"""
         from blacknode.node import Text, node
@@ -52,6 +65,163 @@ def test_folder_package_registers_nodes(tmp_path):
     assert _PACKAGE_REGISTRY["bn-test-pkg"].categories["Test Pkg"] == "#123456"
     # node runs through the registry like any built-in
     assert _NODE_REGISTRY["_PkgProbe"]({"text": "hi"}) == {"out": "hi"}
+
+
+def test_folder_package_exposes_layer_and_component_catalog(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-driver-layer",
+        node_name="_PkgDriverLayer",
+        package_metadata='layer = "Drivers"',
+        component_metadata='''
+        [components.feetech]
+        description = "Feetech serial-bus adapter"
+        default = true
+        capabilities = ["robot.joint-driver", "driver.feetech"]
+        ''',
+    )
+
+    info = load_package(pkg)
+
+    assert info.layer == "drivers"
+    component = info.components["feetech"]
+    assert component["name"] == "feetech"
+    assert component["description"] == "Feetech serial-bus adapter"
+    assert component["default"] is True
+    assert component["enabled"] is True
+    assert component["capabilities"] == ["driver.feetech", "robot.joint-driver"]
+    assert component["node_paths"] == []
+    assert info.component_mode is False
+    assert "_PkgDriverLayer" in info.node_types
+
+
+def _write_component_node(pkg, component, node_name):
+    nodes = pkg / "components" / component / "nodes"
+    nodes.mkdir(parents=True)
+    (nodes / "probe.py").write_text(textwrap.dedent(f"""
+        from blacknode.node import Text, node
+
+
+        @node(name="{node_name}", category="Test Pkg", inputs={{"text": Text}}, outputs={{"out": Text}})
+        def probe(text: str) -> str:
+            return text
+    """), encoding="utf-8")
+
+
+def test_component_package_loads_only_enabled_nodes_and_dependencies(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-component-layer",
+        node_name="_PkgComponentRootIgnored",
+        package_metadata='layer = "Drivers"',
+        component_metadata='''
+        [components.core]
+        description = "Default driver contract"
+        default = true
+        nodes = ["components/core/nodes"]
+        pip = ["core-driver>=1"]
+        imports = ["json"]
+
+        [components.optional]
+        description = "Optional vendor adapter"
+        default = false
+        nodes = ["components/optional/nodes"]
+        pip = ["optional-driver>=2"]
+        docker = ["vendor/driver:latest"]
+        ''',
+    )
+    _write_component_node(pkg, "core", "_PkgComponentCore")
+    _write_component_node(pkg, "optional", "_PkgComponentOptional")
+
+    info = load_package(pkg)
+    assert info.ok
+    assert info.component_mode is True
+    assert info.enabled_components == ["core"]
+    assert "_PkgComponentCore" in _NODE_REGISTRY
+    assert "_PkgComponentOptional" not in _NODE_REGISTRY
+    assert "_PkgComponentRootIgnored" not in _NODE_REGISTRY
+    assert info.pip_dependencies == ["core-driver>=1"]
+    assert info.docker_images == []
+    assert _NODE_REGISTRY["_PkgComponentCore"]._bn_component == "core"
+
+    enabled = set_component_enabled("bn-component-layer", "optional", True)
+    assert enabled.enabled_components == ["core", "optional"]
+    assert "_PkgComponentCore" in _NODE_REGISTRY
+    assert "_PkgComponentOptional" in _NODE_REGISTRY
+    assert enabled.pip_dependencies == ["core-driver>=1", "optional-driver>=2"]
+    assert enabled.docker_images == ["vendor/driver:latest"]
+    state = tmp_path / ".blacknode-components.json"
+    assert state.is_file()
+    assert '"optional": true' in state.read_text(encoding="utf-8")
+
+    disabled = set_component_enabled("bn-component-layer", "optional", False)
+    assert disabled.enabled_components == ["core"]
+    assert "_PkgComponentOptional" not in _NODE_REGISTRY
+    assert "_PkgComponentCore" in _NODE_REGISTRY
+
+
+def test_component_activation_rejects_paths_outside_package_and_rolls_back(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-component-invalid",
+        node_name="_PkgComponentInvalidRoot",
+        component_metadata='''
+        [components.core]
+        default = true
+        nodes = ["components/core/nodes"]
+
+        [components.unsafe]
+        default = false
+        nodes = ["../outside"]
+        ''',
+    )
+    _write_component_node(pkg, "core", "_PkgComponentSafe")
+    assert load_package(pkg).ok
+
+    with pytest.raises(RuntimeError, match="escapes the package"):
+        set_component_enabled("bn-component-invalid", "unsafe", True)
+
+    restored = _PACKAGE_REGISTRY["bn-component-invalid"]
+    assert restored.ok
+    assert restored.enabled_components == ["core"]
+    assert "_PkgComponentSafe" in _NODE_REGISTRY
+
+
+def test_component_setup_installs_only_enabled_manifest_dependencies(tmp_path, monkeypatch):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-component-setup",
+        node_name="_PkgComponentSetupRoot",
+        component_metadata='''
+        [components.core]
+        default = true
+        nodes = ["components/core/nodes"]
+        pip = ["core-driver>=1"]
+
+        [components.optional]
+        default = false
+        nodes = ["components/optional/nodes"]
+        pip = ["optional-driver>=2"]
+        ''',
+    )
+    _write_component_node(pkg, "core", "_PkgComponentSetupCore")
+    _write_component_node(pkg, "optional", "_PkgComponentSetupOptional")
+    (pkg / "requirements.txt").write_text("shared-runtime>=1\n", encoding="utf-8")
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    warnings = install_prerequisites(pkg, progress=lambda _line: None)
+
+    assert warnings == []
+    assert len(commands) == 1
+    command = commands[0]
+    assert "-r" in command
+    assert "core-driver>=1" in command
+    assert "optional-driver>=2" not in command
 
 
 def test_version_gate_blocks_load(tmp_path):

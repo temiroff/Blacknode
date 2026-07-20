@@ -30,6 +30,7 @@ from blacknode.packages import installed_packages, package_category_colors, pack
 from blacknode.packages import load_package as bn_load_package
 from blacknode.packages import packages_root as bn_packages_root
 from blacknode.packages import remove_package as bn_remove_package
+from blacknode.packages import set_component_enabled as bn_set_component_enabled
 from blacknode.python_importer import import_workflow_python
 from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
@@ -3463,6 +3464,23 @@ def setup_package(name: str):
     bn_install_prerequisites(dest, progress=log.append)
     info = bn_load_package(dest)
     return {"ok": info.ok, "package": info.to_dict(), "log": log}
+
+
+@app.post("/packages/{name}/components/{component}/{action}")
+def set_package_component(name: str, component: str, action: str):
+    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", name):
+        raise HTTPException(400, "Invalid package name")
+    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", component):
+        raise HTTPException(400, "Invalid component name")
+    if action not in {"enable", "disable"}:
+        raise HTTPException(400, "Component action must be enable or disable")
+    try:
+        info = bn_set_component_enabled(name, component, action == "enable")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"ok": True, "package": info.to_dict()}
 
 
 @app.delete("/packages/{name}")
