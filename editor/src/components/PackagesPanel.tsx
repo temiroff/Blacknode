@@ -210,6 +210,22 @@ export default function PackagesPanel() {
     }
   }
 
+  const resetComponent = async (packageName: string, componentName: string, adapterName?: string) => {
+    const key = `${packageName}/${componentName}${adapterName ? `@${adapterName}` : ''}:reset`
+    setComponentBusy(key)
+    setError(null)
+    try {
+      if (adapterName) await api.resetPackageAdapter(packageName, componentName, adapterName)
+      else await api.resetPackageComponent(packageName, componentName)
+      await refresh()
+      await loadNodeTypes()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setComponentBusy(null)
+    }
+  }
+
   return (
     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -401,6 +417,7 @@ export default function PackagesPanel() {
                             )}
                           </div>
                           {pkg.component_mode ? (
+                            <>
                             <button
                               onClick={() => setComponent(pkg.name, component.name, !enabled)}
                               disabled={busy || componentBusy !== null}
@@ -412,6 +429,15 @@ export default function PackagesPanel() {
                             >
                               {changing ? 'Working...' : enabled ? 'Disable' : 'Enable'}
                             </button>
+                            <button
+                              title="Restore the manifest default"
+                              onClick={() => resetComponent(pkg.name, component.name)}
+                              disabled={busy || componentBusy !== null}
+                              style={buttonStyle(busy || componentBusy !== null)}
+                            >
+                              {componentBusy === `${key}:reset` ? 'Working...' : 'Reset'}
+                            </button>
+                            </>
                           ) : (
                             <span style={{ color: 'var(--tx3)', fontSize: 9, fontFamily: 'var(--font-mono)' }}>included</span>
                           )}
@@ -439,6 +465,14 @@ export default function PackagesPanel() {
                                   }}
                                 >
                                   {adapterChanging ? 'Working...' : adapterEnabled ? 'Disable' : 'Enable'}
+                                </button>
+                                <button
+                                  title="Restore the adapter manifest default"
+                                  onClick={() => resetComponent(pkg.name, component.name, adapter.name)}
+                                  disabled={busy || componentBusy !== null || !enabled}
+                                  style={buttonStyle(busy || componentBusy !== null || !enabled)}
+                                >
+                                  {componentBusy === `${adapterKey}:reset` ? 'Working...' : 'Reset'}
                                 </button>
                               </div>
                             )

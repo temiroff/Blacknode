@@ -9,8 +9,14 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
         "name": "blacknode-skills",
         "layer": "skills",
         "components": {
-            name: {"name": name, "default": False, "node_types": []}
-            for name in ("pick-place", "follow-person", "delivery", "docking", "inspection")
+            "follow-person": {
+                "name": "follow-person", "default": False, "node_types": [],
+                "adapters": {"ros2": {"name": "ros2", "default": False, "node_types": []}},
+            },
+            **{
+                name: {"name": name, "default": False, "node_types": []}
+                for name in ("pick-place", "delivery", "docking", "inspection")
+            },
         },
         "git_url": "https://github.com/temiroff/blacknode-skills.git",
         "description": "Reusable task-level robot skills composed from stable capabilities.",
@@ -31,15 +37,31 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
         "name": "blacknode-controllers",
         "layer": "controllers",
         "components": {
-            name: {"name": name, "default": False, "node_types": []}
-            for name in (
-                "mobile-base", "nav2", "manipulation", "policy",
-                "command-arbitration", "safety-supervisors",
-            )
+            "mobile-base": {
+                "name": "mobile-base", "default": False, "node_types": [],
+                "adapters": {"ros2": {
+                    "name": "ros2", "default": False,
+                    "node_types": ["BaseSafetyGate", "ROS2BaseMove", "ROS2BaseStop", "ROS2LaserScanCheck", "ROS2OdomState"],
+                }},
+            },
+            "policy": {
+                "name": "policy", "default": True, "node_types": [],
+                "adapters": {"ros2": {
+                    "name": "ros2", "default": False,
+                    "node_types": ["PolicyRuntime", "PolicySafetyGate"],
+                }},
+            },
+            **{
+                name: {"name": name, "default": False, "node_types": []}
+                for name in ("nav2", "manipulation", "command-arbitration", "safety-supervisors")
+            },
         },
         "git_url": "https://github.com/temiroff/blacknode-controllers.git",
         "description": "Generic motion, manipulation, policy, arbitration, and safety controllers.",
-        "node_types": [],
+        "node_types": [
+            "BaseSafetyGate", "PolicyRuntime", "PolicySafetyGate", "ROS2BaseMove",
+            "ROS2BaseStop", "ROS2LaserScanCheck", "ROS2OdomState",
+        ],
     },
     "blacknode-drivers": {
         "name": "blacknode-drivers",
@@ -105,26 +127,33 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "name": "core",
                 "default": True,
                 "capabilities": ["integration.ros2", "transport.ros2", "transport.rosbridge"],
-                "node_types": [],
+                "node_types": [
+                    "ROS2BridgeEcho", "ROS2BridgePublish", "ROS2Command", "ROS2CompressedImageSnapshot",
+                    "ROS2ContinuousFollowDetectionJoint", "ROS2DemoPublisher", "ROS2FollowDetectionJoint",
+                    "ROS2ImageSnapshot", "ROS2ImageStream", "ROS2InterfaceShow", "ROS2JointState", "ROS2Launch",
+                    "ROS2LeaderFollower", "ROS2ManualMove", "ROS2MotionDashboard", "ROS2NativeFollowDetectionJoint",
+                    "ROS2NativeJointState", "ROS2NativeRobotDiscovery", "ROS2NativeSetJoint", "ROS2NativeStatus",
+                    "ROS2NodeList", "ROS2PackageExecutables", "ROS2RobotDiscovery", "ROS2RosbridgeServer",
+                    "ROS2RosbridgeStatus", "ROS2RotateJoint", "ROS2Run", "ROS2ServiceList", "ROS2SetJoint",
+                    "ROS2Status", "ROS2SystemCheck", "ROS2TeachMode", "ROS2TopicEcho", "ROS2TopicList",
+                    "ROS2TopicPublish", "ROS2VisualDashboard",
+                ],
             },
         },
         "git_url": "https://github.com/temiroff/blacknode-ros2.git",
         "description": "ROS 2 topics, streams, robot interfaces, and safety-gated policy deployment.",
         "node_types": [
-            "BaseSafetyGate",
-            "ROS2BaseMove",
-            "ROS2BaseStop",
             "ROS2BridgeEcho",
             "ROS2BridgePublish",
             "ROS2Command",
             "ROS2CompressedImageSnapshot",
+            "ROS2ContinuousFollowDetectionJoint",
             "ROS2DemoPublisher",
             "ROS2ImageSnapshot",
             "ROS2ImageStream",
             "ROS2InterfaceShow",
             "ROS2FollowDetectionJoint",
             "ROS2JointState",
-            "ROS2LaserScanCheck",
             "ROS2LeaderFollower",
             "ROS2ManualMove",
             "ROS2Launch",
@@ -135,9 +164,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "ROS2NativeSetJoint",
             "ROS2NativeStatus",
             "ROS2NodeList",
-            "ROS2OdomState",
             "ROS2PackageExecutables",
             "ROS2RosbridgeStatus",
+            "ROS2RosbridgeServer",
             "ROS2RobotDiscovery",
             "ROS2RotateJoint",
             "ROS2SetJoint",
@@ -145,12 +174,11 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "ROS2Run",
             "ROS2ServiceList",
             "ROS2SystemCheck",
+            "ROS2TeachMode",
             "ROS2TopicEcho",
             "ROS2TopicList",
             "ROS2TopicPublish",
             "ROS2VisualDashboard",
-            "PolicySafetyGate",
-            "PolicyRuntime",
         ],
     },
     "blacknode-robot": {
@@ -161,13 +189,19 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "name": "core",
                 "default": True,
                 "capabilities": ["robot.contracts", "robot.profiles", "robot.calibration", "robot.discovery"],
-                "node_types": [],
+                "node_types": [
+                    "Robot", "RobotCalibrationRecorder", "RobotConnectionDashboard", "RobotDefinition",
+                    "RobotDiscovery", "RobotDriverDescriptor", "RobotDriverLauncher", "RobotDriverPreset",
+                    "RobotJointDefinition", "RobotJointList", "RobotProfileDuplicate", "RobotProfileList",
+                    "RobotProfileLoad", "RobotProfileSave", "RobotUSBDiscovery",
+                ],
             },
         },
         "git_url": "https://github.com/temiroff/blacknode-robot.git",
         "description": "Generic robot setup: USB discovery, serial permission diagnostics, driver launch, and standard robot profiles.",
         "node_types": [
             "RobotDiscovery",
+            "RobotConnectionDashboard",
             "RobotDriverDescriptor",
             "RobotDriverLauncher",
             "RobotDriverPreset",
@@ -186,11 +220,32 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     "blacknode-vision": {
         "name": "blacknode-vision",
         "layer": "perception",
-        "components": {},
-        "git_url": "https://github.com/temiroff/blacknode-vision.git",
-        "description": "Robot vision workflows: USB cameras, ROS 2 image streams, VLM reasoning dashboards, and OpenCV object tracking.",
+        "components": {
+            "camera": {
+                "name": "camera", "default": True,
+                "node_types": [
+                    "Camera", "CameraCalibration", "CameraDiscovery", "CameraSelect", "CameraStream",
+                    "CV2CameraDiscovery", "CV2CameraSelect", "CV2CameraStream", "CV2ColorObjectStream",
+                    "CV2ColorObjectTracker", "CV2ColorTargetHint", "CV2HSVMask",
+                ],
+            },
+            "vlm": {
+                "name": "vlm", "default": True,
+                "node_types": [
+                    "VisionDetectionPrompt", "VisionFramePrompt", "VisionReasoningDashboard",
+                    "VisionReasoningStream", "VisionStreamStatus", "VisionVLMDescribe",
+                ],
+            },
+            **{
+                name: {"name": name, "default": False, "node_types": []}
+                for name in ("depth", "lidar", "imu", "detection", "tracking", "slam", "localization")
+            },
+        },
+        "git_url": "https://github.com/temiroff/blacknode-perception.git",
+        "description": "Camera, tracking, VLM, and spatial-perception capabilities organized as selectable components.",
         "node_types": [
             "Camera",
+            "CameraCalibration",
             "CameraStream",
             "CameraDiscovery",
             "CameraSelect",
@@ -247,7 +302,17 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     "blacknode-isaac": {
         "name": "blacknode-isaac",
         "layer": "simulation",
-        "components": {},
+        "components": {
+            "core": {
+                "name": "core", "default": True,
+                "node_types": ["IsaacPolicyBridge", "IsaacPolicyRuntime", "IsaacPolicySafetyGate"],
+                "dependencies": {
+                    "requires": [
+                        {"package": "blacknode-controllers", "component": "policy", "version": ">=0.1.0,<1.0.0"},
+                    ],
+                },
+            },
+        },
         "git_url": "https://github.com/temiroff/blacknode-isaac.git",
         "description": "Closed-loop policy deployment for Isaac Sim articulations and named RGB sensors.",
         "node_types": [

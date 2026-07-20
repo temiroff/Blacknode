@@ -119,8 +119,9 @@ development:
 |---|---|
 | `blacknode-drivers` | Selectively enabled physical hardware drivers and firmware adapters; the first `feetech` component provides inert bus configuration, read-only probing, and torque-safe bus primitives. |
 | `blacknode-robot` | Generic USB robot discovery, serial permission help, driver descriptors, driver process launch, and the standard robot profile. |
-| `blacknode-ros2` | ROS 2 system checks, topic inspection, image streams, process controls, robot control, safety gates, and managed policy execution. |
-| `blacknode-vision` | USB camera ROS package, VLM frame reasoning, live reasoning dashboards, OpenCV masks, color tracking streams, and graph-level Python exports. |
+| `blacknode-controllers` | Mobile-base, navigation, manipulation, policy, arbitration, and safety controllers with optional transport adapters. |
+| `blacknode-ros2` | ROS 2 graph discovery, topics, services, native/rosbridge transport, managed processes, and diagnostics. |
+| `blacknode-vision` | Compatibility package identity for the `blacknode-perception` repository: camera, tracking, VLM, and spatial-perception components. |
 | `blacknode-dataset` | Blacknode-native episode journals, synchronized robot/camera recording, dataset validation, HDF5 and structured Parquet/MP4 export profiles, and explicit repository publishing. |
 | `blacknode-training` | PyTorch action-chunking training from Blacknode HDF5 episodes, managed jobs, resumable checkpoints, recorded-frame previews, and deployable policy artifacts. |
 | `blacknode-isaac` | Direct closed-loop policy deployment using Isaac Sim articulation state, named RGB sensors, safety-gated targets, and runtime replay logs. |
@@ -258,9 +259,9 @@ A package can declare its product layer and describe the components it owns:
 ```toml
 [package]
 name = "blacknode-drivers"
-version = "0.1.0"
+version = "0.3.0"
 description = "Blacknode physical hardware and firmware adapters."
-requires-blacknode = ">=0.1.0"
+requires-blacknode = ">=0.3.0"
 layer = "drivers"
 component-mode = true
 
@@ -269,6 +270,8 @@ description = "Feetech serial-bus servo adapter."
 default = true
 capabilities = ["driver.feetech", "robot.joint-driver"]
 nodes = ["components/feetech/nodes"]
+templates = ["components/feetech/templates"]
+setup-hooks = ["components/feetech/scripts/setup.py"]
 node-types = ["FeetechBus", "FeetechServo"]
 
 [components.feetech.dependencies]
@@ -320,6 +323,8 @@ blacknode packages enable blacknode-drivers feetech --adapter ros2
 blacknode packages setup blacknode-drivers
 blacknode packages disable blacknode-drivers feetech --adapter ros2
 blacknode packages disable blacknode-drivers feetech
+blacknode packages reset blacknode-drivers feetech --adapter ros2
+blacknode packages reset blacknode-drivers feetech
 ```
 
 `dependencies` prints the complete installed activation order. A component can
@@ -351,7 +356,10 @@ installs, removals, and component changes atomically write
 sources, and enabled components.
 
 `setup` installs shared requirements plus pip dependencies of enabled
-components and their enabled adapters. pip reuses already satisfied
+components and their enabled adapters. It also runs only the enabled units'
+declared `.py` or `.sh` `setup-hooks`; paths must remain inside the package.
+Enabled component and adapter `templates` paths are added to the Templates tab.
+pip reuses already satisfied
 dependencies and checks declared version constraints. Component node modules use aliases such as
 `blacknode.pkg.blacknode_drivers.feetech.<module>`.
 Adapter modules use nested aliases such as
@@ -363,6 +371,20 @@ Existing flat manifests remain compatible: their root `nodes/` directory and
 package-wide dependencies continue to load as one implicit component. A
 manifest can also publish descriptive `[components.*]` entries without opting
 into component mode; the UI marks those entries as included.
+
+`disable` creates an explicit local override. `reset` removes that override and
+returns the component or adapter to its versioned manifest default. The same
+operation is available in the Packages UI and HTTP component endpoints.
+
+Official repositories run a release drift gate in CI:
+
+```bash
+blacknode packages validate-catalog /path/to/package
+```
+
+This compares the manifest layer, component/adapter names, and declared node
+types with Blacknode's authoritative package index, including disabled optional
+components.
 
 Lockfile reproduction and version selection across multiple compatible remote
 releases remain future resolver stages.

@@ -72,6 +72,8 @@ class PackageInfo:
     missing_node_types: list[str] = field(default_factory=list)
     git_status: dict[str, Any] = field(default_factory=dict)
     templates_dir: str = ""
+    template_dirs: list[str] = field(default_factory=list)
+    setup_hooks: list[str] = field(default_factory=list)
     ok: bool = True
     error: str = ""
     warnings: list[str] = field(default_factory=list)  # non-fatal (e.g. missing runtime dep)
@@ -142,7 +144,12 @@ def package_category_colors() -> dict[str, str]:
 
 
 def package_template_dirs() -> list[str]:
-    return [info.templates_dir for info in _PACKAGE_REGISTRY.values() if info.ok and info.templates_dir]
+    return list(dict.fromkeys(
+        path
+        for info in _PACKAGE_REGISTRY.values()
+        if info.ok
+        for path in (info.template_dirs or ([info.templates_dir] if info.templates_dir else []))
+    ))
 
 
 def _package_layer(value: Any) -> str:
@@ -180,6 +187,8 @@ def _package_components(value: Any) -> dict[str, dict[str, Any]]:
             }) if isinstance(capabilities, list) else [],
             "node_types": _string_list(config.get("node-types", config.get("node_types", []))),
             "node_paths": _string_list(node_paths),
+            "template_paths": _string_list(config.get("templates", config.get("template-paths", []))),
+            "setup_hooks": _string_list(config.get("setup-hooks", [])),
             "module_root": bool(config.get("module-root", False)),
             "pip_dependencies": _string_list(dependencies.get("pip", config.get("pip", []))),
             "import_dependencies": _string_list(dependencies.get("imports", config.get("imports", []))),
@@ -221,6 +230,8 @@ def _package_adapters(value: Any) -> dict[str, dict[str, Any]]:
             }) if isinstance(capabilities, list) else [],
             "node_types": _string_list(config.get("node-types", config.get("node_types", []))),
             "node_paths": _string_list(node_paths),
+            "template_paths": _string_list(config.get("templates", config.get("template-paths", []))),
+            "setup_hooks": _string_list(config.get("setup-hooks", [])),
             "pip_dependencies": _string_list(dependencies.get("pip", config.get("pip", []))),
             "import_dependencies": _string_list(dependencies.get("imports", config.get("imports", []))),
             "docker_images": _string_list(dependencies.get("docker", config.get("docker", []))),
@@ -278,6 +289,14 @@ def _string_list(value: Any) -> list[str]:
 def _component_state_path(pkg_path: Path) -> Path:
     """Keep local activation outside the extension repository worktree."""
     return pkg_path.parent / _COMPONENT_STATE_NAME
+
+
+def _package_owned_path(pkg_path: Path, value: str, label: str) -> Path:
+    """Resolve a manifest path while preventing access outside its package."""
+    resolved = (pkg_path / value).resolve()
+    if resolved != pkg_path and pkg_path not in resolved.parents:
+        raise ValueError(f"{label} escapes package root: {value}")
+    return resolved
 
 
 def _read_component_overrides(pkg_path: Path, package_name: str) -> tuple[dict[str, bool], str]:
@@ -351,6 +370,81 @@ def discover_packages(paths: list[str | Path] | None = None) -> dict[str, Any]:
         "loaded": [info.to_dict() for info in infos if info.ok],
         "failed": [info.to_dict() for info in infos if not info.ok],
     }
+
+
+def validate_package_catalog(pkg_dir: str | Path) -> list[str]:
+    """Return authoritative-index drift errors for one official package.
+
+    Component packages are validated from their manifest declarations so
+    optional, currently disabled node sets remain part of the release check.
+    """
+    pkg_path = Path(pkg_dir).expanduser().resolve()
+    try:
+        manifest = tomllib.loads((pkg_path / MANIFEST_NAME).read_text(encoding="utf-8"))
+    except Exception as exc:
+        return [f"could not parse {MANIFEST_NAME}: {exc}"]
+    meta = manifest.get("package", {}) or {}
+    name = _package_name(meta.get("name") or pkg_path.name)
+    indexed = indexed_package(name)
+    if indexed is None:
+        return [f"package '{name}' is not present in the official package catalog"]
+
+    errors: list[str] = []
+    manifest_layer = _package_layer(meta.get("layer"))
+    catalog_layer = _package_layer(indexed.get("layer"))
+    if manifest_layer != catalog_layer:
+        errors.append(f"layer is '{manifest_layer}' in manifest and '{catalog_layer}' in catalog")
+
+    manifest_components = _package_components(manifest.get("components"))
+    catalog_components = _package_components(indexed.get("components"))
+    if set(manifest_components) != set(catalog_components):
+        errors.append(
+            "component names differ: manifest="
+            + ",".join(sorted(manifest_components))
+            + " catalog="
+            + ",".join(sorted(catalog_components))
+        )
+
+    declared_nodes: set[str] = set()
+    for component_name in sorted(set(manifest_components) & set(catalog_components)):
+        component = manifest_components[component_name]
+        catalog_component = catalog_components[component_name]
+        actual = set(component["node_types"])
+        expected = set(catalog_component["node_types"])
+        if actual != expected:
+            errors.append(
+                f"component {component_name} node-types differ: manifest={sorted(actual)} catalog={sorted(expected)}"
+            )
+        declared_nodes.update(actual)
+        manifest_adapters = component.get("adapters", {})
+        catalog_adapters = catalog_component.get("adapters", {})
+        if set(manifest_adapters) != set(catalog_adapters):
+            errors.append(
+                f"component {component_name} adapter names differ: manifest={sorted(manifest_adapters)} "
+                f"catalog={sorted(catalog_adapters)}"
+            )
+        for adapter_name in sorted(set(manifest_adapters) & set(catalog_adapters)):
+            actual_adapter = set(manifest_adapters[adapter_name]["node_types"])
+            expected_adapter = set(catalog_adapters[adapter_name]["node_types"])
+            if actual_adapter != expected_adapter:
+                errors.append(
+                    f"component {component_name} adapter {adapter_name} node-types differ: "
+                    f"manifest={sorted(actual_adapter)} catalog={sorted(expected_adapter)}"
+                )
+            declared_nodes.update(actual_adapter)
+
+    if not manifest_components:
+        loaded = load_package(pkg_path)
+        if not loaded.ok:
+            errors.append(f"package could not load: {loaded.error.strip().splitlines()[-1]}")
+        else:
+            declared_nodes.update(loaded.node_types)
+    indexed_nodes = set(_string_list(indexed.get("node_types", [])))
+    if declared_nodes != indexed_nodes:
+        errors.append(
+            f"package node-types differ: manifest={sorted(declared_nodes)} catalog={sorted(indexed_nodes)}"
+        )
+    return errors
 
 
 def _audit_enabled_component_dependencies(infos: list[PackageInfo]) -> None:
@@ -445,6 +539,7 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
         info.pip_dependencies = _merge_strings(info.pip_dependencies, component["pip_dependencies"])
         info.import_dependencies = _merge_strings(info.import_dependencies, component["import_dependencies"])
         info.docker_images = _merge_strings(info.docker_images, component["docker_images"])
+        info.setup_hooks = _merge_strings(info.setup_hooks, component["setup_hooks"])
         for adapter_name, adapter in component.get("adapters", {}).items():
             adapter["enabled"] = overrides.get(
                 _adapter_state_key(component_name, adapter_name),
@@ -456,6 +551,7 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
             info.pip_dependencies = _merge_strings(info.pip_dependencies, adapter["pip_dependencies"])
             info.import_dependencies = _merge_strings(info.import_dependencies, adapter["import_dependencies"])
             info.docker_images = _merge_strings(info.docker_images, adapter["docker_images"])
+            info.setup_hooks = _merge_strings(info.setup_hooks, adapter["setup_hooks"])
 
     invalid_requirements = [
         f"{component_name}: {error}"
@@ -480,6 +576,35 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
     templates_dir = pkg_path / "templates"
     if templates_dir.is_dir():
         info.templates_dir = str(templates_dir)
+        info.template_dirs.append(str(templates_dir))
+    for component_name in info.enabled_components:
+        component = info.components[component_name]
+        for template_path in component["template_paths"]:
+            try:
+                resolved = _package_owned_path(pkg_path, template_path, "template path")
+            except ValueError as exc:
+                info.warnings.append(f"component {component_name}: {exc}")
+                continue
+            if not resolved.is_dir():
+                info.warnings.append(f"component {component_name} template path does not exist: {template_path}")
+                continue
+            info.template_dirs.append(str(resolved))
+        for adapter_name, adapter in component.get("adapters", {}).items():
+            if not adapter.get("enabled"):
+                continue
+            for template_path in adapter["template_paths"]:
+                try:
+                    resolved = _package_owned_path(pkg_path, template_path, "template path")
+                except ValueError as exc:
+                    info.warnings.append(f"component {component_name} adapter {adapter_name}: {exc}")
+                    continue
+                if not resolved.is_dir():
+                    info.warnings.append(
+                        f"component {component_name} adapter {adapter_name} template path does not exist: {template_path}"
+                    )
+                    continue
+                info.template_dirs.append(str(resolved))
+    info.template_dirs = list(dict.fromkeys(info.template_dirs))
 
     if info.requires_blacknode and not _version_satisfied(info.requires_blacknode, _CORE_VERSION):
         _deregister_package_nodes(info.name)
@@ -939,6 +1064,52 @@ def set_adapter_enabled(
     if enabled:
         return _activate_component_plan(adapter_dependency_plan(package, component, adapter))
     return _set_single_adapter(info, component, adapter, False)
+
+
+def reset_component(
+    package_name: str,
+    component_name: str,
+    adapter_name: str | None = None,
+) -> PackageInfo:
+    """Remove a local activation override and restore the manifest default."""
+    package = _package_name(package_name)
+    component = _component_name(component_name)
+    info = _component_package_info(package, component)
+    adapter = _component_name(adapter_name) if adapter_name else ""
+    if adapter:
+        _adapter_package_info(package, component, adapter)
+        state_key = _adapter_state_key(component, adapter)
+        default_enabled = bool(info.components[component]["adapters"][adapter]["default"])
+    else:
+        state_key = component
+        default_enabled = bool(info.components[component]["default"])
+
+    if not default_enabled:
+        dependents = (
+            [] if adapter else _enabled_component_dependents(package, component)
+        )
+        if dependents:
+            raise ValueError(
+                f"Cannot reset {package}/{component}; manifest default is disabled and it is required by: "
+                + ", ".join(dependents)
+            )
+
+    pkg_path = Path(info.path).resolve()
+    overrides, state_error = _read_component_overrides(pkg_path, info.name)
+    if state_error:
+        raise ValueError(state_error)
+    if state_key not in overrides:
+        return info
+    previous = overrides[state_key]
+    _write_component_override(pkg_path, info.name, state_key, None)
+    updated = load_package(pkg_path)
+    if updated.ok:
+        write_package_lock(pkg_path.parent)
+        return updated
+    _write_component_override(pkg_path, info.name, state_key, previous)
+    load_package(pkg_path)
+    detail = updated.error.strip().splitlines()[-1] if updated.error.strip() else "package reload failed"
+    raise RuntimeError(f"Could not reset {package}/{component}: {detail}")
 
 
 def _component_package_info(package_name: str, component_name: str) -> PackageInfo:
@@ -1701,6 +1872,27 @@ def install_prerequisites(pkg_dir: str | Path, progress: Callable[[str], None] =
         if setup.returncode != 0:
             warnings.append(f"package setup script failed; rerun with: bash {setup_script}")
 
+    for hook_value in info.setup_hooks:
+        try:
+            hook = _package_owned_path(pkg_path, hook_value, "setup hook")
+        except ValueError as exc:
+            warnings.append(str(exc))
+            continue
+        if not hook.is_file():
+            warnings.append(f"component setup hook does not exist: {hook_value}")
+            continue
+        if hook.suffix.lower() == ".py":
+            command = [sys.executable, str(hook)]
+        elif hook.suffix.lower() == ".sh":
+            command = ["bash", str(hook)]
+        else:
+            warnings.append(f"component setup hook must be .py or .sh: {hook_value}")
+            continue
+        progress(f"Running enabled component setup hook {hook}")
+        setup = subprocess.run(command, cwd=str(pkg_path))
+        if setup.returncode != 0:
+            warnings.append(f"component setup hook failed: {hook_value}")
+
     info = load_package(pkg_path)
     for image in info.docker_images:
         if not shutil.which("docker"):
@@ -1899,7 +2091,9 @@ __all__ = [
     "package_template_dirs",
     "packages_root",
     "remove_package",
+    "reset_component",
     "set_component_enabled",
     "update_packages",
+    "validate_package_catalog",
     "resolve_package_git_url",
 ]

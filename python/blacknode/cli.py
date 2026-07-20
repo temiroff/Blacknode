@@ -188,6 +188,14 @@ def _parser() -> argparse.ArgumentParser:
     packages_disable.add_argument("name", help="installed package name")
     packages_disable.add_argument("component", help="component name")
     packages_disable.add_argument("--adapter", help="optional adapter nested under the component")
+    packages_reset = packages_sub.add_parser("reset", help="restore one component or adapter to its manifest default")
+    packages_reset.add_argument("name", help="installed package name")
+    packages_reset.add_argument("component", help="component name")
+    packages_reset.add_argument("--adapter", help="optional adapter nested under the component")
+    packages_validate_catalog = packages_sub.add_parser(
+        "validate-catalog", help="fail when an official package manifest drifts from the core catalog"
+    )
+    packages_validate_catalog.add_argument("directory", type=Path, help="package repository directory")
     packages_dependencies = packages_sub.add_parser(
         "dependencies", help="show the resolved installed dependency plan for one component"
     )
@@ -232,9 +240,13 @@ def _packages(args: Any) -> int:
         return _packages_set_component(args.name, args.component, True, args.adapter)
     if args.packages_command == "disable":
         return _packages_set_component(args.name, args.component, False, args.adapter)
+    if args.packages_command == "reset":
+        return _packages_reset_component(args.name, args.component, args.adapter)
+    if args.packages_command == "validate-catalog":
+        return _packages_validate_catalog(args.directory)
     if args.packages_command == "dependencies":
         return _packages_component_dependencies(args.name, args.component, args.adapter)
-    print("usage: blacknode packages {list,status,update,install,setup,components,enable,disable,dependencies}", file=sys.stderr)
+    print("usage: blacknode packages {list,status,update,install,setup,components,enable,disable,reset,dependencies,validate-catalog}", file=sys.stderr)
     return 2
 
 
@@ -452,6 +464,34 @@ def _packages_set_component(
     target = f"{name}/{component}" + (f" adapter {adapter}" if adapter else "")
     print(f"{action} {target}: {len(info.node_types)} package nodes active")
     _print_package_warnings(info)
+    return 0
+
+
+def _packages_reset_component(name: str, component: str, adapter: str | None = None) -> int:
+    import blacknode  # noqa: F401 - triggers package discovery
+
+    from .packages import reset_component
+
+    try:
+        info = reset_component(name, component, adapter)
+    except (ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    target = f"{name}/{component}" + (f" adapter {adapter}" if adapter else "")
+    print(f"reset {target} to manifest default: {len(info.node_types)} package nodes active")
+    _print_package_warnings(info)
+    return 0
+
+
+def _packages_validate_catalog(directory: Path) -> int:
+    from .packages import validate_package_catalog
+
+    errors = validate_package_catalog(directory)
+    if errors:
+        for error in errors:
+            print(f"error: {error}", file=sys.stderr)
+        return 1
+    print(f"catalog matches {directory.resolve()}")
     return 0
 
 
