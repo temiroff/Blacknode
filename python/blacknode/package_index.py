@@ -237,8 +237,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "vlm": {
                 "name": "vlm", "default": True,
                 "node_types": [
-                    "VisionDetectionPrompt", "VisionFramePrompt", "VisionReasoningDashboard",
-                    "VisionReasoningStream", "VisionStreamStatus", "VisionVLMDescribe",
+                    "DetectionPrompt", "FramePrompt", "ReasoningDashboard",
+                    "ReasoningStream", "StreamStatus", "VLMDescribe",
                 ],
             },
             **{
@@ -261,12 +261,12 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "CV2ColorTargetHint",
             "CV2ColorObjectTracker",
             "CV2HSVMask",
-            "VisionDetectionPrompt",
-            "VisionFramePrompt",
-            "VisionReasoningDashboard",
-            "VisionReasoningStream",
-            "VisionStreamStatus",
-            "VisionVLMDescribe",
+            "DetectionPrompt",
+            "FramePrompt",
+            "ReasoningDashboard",
+            "ReasoningStream",
+            "StreamStatus",
+            "VLMDescribe",
         ],
     },
     "blacknode-dataset": {

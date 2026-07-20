@@ -137,7 +137,7 @@ through the VLM:
 
 ```text
 Text target prompt
-  -> VisionReasoningStream
+  -> ReasoningStream
   -> CV2ColorObjectStream.reasoning_state_url
   -> live overlay / mask / detection JSON
 ```

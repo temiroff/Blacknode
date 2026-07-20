@@ -378,7 +378,7 @@ def export_workflow_python(data: Mapping[str, Any], *, style: str = "flat") -> s
         "",
         "",
         f"_WORKFLOW = {_pretty_literal(workflow_payload)}",
-        "_BLACKNODE_LIVE_RUNTIME_NODE_TYPES = {'ROS2ImageStream', 'ROS2Run', 'Camera', 'CameraStream', 'CV2CameraStream', 'CV2ColorObjectStream', 'VisionReasoningStream'}",
+        "_BLACKNODE_LIVE_RUNTIME_NODE_TYPES = {'ROS2ImageStream', 'ROS2Run', 'Camera', 'CameraStream', 'CV2CameraStream', 'CV2ColorObjectStream', 'ReasoningStream'}",
         "_blacknode_live_runtime_stopped = False",
         "",
         "",
