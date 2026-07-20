@@ -35,12 +35,24 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
         "name": "blacknode-agent",
         "layer": "agent",
         "components": {
-            name: {"name": name, "default": False, "node_types": []}
-            for name in ("planner", "skill-registry", "mission-review", "confirmation", "memory")
+            "memory": {
+                "name": "memory", "default": True,
+                "node_types": [
+                    "AdaptationRecommendation", "EpisodeMemoryIngest", "RobotMemoryQuery",
+                    "RobotTaskCreate", "TaskEvaluationRecord",
+                ],
+            },
+            **{
+                name: {"name": name, "default": False, "node_types": []}
+                for name in ("planner", "skill-registry", "mission-review", "confirmation")
+            },
         },
         "git_url": "https://github.com/temiroff/blacknode-agent.git",
         "description": "Planning, memory, review, confirmation, and skill orchestration.",
-        "node_types": [],
+        "node_types": [
+            "AdaptationRecommendation", "EpisodeMemoryIngest", "RobotMemoryQuery",
+            "RobotTaskCreate", "TaskEvaluationRecord",
+        ],
     },
     "blacknode-controllers": {
         "name": "blacknode-controllers",
