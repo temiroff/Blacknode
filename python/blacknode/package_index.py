@@ -250,7 +250,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "name": "vlm", "default": True,
                 "node_types": [
                     "DetectionPrompt", "FramePrompt", "ReasoningDashboard",
-                    "ReasoningStream", "StreamStatus", "VLMDescribe",
+                    "ReasoningStream", "StreamStatus", "VLM",
                 ],
             },
             **{
@@ -278,7 +278,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "ReasoningDashboard",
             "ReasoningStream",
             "StreamStatus",
-            "VLMDescribe",
+            "VLM",
         ],
     },
     "blacknode-dataset": {
