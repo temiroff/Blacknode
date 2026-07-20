@@ -100,6 +100,8 @@ export interface BnPackageComponent {
   capabilities: string[]
   node_types?: string[]
   node_paths?: string[]
+  template_paths?: string[]
+  setup_hooks?: string[]
   pip_dependencies?: string[]
   import_dependencies?: string[]
   docker_images?: string[]
@@ -141,6 +143,8 @@ export interface BnPackage {
   missing_node_types: string[]
   git_status?: BnPackageGitStatus
   templates_dir: string
+  template_dirs: string[]
+  setup_hooks: string[]
   ok: boolean
   error: string
   warnings: string[]

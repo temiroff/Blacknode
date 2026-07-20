@@ -20,9 +20,12 @@ from blacknode.packages import (
     install_from_git,
     install_prerequisites,
     load_package,
+    package_template_dirs,
     remove_package,
+    reset_component,
     set_component_enabled,
     set_adapter_enabled,
+    validate_package_catalog,
     write_package_lock,
 )
 
@@ -179,6 +182,87 @@ def test_component_package_loads_only_enabled_nodes_and_dependencies(tmp_path):
     assert disabled.enabled_components == ["core"]
     assert "_PkgComponentOptional" not in _NODE_REGISTRY
     assert "_PkgComponentCore" in _NODE_REGISTRY
+
+
+def test_component_reset_restores_manifest_default(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-component-reset",
+        component_metadata='''
+        [components.optional]
+        default = false
+        nodes = ["components/optional/nodes"]
+        ''',
+    )
+    _write_component_node(pkg, "optional", "_PkgComponentReset")
+    load_package(pkg)
+
+    enabled = set_component_enabled("bn-component-reset", "optional", True)
+    assert enabled.components["optional"]["enabled"] is True
+    reset = reset_component("bn-component-reset", "optional")
+
+    assert reset.components["optional"]["enabled"] is False
+    state = json.loads((tmp_path / ".blacknode-components.json").read_text(encoding="utf-8"))
+    assert "bn-component-reset" not in state["packages"]
+
+
+def test_enabled_component_owns_templates_and_setup_hooks(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-component-assets",
+        component_metadata='''
+        [components.camera]
+        default = true
+        nodes = ["components/camera/nodes"]
+        templates = ["components/camera/templates"]
+        setup-hooks = ["components/camera/scripts/setup.py"]
+        ''',
+    )
+    _write_component_node(pkg, "camera", "_PkgComponentAssets")
+    templates = pkg / "components" / "camera" / "templates"
+    templates.mkdir(parents=True)
+    (templates / "camera.json").write_text("{}", encoding="utf-8")
+    scripts = pkg / "components" / "camera" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "setup.py").write_text(
+        "from pathlib import Path\nPath('component-hook-ran').write_text('yes')\n",
+        encoding="utf-8",
+    )
+
+    info = load_package(pkg)
+    assert str(templates.resolve()) in info.template_dirs
+    assert str(templates.resolve()) in package_template_dirs()
+    assert info.setup_hooks == ["components/camera/scripts/setup.py"]
+
+    assert install_prerequisites(pkg) == []
+    assert (pkg / "component-hook-ran").read_text(encoding="utf-8") == "yes"
+
+
+def test_catalog_validation_detects_component_node_drift(tmp_path, monkeypatch):
+    import blacknode.packages as packages_module
+
+    pkg = _write_package(
+        tmp_path,
+        name="bn-catalog-check",
+        package_metadata='layer = "drivers"',
+        component_metadata='''
+        [components.bus]
+        default = true
+        nodes = ["components/bus/nodes"]
+        node-types = ["_PkgCatalogActual"]
+        ''',
+    )
+    _write_component_node(pkg, "bus", "_PkgCatalogActual")
+    monkeypatch.setattr(packages_module, "indexed_package", lambda _name: {
+        "name": "bn-catalog-check",
+        "layer": "drivers",
+        "components": {"bus": {"default": True, "node_types": ["_PkgCatalogExpected"]}},
+        "node_types": ["_PkgCatalogExpected"],
+    })
+
+    errors = validate_package_catalog(pkg)
+    assert any("component bus node-types differ" in error for error in errors)
+    assert any("package node-types differ" in error for error in errors)
 
 
 def test_component_can_preserve_legacy_package_module_root(tmp_path):

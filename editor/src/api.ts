@@ -341,10 +341,20 @@ export const api = {
       'POST',
       `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/${enabled ? 'enable' : 'disable'}`,
     ),
+  resetPackageComponent: (name: string, component: string) =>
+    req<{ ok: boolean; package: BnPackage }>(
+      'POST',
+      `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/reset`,
+    ),
   setPackageAdapter: (name: string, component: string, adapter: string, enabled: boolean) =>
     req<{ ok: boolean; package: BnPackage }>(
       'POST',
       `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/adapters/${encodeURIComponent(adapter)}/${enabled ? 'enable' : 'disable'}`,
+    ),
+  resetPackageAdapter: (name: string, component: string, adapter: string) =>
+    req<{ ok: boolean; package: BnPackage }>(
+      'POST',
+      `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/adapters/${encodeURIComponent(adapter)}/reset`,
     ),
   packageComponentDependencies: (name: string, component: string) =>
     req<{

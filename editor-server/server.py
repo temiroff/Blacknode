@@ -36,6 +36,7 @@ from blacknode.packages import ensure_component_enabled as bn_ensure_component_e
 from blacknode.packages import ensure_adapter_enabled as bn_ensure_adapter_enabled
 from blacknode.packages import set_component_enabled as bn_set_component_enabled
 from blacknode.packages import set_adapter_enabled as bn_set_adapter_enabled
+from blacknode.packages import reset_component as bn_reset_component
 from blacknode.python_importer import import_workflow_python
 from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
@@ -3477,14 +3478,15 @@ def set_package_component(name: str, component: str, action: str):
         raise HTTPException(400, "Invalid package name")
     if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", component):
         raise HTTPException(400, "Invalid component name")
-    if action not in {"enable", "disable"}:
-        raise HTTPException(400, "Component action must be enable or disable")
+    if action not in {"enable", "disable", "reset"}:
+        raise HTTPException(400, "Component action must be enable, disable, or reset")
     try:
-        info = (
-            bn_ensure_component_enabled(name, component)
-            if action == "enable"
-            else bn_set_component_enabled(name, component, False)
-        )
+        if action == "enable":
+            info = bn_ensure_component_enabled(name, component)
+        elif action == "disable":
+            info = bn_set_component_enabled(name, component, False)
+        else:
+            info = bn_reset_component(name, component)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:
@@ -3509,14 +3511,15 @@ def set_package_adapter(name: str, component: str, adapter: str, action: str):
     for value, label in ((name, "package"), (component, "component"), (adapter, "adapter")):
         if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", value):
             raise HTTPException(400, f"Invalid {label} name")
-    if action not in {"enable", "disable"}:
-        raise HTTPException(400, "Adapter action must be enable or disable")
+    if action not in {"enable", "disable", "reset"}:
+        raise HTTPException(400, "Adapter action must be enable, disable, or reset")
     try:
-        info = (
-            bn_ensure_adapter_enabled(name, component, adapter)
-            if action == "enable"
-            else bn_set_adapter_enabled(name, component, adapter, False)
-        )
+        if action == "enable":
+            info = bn_ensure_adapter_enabled(name, component, adapter)
+        elif action == "disable":
+            info = bn_set_adapter_enabled(name, component, adapter, False)
+        else:
+            info = bn_reset_component(name, component, adapter)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:
