@@ -6,7 +6,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css'
 
 import { useStore, type CookLogEntry, type GraphClipboard } from './store'
-import BlackNode from './components/BlackNode'
+import BlackNode, { LIVE_STREAM_NODE_TYPES } from './components/BlackNode'
 import ValueNode from './components/ValueNode'
 import ModelNode from './components/ModelNode'
 import OutputNode from './components/OutputNode'
@@ -1006,13 +1006,7 @@ export default function App() {
   const topbarH = 44
   const canvasPad = topbarH + TAB_H
   const liveStreamCount = nodes.filter(n => (
-    (
-      n.data.type === 'ROS2ImageStream' ||
-      n.data.type === 'CV2CameraStream' ||
-      n.data.type === 'CV2ColorObjectStream' ||
-      n.data.type === 'VisionReasoningStream' ||
-      n.data.type === 'CUDAImageFilterStream'
-    ) &&
+    LIVE_STREAM_NODE_TYPES.has(n.data.type) &&
     n.data.portResults?.streaming === true
   )).length
   const managedRunCount = nodes.filter(n => n.data.type === 'ROS2Run' && n.data.portResults?.running === true).length

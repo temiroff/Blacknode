@@ -20,7 +20,7 @@ const TRIGGER_DRIVER: Record<string, string> = {
   TelegramMessage: 'telegram',
 }
 
-const LIVE_STREAM_NODE_TYPES = new Set([
+export const LIVE_STREAM_NODE_TYPES = new Set([
   'Camera',
   'CV2CameraStream',
   'ROS2ImageStream',
