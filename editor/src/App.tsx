@@ -6,7 +6,8 @@ import ReactFlow, {
 import 'reactflow/dist/style.css'
 
 import { useStore, type CookLogEntry, type GraphClipboard } from './store'
-import BlackNode, { LIVE_STREAM_NODE_TYPES } from './components/BlackNode'
+import BlackNode from './components/BlackNode'
+import { LIVE_STREAM_NODE_TYPES } from './liveNodeTypes'
 import ValueNode from './components/ValueNode'
 import ModelNode from './components/ModelNode'
 import OutputNode from './components/OutputNode'

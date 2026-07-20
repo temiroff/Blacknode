@@ -10,6 +10,7 @@ import { portsCompatible, portColor } from './portColors'
 import { organizeFlowNodes } from './graphLayout'
 import { createVisualAgentLoopSubgraph } from './defaultSubgraphs'
 import type { GraphRunTarget } from './graphRun'
+import { LIVE_STREAM_NODE_TYPES } from './liveNodeTypes'
 
 const MODEL_NODE_TYPES  = new Set(['Model'])
 const OUTPUT_NODE_TYPES = new Set(['Output'])
@@ -448,14 +449,7 @@ function clearCookResults(data: NodeData): NodeData {
 
 function clearRuntimeNodeData(data: NodeData): NodeData {
   const base = { ...data, cooking: false, cookError: undefined }
-  if (
-    data.type === 'Camera' ||
-    data.type === 'ROS2ImageStream' ||
-    data.type === 'CV2CameraStream' ||
-    data.type === 'CV2ColorObjectStream' ||
-    data.type === 'VisionReasoningStream' ||
-    data.type === 'CUDAImageFilterStream'
-  ) {
+  if (LIVE_STREAM_NODE_TYPES.has(data.type)) {
     return {
       ...base,
       cookResult: undefined,
@@ -3126,12 +3120,7 @@ export const useStore = create<Store>((set, get) => ({
       runReplay: EMPTY_REPLAY,
       nodes: s.nodes.map(n => {
         const runtimeNode = (
-          n.data.type === 'Camera' ||
-          n.data.type === 'ROS2ImageStream' ||
-          n.data.type === 'CV2CameraStream' ||
-          n.data.type === 'CV2ColorObjectStream' ||
-          n.data.type === 'VisionReasoningStream' ||
-          n.data.type === 'CUDAImageFilterStream' ||
+          LIVE_STREAM_NODE_TYPES.has(n.data.type) ||
           n.data.type === 'ROS2ContinuousFollowDetectionJoint' ||
           n.data.type === 'ROS2LeaderFollower' ||
           n.data.type === 'ROS2ManualMove' ||

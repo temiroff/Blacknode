@@ -11,6 +11,7 @@ import { portDisplayHint, portDisplayName } from '../portLabels'
 import NodeFrame from './NodeFrame'
 import DatasetBrowserPanel from './DatasetBrowserPanel'
 import type { NodeCookState } from '../types'
+import { LIVE_STREAM_NODE_TYPES } from '../liveNodeTypes'
 
 const TOOLBOX_NEW_HANDLE_COLOR = '#ef444488'
 
@@ -20,16 +21,7 @@ const TRIGGER_DRIVER: Record<string, string> = {
   TelegramMessage: 'telegram',
 }
 
-export const LIVE_STREAM_NODE_TYPES = new Set([
-  'Camera',
-  'CV2CameraStream',
-  'ROS2ImageStream',
-  'CV2ColorObjectStream',
-  'VisionReasoningStream',
-  'CUDAImageFilterStream',
-  'StreamPublisher',
-])
-
+export 
 function driverBtn(color: string, disabled = false): React.CSSProperties {
   return {
     flex: 1,
