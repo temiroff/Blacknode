@@ -16,9 +16,13 @@ export const PORT_COLORS: Record<string, string> = {
   Any:       '#6b7280',  // grey
 }
 
-// Which target types a source type can connect to
+// Which target types a source type can connect to.
+// Image values are always plain strings at runtime (data URL, http URL, or
+// path) - there is no separate binary representation - so Text and Image
+// are mutually compatible. Keep in sync with python/blacknode/workflow.py's
+// _COMPAT table.
 const COMPAT: Record<string, Set<string>> = {
-  Text:      new Set(['Text', 'Color', 'Any']),
+  Text:      new Set(['Text', 'Color', 'Image', 'Any']),
   Int:       new Set(['Int', 'Float', 'Number', 'Any']),
   Float:     new Set(['Float', 'Int', 'Number', 'Any']),
   Number:    new Set(['Number', 'Int', 'Float', 'Any']),
@@ -28,7 +32,7 @@ const COMPAT: Record<string, Set<string>> = {
   Embedding: new Set(['Embedding', 'Any']),
   Fn:        new Set(['Fn', 'Any']),
   Model:     new Set(['Model', 'Text', 'Any']),
-  Image:     new Set(['Image', 'Any']),
+  Image:     new Set(['Image', 'Text', 'Any']),
   Video:     new Set(['Video', 'Any']),
   Color:     new Set(['Color', 'Text', 'Any']),
   HSV:       new Set(['HSV', 'Text', 'Any']),

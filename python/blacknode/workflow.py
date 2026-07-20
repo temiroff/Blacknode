@@ -19,7 +19,10 @@ SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool", "VisualAgentLoop"}
 SPECIAL_NODE_TYPES = {"Subnet"}
 
 _COMPAT: dict[str, set[str]] = {
-    "Text": {"Text", "Color", "Any"},
+    # Image values are always plain strings at runtime (data URL, http URL, or
+    # path) - there is no separate binary representation - so any Text output
+    # (e.g. a camera snapshot URL) is a valid Image input, and vice versa.
+    "Text": {"Text", "Color", "Image", "Any"},
     "Int": {"Int", "Float", "Number", "Any"},
     "Float": {"Float", "Int", "Number", "Any"},
     "Number": {"Number", "Int", "Float", "Any"},
@@ -30,6 +33,7 @@ _COMPAT: dict[str, set[str]] = {
     "Fn": {"Fn", "Any"},
     "Model": {"Model", "Text", "Any"},
     "Color": {"Color", "Text", "Any"},
+    "Image": {"Image", "Text", "Any"},
 }
 
 
