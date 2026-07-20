@@ -199,6 +199,43 @@ class EditorRuntimeTests(unittest.TestCase):
         finally:
             server._session.node_meta.pop("recorder-control-test", None)
 
+    def test_act_training_control_reports_progress_and_stops_without_cooking_graph(self):
+        node_id = "training-control-test"
+        server._session.node_meta[node_id] = {
+            "id": node_id, "type": "ACTTraining", "params": {"run_id": "act-test"},
+        }
+        server._session.graph._dirty.add(node_id)
+        calls: list[tuple[str, str]] = []
+
+        def control(run_id, action):
+            calls.append((run_id, action))
+            return {
+                "ok": True, "running": action == "status", "phase": "training" if action == "status" else "stopped",
+                "step": 12, "status": {"steps": 100}, "dashboard": "data:image/svg+xml;base64,test",
+                "checkpoint": "", "report": f"{run_id}:{action}",
+            }
+
+        try:
+            with (
+                patch.object(server, "_runtime_callable", return_value=control),
+                patch.object(server, "_prepare_cook") as prepare_cook,
+            ):
+                client = TestClient(server.app)
+                status = client.post(f"/nodes/{node_id}/control", json={"action": "status"})
+                stopped = client.post(f"/nodes/{node_id}/control", json={"action": "stop"})
+            self.assertEqual(status.status_code, 200)
+            self.assertTrue(status.json()["outputs"]["running"])
+            self.assertEqual(stopped.status_code, 200)
+            self.assertEqual(stopped.json()["outputs"]["phase"], "stopped")
+            self.assertEqual(calls, [("act-test", "status"), ("act-test", "stop")])
+            self.assertNotIn(node_id, server._session.graph._dirty)
+            prepare_cook.assert_not_called()
+        finally:
+            server._session.node_meta.pop(node_id, None)
+            server._session.graph._dirty.discard(node_id)
+            for key in [key for key in server._session.graph._cache if key[0] == node_id]:
+                server._session.graph._cache.pop(key, None)
+
     def test_trajectory_smoother_control_recomputes_only_smoother(self):
         node_id = "smoother-control-test"
         server._session.node_meta[node_id] = {

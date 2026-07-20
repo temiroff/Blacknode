@@ -8,6 +8,7 @@ _PROVIDER_TO_ENV = {
     "Anthropic": "ANTHROPIC_API_KEY",
     "OpenAI": "OPENAI_API_KEY",
     "NVIDIA NIM": "NVIDIA_API_KEY",
+    "Hugging Face": "HF_TOKEN",
 }
 
 _ROOT = Path(__file__).resolve().parents[3]

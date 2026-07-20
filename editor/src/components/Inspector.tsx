@@ -3,7 +3,12 @@ import { api } from '../api'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { isWireOnlyInput } from '../inputControls'
-import { NVIDIA_API_KEY_PROVIDER, usesNvidiaCredential } from '../credentials'
+import {
+  HUGGING_FACE_API_KEY_PROVIDER,
+  NVIDIA_API_KEY_PROVIDER,
+  usesHuggingFaceCredential,
+  usesNvidiaCredential,
+} from '../credentials'
 import { portDisplayHint, portDisplayName } from '../portLabels'
 
 // Bot tokens for chat-driver nodes. Saved to the local key store (api_keys.json,
@@ -461,7 +466,10 @@ export default function Inspector() {
       edges.filter(e => e.source === node.id).map(e => e.sourceHandle).filter(Boolean)
     )
     const nvidiaCredential = usesNvidiaCredential(data.type)
-    const propertyInputs = data.inputs.filter(inp => !(nvidiaCredential && inp === 'api_key'))
+    const huggingFaceCredential = usesHuggingFaceCredential(data.type)
+    const propertyInputs = data.inputs.filter(inp => !(
+      (nvidiaCredential && inp === 'api_key') || (huggingFaceCredential && inp === 'token')
+    ))
     const advancedInputs = propertyInputs.filter(inp => isAdvancedInput(data.type, inp))
     const visibleInputs = propertyInputs.filter(inp =>
       !isAdvancedInput(data.type, inp) || showAdvanced || connectedPorts.has(inp)
@@ -498,7 +506,24 @@ export default function Inspector() {
         {/* driver connection (bot tokens) for chat trigger/reply nodes */}
         {driverFor(data.type) && <DriverConnection driver={driverFor(data.type)!} />}
 
-        {nvidiaCredential && <SharedNvidiaCredential />}
+        {nvidiaCredential && (
+          <SharedCredential
+            provider={NVIDIA_API_KEY_PROVIDER}
+            envVar="NVIDIA_API_KEY"
+            label="NVIDIA NIM"
+            fieldLabel="Shared NVIDIA API key"
+            placeholder="nvapi-..."
+          />
+        )}
+        {huggingFaceCredential && (
+          <SharedCredential
+            provider={HUGGING_FACE_API_KEY_PROVIDER}
+            envVar="HF_TOKEN"
+            label="Hugging Face"
+            fieldLabel="Shared Hugging Face token"
+            placeholder="hf_..."
+          />
+        )}
 
         {/* params */}
         <div style={{ padding: '12px 16px', flex: 1, overflowY: 'auto' }}>
@@ -829,14 +854,26 @@ export default function Inspector() {
   )
 }
 
-function SharedNvidiaCredential() {
+function SharedCredential({
+  provider,
+  envVar,
+  label,
+  fieldLabel,
+  placeholder,
+}: {
+  provider: string
+  envVar: string
+  label: string
+  fieldLabel: string
+  placeholder: string
+}) {
   const apiKeys = useStore(s => s.apiKeys)
   const apiKeyStatus = useStore(s => s.apiKeyStatus)
   const setApiKey = useStore(s => s.setApiKey)
   const loadApiKeys = useStore(s => s.loadApiKeys)
   const loadApiKeyStatus = useStore(s => s.loadApiKeyStatus)
   const [editing, setEditing] = useState(false)
-  const status = apiKeyStatus[NVIDIA_API_KEY_PROVIDER]
+  const status = apiKeyStatus[provider]
   const configured = Boolean(status?.configured)
   const source = status?.source === 'saved'
     ? 'saved editor key'
@@ -855,7 +892,7 @@ function SharedNvidiaCredential() {
         color: 'var(--tx2)', fontSize: 12, fontWeight: 700,
         letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10,
       }}>
-        Shared Credential · NVIDIA NIM
+        Shared Credential · {label}
       </div>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 7,
@@ -866,20 +903,19 @@ function SharedNvidiaCredential() {
         fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700,
       }}>
         <span>{configured ? '✓' : '!'}</span>
-        <span>{configured ? `Key found: ${source}` : 'NVIDIA NIM key missing'}</span>
+        <span>{configured ? `Credential found: ${source}` : `${label} credential missing`}</span>
       </div>
       <div style={{ fontSize: 10, color: 'var(--tx3)', marginTop: 7, lineHeight: 1.45 }}>
-        This node automatically reuses the shared key. Configure it once and every NVIDIA service node can use it.
-        Wire the <code>api_key</code> port only when you need a per-node override.
+        Blacknode checks <code>{envVar}</code> first, then the shared local key store. The credential stays outside the workflow and node outputs.
       </div>
       {(!configured || editing) && (
         <div style={{ marginTop: 10 }}>
           <SecretField
-            label="Shared NVIDIA API key"
-            placeholder="nvapi-..."
-            value={apiKeys[NVIDIA_API_KEY_PROVIDER] ?? ''}
+            label={fieldLabel}
+            placeholder={placeholder}
+            value={apiKeys[provider] ?? ''}
             onCommit={value => {
-              void setApiKey(NVIDIA_API_KEY_PROVIDER, value)
+              void setApiKey(provider, value)
               setEditing(false)
             }}
           />

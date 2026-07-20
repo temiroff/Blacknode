@@ -447,6 +447,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
   const [episodePending, setEpisodePending] = useState<null | 'start' | 'pause' | 'resume' | 'save' | 'stop' | 'discard'>(null)
+  const [trainingPending, setTrainingPending] = useState<null | 'start' | 'stop'>(null)
   const [datasetFolderPending, setDatasetFolderPending] = useState(false)
   const dashboardAutoFitDone = useRef(false)
   const updateNodeInternals = useUpdateNodeInternals()
@@ -460,6 +461,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const isEpisodeRecorder = data.type === 'EpisodeRecorder'
   const isDatasetCreate = data.type === 'DatasetCreate'
   const isDatasetBrowser = data.type === 'DatasetBrowser'
+  const isACTTraining = data.type === 'ACTTraining'
   const availableInputs = isRobotJointList
     ? (data.inputs ?? []).filter(port => edges.some(edge => edge.target === id && edge.targetHandle === port))
     : isVariadic
@@ -578,6 +580,15 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     && edges.some(edge => edge.target === id && edge.targetHandle === 'dataset')
     && edges.some(edge => edge.target === id && edge.targetHandle === 'robot_stream')
     && edges.some(edge => edge.target === id && (edge.targetHandle === 'camera_stream' || edge.targetHandle === 'camera_streams'))
+  const trainingRunning = isACTTraining && data.portResults?.running === true
+  const trainingPhase = isACTTraining ? String(data.portResults?.phase ?? 'not started') : ''
+  const trainingStopping = trainingRunning && trainingPhase === 'stopping'
+  const trainingStep = isACTTraining ? Number(data.portResults?.step ?? 0) : 0
+  const trainingStatus = isACTTraining && data.portResults?.status && typeof data.portResults.status === 'object'
+    ? data.portResults.status as Record<string, unknown>
+    : {}
+  const trainingSteps = Number(trainingStatus.steps ?? data.params?.steps ?? 0)
+  const trainingProgress = trainingSteps > 0 ? Math.max(0, Math.min(1, trainingStep / trainingSteps)) : 0
   const datasetRoot = isDatasetCreate ? String(data.params?.root ?? '').trim() : ''
   const datasetId = isDatasetCreate ? String(data.params?.dataset_id ?? 'dataset').trim() || 'dataset' : ''
   const datasetResolvedPath = isDatasetCreate && typeof data.portResults?.path === 'string'
@@ -598,6 +609,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   // back to the generic "snapshot" badge — that badge is what read as "broken".
   const streamStartable = data.type === 'StreamPublisher' && !streamActive
   const snapshotResult = data.live_capable === true
+    && !isACTTraining
     && !streamActive
     && !streamStartable
     && !manualMoveLive
@@ -785,6 +797,21 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     }
   }
 
+  const runTrainingAction = async (action: 'start' | 'stop') => {
+    if (trainingPending) return
+    setTrainingPending(action)
+    try {
+      if (action === 'stop') {
+        await controlNode(id, 'stop')
+      } else {
+        await updateParam(id, 'action', 'start')
+        await cookNode(id, 'dashboard')
+      }
+    } finally {
+      setTrainingPending(null)
+    }
+  }
+
   const chooseDatasetFolder = async () => {
     if (datasetFolderPending) return
     setDatasetFolderPending(true)
@@ -851,12 +878,35 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   }
 
   useEffect(() => {
-    if (!showImageResult) dashboardAutoFitDone.current = false
+    // Dashboard SVGs can grow when a later result contains longer reports,
+    // paths, or errors. Re-fit on every image-source change, including one
+    // truthy data URL replacing another, so updated content is never clipped
+    // by the node's previous height.
+    dashboardAutoFitDone.current = false
   }, [showImageResult])
 
   useEffect(() => {
     updateNodeInternals(id)
   }, [id, inputsKey, outputsKey, updateNodeInternals])
+
+  useEffect(() => {
+    if (!isACTTraining || !trainingRunning) return
+    let cancelled = false
+    const refresh = async () => {
+      try {
+        await controlNode(id, 'status')
+      } catch {
+        // The next poll or backend connection notice will surface the state.
+      }
+    }
+    const timer = window.setInterval(() => {
+      if (!cancelled) void refresh()
+    }, 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [controlNode, id, isACTTraining, trainingRunning])
 
   return (
     <NodeFrame
@@ -1012,6 +1062,44 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           <span style={{ color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9 }}>
             starts the WebSocket stream (action=start)
           </span>
+        </div>
+      )}
+
+      {isACTTraining && (
+        <div
+          className="nodrag"
+          onMouseDown={e => e.stopPropagation()}
+          style={{ padding: '7px 10px', borderBottom: '1px solid var(--line)', fontFamily: 'var(--font-ui)' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+              background: trainingRunning ? 'var(--ok)' : trainingPhase === 'failed' ? 'var(--err)' : 'var(--tx3)',
+              boxShadow: trainingRunning ? '0 0 8px var(--ok)' : 'none',
+            }} />
+            <strong style={{ color: trainingRunning ? 'var(--ok)' : trainingPhase === 'failed' ? 'var(--err)' : 'var(--tx2)', fontSize: 10 }}>
+              {trainingStopping ? 'STOPPING' : trainingRunning ? 'TRAINING' : trainingPhase.toUpperCase()}
+            </strong>
+            <span style={{ marginLeft: 'auto', color: 'var(--tx2)', fontFamily: 'var(--font-mono)', fontSize: 9 }}>
+              {trainingStep}/{trainingSteps || '—'} · {Math.round(trainingProgress * 100)}%
+            </span>
+            <button
+              disabled={Boolean(trainingPending) || trainingStopping}
+              onClick={e => { e.stopPropagation(); void runTrainingAction(trainingRunning ? 'stop' : 'start') }}
+              style={{
+                ...driverBtn(trainingRunning ? 'var(--err)' : 'var(--ok)', Boolean(trainingPending) || trainingStopping),
+                padding: '3px 8px', fontSize: 9,
+              }}
+            >
+              {trainingPending === 'stop' || trainingStopping ? 'Stopping…' : trainingPending === 'start' ? 'Starting…' : trainingRunning ? '■ Stop' : '▶ Start / resume'}
+            </button>
+          </div>
+          <div style={{ height: 5, marginTop: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--line2)' }}>
+            <div style={{ width: `${trainingProgress * 100}%`, height: '100%', background: trainingPhase === 'failed' ? 'var(--err)' : 'var(--ok)', transition: 'width .25s ease' }} />
+          </div>
+          <div style={{ marginTop: 5, color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 8, lineHeight: 1.35 }}>
+            {String(data.portResults?.report ?? (trainingRunning ? 'Training status refreshes every second.' : 'Ready to start training.'))}
+          </div>
         </div>
       )}
 

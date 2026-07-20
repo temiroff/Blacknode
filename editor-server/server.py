@@ -295,11 +295,13 @@ _PROVIDER_ENV: dict[str, str] = {
     "Anthropic":     "ANTHROPIC_API_KEY",
     "OpenAI":        "OPENAI_API_KEY",
     "NVIDIA NIM":    "NVIDIA_API_KEY",
+    "Hugging Face":  "HF_TOKEN",
     "Ollama (local)": "",
 }
 
 _KEYS_PATH = os.path.join(os.path.dirname(__file__), "api_keys.json")
 _api_keys: dict[str, str] = {}
+_injected_api_key_envs: set[str] = set()
 _editor_action_queue: list[dict[str, Any]] = []
 _editor_action_lock = threading.Lock()
 _learned_node_event_subscribers: list[queue.Queue] = []
@@ -538,8 +540,11 @@ def _load_api_keys() -> None:
             _api_keys = json.load(f)
         for provider, key in _api_keys.items():
             env_var = _PROVIDER_ENV.get(provider)
-            if env_var and key:
+            # Preserve credentials already configured in the launching terminal.
+            # Saved editor keys are only copied into otherwise-empty variables.
+            if env_var and key and not os.environ.get(env_var):
                 os.environ[env_var] = key
+                _injected_api_key_envs.add(env_var)
         loaded = [p for p, k in _api_keys.items() if k]
         if loaded:
             print(f"[blacknode] Loaded API keys for: {', '.join(loaded)}")
@@ -560,7 +565,8 @@ def _api_key_status() -> dict[str, dict[str, Any]]:
     for provider, env_var in _PROVIDER_ENV.items():
         saved = bool(_api_keys.get(provider))
         environment = bool(env_var and os.environ.get(env_var))
-        source = "saved" if saved else "environment" if environment else "missing"
+        external_environment = environment and env_var not in _injected_api_key_envs
+        source = "environment" if external_environment else "saved" if saved else "missing"
         status[provider] = {
             "configured": saved or environment or not env_var,
             "source": source if env_var else "local",
@@ -1272,6 +1278,21 @@ def control_node(node_id: str, req: NodeControlReq):
                 preview_source=str(params.get("preview_source") or "action"),
                 preview_joint=str(params.get("preview_joint") or ""),
             ))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        for port, value in outputs.items():
+            _session.graph._cache[(node_id, port)] = value
+        _session.graph._dirty.discard(node_id)
+        return {"ok": True, "node_id": node_id, "outputs": outputs}
+    if meta.get("type") == "ACTTraining":
+        if req.action not in {"status", "stop"}:
+            raise HTTPException(400, "ACTTraining direct controls support status or stop; use Run to start")
+        control_fn = _runtime_callable("training", _RUNTIME_MODULES["training"], "control_training_job")
+        if control_fn is None:
+            raise HTTPException(503, "blacknode-training runtime is not loaded")
+        run_id = str(meta.get("params", {}).get("run_id") or "act-training").strip() or "act-training"
+        try:
+            outputs = dict(control_fn(run_id, req.action))
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         for port, value in outputs.items():
@@ -3044,11 +3065,14 @@ def get_api_key_status():
 @app.post("/settings/api-key")
 def set_api_key(req: SetApiKeyReq):
     env_var = _PROVIDER_ENV.get(req.provider)
-    if env_var is not None:
+    if env_var:
         if req.key:
-            os.environ[env_var] = req.key
-        elif env_var in os.environ:
+            if not os.environ.get(env_var) or env_var in _injected_api_key_envs:
+                os.environ[env_var] = req.key
+                _injected_api_key_envs.add(env_var)
+        elif env_var in _injected_api_key_envs:
             del os.environ[env_var]
+            _injected_api_key_envs.discard(env_var)
     changed = _api_keys.get(req.provider) != req.key
     _api_keys[req.provider] = req.key
     _save_api_keys()

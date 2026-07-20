@@ -33,6 +33,19 @@ class SharedApiKeyTests(unittest.TestCase):
             with patch.object(keys, "_SHARED_KEYS_PATH", path), patch.dict(os.environ, {"NVIDIA_API_KEY": "env-key"}, clear=True):
                 self.assertEqual(keys.api_key_for_provider("NVIDIA NIM", "NVIDIA_API_KEY"), "env-key")
 
+    def test_hugging_face_uses_environment_then_shared_store(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "api_keys.json"
+            path.write_text(json.dumps({"Hugging Face": "saved-token"}), encoding="utf-8")
+
+            with patch.object(keys, "_SHARED_KEYS_PATH", path), patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(keys.api_key_for_provider("Hugging Face"), "saved-token")
+            with (
+                patch.object(keys, "_SHARED_KEYS_PATH", path),
+                patch.dict(os.environ, {"HF_TOKEN": "terminal-token"}, clear=True),
+            ):
+                self.assertEqual(keys.api_key_for_provider("Hugging Face"), "terminal-token")
+
 
 if __name__ == "__main__":
     unittest.main()
