@@ -89,7 +89,31 @@ export interface BnPackageIndexPackage {
   git_url: string
   node_types: string[]
   description?: string
+  layer?: string
+  components?: Record<string, BnPackageComponent>
 }
+
+export interface BnPackageComponent {
+  name: string
+  description: string
+  default: boolean
+  capabilities: string[]
+  node_types?: string[]
+  node_paths?: string[]
+  pip_dependencies?: string[]
+  import_dependencies?: string[]
+  docker_images?: string[]
+  requirements?: Array<{
+    package: string
+    component: string
+    version: string
+  }>
+  requirement_errors?: string[]
+  enabled?: boolean
+  adapters?: Record<string, BnPackageAdapter>
+}
+
+export type BnPackageAdapter = Omit<BnPackageComponent, 'adapters'>
 
 export interface BnPackageIndex {
   schema_version: number
@@ -100,6 +124,11 @@ export interface BnPackage {
   name: string
   version: string
   description: string
+  layer: string
+  components: Record<string, BnPackageComponent>
+  component_mode: boolean
+  enabled_components: string[]
+  enabled_adapters: string[]
   path: string
   source: string  // 'folder' | 'entry-point'
   requires_blacknode: string

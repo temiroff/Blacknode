@@ -5,8 +5,84 @@ from typing import Any, Iterable, Mapping
 
 
 _CORE_PACKAGES: dict[str, dict[str, Any]] = {
+    "blacknode-skills": {
+        "name": "blacknode-skills",
+        "layer": "skills",
+        "components": {
+            name: {"name": name, "default": False, "node_types": []}
+            for name in ("pick-place", "follow-person", "delivery", "docking", "inspection")
+        },
+        "git_url": "https://github.com/temiroff/blacknode-skills.git",
+        "description": "Reusable task-level robot skills composed from stable capabilities.",
+        "node_types": [],
+    },
+    "blacknode-agent": {
+        "name": "blacknode-agent",
+        "layer": "agent",
+        "components": {
+            name: {"name": name, "default": False, "node_types": []}
+            for name in ("planner", "skill-registry", "mission-review", "confirmation", "memory")
+        },
+        "git_url": "https://github.com/temiroff/blacknode-agent.git",
+        "description": "Planning, memory, review, confirmation, and skill orchestration.",
+        "node_types": [],
+    },
+    "blacknode-controllers": {
+        "name": "blacknode-controllers",
+        "layer": "controllers",
+        "components": {
+            name: {"name": name, "default": False, "node_types": []}
+            for name in (
+                "mobile-base", "nav2", "manipulation", "policy",
+                "command-arbitration", "safety-supervisors",
+            )
+        },
+        "git_url": "https://github.com/temiroff/blacknode-controllers.git",
+        "description": "Generic motion, manipulation, policy, arbitration, and safety controllers.",
+        "node_types": [],
+    },
+    "blacknode-drivers": {
+        "name": "blacknode-drivers",
+        "layer": "drivers",
+        "components": {
+            "feetech": {
+                "name": "feetech",
+                "description": "Feetech STS/SMS serial-bus configuration, read-only probing, and safety primitives.",
+                "default": True,
+                "capabilities": [
+                    "driver.feetech",
+                    "driver.serial-servo",
+                    "robot.joint-driver",
+                ],
+                "node_types": ["FeetechBusConfig", "FeetechBusProbe"],
+                "adapters": {
+                    "ros2": {
+                        "name": "ros2",
+                        "description": "ROS 2 and rosbridge process adapter for the Feetech joint driver.",
+                        "default": False,
+                        "capabilities": ["adapter.feetech.ros2", "robot.joint-state-transport"],
+                        "node_types": ["FeetechROS2Adapter"],
+                        "dependencies": {
+                            "requires": [
+                                {"package": "blacknode-ros2", "component": "core", "version": ">=0.2.0,<1.0.0"},
+                            ],
+                        },
+                    },
+                },
+            },
+        },
+        "git_url": "https://github.com/temiroff/blacknode-drivers.git",
+        "description": "Physical hardware drivers and firmware adapters, organized as selectively enabled components.",
+        "node_types": [
+            "FeetechBusConfig",
+            "FeetechBusProbe",
+            "FeetechROS2Adapter",
+        ],
+    },
     "blacknode-cuda": {
         "name": "blacknode-cuda",
+        "layer": "compute",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-cuda.git",
         "description": "Real GPU compute nodes: CUDA kernel lab, custom NVRTC kernels, GPU image filters, Tensor Core GEMM, and CUTLASS.",
         "node_types": [
@@ -23,6 +99,15 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-ros2": {
         "name": "blacknode-ros2",
+        "layer": "ros2",
+        "components": {
+            "core": {
+                "name": "core",
+                "default": True,
+                "capabilities": ["integration.ros2", "transport.ros2", "transport.rosbridge"],
+                "node_types": [],
+            },
+        },
         "git_url": "https://github.com/temiroff/blacknode-ros2.git",
         "description": "ROS 2 topics, streams, robot interfaces, and safety-gated policy deployment.",
         "node_types": [
@@ -70,6 +155,15 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-robot": {
         "name": "blacknode-robot",
+        "layer": "robot",
+        "components": {
+            "core": {
+                "name": "core",
+                "default": True,
+                "capabilities": ["robot.contracts", "robot.profiles", "robot.calibration", "robot.discovery"],
+                "node_types": [],
+            },
+        },
         "git_url": "https://github.com/temiroff/blacknode-robot.git",
         "description": "Generic robot setup: USB discovery, serial permission diagnostics, driver launch, and standard robot profiles.",
         "node_types": [
@@ -91,6 +185,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-vision": {
         "name": "blacknode-vision",
+        "layer": "perception",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-vision.git",
         "description": "Robot vision workflows: USB cameras, ROS 2 image streams, VLM reasoning dashboards, and OpenCV object tracking.",
         "node_types": [
@@ -115,6 +211,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-dataset": {
         "name": "blacknode-dataset",
+        "layer": "learning",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-dataset.git",
         "description": "Native episode recording, recovery, validation, LeRobot v3 export, and explicit Hugging Face dataset upload.",
         "node_types": [
@@ -132,6 +230,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-training": {
         "name": "blacknode-training",
+        "layer": "learning",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-training.git",
         "description": "Robot-policy dataset checks, managed PyTorch training, checkpoints, previews, and deployable policy artifacts.",
         "node_types": [
@@ -146,6 +246,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
     },
     "blacknode-isaac": {
         "name": "blacknode-isaac",
+        "layer": "simulation",
+        "components": {},
         "git_url": "https://github.com/temiroff/blacknode-isaac.git",
         "description": "Closed-loop policy deployment for Isaac Sim articulations and named RGB sensors.",
         "node_types": [
@@ -155,6 +257,16 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
         ],
     },
 }
+
+# Compatibility-mounted core components own every node currently published by
+# their repositories. Keeping these lists explicit lets disabled components
+# explain exactly which saved workflow nodes they provide.
+_CORE_PACKAGES["blacknode-ros2"]["components"]["core"]["node_types"] = list(
+    _CORE_PACKAGES["blacknode-ros2"]["node_types"]
+)
+_CORE_PACKAGES["blacknode-robot"]["components"]["core"]["node_types"] = list(
+    _CORE_PACKAGES["blacknode-robot"]["node_types"]
+)
 
 _NODE_PACKAGE_INDEX: dict[str, dict[str, str]] = {
     node_type: {
@@ -169,7 +281,7 @@ _NODE_PACKAGE_INDEX: dict[str, dict[str, str]] = {
 def package_index_payload() -> dict[str, Any]:
     """Return a JSON-safe copy of the package and node lookup index."""
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "packages": {
             name: {
                 **package,
@@ -258,6 +370,74 @@ def template_package_requirements(workflow: Mapping[str, Any]) -> list[dict[str,
     return list(requirements.values())
 
 
+def template_component_requirements(workflow: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Read direct package components declared by workflow metadata."""
+    metadata = workflow.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return []
+    raw_requirements = metadata.get("required_components")
+    if not isinstance(raw_requirements, list):
+        return []
+    requirements: dict[tuple[str, str], dict[str, str]] = {}
+    for raw in raw_requirements:
+        if isinstance(raw, str):
+            package, separator, component = raw.strip().partition("/")
+            version = ""
+        elif isinstance(raw, Mapping):
+            package = str(raw.get("package") or raw.get("name") or "").strip()
+            component = str(raw.get("component") or "").strip()
+            version = str(raw.get("version") or "").strip()
+            separator = "/" if package and component else ""
+        else:
+            continue
+        if not separator or not package or not component:
+            continue
+        indexed = _CORE_PACKAGES.get(package, {})
+        requirements[(package, component)] = {
+            "package": package,
+            "component": component,
+            "version": version,
+            "git_url": str(indexed.get("git_url") or ""),
+        }
+    return list(requirements.values())
+
+
+def template_adapter_requirements(workflow: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Read optional adapters nested under directly required components."""
+    metadata = workflow.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return []
+    raw_requirements = metadata.get("required_adapters")
+    if not isinstance(raw_requirements, list):
+        return []
+    requirements: dict[tuple[str, str, str], dict[str, str]] = {}
+    for raw in raw_requirements:
+        if isinstance(raw, str):
+            owner, separator, adapter = raw.strip().partition("@")
+            package, component_separator, component = owner.partition("/")
+            version = ""
+        elif isinstance(raw, Mapping):
+            package = str(raw.get("package") or raw.get("name") or "").strip()
+            component = str(raw.get("component") or "").strip()
+            adapter = str(raw.get("adapter") or "").strip()
+            version = str(raw.get("version") or "").strip()
+            separator = "@" if adapter else ""
+            component_separator = "/" if package and component else ""
+        else:
+            continue
+        if not separator or not component_separator or not package or not component or not adapter:
+            continue
+        indexed = _CORE_PACKAGES.get(package, {})
+        requirements[(package, component, adapter)] = {
+            "package": package,
+            "component": component,
+            "adapter": adapter,
+            "version": version,
+            "git_url": str(indexed.get("git_url") or ""),
+        }
+    return list(requirements.values())
+
+
 def resolve_workflow_dependencies(
     workflow: Mapping[str, Any],
     *,
@@ -272,7 +452,12 @@ def resolve_workflow_dependencies(
         requirement["name"]: requirement
         for requirement in template_package_requirements(workflow)
     }
+    explicit_components = template_component_requirements(workflow)
+    explicit_adapters = template_adapter_requirements(workflow)
     missing_packages: dict[str, dict[str, Any]] = {}
+    missing_components: list[dict[str, Any]] = []
+    missing_adapters: list[dict[str, Any]] = []
+    component_plans: list[dict[str, Any]] = []
     unresolved_node_types: list[str] = []
 
     def add_package(requirement: Mapping[str, Any], node_type: str | None = None) -> None:
@@ -293,6 +478,87 @@ def resolve_workflow_dependencies(
         state = installed.get(requirement["name"])
         if state is None or not bool(state.get("ok", False)):
             add_package(requirement)
+
+    for requirement in explicit_components:
+        package_name = requirement["package"]
+        component_name = requirement["component"]
+        state = installed.get(package_name)
+        if state is None or not bool(state.get("ok", False)):
+            add_package({
+                "name": package_name,
+                "git_url": requirement["git_url"],
+                "source": "template_component",
+            })
+            missing_components.append({**requirement, "reason": "package is not installed"})
+            continue
+        components = state.get("components", {})
+        component = components.get(component_name) if isinstance(components, Mapping) else None
+        if not isinstance(component, Mapping):
+            missing_components.append({**requirement, "reason": "component is not published by the installed package"})
+            continue
+        version_ok = True
+        if requirement["version"]:
+            try:
+                from .packages import _version_constraint_satisfied
+                version_ok = _version_constraint_satisfied(requirement["version"], str(state.get("version") or ""))
+            except Exception:
+                version_ok = False
+        if not version_ok:
+            missing_components.append({**requirement, "reason": f"installed version {state.get('version') or '?'} is incompatible"})
+            continue
+        if not bool(component.get("enabled", False)):
+            missing_components.append({**requirement, "reason": "component is disabled"})
+        try:
+            from .packages import component_dependency_install_plan
+            plan = component_dependency_install_plan(package_name, component_name)
+            component_plans.append({**requirement, **plan})
+        except Exception:
+            pass
+
+    for requirement in explicit_adapters:
+        package_name = requirement["package"]
+        component_name = requirement["component"]
+        adapter_name = requirement["adapter"]
+        state = installed.get(package_name)
+        if state is None or not bool(state.get("ok", False)):
+            add_package({
+                "name": package_name,
+                "git_url": requirement["git_url"],
+                "source": "template_adapter",
+            })
+            missing_adapters.append({**requirement, "reason": "package is not installed"})
+            continue
+        if requirement["version"]:
+            try:
+                from .packages import _version_constraint_satisfied
+                version_ok = _version_constraint_satisfied(
+                    requirement["version"], str(state.get("version") or "")
+                )
+            except Exception:
+                version_ok = False
+            if not version_ok:
+                missing_adapters.append({
+                    **requirement,
+                    "reason": f"installed version {state.get('version') or '?'} is incompatible",
+                })
+                continue
+        components = state.get("components", {})
+        component = components.get(component_name) if isinstance(components, Mapping) else None
+        adapters = component.get("adapters", {}) if isinstance(component, Mapping) else {}
+        adapter = adapters.get(adapter_name) if isinstance(adapters, Mapping) else None
+        if not isinstance(adapter, Mapping):
+            missing_adapters.append({**requirement, "reason": "adapter is not published by the installed component"})
+            continue
+        if not bool(component.get("enabled", False)):
+            missing_adapters.append({**requirement, "reason": "parent component is disabled"})
+        elif not bool(adapter.get("enabled", False)):
+            missing_adapters.append({**requirement, "reason": "adapter is disabled"})
+        try:
+            from .packages import adapter_dependency_install_plan
+            plan = adapter_dependency_install_plan(package_name, component_name, adapter_name)
+            component_plans.append({**requirement, **plan})
+        except Exception:
+            pass
 
     for node_type in missing_node_types:
         requirement = next(
@@ -325,12 +591,33 @@ def resolve_workflow_dependencies(
         ))
     if unresolved_node_types:
         parts.append("No package mapping for: " + ", ".join(unresolved_node_types))
+    if missing_components:
+        parts.append("Required components need attention: " + ", ".join(
+            f"{item['package']}/{item['component']} ({item['reason']})"
+            for item in missing_components
+        ))
+    if missing_adapters:
+        parts.append("Required adapters need attention: " + ", ".join(
+            f"{item['package']}/{item['component']}@{item['adapter']} ({item['reason']})"
+            for item in missing_adapters
+        ))
     return {
-        "ok": not packages and not missing_node_types,
-        "code": "missing_packages" if packages else "missing_node_types",
+        "ok": not packages and not missing_node_types and not missing_components and not missing_adapters,
+        "code": (
+            "missing_packages" if packages
+            else "missing_adapters" if missing_adapters
+            else "missing_components" if missing_components
+            else "missing_node_types" if missing_node_types
+            else "ok"
+        ),
         "message": ". ".join(parts) or "Workflow dependencies are available.",
         "missing_node_types": missing_node_types,
         "missing_packages": packages,
+        "required_components": explicit_components,
+        "required_adapters": explicit_adapters,
+        "missing_components": missing_components,
+        "missing_adapters": missing_adapters,
+        "component_plans": component_plans,
         "unresolved_node_types": unresolved_node_types,
     }
 
@@ -339,6 +626,8 @@ __all__ = [
     "indexed_package",
     "package_index_payload",
     "resolve_workflow_dependencies",
+    "template_adapter_requirements",
+    "template_component_requirements",
     "template_package_requirements",
     "workflow_node_types",
 ]

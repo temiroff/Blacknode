@@ -76,6 +76,58 @@ def test_template_load_returns_installable_missing_package(tmp_path):
     }]
 
 
+def test_component_dependency_plan_endpoint():
+    plan = {
+        "target": {"package": "blacknode-adapter", "component": "camera"},
+        "plan": [
+            {"package": "blacknode-camera", "component": "core", "version": "0.1.0", "enabled": True},
+            {"package": "blacknode-adapter", "component": "camera", "version": "0.1.0", "enabled": False},
+        ],
+        "changes": [
+            {"package": "blacknode-adapter", "component": "camera", "version": "0.1.0", "enabled": False},
+        ],
+    }
+    with patch.object(server, "bn_component_dependency_plan", return_value=plan) as resolver:
+        response = TestClient(server.app).get(
+            "/packages/blacknode-adapter/components/camera/dependencies"
+        )
+
+    assert response.status_code == 200
+    assert response.json() == plan
+    resolver.assert_called_once_with("blacknode-adapter", "camera")
+
+
+def test_nested_adapter_endpoints_preserve_component_ownership():
+    plan = {
+        "target": {"package": "blacknode-drivers", "component": "feetech", "adapter": "ros2"},
+        "plan": [],
+        "changes": [],
+    }
+    info = SimpleNamespace(to_dict=lambda: {
+        "name": "blacknode-drivers",
+        "enabled_components": ["feetech"],
+        "enabled_adapters": ["feetech/ros2"],
+    })
+    with (
+        patch.object(server, "bn_adapter_dependency_plan", return_value=plan) as resolver,
+        patch.object(server, "bn_ensure_adapter_enabled", return_value=info) as enable,
+    ):
+        dependency_response = TestClient(server.app).get(
+            "/packages/blacknode-drivers/components/feetech/adapters/ros2/dependencies"
+        )
+        enable_response = TestClient(server.app).post(
+            "/packages/blacknode-drivers/components/feetech/adapters/ros2/enable"
+        )
+
+    assert dependency_response.status_code == 200
+    assert dependency_response.json() == plan
+    assert enable_response.status_code == 200
+    assert enable_response.json()["package"]["enabled_components"] == ["feetech"]
+    assert enable_response.json()["package"]["enabled_adapters"] == ["feetech/ros2"]
+    resolver.assert_called_once_with("blacknode-drivers", "feetech", "ros2")
+    enable.assert_called_once_with("blacknode-drivers", "feetech", "ros2")
+
+
 def test_template_list_groups_core_and_package_templates(tmp_path: Path):
     core_dir = tmp_path / "core"
     robot_dir = tmp_path / "robot" / "templates"

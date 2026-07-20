@@ -117,6 +117,7 @@ development:
 
 | Package | Role |
 |---|---|
+| `blacknode-drivers` | Selectively enabled physical hardware drivers and firmware adapters; the first `feetech` component provides inert bus configuration, read-only probing, and torque-safe bus primitives. |
 | `blacknode-robot` | Generic USB robot discovery, serial permission help, driver descriptors, driver process launch, and the standard robot profile. |
 | `blacknode-ros2` | ROS 2 system checks, topic inspection, image streams, process controls, robot control, safety gates, and managed policy execution. |
 | `blacknode-vision` | USB camera ROS package, VLM frame reasoning, live reasoning dashboards, OpenCV masks, color tracking streams, and graph-level Python exports. |
@@ -124,10 +125,10 @@ development:
 | `blacknode-training` | PyTorch action-chunking training from Blacknode HDF5 episodes, managed jobs, resumable checkpoints, recorded-frame previews, and deployable policy artifacts. |
 | `blacknode-isaac` | Direct closed-loop policy deployment using Isaac Sim articulation state, named RGB sensors, safety-gated targets, and runtime replay logs. |
 
-Keep the layers separate: `blacknode-robot` finds hardware and starts the right
-robot driver, robot-specific packages define the driver descriptor, and
-`blacknode-ros2` only verifies or controls a ROS-compatible interface exposed by
-that driver.
+Keep the layers separate: `blacknode-robot` owns profiles, calibration, and the
+generic robot contract; `blacknode-drivers` owns physical protocol access and
+driver-boundary safeguards; and `blacknode-ros2` owns ROS graph and transport
+behavior. Optional adapters stay nested under the component they integrate.
 
 The current `blacknode-vision` CV2 local-reasoning template routes target
 selection through the VLM:
@@ -198,28 +199,178 @@ Third-party templates can carry their own resolution:
 The install still requires an explicit click. Templates do not clone or execute
 package code automatically.
 
+Templates declare selectable components and optional adapters separately. The
+resolver checks package version and enabled state, then returns the transitive
+install/enable plan alongside missing-node results:
+
+```json
+{
+  "metadata": {
+    "required_components": ["blacknode-drivers/feetech"],
+    "required_adapters": [
+      {
+        "package": "blacknode-drivers",
+        "component": "feetech",
+        "adapter": "ros2",
+        "version": ">=0.1.0,<1.0.0"
+      }
+    ]
+  }
+}
+```
+
+The compact adapter form `"blacknode-drivers/feetech@ros2"` is also accepted.
+Component activation remains an explicit package action, so resolving a
+template never arms hardware or silently changes the environment.
+
 ## Package layout
 
 ```
 blacknode-ros2/
   blacknode-package.toml   # manifest (required)
   AGENTS.md                # scoped coding-agent instructions (recommended)
-  nodes/                   # Python modules using @node (required)
+  nodes/                   # flat-package Python modules using @node
     __init__.py
     topics.py
+  components/              # selective packages keep modules by component
+    topics/
+      nodes/
+        __init__.py
+        publish.py
   templates/               # optional workflow JSONs for the Templates tab
   tests/                   # optional pytest suite, run with the core suite
   requirements.txt         # optional pip dependencies
   README.md
 ```
 
-`nodes/` is loaded as a real Python package, so modules can import each other
-relatively and import anything from the `blacknode` core. After loading, the
-modules get a stable import alias:
+Flat packages use the root `nodes/` directory. It is loaded as a real Python
+package, so modules can import each other relatively and import anything from
+the `blacknode` core. After loading, the modules get a stable import alias:
 
 ```python
 from blacknode.pkg.blacknode_ros2 import topics   # dashes become underscores
 ```
+
+### Layers and selective components
+
+A package can declare its product layer and describe the components it owns:
+
+```toml
+[package]
+name = "blacknode-drivers"
+version = "0.1.0"
+description = "Blacknode physical hardware and firmware adapters."
+requires-blacknode = ">=0.1.0"
+layer = "drivers"
+component-mode = true
+
+[components.feetech]
+description = "Feetech serial-bus servo adapter."
+default = true
+capabilities = ["driver.feetech", "robot.joint-driver"]
+nodes = ["components/feetech/nodes"]
+node-types = ["FeetechBus", "FeetechServo"]
+
+[components.feetech.dependencies]
+pip = ["pyserial>=3.5"]
+imports = ["serial"]
+requires = [
+  { package = "blacknode-robot", version = ">=0.1.0,<1.0.0" }
+]
+
+[components.feetech.adapters.ros2]
+description = "Optional ROS 2 transport adapter."
+default = false
+nodes = ["components/feetech/adapters/ros2/nodes"]
+
+[components.feetech.adapters.ros2.dependencies]
+requires = [
+  { package = "blacknode-ros2", component = "core", version = ">=0.2.0,<1.0.0" }
+]
+
+[components.stm32]
+description = "STM32 serial bridge."
+default = false
+nodes = ["components/stm32/nodes"]
+```
+
+The Packages UI groups installed and available packages by `layer`. Official
+catalog entries provide a layer for older manifests that do not declare one;
+third-party packages without a layer appear under `Extensions`.
+
+`component-mode = true` opts the repository into selective loading. Declaring at
+least one component `nodes` path also enables this mode, but the explicit flag
+is recommended. Only enabled component paths are imported and only their
+`pip`, `imports`, and `docker` dependencies are active. Package-level
+`[dependencies]` and a root `requirements.txt` are shared by every component,
+so component-only dependencies belong in the component table.
+
+Component choices are local machine state. Blacknode writes them to
+`packages/.blacknode-components.json`, outside each package Git worktree. A
+component uses its manifest `default` until the user creates an override.
+
+Manage components in the editor's Packages tab or from the CLI:
+
+```bash
+blacknode packages components blacknode-drivers
+blacknode packages dependencies blacknode-drivers feetech
+blacknode packages enable blacknode-drivers feetech
+blacknode packages dependencies blacknode-drivers feetech --adapter ros2
+blacknode packages enable blacknode-drivers feetech --adapter ros2
+blacknode packages setup blacknode-drivers
+blacknode packages disable blacknode-drivers feetech --adapter ros2
+blacknode packages disable blacknode-drivers feetech
+```
+
+`dependencies` prints the complete installed activation order. A component can
+require another component in the same package by omitting `package`, or require
+a component in another layer repository:
+
+```toml
+[components.feetech.adapters.ros2.dependencies]
+requires = [
+  { package = "blacknode-ros2", component = "core", version = ">=0.2.0,<1.0.0" }
+]
+```
+
+Blacknode preflights the complete graph before changing activation state. It
+installs missing official packages, safely fast-forwards a clean behind-only
+checkout when that can satisfy a version requirement, enables dependencies
+before dependents, reuses enabled compatible versions, rejects cycles and
+incompatible or dirty checkouts, rolls back newly cloned packages and the whole
+activation change if setup or reload fails, and prevents disabling a component
+or removing a package that an enabled component requires. The Packages UI shows each component's
+direct requirements. `GET /packages/{name}/components/{component}/dependencies`
+returns the resolved plan for other clients.
+
+The dependency plan is explicit in `blacknode packages dependencies`; the
+enable operation applies it. Third-party dependencies without a catalog source
+return an actionable error instead of guessing a repository. Successful
+installs, removals, and component changes atomically write
+`packages/.blacknode-package-lock.json`, recording versions, Git revisions,
+sources, and enabled components.
+
+`setup` installs shared requirements plus pip dependencies of enabled
+components and their enabled adapters. pip reuses already satisfied
+dependencies and checks declared version constraints. Component node modules use aliases such as
+`blacknode.pkg.blacknode_drivers.feetech.<module>`.
+Adapter modules use nested aliases such as
+`blacknode.pkg.blacknode_drivers.feetech.adapters.ros2.<module>`.
+During a compatibility migration, one component can set `module-root = true`
+to retain an existing alias such as `blacknode.pkg.blacknode_ros2.<module>`.
+
+Existing flat manifests remain compatible: their root `nodes/` directory and
+package-wide dependencies continue to load as one implicit component. A
+manifest can also publish descriptive `[components.*]` entries without opting
+into component mode; the UI marks those entries as included.
+
+Lockfile reproduction and version selection across multiple compatible remote
+releases remain future resolver stages.
+
+The initial organizational layers are `skills`, `agent`, `robot`,
+`perception`, `controllers`, and `drivers`. `ros2` identifies the horizontal
+ROS graph and transport layer. `learning`, `compute`, and `simulation`
+identify supporting packages such as training, CUDA, and simulator adapters.
 
 ### Agent guidance
 

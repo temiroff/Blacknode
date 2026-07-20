@@ -46,6 +46,24 @@ Do not duplicate a domain implementation in core and a package. Keep the core
 contract generic and place transport- or hardware-specific implementations
 behind package nodes and runtime adapters.
 
+## Preserve Hardware Replaceability
+
+- Keep base robot contracts, profiles, and capability inspection functional
+  with no vendor driver, sensor SDK, ROS installation, simulator, or accelerator
+  package installed. Missing providers return a structured unavailable state
+  and do not prevent unrelated capabilities from loading.
+- Make applications, skills, planners, and controllers consume stable
+  capability contracts rather than vendor SDKs, device paths, transports, or
+  component implementations.
+- Bind capability providers through robot profiles and component configuration.
+  A compatible camera, LiDAR, actuator bus, simulator, or compute-provider swap
+  must preserve mission logic, workflow connections, and semantic node names.
+- Bind calibration, limits, and sensor extrinsics to stable physical identity,
+  not merely a component or driver type.
+- Supply a mock or replay provider for every hardware capability. Do not claim
+  providers are interchangeable until the same contract suite passes against
+  the mock and every supported provider.
+
 ## Develop a Node
 
 1. Inspect `python/blacknode/node.py`, nearby nodes, and node tests.
@@ -104,6 +122,11 @@ node/package -> registry and schema -> editor-server/MCP -> editor -> template
 
 Update each affected layer in the same change. Do not persist editor-only fields
 such as `cookResult`, `cookError`, `cooking`, or `cookPort` in workflow JSON.
+
+For hardware-facing contracts, test provider absence as well as provider
+presence. A missing optional module must degrade only its advertised
+capabilities, while compatible providers must produce the same normalized
+state, lifecycle, status, error, and shutdown shapes.
 
 ## Hardware and Managed-Service Safety
 
