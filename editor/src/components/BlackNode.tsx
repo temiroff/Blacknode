@@ -1163,6 +1163,30 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             </span>
           )}
         </div>
+        {statusBadge && !statusBadge.text && statusBadge.action && (
+          <button
+            className="nodrag"
+            disabled={statusBadge.action.pending}
+            title={statusBadge.title}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); statusBadge.action!.onClick() }}
+            style={{
+              background: 'rgba(0,0,0,.25)',
+              border: '1px solid rgba(255,255,255,.35)',
+              borderRadius: 4,
+              color: '#fff',
+              cursor: statusBadge.action.pending ? 'default' : 'pointer',
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '2px 7px',
+              fontFamily: 'var(--font-ui)',
+              flexShrink: 0,
+              opacity: statusBadge.action.pending ? 0.6 : 1,
+            }}
+          >
+            {statusBadge.action.label}
+          </button>
+        )}
         <button
           onClick={e => { e.stopPropagation(); cookNode(id, data.outputs[0] ?? 'output') }}
           title="Cook once"
@@ -1182,7 +1206,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </button>
       </div>
 
-      {statusBadge && (statusBadge.text || statusBadge.action) && (
+      {statusBadge && statusBadge.text && (
         <div
           className="nodrag"
           title={statusBadge.title}
