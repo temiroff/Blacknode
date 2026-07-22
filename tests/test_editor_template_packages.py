@@ -143,6 +143,7 @@ def test_template_list_groups_core_and_package_templates(tmp_path: Path):
         name="blacknode-robot",
         ok=True,
         templates_dir=str(robot_dir),
+        template_dirs=[str(robot_dir)],
         categories={"Robot": "#14b8a6"},
     )
 

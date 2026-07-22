@@ -3776,14 +3776,19 @@ def _template_sources() -> list[tuple[str, str, str]]:
     """Return template directories with stable editor grouping metadata."""
     sources = [(_TEMPLATES_DIR, "Core", "#6366f1")]
     for info in installed_packages():
-        if not info.ok or not info.templates_dir:
+        if not info.ok:
             continue
         if info.categories:
             group, color = next(iter(info.categories.items()))
         else:
             group = info.name.removeprefix("blacknode-").replace("-", " ").title()
             color = "#6366f1"
-        sources.append((info.templates_dir, group, color))
+        # Every directory the package contributes, not just its root: a
+        # component or adapter that ships its own templates would otherwise be
+        # loadable by slug yet never listed in the Templates tab.
+        dirs = info.template_dirs or ([info.templates_dir] if info.templates_dir else [])
+        for templates_dir in dirs:
+            sources.append((templates_dir, group, color))
     return sources
 
 
