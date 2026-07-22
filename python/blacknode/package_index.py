@@ -230,7 +230,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "name": "camera", "default": True,
                 "node_types": [
                     "Camera", "CameraCalibration", "CameraDiscovery", "CameraSelect", "CameraStream",
-                    "CV2CameraDiscovery", "CV2CameraSelect", "CV2CameraStream", "CV2ColorObjectStream",
+                    "CV2ColorObjectStream",
                     "CV2ColorObjectTracker", "CV2ColorTargetHint", "CV2HSVMask",
                 ],
                 "adapters": {"ros2": {
@@ -258,9 +258,6 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "CameraStream",
             "CameraDiscovery",
             "CameraSelect",
-            "CV2CameraStream",
-            "CV2CameraDiscovery",
-            "CV2CameraSelect",
             "CV2ColorObjectStream",
             "CV2ColorTargetHint",
             "CV2ColorObjectTracker",

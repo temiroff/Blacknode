@@ -75,7 +75,6 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["BaseSafetyGate"]["package"] == "blacknode-controllers"
     assert payload["nodes"]["Camera"]["package"] == "blacknode-perception"
     assert payload["nodes"]["CameraStream"]["package"] == "blacknode-perception"
-    assert payload["nodes"]["CV2CameraStream"]["package"] == "blacknode-perception"
     assert payload["nodes"]["ACTTraining"] == {
         "package": "blacknode-training",
         "git_url": "https://github.com/temiroff/blacknode-training.git",
