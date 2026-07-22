@@ -341,7 +341,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "rosbridge": {
                     "name": "rosbridge",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "ROS2BridgeEcho",
                         "ROS2BridgePublish",
@@ -351,7 +351,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "topics": {
                     "name": "topics",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "ROS2DemoPublisher",
                         "ROS2TopicEcho",
@@ -361,7 +361,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "services": {
                     "name": "services",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "ROS2ServiceList"
                     ]
@@ -378,7 +378,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "processes": {
                     "name": "processes",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "ROS2Launch",
                         "ROS2PackageExecutables",
@@ -387,7 +387,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "diagnostics": {
                     "name": "diagnostics",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "ROS2InterfaceShow",
                         "ROS2NodeList",
@@ -430,7 +430,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "contracts": {
                     "name": "contracts",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "RobotDefinition",
                         "RobotJointDefinition",
@@ -439,7 +439,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "profiles": {
                     "name": "profiles",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "RobotProfileDuplicate",
                         "RobotProfileList",
@@ -449,7 +449,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "models": {
                     "name": "models",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "Robot",
                         "RobotDriverDescriptor",
@@ -459,14 +459,14 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "calibration": {
                     "name": "calibration",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "RobotCalibrationRecorder"
                     ]
                 },
                 "capabilities": {
                     "name": "capabilities",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "RobotConnectionDashboard",
                         "RobotDiscovery",
@@ -751,7 +751,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "bridge": {
                     "name": "bridge",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "IsaacPolicyBridge"
                     ]
@@ -773,7 +773,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "policy-runtime": {
                     "name": "policy-runtime",
-                    "default": False,
+                    "default": True,
                     "node_types": [
                         "IsaacPolicyRuntime",
                         "IsaacPolicySafetyGate"
