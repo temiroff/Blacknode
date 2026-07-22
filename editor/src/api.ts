@@ -440,6 +440,8 @@ export const api = {
   consoleLog: (limit = 100) => req<ConsoleLog>('GET', `/console?limit=${limit}`),
   consoleClear: () => req<{ ok: boolean }>('POST', '/console/clear'),
   consoleRun: (id: string) => req<Record<string, unknown>>('POST', `/console/run/${encodeURIComponent(id)}`),
+  consoleExec: (command: string, timeout = 20) =>
+    req<Record<string, unknown>>('POST', '/console/exec', { command, timeout }),
   ollamaModels: (endpointUrl: string) =>
     req<{ ok: boolean; models: string[]; error?: string }>('GET', `/ollama/models?endpoint_url=${encodeURIComponent(endpointUrl)}`),
   stopRuntime: () => req<RuntimeStopResult>('POST', '/runtime/stop'),

@@ -1,6 +1,6 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal
+import uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex
 import urllib.error, urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -2445,16 +2445,104 @@ def ollama_models(endpoint_url: str = "http://127.0.0.1:11434"):
     return {"ok": True, "models": models}
 
 
-# Diagnostics the Console panel can run. Deliberately a fixed table keyed by id:
-# the editor never sends a command string, so this endpoint cannot become a
-# shell on the machine running the server.
-_DIAGNOSTICS: dict[str, dict[str, Any]] = {
-    "ros2-topics":    {"label": "List ROS 2 topics",      "args": ["topic", "list"],            "timeout": 15},
-    "ros2-nodes":     {"label": "List ROS 2 nodes",       "args": ["node", "list"],             "timeout": 15},
-    "ros2-services":  {"label": "List ROS 2 services",    "args": ["service", "list"],          "timeout": 15},
-    "ros2-doctor":    {"label": "ROS 2 doctor",           "args": ["doctor"],                   "timeout": 45},
-    "ros2-interfaces":{"label": "List image interfaces",  "args": ["interface", "list"],        "timeout": 20},
+# Tools the Console may run. The editor is reachable from any browser tab (CORS
+# is open on a fixed port), so a free-form shell here would be arbitrary code
+# execution triggerable by any page. Commands are split with shlex and passed as
+# argv - never through a shell - so pipes, redirects and substitution cannot run.
+# "blacknode" maps to this checkout's CLI rather than whatever is on PATH.
+_CONSOLE_TOOLS: dict[str, list[str]] = {
+    "blacknode": [sys.executable, "-m", "blacknode.cli"],
+    "ros2": ["ros2"],
+    "colcon": ["colcon"],
+    "docker": ["docker"],
+    "git": ["git"],
+    "python": [sys.executable, "-m"],
+    "ping": ["ping"],
 }
+_SHELL_METACHARACTERS = set(";|&><`$") | {"\n", "\r"}
+
+# One-click diagnostics: ordinary commands, run through the same executor as
+# anything typed, so nothing here can do what typing cannot.
+_DIAGNOSTICS: list[dict[str, Any]] = [
+    {"id": "bn-doctor", "label": "Blacknode doctor", "command": "blacknode doctor", "timeout": 60},
+    {"id": "bn-packages", "label": "Installed packages", "command": "blacknode packages list", "timeout": 45},
+    {"id": "bn-drivers", "label": "Integration drivers", "command": "blacknode drivers", "timeout": 30},
+    {"id": "docker-ps", "label": "Running containers", "command": "docker ps", "timeout": 25},
+    {"id": "git-status", "label": "Repo status", "command": "git status --short --branch", "timeout": 20},
+    {"id": "ros2-topics", "label": "ROS 2 topics", "command": "ros2 topic list", "timeout": 20},
+    {"id": "ros2-nodes", "label": "ROS 2 nodes", "command": "ros2 node list", "timeout": 20},
+]
+
+
+class ConsoleExecReq(BaseModel):
+    command: str
+    timeout: float = 20.0
+
+
+def _console_execute(raw: str, timeout: float) -> dict[str, Any]:
+    """Run one allow-listed command and record it in the shared console log."""
+    raw = (raw or "").strip()
+    if not raw:
+        raise HTTPException(400, "Empty command")
+    if set(raw) & _SHELL_METACHARACTERS:
+        raise HTTPException(400, "Shell operators are not supported; run one command at a time")
+    try:
+        argv = shlex.split(raw)
+    except ValueError as exc:
+        raise HTTPException(400, f"Could not parse command: {exc}") from exc
+    if not argv:
+        raise HTTPException(400, "Empty command")
+
+    tool, rest = argv[0], argv[1:]
+    prefix = _CONSOLE_TOOLS.get(tool)
+    if prefix is None:
+        raise HTTPException(
+            400,
+            f"'{tool}' is not an allowed tool. Allowed: " + ", ".join(sorted(_CONSOLE_TOOLS)),
+        )
+    timeout = max(1.0, min(float(timeout or 20.0), 180.0))
+
+    # ros2 goes through the runtime so it honours the docker/native backend and
+    # is recorded there; everything else runs on the host.
+    if tool == "ros2":
+        runner = _runtime_callable("ros2", _RUNTIME_MODULES["ros2"], "run_ros2")
+        if runner is None:
+            raise HTTPException(503, "blacknode-ros2 runtime is not loaded")
+        return dict(runner(rest, timeout=timeout))
+
+    env = dict(os.environ)
+    if tool in ("blacknode", "python"):
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(Path(__file__).resolve().parent.parent / "python"), env.get("PYTHONPATH", "")]
+        ).rstrip(os.pathsep)
+
+    logged = command_console.record(raw, backend="host", source="console")
+    try:
+        proc = subprocess.run(
+            [*prefix, *rest], capture_output=True, text=True, timeout=timeout, env=env,
+        )
+    except FileNotFoundError:
+        message = f"'{tool}' is not installed or not on PATH"
+        logged.finish(False, error=message)
+        raise HTTPException(404, message)
+    except subprocess.TimeoutExpired:
+        message = f"`{raw}` timed out after {timeout:g}s"
+        logged.finish(False, error=message)
+        return {"ok": False, "stdout": "", "stderr": "", "error": message, "timed_out": True}
+
+    logged.finish(
+        proc.returncode == 0,
+        stdout=proc.stdout,
+        stderr=proc.stderr,
+        error="" if proc.returncode == 0 else f"exited with code {proc.returncode}",
+        exit_code=proc.returncode,
+    )
+    return {
+        "ok": proc.returncode == 0,
+        "stdout": (proc.stdout or "").strip(),
+        "stderr": (proc.stderr or "").strip(),
+        "exit_code": proc.returncode,
+    }
 
 
 @app.get("/console")
@@ -2463,7 +2551,8 @@ def console_log(limit: int = 100, after_id: int = 0):
     return {
         "entries": command_console.entries(limit=limit, after_id=after_id),
         "active": command_console.active_count(),
-        "diagnostics": [{"id": k, "label": v["label"]} for k, v in _DIAGNOSTICS.items()],
+        "diagnostics": [{"id": d["id"], "label": d["label"]} for d in _DIAGNOSTICS],
+        "tools": sorted(_CONSOLE_TOOLS),
     }
 
 
@@ -2475,14 +2564,15 @@ def console_clear():
 
 @app.post("/console/run/{diagnostic_id}")
 def console_run(diagnostic_id: str):
-    spec = _DIAGNOSTICS.get(diagnostic_id)
+    spec = next((d for d in _DIAGNOSTICS if d["id"] == diagnostic_id), None)
     if spec is None:
         raise HTTPException(404, f"Unknown diagnostic '{diagnostic_id}'")
-    runner = _runtime_callable("ros2", _RUNTIME_MODULES["ros2"], "run_ros2")
-    if runner is None:
-        raise HTTPException(503, "blacknode-ros2 runtime is not loaded")
-    # run_ros2 records itself, so the result shows up in the log like any other.
-    return dict(runner(list(spec["args"]), timeout=float(spec["timeout"])))
+    return _console_execute(str(spec["command"]), float(spec.get("timeout", 20)))
+
+
+@app.post("/console/exec")
+def console_exec(req: ConsoleExecReq):
+    return _console_execute(req.command, req.timeout)
 
 
 @app.get("/runtime/status")

@@ -24,6 +24,9 @@ export default function ConsolePanel() {
   const [error, setError] = useState('')
   const [open, setOpen] = useState<number | null>(null)
   const [now, setNow] = useState(Date.now())
+  const [input, setInput] = useState('')
+  const [history, setHistory] = useState<string[]>([])
+  const [recall, setRecall] = useState<number | null>(null)
   const feed = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -59,6 +62,37 @@ export default function ConsolePanel() {
   }
 
   const active = entries.filter(e => e.status === 'running').length
+
+  const submit = async () => {
+    const command = input.trim()
+    if (!command || busy) return
+    setHistory(h => (h[h.length - 1] === command ? h : [...h, command]).slice(-50))
+    setRecall(null)
+    setInput('')
+    setBusy('exec')
+    try {
+      await api.consoleExec(command)
+      setError('')
+    } catch (e) {
+      // Rejections (unknown tool, shell operators) are the useful feedback here.
+      setError(e instanceof Error ? e.message : 'command failed')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  // Up/down walks history the way a shell does.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { e.preventDefault(); void submit(); return }
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+    if (!history.length) return
+    e.preventDefault()
+    const next = e.key === 'ArrowUp'
+      ? (recall === null ? history.length - 1 : Math.max(0, recall - 1))
+      : (recall === null ? null : Math.min(history.length - 1, recall + 1))
+    setRecall(next)
+    setInput(next === null ? '' : history[next])
+  }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, fontFamily: 'var(--font-ui)' }}>
@@ -156,6 +190,39 @@ export default function ConsolePanel() {
             </div>
           )
         })}
+      </div>
+
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '7px 10px', borderTop: '1px solid var(--line)', flexShrink: 0,
+      }}>
+        <span style={{ color: 'var(--ok)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>$</span>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="ros2 topic list"
+          spellCheck={false}
+          title="Runs one command at a time. Arguments are passed directly, so pipes and redirects are not available."
+          style={{
+            flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none',
+            color: 'var(--tx1)', fontFamily: 'var(--font-mono)', fontSize: 12,
+          }}
+        />
+        <button
+          onClick={() => void submit()}
+          disabled={!input.trim() || busy === 'exec'}
+          style={{
+            padding: '3px 9px', borderRadius: 5,
+            border: `1px solid ${input.trim() ? 'var(--ok)' : 'var(--line2)'}`,
+            background: 'transparent',
+            color: input.trim() && busy !== 'exec' ? 'var(--ok)' : 'var(--tx3)',
+            cursor: input.trim() && busy !== 'exec' ? 'pointer' : 'default',
+            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700,
+          }}
+        >
+          {busy === 'exec' ? 'Running…' : 'Run'}
+        </button>
       </div>
     </div>
   )
