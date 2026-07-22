@@ -3555,6 +3555,20 @@ def _stop_all_drivers() -> None:
         _terminate_driver_process(proc)
 
 
+@atexit.register
+def _stop_all_runtime_services() -> None:
+    """Stop streams and workers on the way out.
+
+    Helper processes are spawned detached so a cook can end without killing
+    them, which also means closing Blacknode used to leave every camera server
+    running - holding the device, the port, and serving stale frames.
+    """
+    try:
+        _stop_runtime_services()
+    except Exception:  # pragma: no cover - shutdown must not raise
+        pass
+
+
 @app.post("/drivers/{name}/install")
 def install_driver(name: str):
     """Install a registered driver's optional extra (pip install -e .[extra])."""
