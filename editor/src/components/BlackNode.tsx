@@ -464,6 +464,14 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [datasetFolderPending, setDatasetFolderPending] = useState(false)
   const dashboardAutoFitDone = useRef(false)
   const streamFitDone = useRef(false)
+  // A browser <img> pointed at an MJPEG stream keeps showing the last frame of
+  // its old connection when the src does not change - so restarting a stream on
+  // the same URL looks frozen, a "snapshot". Bump a key when a new stream
+  // starts (turned on, or a different URL) to force a fresh connection, but not
+  // on the per-frame runtime updates that would otherwise remount constantly.
+  const [streamConnKey, setStreamConnKey] = useState(0)
+  const prevStreamingRef = useRef(false)
+  const prevStreamUrlRef = useRef('')
   const { getNode } = useReactFlow()
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
@@ -1000,6 +1008,16 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     // or resolution than the one this node was sized for.
     if (!streamPreview) streamFitDone.current = false
   }, [streamPreview])
+
+  useEffect(() => {
+    const streamingNow = data.portResults?.streaming === true
+    const url = typeof data.portResults?.stream_url === 'string' ? data.portResults.stream_url : ''
+    if (streamingNow && (!prevStreamingRef.current || url !== prevStreamUrlRef.current)) {
+      setStreamConnKey(k => k + 1)
+    }
+    prevStreamingRef.current = streamingNow
+    prevStreamUrlRef.current = url
+  }, [data.portResults])
 
   useEffect(() => {
     updateNodeInternals(id)
@@ -1599,6 +1617,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           <div data-bn-dashboard-result style={{ ...imageResultWrap, flex: '0 0 auto', width: '100%', boxSizing: 'border-box' }}>
             <div style={{ ...imagePreviewFrame, height: 'auto' }}>
               <img
+                key={streamPreview ? `stream-${streamConnKey}` : 'static'}
                 src={showImageResult}
                 alt="result"
                 draggable={false}
