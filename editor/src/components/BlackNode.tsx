@@ -653,9 +653,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   // outranks a passive "this result is stale" note.
   const statusBadge: StatusBadge | null =
     streamActive ? {
-      // A moving picture already says it is live, so label it only when there is
-      // no picture to speak for itself. The Stop control stays either way.
-      text: showImageResult ? '' : 'STREAMING',
+      text: 'STREAMING',
       tone: 'ok',
       title: streamUrl ? `Live stream: ${streamUrl}` : 'Live image stream is running',
       action: {
@@ -690,10 +688,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         : 'Live monitor is running; waiting for the first joint-state message',
     }
     : genericNodeLive ? {
-      // Same rule as STREAMING: do not stamp "live" over a picture that is
-      // visibly moving. Warnings below still show, because those are not
-      // liveness claims.
-      text: showImageResult ? '' : 'LIVE • UPDATING',
+      text: 'LIVE • UPDATING',
       tone: 'ok',
       title: 'This node is receiving continuous runtime updates.',
     }
@@ -1163,30 +1158,6 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             </span>
           )}
         </div>
-        {statusBadge && !statusBadge.text && statusBadge.action && (
-          <button
-            className="nodrag"
-            disabled={statusBadge.action.pending}
-            title={statusBadge.title}
-            onMouseDown={e => e.stopPropagation()}
-            onClick={e => { e.stopPropagation(); statusBadge.action!.onClick() }}
-            style={{
-              background: 'rgba(0,0,0,.25)',
-              border: '1px solid rgba(255,255,255,.35)',
-              borderRadius: 4,
-              color: '#fff',
-              cursor: statusBadge.action.pending ? 'default' : 'pointer',
-              fontSize: 10,
-              fontWeight: 700,
-              padding: '2px 7px',
-              fontFamily: 'var(--font-ui)',
-              flexShrink: 0,
-              opacity: statusBadge.action.pending ? 0.6 : 1,
-            }}
-          >
-            {statusBadge.action.label}
-          </button>
-        )}
         <button
           onClick={e => { e.stopPropagation(); cookNode(id, data.outputs[0] ?? 'output') }}
           title="Cook once"
@@ -1206,7 +1177,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </button>
       </div>
 
-      {statusBadge && statusBadge.text && (
+      {statusBadge && (statusBadge.text || statusBadge.action) && (
         <div
           className="nodrag"
           title={statusBadge.title}
