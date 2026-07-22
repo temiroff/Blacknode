@@ -52,7 +52,14 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "FeetechBusConfig",
         "FeetechBusProbe",
     ]
-    assert set(drivers["components"]) == {"feetech"}
+    # Roadmap components are declared ahead of implementation, so assert the
+    # one that ships nodes rather than pinning the whole set.
+    assert "feetech" in drivers["components"]
+    assert all(
+        not component["node_types"]
+        for name, component in drivers["components"].items()
+        if name != "feetech"
+    )
     assert drivers["components"]["feetech"]["adapters"]["ros2"]["default"] is False
     assert payload["nodes"]["FeetechROS2Adapter"]["package"] == "blacknode-drivers"
     assert payload["nodes"]["FeetechBusProbe"]["package"] == "blacknode-drivers"

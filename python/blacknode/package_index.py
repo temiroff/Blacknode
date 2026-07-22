@@ -5,342 +5,800 @@ from typing import Any, Iterable, Mapping
 
 
 _CORE_PACKAGES: dict[str, dict[str, Any]] = {
-    "blacknode-skills": {
-        "name": "blacknode-skills",
-        "layer": "skills",
-        "components": {
-            "follow-person": {
-                "name": "follow-person", "default": False, "node_types": [],
-                "adapters": {"ros2": {
-                    "name": "ros2", "default": False,
+        "blacknode-skills": {
+            "name": "blacknode-skills",
+            "layer": "skills",
+            "components": {
+                "pick-place": {
+                    "name": "pick-place",
+                    "default": False,
+                    "node_types": []
+                },
+                "follow-person": {
+                    "name": "follow-person",
+                    "default": False,
+                    "node_types": [],
+                    "adapters": {
+                        "ros2": {
+                            "name": "ros2",
+                            "default": False,
+                            "node_types": [
+                                "ROS2ContinuousFollowDetectionJoint",
+                                "ROS2FollowDetectionJoint",
+                                "ROS2LeaderFollower",
+                                "ROS2NativeFollowDetectionJoint"
+                            ]
+                        }
+                    }
+                },
+                "delivery": {
+                    "name": "delivery",
+                    "default": False,
+                    "node_types": []
+                },
+                "docking": {
+                    "name": "docking",
+                    "default": False,
+                    "node_types": []
+                },
+                "inspection": {
+                    "name": "inspection",
+                    "default": False,
+                    "node_types": []
+                }
+            },
+            "git_url": "https://github.com/temiroff/blacknode-skills.git",
+            "description": "Reusable task-level robot skills composed from stable capabilities.",
+            "node_types": [
+                "ROS2ContinuousFollowDetectionJoint",
+                "ROS2FollowDetectionJoint",
+                "ROS2LeaderFollower",
+                "ROS2NativeFollowDetectionJoint"
+            ]
+        },
+        "blacknode-agent": {
+            "name": "blacknode-agent",
+            "layer": "agent",
+            "components": {
+                "planner": {
+                    "name": "planner",
+                    "default": False,
+                    "node_types": []
+                },
+                "skill-registry": {
+                    "name": "skill-registry",
+                    "default": False,
+                    "node_types": []
+                },
+                "mission-review": {
+                    "name": "mission-review",
+                    "default": False,
+                    "node_types": []
+                },
+                "confirmation": {
+                    "name": "confirmation",
+                    "default": False,
+                    "node_types": []
+                },
+                "memory": {
+                    "name": "memory",
+                    "default": True,
                     "node_types": [
-                        "ROS2NativeFollowDetectionJoint", "ROS2FollowDetectionJoint",
-                        "ROS2ContinuousFollowDetectionJoint", "ROS2LeaderFollower",
+                        "AdaptationRecommendation",
+                        "EpisodeMemoryIngest",
+                        "RobotMemoryQuery",
+                        "RobotTaskCreate",
+                        "TaskEvaluationRecord"
+                    ]
+                }
+            },
+            "git_url": "https://github.com/temiroff/blacknode-agent.git",
+            "description": "Planning, memory, review, confirmation, and skill orchestration.",
+            "node_types": [
+                "AdaptationRecommendation",
+                "EpisodeMemoryIngest",
+                "RobotMemoryQuery",
+                "RobotTaskCreate",
+                "TaskEvaluationRecord"
+            ]
+        },
+        "blacknode-controllers": {
+            "name": "blacknode-controllers",
+            "layer": "controllers",
+            "components": {
+                "joint-control": {
+                    "name": "joint-control",
+                    "default": True,
+                    "node_types": [],
+                    "adapters": {
+                        "ros2": {
+                            "name": "ros2",
+                            "default": True,
+                            "node_types": [
+                                "ROS2JointState",
+                                "ROS2ManualMove",
+                                "ROS2MotionDashboard",
+                                "ROS2SetJoint"
+                            ]
+                        }
+                    }
+                },
+                "mobile-base": {
+                    "name": "mobile-base",
+                    "default": False,
+                    "node_types": [],
+                    "adapters": {
+                        "ros2": {
+                            "name": "ros2",
+                            "default": False,
+                            "node_types": [
+                                "BaseSafetyGate",
+                                "ROS2BaseMove",
+                                "ROS2BaseStop",
+                                "ROS2LaserScanCheck",
+                                "ROS2OdomState"
+                            ]
+                        }
+                    }
+                },
+                "nav2": {
+                    "name": "nav2",
+                    "default": False,
+                    "node_types": []
+                },
+                "manipulation": {
+                    "name": "manipulation",
+                    "default": False,
+                    "node_types": []
+                },
+                "policy": {
+                    "name": "policy",
+                    "default": True,
+                    "node_types": [],
+                    "adapters": {
+                        "ros2": {
+                            "name": "ros2",
+                            "default": False,
+                            "node_types": [
+                                "PolicyRuntime",
+                                "PolicySafetyGate"
+                            ]
+                        }
+                    }
+                },
+                "command-arbitration": {
+                    "name": "command-arbitration",
+                    "default": False,
+                    "node_types": []
+                },
+                "safety-supervisors": {
+                    "name": "safety-supervisors",
+                    "default": False,
+                    "node_types": []
+                }
+            },
+            "git_url": "https://github.com/temiroff/blacknode-controllers.git",
+            "description": "Generic motion, manipulation, policy, arbitration, and safety controllers.",
+            "node_types": [
+                "BaseSafetyGate",
+                "PolicyRuntime",
+                "PolicySafetyGate",
+                "ROS2BaseMove",
+                "ROS2BaseStop",
+                "ROS2JointState",
+                "ROS2LaserScanCheck",
+                "ROS2ManualMove",
+                "ROS2MotionDashboard",
+                "ROS2OdomState",
+                "ROS2SetJoint"
+            ]
+        },
+        "blacknode-drivers": {
+            "name": "blacknode-drivers",
+            "layer": "drivers",
+            "components": {
+                "feetech": {
+                    "name": "feetech",
+                    "default": True,
+                    "node_types": [
+                        "FeetechBusConfig",
+                        "FeetechBusProbe"
                     ],
-                }},
-            },
-            **{
-                name: {"name": name, "default": False, "node_types": []}
-                for name in ("pick-place", "delivery", "docking", "inspection")
-            },
-        },
-        "git_url": "https://github.com/temiroff/blacknode-skills.git",
-        "description": "Reusable task-level robot skills composed from stable capabilities.",
-        "node_types": [
-            "ROS2NativeFollowDetectionJoint", "ROS2FollowDetectionJoint",
-            "ROS2ContinuousFollowDetectionJoint", "ROS2LeaderFollower",
-        ],
-    },
-    "blacknode-agent": {
-        "name": "blacknode-agent",
-        "layer": "agent",
-        "components": {
-            "memory": {
-                "name": "memory", "default": True,
-                "node_types": [
-                    "AdaptationRecommendation", "EpisodeMemoryIngest", "RobotMemoryQuery",
-                    "RobotTaskCreate", "TaskEvaluationRecord",
-                ],
-            },
-            **{
-                name: {"name": name, "default": False, "node_types": []}
-                for name in ("planner", "skill-registry", "mission-review", "confirmation")
-            },
-        },
-        "git_url": "https://github.com/temiroff/blacknode-agent.git",
-        "description": "Planning, memory, review, confirmation, and skill orchestration.",
-        "node_types": [
-            "AdaptationRecommendation", "EpisodeMemoryIngest", "RobotMemoryQuery",
-            "RobotTaskCreate", "TaskEvaluationRecord",
-        ],
-    },
-    "blacknode-controllers": {
-        "name": "blacknode-controllers",
-        "layer": "controllers",
-        "components": {
-            "joint-control": {
-                "name": "joint-control", "default": True, "node_types": [],
-                "adapters": {"ros2": {
-                    "name": "ros2", "default": True,
-                    "node_types": ["ROS2JointState", "ROS2ManualMove", "ROS2MotionDashboard", "ROS2SetJoint"],
-                }},
-            },
-            "mobile-base": {
-                "name": "mobile-base", "default": False, "node_types": [],
-                "adapters": {"ros2": {
-                    "name": "ros2", "default": False,
-                    "node_types": ["BaseSafetyGate", "ROS2BaseMove", "ROS2BaseStop", "ROS2LaserScanCheck", "ROS2OdomState"],
-                }},
-            },
-            "policy": {
-                "name": "policy", "default": True, "node_types": [],
-                "adapters": {"ros2": {
-                    "name": "ros2", "default": False,
-                    "node_types": ["PolicyRuntime", "PolicySafetyGate"],
-                }},
-            },
-            **{
-                name: {"name": name, "default": False, "node_types": []}
-                for name in ("nav2", "manipulation", "command-arbitration", "safety-supervisors")
-            },
-        },
-        "git_url": "https://github.com/temiroff/blacknode-controllers.git",
-        "description": "Generic motion, manipulation, policy, arbitration, and safety controllers.",
-        "node_types": [
-            "BaseSafetyGate", "PolicyRuntime", "PolicySafetyGate", "ROS2BaseMove",
-            "ROS2BaseStop", "ROS2JointState", "ROS2LaserScanCheck", "ROS2ManualMove",
-            "ROS2MotionDashboard", "ROS2OdomState", "ROS2SetJoint",
-        ],
-    },
-    "blacknode-drivers": {
-        "name": "blacknode-drivers",
-        "layer": "drivers",
-        "components": {
-            "feetech": {
-                "name": "feetech",
-                "description": "Feetech STS/SMS serial-bus configuration, read-only probing, and safety primitives.",
-                "default": True,
-                "capabilities": [
-                    "driver.feetech",
-                    "driver.serial-servo",
-                    "robot.joint-driver",
-                ],
-                "node_types": ["FeetechBusConfig", "FeetechBusProbe"],
-                "adapters": {
-                    "ros2": {
-                        "name": "ros2",
-                        "description": "ROS 2 and rosbridge process adapter for the Feetech joint driver.",
-                        "default": False,
-                        "capabilities": ["adapter.feetech.ros2", "robot.joint-state-transport"],
-                        "node_types": ["FeetechROS2Adapter"],
-                        "dependencies": {
-                            "requires": [
-                                {"package": "blacknode-ros2", "component": "core", "version": ">=0.2.0,<1.0.0"},
+                    "adapters": {
+                        "ros2": {
+                            "name": "ros2",
+                            "default": False,
+                            "node_types": [
+                                "FeetechROS2Adapter"
                             ],
-                        },
-                    },
+                            "dependencies": {
+                                "requires": [
+                                    {
+                                        "package": "blacknode-ros2",
+                                        "component": "core",
+                                        "version": ">=0.2.0,<1.0.0"
+                                    }
+                                ]
+                            }
+                        }
+                    }
                 },
+                "stm32": {
+                    "name": "stm32",
+                    "default": False,
+                    "node_types": []
+                },
+                "serial": {
+                    "name": "serial",
+                    "default": False,
+                    "node_types": []
+                },
+                "can": {
+                    "name": "can",
+                    "default": False,
+                    "node_types": []
+                },
+                "usb": {
+                    "name": "usb",
+                    "default": False,
+                    "node_types": []
+                },
+                "motor-controllers": {
+                    "name": "motor-controllers",
+                    "default": False,
+                    "node_types": []
+                },
+                "sensor-drivers": {
+                    "name": "sensor-drivers",
+                    "default": False,
+                    "node_types": []
+                },
+                "vendor-adapters": {
+                    "name": "vendor-adapters",
+                    "default": False,
+                    "node_types": []
+                }
             },
+            "git_url": "https://github.com/temiroff/blacknode-drivers.git",
+            "description": "Physical hardware drivers and firmware adapters, organized as selectively enabled components.",
+            "node_types": [
+                "FeetechBusConfig",
+                "FeetechBusProbe",
+                "FeetechROS2Adapter"
+            ]
         },
-        "git_url": "https://github.com/temiroff/blacknode-drivers.git",
-        "description": "Physical hardware drivers and firmware adapters, organized as selectively enabled components.",
-        "node_types": [
-            "FeetechBusConfig",
-            "FeetechBusProbe",
-            "FeetechROS2Adapter",
-        ],
-    },
-    "blacknode-cuda": {
-        "name": "blacknode-cuda",
-        "layer": "compute",
-        "components": {},
-        "git_url": "https://github.com/temiroff/blacknode-cuda.git",
-        "description": "Real GPU compute nodes: CUDA kernel lab, custom NVRTC kernels, GPU image filters, Tensor Core GEMM, and CUTLASS.",
-        "node_types": [
-            "CUDACustomKernel",
-            "CUDAImageFilter",
-            "CUDAImageFilterStream",
-            "CUDAKernelLab",
-            "CUTLASS",
-            "CUTLASSGemm",
-            "GPUCapability",
-            "GPURequirement",
-            "TensorCoreGEMM",
-        ],
-    },
-    "blacknode-ros2": {
-        "name": "blacknode-ros2",
-        "layer": "ros2",
-        "components": {
-            "core": {
-                "name": "core",
-                "default": True,
-                "capabilities": ["integration.ros2", "transport.ros2", "transport.rosbridge"],
-                "node_types": [
-                    "ROS2BridgeEcho", "ROS2BridgePublish", "ROS2DemoPublisher", "ROS2InterfaceShow",
-                    "ROS2Launch", "ROS2NodeList", "ROS2PackageExecutables", "ROS2RosbridgeServer",
-                    "ROS2RosbridgeStatus", "ROS2Run", "ROS2ServiceList", "ROS2Status", "ROS2SystemCheck",
-                    "ROS2TopicEcho", "ROS2TopicList", "ROS2TopicPublish", "ROS2VisualDashboard",
-                ],
+        "blacknode-cuda": {
+            "name": "blacknode-cuda",
+            "layer": "compute",
+            "components": {
+                "capability": {
+                    "name": "capability",
+                    "default": True,
+                    "node_types": [
+                        "GPUCapability",
+                        "GPURequirement"
+                    ]
+                },
+                "kernels": {
+                    "name": "kernels",
+                    "default": True,
+                    "node_types": [
+                        "CUDACustomKernel",
+                        "CUDAKernelLab"
+                    ]
+                },
+                "image-processing": {
+                    "name": "image-processing",
+                    "default": True,
+                    "node_types": [
+                        "CUDAImageFilter",
+                        "CUDAImageFilterStream"
+                    ]
+                },
+                "tensor-operations": {
+                    "name": "tensor-operations",
+                    "default": True,
+                    "node_types": [
+                        "CUTLASS",
+                        "TensorCoreGEMM"
+                    ]
+                },
+                "benchmarks": {
+                    "name": "benchmarks",
+                    "default": True,
+                    "node_types": [
+                        "CUTLASSGemm"
+                    ]
+                }
             },
+            "git_url": "https://github.com/temiroff/blacknode-cuda.git",
+            "description": "Real GPU compute nodes: CUDA kernel lab, custom NVRTC kernels, GPU image filters, Tensor Core GEMM, and CUTLASS.",
+            "node_types": [
+                "CUDACustomKernel",
+                "CUDAImageFilter",
+                "CUDAImageFilterStream",
+                "CUDAKernelLab",
+                "CUTLASS",
+                "CUTLASSGemm",
+                "GPUCapability",
+                "GPURequirement",
+                "TensorCoreGEMM"
+            ]
         },
-        "git_url": "https://github.com/temiroff/blacknode-ros2.git",
-        "description": "ROS 2 integration primitives: graph discovery, topics, services, processes, and native/rosbridge transports.",
-        "node_types": [
-            "ROS2BridgeEcho",
-            "ROS2BridgePublish",
-            "ROS2DemoPublisher",
-            "ROS2InterfaceShow",
-            "ROS2Launch",
-            "ROS2NodeList",
-            "ROS2PackageExecutables",
-            "ROS2RosbridgeStatus",
-            "ROS2RosbridgeServer",
-            "ROS2Run",
-            "ROS2ServiceList",
-            "ROS2Status",
-            "ROS2SystemCheck",
-            "ROS2TopicEcho",
-            "ROS2TopicList",
-            "ROS2TopicPublish",
-            "ROS2VisualDashboard",
-        ],
-    },
-    "blacknode-robot": {
-        "name": "blacknode-robot",
-        "layer": "robot",
-        "components": {
-            "core": {
-                "name": "core",
-                "default": True,
-                "capabilities": ["robot.contracts", "robot.profiles", "robot.calibration", "robot.discovery"],
-                "node_types": [
-                    "Robot", "RobotCalibrationRecorder", "RobotConnectionDashboard", "RobotDefinition",
-                    "RobotDiscovery", "RobotDriverDescriptor", "RobotDriverLauncher", "RobotDriverPreset",
-                    "RobotJointDefinition", "RobotJointList", "RobotProfileDuplicate", "RobotProfileList",
-                    "RobotProfileLoad", "RobotProfileSave", "RobotUSBDiscovery",
-                ],
+        "blacknode-ros2": {
+            "name": "blacknode-ros2",
+            "layer": "ros2",
+            "components": {
+                "core": {
+                    "name": "core",
+                    "default": True,
+                    "node_types": []
+                },
+                "native": {
+                    "name": "native",
+                    "default": False,
+                    "node_types": []
+                },
+                "rosbridge": {
+                    "name": "rosbridge",
+                    "default": False,
+                    "node_types": [
+                        "ROS2BridgeEcho",
+                        "ROS2BridgePublish",
+                        "ROS2RosbridgeServer",
+                        "ROS2RosbridgeStatus"
+                    ]
+                },
+                "topics": {
+                    "name": "topics",
+                    "default": False,
+                    "node_types": [
+                        "ROS2DemoPublisher",
+                        "ROS2TopicEcho",
+                        "ROS2TopicList",
+                        "ROS2TopicPublish"
+                    ]
+                },
+                "services": {
+                    "name": "services",
+                    "default": False,
+                    "node_types": [
+                        "ROS2ServiceList"
+                    ]
+                },
+                "actions": {
+                    "name": "actions",
+                    "default": False,
+                    "node_types": []
+                },
+                "tf": {
+                    "name": "tf",
+                    "default": False,
+                    "node_types": []
+                },
+                "processes": {
+                    "name": "processes",
+                    "default": False,
+                    "node_types": [
+                        "ROS2Launch",
+                        "ROS2PackageExecutables",
+                        "ROS2Run"
+                    ]
+                },
+                "diagnostics": {
+                    "name": "diagnostics",
+                    "default": False,
+                    "node_types": [
+                        "ROS2InterfaceShow",
+                        "ROS2NodeList",
+                        "ROS2Status",
+                        "ROS2SystemCheck",
+                        "ROS2VisualDashboard"
+                    ]
+                }
             },
+            "git_url": "https://github.com/temiroff/blacknode-ros2.git",
+            "description": "ROS 2 integration primitives: graph discovery, topics, services, processes, and native/rosbridge transports.",
+            "node_types": [
+                "ROS2BridgeEcho",
+                "ROS2BridgePublish",
+                "ROS2DemoPublisher",
+                "ROS2InterfaceShow",
+                "ROS2Launch",
+                "ROS2NodeList",
+                "ROS2PackageExecutables",
+                "ROS2RosbridgeServer",
+                "ROS2RosbridgeStatus",
+                "ROS2Run",
+                "ROS2ServiceList",
+                "ROS2Status",
+                "ROS2SystemCheck",
+                "ROS2TopicEcho",
+                "ROS2TopicList",
+                "ROS2TopicPublish",
+                "ROS2VisualDashboard"
+            ]
         },
-        "git_url": "https://github.com/temiroff/blacknode-robot.git",
-        "description": "Generic robot setup: USB discovery, serial permission diagnostics, driver launch, and standard robot profiles.",
-        "node_types": [
-            "RobotDiscovery",
-            "RobotConnectionDashboard",
-            "RobotDriverDescriptor",
-            "RobotDriverLauncher",
-            "RobotDriverPreset",
-            "Robot",
-            "RobotJointDefinition",
-            "RobotJointList",
-            "RobotDefinition",
-            "RobotProfileSave",
-            "RobotProfileLoad",
-            "RobotProfileList",
-            "RobotProfileDuplicate",
-            "RobotCalibrationRecorder",
-            "RobotUSBDiscovery",
-        ],
-    },
-    "blacknode-perception": {
-        "name": "blacknode-perception",
-        "layer": "perception",
-        "components": {
-            "camera": {
-                "name": "camera", "default": True,
-                "node_types": [
-                    "Camera", "CameraCalibration", "CameraDiscovery", "CameraSelect", "CameraStream",
-                    "CV2ColorObjectStream",
-                    "CV2ColorObjectTracker", "CV2ColorTargetHint", "CV2HSVMask",
-                ],
-                "adapters": {"ros2": {
-                    "name": "ros2", "default": True,
-                    "node_types": ["ROS2ImageStream", "ROS2USBCamera", "ROS2WebVideoStream"],
-                }},
+        "blacknode-robot": {
+            "name": "blacknode-robot",
+            "layer": "robot",
+            "components": {
+                "core": {
+                    "name": "core",
+                    "default": True,
+                    "node_types": []
+                },
+                "contracts": {
+                    "name": "contracts",
+                    "default": False,
+                    "node_types": [
+                        "RobotDefinition",
+                        "RobotJointDefinition",
+                        "RobotJointList"
+                    ]
+                },
+                "profiles": {
+                    "name": "profiles",
+                    "default": False,
+                    "node_types": [
+                        "RobotProfileDuplicate",
+                        "RobotProfileList",
+                        "RobotProfileLoad",
+                        "RobotProfileSave"
+                    ]
+                },
+                "models": {
+                    "name": "models",
+                    "default": False,
+                    "node_types": [
+                        "Robot",
+                        "RobotDriverDescriptor",
+                        "RobotDriverLauncher",
+                        "RobotDriverPreset"
+                    ]
+                },
+                "calibration": {
+                    "name": "calibration",
+                    "default": False,
+                    "node_types": [
+                        "RobotCalibrationRecorder"
+                    ]
+                },
+                "capabilities": {
+                    "name": "capabilities",
+                    "default": False,
+                    "node_types": [
+                        "RobotConnectionDashboard",
+                        "RobotDiscovery",
+                        "RobotUSBDiscovery"
+                    ]
+                },
+                "authorization": {
+                    "name": "authorization",
+                    "default": False,
+                    "node_types": []
+                }
             },
-            "vlm": {
-                "name": "vlm", "default": True,
-                "node_types": [
-                    "DetectionPrompt", "FramePrompt", "ReasoningDashboard",
-                    "ReasoningStream", "CameraDashboard", "VLM",
-                ],
-            },
-            **{
-                name: {"name": name, "default": False, "node_types": []}
-                for name in ("depth", "lidar", "imu", "detection", "tracking", "slam", "localization")
-            },
+            "git_url": "https://github.com/temiroff/blacknode-robot.git",
+            "description": "Generic robot setup: USB discovery, serial permission diagnostics, driver launch, and standard robot profiles.",
+            "node_types": [
+                "Robot",
+                "RobotCalibrationRecorder",
+                "RobotConnectionDashboard",
+                "RobotDefinition",
+                "RobotDiscovery",
+                "RobotDriverDescriptor",
+                "RobotDriverLauncher",
+                "RobotDriverPreset",
+                "RobotJointDefinition",
+                "RobotJointList",
+                "RobotProfileDuplicate",
+                "RobotProfileList",
+                "RobotProfileLoad",
+                "RobotProfileSave",
+                "RobotUSBDiscovery"
+            ]
         },
-        "git_url": "https://github.com/temiroff/blacknode-perception.git",
-        "description": "Camera, tracking, VLM, and spatial-perception capabilities organized as selectable components.",
-        "node_types": [
-            "Camera",
-            "CameraCalibration",
-            "CameraStream",
-            "CameraDiscovery",
-            "CameraSelect",
-            "CV2ColorObjectStream",
-            "CV2ColorTargetHint",
-            "CV2ColorObjectTracker",
-            "CV2HSVMask",
-            "DetectionPrompt",
-            "FramePrompt",
-            "ReasoningDashboard",
-            "ReasoningStream",
-            "CameraDashboard",
-            "ROS2ImageStream",
-            "ROS2USBCamera",
-            "ROS2WebVideoStream",
-            "VLM",
-        ],
-    },
-    "blacknode-dataset": {
-        "name": "blacknode-dataset",
-        "layer": "learning",
-        "components": {},
-        "git_url": "https://github.com/temiroff/blacknode-dataset.git",
-        "description": "Native episode recording, recovery, validation, LeRobot v3 export, and explicit Hugging Face dataset upload.",
-        "node_types": [
-            "DatasetCameraStreamList",
-            "DatasetBrowser",
-            "DatasetCreate",
-            "EpisodeDatasetSummary",
-            "EpisodeDatasetValidate",
-            "EpisodeRecorder",
-            "HuggingFaceDatasetUpload",
-            "HDF5EpisodeExport",
-            "LeRobotV3Export",
-            "StreamPublisher",
-        ],
-    },
-    "blacknode-training": {
-        "name": "blacknode-training",
-        "layer": "learning",
-        "components": {},
-        "git_url": "https://github.com/temiroff/blacknode-training.git",
-        "description": "Robot-policy dataset checks, managed PyTorch training, checkpoints, previews, and deployable policy artifacts.",
-        "node_types": [
-            "TrainingDatasetCheck",
-            "ACTTraining",
-            "ACTCheckpointInspect",
-            "ACTPolicyPreview",
-            "ACTPolicyReplay",
-            "ACTPolicyExport",
-            "PolicyArtifactLoad",
-        ],
-    },
-    "blacknode-isaac": {
-        "name": "blacknode-isaac",
-        "layer": "simulation",
-        "components": {
-            "core": {
-                "name": "core", "default": True,
-                "node_types": ["IsaacPolicyBridge", "IsaacPolicyRuntime", "IsaacPolicySafetyGate"],
-                "dependencies": {
-                    "requires": [
-                        {"package": "blacknode-controllers", "component": "policy", "version": ">=0.1.0,<1.0.0"},
+        "blacknode-perception": {
+            "name": "blacknode-perception",
+            "layer": "perception",
+            "components": {
+                "camera": {
+                    "name": "camera",
+                    "default": True,
+                    "node_types": [
+                        "Camera",
+                        "CameraCalibration",
+                        "CameraDiscovery",
+                        "CameraSelect",
+                        "CameraStream"
                     ],
+                    "adapters": {
+                        "ros2": {
+                            "name": "ros2",
+                            "default": True,
+                            "node_types": [
+                                "ROS2ImageStream",
+                                "ROS2USBCamera",
+                                "ROS2WebVideoStream"
+                            ]
+                        }
+                    }
                 },
+                "vlm": {
+                    "name": "vlm",
+                    "default": True,
+                    "node_types": [
+                        "CameraDashboard",
+                        "DetectionPrompt",
+                        "FramePrompt",
+                        "ReasoningDashboard",
+                        "ReasoningStream",
+                        "VLM"
+                    ]
+                },
+                "depth": {
+                    "name": "depth",
+                    "default": False,
+                    "node_types": []
+                },
+                "lidar": {
+                    "name": "lidar",
+                    "default": False,
+                    "node_types": []
+                },
+                "imu": {
+                    "name": "imu",
+                    "default": False,
+                    "node_types": []
+                },
+                "detection": {
+                    "name": "detection",
+                    "default": False,
+                    "node_types": []
+                },
+                "tracking": {
+                    "name": "tracking",
+                    "default": True,
+                    "node_types": [
+                        "CV2ColorObjectStream",
+                        "CV2ColorObjectTracker",
+                        "CV2ColorTargetHint",
+                        "CV2HSVMask"
+                    ]
+                },
+                "slam": {
+                    "name": "slam",
+                    "default": False,
+                    "node_types": []
+                },
+                "localization": {
+                    "name": "localization",
+                    "default": False,
+                    "node_types": []
+                }
             },
+            "git_url": "https://github.com/temiroff/blacknode-perception.git",
+            "description": "Camera, tracking, VLM, and spatial-perception capabilities organized as selectable components.",
+            "node_types": [
+                "CV2ColorObjectStream",
+                "CV2ColorObjectTracker",
+                "CV2ColorTargetHint",
+                "CV2HSVMask",
+                "Camera",
+                "CameraCalibration",
+                "CameraDashboard",
+                "CameraDiscovery",
+                "CameraSelect",
+                "CameraStream",
+                "DetectionPrompt",
+                "FramePrompt",
+                "ROS2ImageStream",
+                "ROS2USBCamera",
+                "ROS2WebVideoStream",
+                "ReasoningDashboard",
+                "ReasoningStream",
+                "VLM"
+            ]
         },
-        "git_url": "https://github.com/temiroff/blacknode-isaac.git",
-        "description": "Closed-loop policy deployment for Isaac Sim articulations and named RGB sensors.",
-        "node_types": [
-            "IsaacPolicySafetyGate",
-            "IsaacPolicyBridge",
-            "IsaacPolicyRuntime",
-        ],
-    },
-}
-
-# Compatibility-mounted core components own every node currently published by
-# their repositories. Keeping these lists explicit lets disabled components
-# explain exactly which saved workflow nodes they provide.
-_CORE_PACKAGES["blacknode-ros2"]["components"]["core"]["node_types"] = list(
-    _CORE_PACKAGES["blacknode-ros2"]["node_types"]
-)
-_CORE_PACKAGES["blacknode-robot"]["components"]["core"]["node_types"] = list(
-    _CORE_PACKAGES["blacknode-robot"]["node_types"]
-)
+        "blacknode-dataset": {
+            "name": "blacknode-dataset",
+            "layer": "learning",
+            "components": {
+                "recording": {
+                    "name": "recording",
+                    "default": True,
+                    "node_types": [
+                        "DatasetBrowser",
+                        "DatasetCameraStreamList",
+                        "DatasetCreate",
+                        "EpisodeRecorder"
+                    ]
+                },
+                "replay": {
+                    "name": "replay",
+                    "default": True,
+                    "node_types": [
+                        "EpisodeReplay",
+                        "TrajectorySmoother"
+                    ]
+                },
+                "validation": {
+                    "name": "validation",
+                    "default": True,
+                    "node_types": [
+                        "EpisodeDatasetSummary",
+                        "EpisodeDatasetValidate",
+                        "EpisodeStats"
+                    ]
+                },
+                "evaluation": {
+                    "name": "evaluation",
+                    "default": True,
+                    "node_types": [
+                        "EpisodeEvaluator"
+                    ]
+                },
+                "export": {
+                    "name": "export",
+                    "default": True,
+                    "node_types": [
+                        "HDF5EpisodeExport",
+                        "LeRobotV3Export"
+                    ]
+                },
+                "publishing": {
+                    "name": "publishing",
+                    "default": True,
+                    "node_types": [
+                        "BlacknodeHubExport",
+                        "HuggingFaceDatasetUpload",
+                        "StreamPublisher"
+                    ]
+                }
+            },
+            "git_url": "https://github.com/temiroff/blacknode-dataset.git",
+            "description": "Native episode recording, recovery, validation, LeRobot v3 export, and explicit Hugging Face dataset upload.",
+            "node_types": [
+                "BlacknodeHubExport",
+                "DatasetBrowser",
+                "DatasetCameraStreamList",
+                "DatasetCreate",
+                "EpisodeDatasetSummary",
+                "EpisodeDatasetValidate",
+                "EpisodeEvaluator",
+                "EpisodeRecorder",
+                "EpisodeReplay",
+                "EpisodeStats",
+                "HDF5EpisodeExport",
+                "HuggingFaceDatasetUpload",
+                "LeRobotV3Export",
+                "StreamPublisher",
+                "TrajectorySmoother"
+            ]
+        },
+        "blacknode-training": {
+            "name": "blacknode-training",
+            "layer": "learning",
+            "components": {
+                "dataset-check": {
+                    "name": "dataset-check",
+                    "default": True,
+                    "node_types": [
+                        "TrainingDatasetCheck"
+                    ]
+                },
+                "training-jobs": {
+                    "name": "training-jobs",
+                    "default": True,
+                    "node_types": [
+                        "ACTTraining"
+                    ]
+                },
+                "checkpoints": {
+                    "name": "checkpoints",
+                    "default": True,
+                    "node_types": [
+                        "ACTCheckpointInspect"
+                    ]
+                },
+                "policy-preview": {
+                    "name": "policy-preview",
+                    "default": True,
+                    "node_types": [
+                        "ACTPolicyPreview",
+                        "ACTPolicyReplay"
+                    ]
+                },
+                "policy-artifacts": {
+                    "name": "policy-artifacts",
+                    "default": True,
+                    "node_types": [
+                        "ACTPolicyExport",
+                        "PolicyArtifactLoad"
+                    ]
+                }
+            },
+            "git_url": "https://github.com/temiroff/blacknode-training.git",
+            "description": "Robot-policy dataset checks, managed PyTorch training, checkpoints, previews, and deployable policy artifacts.",
+            "node_types": [
+                "ACTCheckpointInspect",
+                "ACTPolicyExport",
+                "ACTPolicyPreview",
+                "ACTPolicyReplay",
+                "ACTTraining",
+                "PolicyArtifactLoad",
+                "TrainingDatasetCheck"
+            ]
+        },
+        "blacknode-isaac": {
+            "name": "blacknode-isaac",
+            "layer": "simulation",
+            "components": {
+                "core": {
+                    "name": "core",
+                    "default": True,
+                    "node_types": [],
+                    "dependencies": {
+                        "requires": [
+                            {
+                                "package": "blacknode-controllers",
+                                "component": "policy",
+                                "version": ">=0.1.0,<1.0.0"
+                            }
+                        ]
+                    }
+                },
+                "bridge": {
+                    "name": "bridge",
+                    "default": False,
+                    "node_types": [
+                        "IsaacPolicyBridge"
+                    ]
+                },
+                "robot-models": {
+                    "name": "robot-models",
+                    "default": False,
+                    "node_types": []
+                },
+                "virtual-sensors": {
+                    "name": "virtual-sensors",
+                    "default": False,
+                    "node_types": []
+                },
+                "articulations": {
+                    "name": "articulations",
+                    "default": False,
+                    "node_types": []
+                },
+                "policy-runtime": {
+                    "name": "policy-runtime",
+                    "default": False,
+                    "node_types": [
+                        "IsaacPolicyRuntime",
+                        "IsaacPolicySafetyGate"
+                    ]
+                },
+                "scenario-assets": {
+                    "name": "scenario-assets",
+                    "default": False,
+                    "node_types": []
+                },
+                "qualification": {
+                    "name": "qualification",
+                    "default": False,
+                    "node_types": []
+                }
+            },
+            "git_url": "https://github.com/temiroff/blacknode-isaac.git",
+            "description": "Closed-loop policy deployment for Isaac Sim articulations and named RGB sensors.",
+            "node_types": [
+                "IsaacPolicyBridge",
+                "IsaacPolicyRuntime",
+                "IsaacPolicySafetyGate"
+            ]
+        }
+    }
 
 _NODE_PACKAGE_INDEX: dict[str, dict[str, str]] = {
     node_type: {
