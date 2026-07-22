@@ -13,6 +13,8 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import blacknode as bn
 import blacknode.integrations  # noqa: F401  registers chat drivers (slack/telegram)
+from blacknode import console as command_console
+from blacknode.deployments import DeploymentError, DeploymentStore
 from blacknode.discovery import discover_node_modules, load_node_file
 from blacknode.integrations import registry as driver_registry
 from blacknode.exporters import export_workflow as export_framework_workflow
@@ -54,6 +56,10 @@ _TEMPLATES_DIR  = os.path.join(os.path.dirname(__file__), "..", "templates")
 _CUSTOM_NODES_DIR = os.path.join(os.path.dirname(__file__), "..", "custom-nodes")
 _RUNS_DIR       = os.path.join(os.path.dirname(__file__), "runs")
 _run_store      = RunStore(_RUNS_DIR)
+# Deployments live beside the repo, not under editor-server/, because a
+# deployment outlives this server process and is not tied to it.
+_DEPLOYMENTS_DIR = Path(__file__).resolve().parents[1] / ".blacknode" / "deployments"
+_deployment_store = DeploymentStore(_DEPLOYMENTS_DIR)
 _save_timer: threading.Timer | None = None
 _SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool", "VisualAgentLoop"}
 _TOOLBOX_NODE_TYPES = {"ToolBox"}
@@ -282,6 +288,13 @@ class ExportWorkflowReq(BaseModel):
 class ImportPythonReq(BaseModel):
     code: str
     name: str = "Imported Python Workflow"
+
+class DeployReq(BaseModel):
+    name: str = ""
+    # Omit to deploy whatever is currently in the editor graph.
+    workflow: dict[str, Any] | None = None
+    target: str = "local-process"
+    autostart: bool = True
 
 class SyncRunReq(BaseModel):
     node_id: str
@@ -2432,6 +2445,46 @@ def ollama_models(endpoint_url: str = "http://127.0.0.1:11434"):
     return {"ok": True, "models": models}
 
 
+# Diagnostics the Console panel can run. Deliberately a fixed table keyed by id:
+# the editor never sends a command string, so this endpoint cannot become a
+# shell on the machine running the server.
+_DIAGNOSTICS: dict[str, dict[str, Any]] = {
+    "ros2-topics":    {"label": "List ROS 2 topics",      "args": ["topic", "list"],            "timeout": 15},
+    "ros2-nodes":     {"label": "List ROS 2 nodes",       "args": ["node", "list"],             "timeout": 15},
+    "ros2-services":  {"label": "List ROS 2 services",    "args": ["service", "list"],          "timeout": 15},
+    "ros2-doctor":    {"label": "ROS 2 doctor",           "args": ["doctor"],                   "timeout": 45},
+    "ros2-interfaces":{"label": "List image interfaces",  "args": ["interface", "list"],        "timeout": 20},
+}
+
+
+@app.get("/console")
+def console_log(limit: int = 100, after_id: int = 0):
+    """Commands Blacknode has shelled out to, newest last."""
+    return {
+        "entries": command_console.entries(limit=limit, after_id=after_id),
+        "active": command_console.active_count(),
+        "diagnostics": [{"id": k, "label": v["label"]} for k, v in _DIAGNOSTICS.items()],
+    }
+
+
+@app.post("/console/clear")
+def console_clear():
+    command_console.clear()
+    return {"ok": True}
+
+
+@app.post("/console/run/{diagnostic_id}")
+def console_run(diagnostic_id: str):
+    spec = _DIAGNOSTICS.get(diagnostic_id)
+    if spec is None:
+        raise HTTPException(404, f"Unknown diagnostic '{diagnostic_id}'")
+    runner = _runtime_callable("ros2", _RUNTIME_MODULES["ros2"], "run_ros2")
+    if runner is None:
+        raise HTTPException(503, "blacknode-ros2 runtime is not loaded")
+    # run_ros2 records itself, so the result shows up in the log like any other.
+    return dict(runner(list(spec["args"]), timeout=float(spec["timeout"])))
+
+
 @app.get("/runtime/status")
 def runtime_status():
     return _runtime_status()
@@ -2491,6 +2544,73 @@ def stop_runtime():
     _stop_active_cook()
     _begin_fresh_cook()
     return _stop_runtime_services()
+
+
+@app.get("/deployments")
+def list_deployments():
+    return {"deployments": _deployment_store.list()}
+
+
+@app.post("/deployments")
+def create_deployment(req: DeployReq):
+    workflow = req.workflow if isinstance(req.workflow, dict) else _workflow_payload(
+        req.name or "Deployed graph",
+        metadata={"source": "deploy"},
+    )
+    try:
+        record = _deployment_store.create(
+            workflow,
+            name=req.name,
+            target=req.target,
+            autostart=req.autostart,
+        )
+    except DeploymentError as exc:
+        # The graph is fine as a document but cannot be deployed as-is
+        # (no inferable entrypoint, unsupported target). That is a request
+        # problem the user can fix in the editor, not a server fault.
+        raise HTTPException(400, str(exc)) from exc
+    return record
+
+
+@app.get("/deployments/{deployment_id}")
+def get_deployment(deployment_id: str):
+    record = _deployment_store.get(deployment_id)
+    if record is None:
+        raise HTTPException(404, "Deployment not found")
+    return record
+
+
+@app.post("/deployments/{deployment_id}/start")
+def start_deployment(deployment_id: str):
+    try:
+        return _deployment_store.start(deployment_id)
+    except DeploymentError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.post("/deployments/{deployment_id}/stop")
+def stop_deployment(deployment_id: str):
+    try:
+        return _deployment_store.stop(deployment_id)
+    except DeploymentError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.delete("/deployments/{deployment_id}")
+def delete_deployment(deployment_id: str):
+    if not _deployment_store.delete(deployment_id):
+        raise HTTPException(404, "Deployment not found")
+    return {"ok": True, "id": deployment_id}
+
+
+@app.get("/deployments/{deployment_id}/logs")
+def deployment_logs(deployment_id: str, limit_bytes: int = 20000):
+    if _deployment_store.get(deployment_id) is None:
+        raise HTTPException(404, "Deployment not found")
+    return {
+        "id": deployment_id,
+        "logs": _deployment_store.logs(deployment_id, limit_bytes=max(512, min(limit_bytes, 200000))),
+    }
 
 
 @app.get("/runs")

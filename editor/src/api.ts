@@ -93,6 +93,27 @@ export interface RunSummary {
   error?: string
 }
 
+export type DeploymentState = 'running' | 'stopped' | 'exited' | 'failed'
+export type DeploymentKind = 'service' | 'job'
+
+export interface Deployment {
+  id: string
+  name: string
+  kind: DeploymentKind
+  target: string
+  state: DeploymentState
+  snapshot_hash: string
+  entrypoint: { node_id: string; port: string }
+  node_count: number
+  live_node_types: string[]
+  created_at: string
+  started_at: string | null
+  stopped_at: string | null
+  pid: number | null
+  exit_code: number | null
+  error: string
+}
+
 export interface WorkflowSnapshot {
   kind?: string
   schema_version?: number
@@ -167,6 +188,26 @@ export interface RuntimeStatus {
   detached_count?: number
   report?: string
   error?: string
+}
+
+export interface ConsoleEntry {
+  id: number
+  command: string
+  backend: string
+  source: string
+  status: 'running' | 'ok' | 'failed'
+  started_at: number
+  duration_ms: number | null
+  stdout: string
+  stderr: string
+  error: string
+  exit_code: number | null
+}
+
+export interface ConsoleLog {
+  entries: ConsoleEntry[]
+  active: number
+  diagnostics: Array<{ id: string; label: string }>
 }
 
 export interface RuntimeStopResult {
@@ -396,6 +437,9 @@ export const api = {
     req<{ value: unknown; port: string }>('POST', '/cook', { node_id, port }),
   stopCook:   () => req<RuntimeStopResult>('POST', '/cook/stop'),
   runtimeStatus: () => req<RuntimeStatus>('GET', '/runtime/status'),
+  consoleLog: (limit = 100) => req<ConsoleLog>('GET', `/console?limit=${limit}`),
+  consoleClear: () => req<{ ok: boolean }>('POST', '/console/clear'),
+  consoleRun: (id: string) => req<Record<string, unknown>>('POST', `/console/run/${encodeURIComponent(id)}`),
   ollamaModels: (endpointUrl: string) =>
     req<{ ok: boolean; models: string[]; error?: string }>('GET', `/ollama/models?endpoint_url=${encodeURIComponent(endpointUrl)}`),
   stopRuntime: () => req<RuntimeStopResult>('POST', '/runtime/stop'),
@@ -473,6 +517,19 @@ export const api = {
   deleteLearnedNode: (name: string) =>
     req<{ status: string; node_type: string }>('DELETE', `/learned-nodes/${encodeURIComponent(name)}`),
   learnedNodeEventsUrl: () => `${BASE}/learned-nodes/events`,
+
+  listDeployments: () =>
+    req<{ deployments: Deployment[] }>('GET', '/deployments'),
+  deployGraph: (name: string) =>
+    req<Deployment>('POST', '/deployments', { name }),
+  startDeployment: (id: string) =>
+    req<Deployment>('POST', `/deployments/${encodeURIComponent(id)}/start`),
+  stopDeployment: (id: string) =>
+    req<Deployment>('POST', `/deployments/${encodeURIComponent(id)}/stop`),
+  deleteDeployment: (id: string) =>
+    req<{ ok: boolean; id: string }>('DELETE', `/deployments/${encodeURIComponent(id)}`),
+  deploymentLogs: (id: string) =>
+    req<{ id: string; logs: string }>('GET', `/deployments/${encodeURIComponent(id)}/logs`),
 
   listRuns:   (limit = 50) =>
     req<{ runs: RunSummary[] }>('GET', `/runs?limit=${limit}`),
