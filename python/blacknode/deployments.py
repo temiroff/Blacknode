@@ -354,11 +354,15 @@ class DeploymentStore:
             )
 
         snapshot = json.loads(json.dumps(dict(workflow), default=str))
-        snapshot["entrypoint"] = resolve_entrypoint(snapshot)
         display = str(name or snapshot.get("name") or "Graph").strip() or "Graph"
         snapshot["name"] = display
 
+        # Both steps reject graphs that are valid documents but not runnable
+        # as-is. That is a request the caller can fix in the editor, so it
+        # must surface as a DeploymentError (HTTP 400) carrying the reason,
+        # never as an unhandled WorkflowRunError.
         try:
+            snapshot["entrypoint"] = resolve_entrypoint(snapshot)
             script = export_workflow_python(snapshot)
         except WorkflowRunError as exc:
             raise DeploymentError(f"Graph cannot be deployed: {exc}") from exc
