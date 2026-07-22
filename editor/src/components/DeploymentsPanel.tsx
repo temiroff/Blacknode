@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { api, type Deployment, type DeploymentState } from '../api'
+import { useStore } from '../store'
 
 const REFRESH_INTERVAL_MS = 3000
 
@@ -23,6 +24,7 @@ export default function DeploymentsPanel() {
   const [busy, setBusy] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [logs, setLogs] = useState<Record<string, string>>({})
+  const stopRuntimeServices = useStore(s => s.stopRuntimeServices)
 
   const refresh = async () => {
     try {
@@ -74,7 +76,13 @@ export default function DeploymentsPanel() {
   const handleDeploy = async () => {
     const name = window.prompt('Name this deployment', 'Deployed graph')
     if (name === null) return
-    await act(() => api.deployGraph(name.trim() || 'Deployed graph'))
+    // Deploying hands the graph off to its own process. Stop the editor's live
+    // run first so the top bar no longer shows it as live and the hardware is
+    // freed, then deploy. The canvas graph itself is left in place.
+    await act(async () => {
+      try { await stopRuntimeServices() } catch { /* deploy stops it too */ }
+      return api.deployGraph(name.trim() || 'Deployed graph')
+    })
   }
 
   const handleDelete = async (deployment: Deployment) => {
