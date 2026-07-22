@@ -519,15 +519,20 @@ class DeploymentStore:
         data = dict(record)
         if data.get("state") != STATE_RUNNING:
             return data
-        pid = data.get("pid")
-        if isinstance(pid, int) and process_alive(pid):
-            return data
 
         deployment_id = str(data.get("id") or "")
-        proc = self._procs.pop(deployment_id, None)
-        exit_code = None
-        if proc is not None:
-            exit_code = proc.poll()
+        # Ask the Popen first when we still have one. On POSIX an exited child
+        # stays a zombie until it is reaped, and a zombie still answers
+        # os.kill(pid, 0) - so a pid probe alone reports a finished deployment
+        # as running forever. poll() reaps it and yields the real exit code.
+        proc = self._procs.get(deployment_id)
+        exit_code = proc.poll() if proc is not None else None
+        if proc is not None and exit_code is None:
+            return data
+        pid = data.get("pid")
+        if proc is None and isinstance(pid, int) and process_alive(pid):
+            return data
+        self._procs.pop(deployment_id, None)
         data["pid"] = None
         data["exit_code"] = exit_code
         data["stopped_at"] = _iso_now()

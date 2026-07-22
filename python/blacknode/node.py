@@ -307,9 +307,35 @@ def _wrap_direct_node(fn: Callable, inputs: list[str], defaults: dict[str, objec
     return wrapper
 
 
+def _fill_frame_stream(result: dict, outputs: list[str]) -> dict:
+    """Populate a declared ``frame_stream`` port from the node's own URLs.
+
+    Every stream node already returns stream_url/snapshot_url/stream_id, so a
+    node opts into the shared contract by declaring the port and nothing else -
+    no node needs to know how to spell the handle, and they cannot drift apart.
+    """
+    if "frame_stream" not in outputs or result.get("frame_stream"):
+        return result
+    stream_url = str(result.get("stream_url") or "")
+    snapshot_url = str(result.get("snapshot_url") or "")
+    if not stream_url and not snapshot_url:
+        return result
+    from blacknode.streams import frame_stream as _build
+
+    result["frame_stream"] = _build(
+        stream_id=str(result.get("stream_id") or ""),
+        stream_url=stream_url,
+        snapshot_url=snapshot_url,
+        health_url=str(result.get("health_url") or ""),
+        label=str(result.get("label") or result.get("camera") or ""),
+        topic=str(result.get("topic") or ""),
+    )
+    return result
+
+
 def _normalize_result(result: TypingAny, outputs: list[str]) -> dict:
     if isinstance(result, dict):
-        return result
+        return _fill_frame_stream(result, outputs)
     if result is None:
         return {}
     if len(outputs) == 1:

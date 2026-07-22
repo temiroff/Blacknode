@@ -31,8 +31,26 @@ from blacknode.deployments import (  # noqa: E402
     process_alive,
     resolve_entrypoint,
 )
-from blacknode.node import _NODE_REGISTRY  # noqa: E402
+from blacknode.node import Any as AnyPort  # noqa: E402
+from blacknode.node import Bool, Enum, Image, Text, _NODE_REGISTRY  # noqa: E402
+from blacknode.node import node as bn_node  # noqa: E402
 from blacknode.workflow import WorkflowRunError  # noqa: E402
+
+
+# A live-capable node defined here rather than borrowed from a package: core
+# ships none, and reaching for blacknode-perception's camera made these tests
+# fail wherever packages are not installed - which is exactly how core CI runs.
+LIVE_NODE = "DeploymentTestLiveSource"
+
+if LIVE_NODE not in _NODE_REGISTRY:
+    @bn_node(
+        name=LIVE_NODE,
+        live=True,
+        inputs={"trigger": AnyPort, "action": Enum(["start", "stop"], default="start")},
+        outputs={"preview": Image, "streaming": Bool, "report": Text},
+    )
+    def _deployment_test_live_source(ctx: dict) -> dict:
+        return {"preview": "", "streaming": True, "report": "test live source"}
 
 
 def node(node_id: str, node_type: str, params: dict | None = None) -> dict:
@@ -64,7 +82,7 @@ def workflow(node_meta: dict, edges: list | None = None, **extra) -> dict:
 
 class ClassificationTests(unittest.TestCase):
     def test_graph_with_a_live_node_is_a_service(self):
-        wf = workflow({"cam": node("cam", "CameraROS2Subscribe")})
+        wf = workflow({"cam": node("cam", LIVE_NODE)})
         self.assertEqual(classify(wf), KIND_SERVICE)
 
     def test_graph_without_live_nodes_is_a_job(self):
@@ -74,7 +92,7 @@ class ClassificationTests(unittest.TestCase):
     def test_a_live_node_set_to_stop_does_not_make_a_service(self):
         # Deploying a graph whose stream node is set to 'stop' should not
         # produce a process that hangs forever waiting on nothing.
-        wf = workflow({"cam": node("cam", "CameraROS2Subscribe", {"action": "stop"})})
+        wf = workflow({"cam": node("cam", LIVE_NODE, {"action": "stop"})})
         self.assertEqual(classify(wf), KIND_JOB)
 
 
@@ -93,7 +111,7 @@ class EntrypointTests(unittest.TestCase):
     def test_publisher_graph_with_no_output_node_still_resolves(self):
         # The flagship case: publish a camera and leave it running. There is
         # no Output node, so workflow.infer_entrypoint would refuse.
-        wf = workflow({"cam": node("cam", "CameraROS2Subscribe")})
+        wf = workflow({"cam": node("cam", LIVE_NODE)})
         resolved = resolve_entrypoint(wf)
         self.assertEqual(resolved["node_id"], "cam")
         self.assertTrue(resolved["port"])
@@ -101,7 +119,7 @@ class EntrypointTests(unittest.TestCase):
     def test_live_sink_is_preferred_over_a_dead_end(self):
         wf = workflow(
             {
-                "cam": node("cam", "CameraROS2Subscribe"),
+                "cam": node("cam", LIVE_NODE),
                 "note": node("note", "Text"),
             },
         )
@@ -109,8 +127,8 @@ class EntrypointTests(unittest.TestCase):
 
     def test_ambiguous_graph_explains_how_to_fix_it(self):
         wf = workflow({
-            "a": node("a", "CameraROS2Subscribe"),
-            "b": node("b", "CameraROS2Subscribe"),
+            "a": node("a", LIVE_NODE),
+            "b": node("b", LIVE_NODE),
         })
         with self.assertRaises(WorkflowRunError) as ctx:
             resolve_entrypoint(wf)
