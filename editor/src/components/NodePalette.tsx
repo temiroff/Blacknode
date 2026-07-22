@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import { CATEGORIES } from '../categories'
-import { isPythonToolPreset, resolvePythonToolPreset } from '../pythonToolPresets'
+import { CORE_GROUP, componentDisplayName, groupForPackage, packageGroupIndex } from '../packageGroups'
+import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from '../pythonToolPresets'
 import McpPanel from './McpPanel'
 import LearnedNodesPanel from './LearnedNodesPanel'
 import PackagesPanel from './PackagesPanel'
@@ -11,7 +12,13 @@ import ScriptEditor from './ScriptEditor'
 import TemplateGallery from './TemplateGallery'
 import WorkflowManager from './WorkflowManager'
 
-const ALL_CATEGORISED = Object.values(CATEGORIES).flatMap(c => c.nodes)
+// Curated ordering for the built-in categories; anything else sorts by name.
+const CATEGORY_ORDER = Object.keys(CATEGORIES)
+
+// The Nodes tab groups by package (like the Templates tab), then by category
+// inside each package, so a long node list stays scannable.
+interface PaletteSubGroup { name: string; color: string; types: string[] }
+interface PaletteGroup { name: string; color: string; subgroups: PaletteSubGroup[]; count: number }
 
 type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs' | 'learned' | 'mcp' | 'packages'
 
@@ -99,7 +106,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 ]
 
 export default function NodePalette() {
-  const { nodeTypes, nodeDefs, addNode, loadNodeTypes, learnedNodeHighlight } = useStore()
+  const { nodeTypes, nodeDefs, packages, addNode, loadNodeTypes, learnedNodeHighlight } = useStore()
   const [activeTab, setActiveTab] = useState<Tab | null>('templates')
   const [showPackageWelcome, setShowPackageWelcome] = useState(false)
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
@@ -131,7 +138,7 @@ export default function NodePalette() {
   useEffect(() => {
     if (!learnedNodeHighlight) return
     setActiveTab('nodes')
-    setOpenGroups(prev => new Set(prev).add('Learned'))
+    setOpenGroups(prev => new Set(prev).add(CORE_GROUP.name).add(`${CORE_GROUP.name}/Learned`))
   }, [learnedNodeHighlight])
 
   const startResize = (e: React.MouseEvent) => {
@@ -164,23 +171,87 @@ export default function NodePalette() {
     e.dataTransfer.effectAllowed = 'move'
   }
 
-  const groups = Object.entries(CATEGORIES).map(([group, { color, nodes }]) => ({
-    group, color,
-    types: nodes.filter(t => isPythonToolPreset(t) || (nodeTypes.includes(t) && !nodeDefs[t]?.hidden)),
-  })).filter(g => g.types.length > 0)
+  const paletteGroups = useMemo<PaletteGroup[]>(() => {
+    const index = packageGroupIndex(packages)
+    const tops = new Map<string, { color: string; subs: Map<string, PaletteSubGroup> }>()
 
-  const ungrouped = nodeTypes.filter(t => !ALL_CATEGORISED.includes(t) && !nodeDefs[t]?.hidden)
-  for (const type of ungrouped) {
-    const category = nodeDefs[type]?.category || 'Custom'
-    const known = CATEGORIES[category]
-    const color = known?.color || nodeDefs[type]?.color || 'var(--tx3)'
-    let group = groups.find(item => item.group === category)
-    if (!group) {
-      group = { group: category, color, types: [] }
-      groups.push(group)
+    // `type` is undefined when declaring a component that has no nodes yet.
+    const place = (top: { name: string; color: string }, subName: string, subColor: string, type?: string) => {
+      let entry = tops.get(top.name)
+      if (!entry) {
+        entry = { color: top.color, subs: new Map() }
+        tops.set(top.name, entry)
+      }
+      let sub = entry.subs.get(subName)
+      if (!sub) {
+        sub = { name: subName, color: subColor, types: [] }
+        entry.subs.set(subName, sub)
+      }
+      if (type && !sub.types.includes(type)) sub.types.push(type)
     }
-    if (!group.types.includes(type)) group.types.push(type)
-  }
+
+    // Subnet and the Python tool presets are editor-side, not registry nodes.
+    place(CORE_GROUP, 'Structure', CATEGORIES.Subnet.color, 'Subnet')
+    for (const type of PYTHON_TOOL_TYPES) {
+      place(CORE_GROUP, 'PythonTools', CATEGORIES.PythonTools.color, type)
+    }
+
+    // Colors declared by package manifests, keyed by category name.
+    const declaredColors: Record<string, string> = {}
+    for (const pkg of packages) Object.assign(declaredColors, pkg.categories ?? {})
+
+    for (const type of nodeTypes) {
+      const def = nodeDefs[type]
+      if (def?.hidden) continue
+      const top = groupForPackage(def?.package ?? '', index)
+      // Packages organise their nodes into components, which say what a node
+      // does far better than a category does. Uncomponentised packages and
+      // built-ins keep falling back to the declared category.
+      const sub = def?.component ? componentDisplayName(def.component) : (def?.category || 'Custom')
+      // Resolve the color from the subgroup's own name so every node in it
+      // agrees, rather than from whichever node happened to be placed first.
+      const color = CATEGORIES[sub]?.color || declaredColors[sub] || top.color
+      place(top, sub, color, type)
+    }
+
+    // Components a package declares but has not implemented yet still show, so
+    // the palette reads as the package roadmap rather than only what exists.
+    for (const pkg of packages) {
+      if (!pkg.ok) continue
+      const top = groupForPackage(pkg.name, index)
+      for (const [name, component] of Object.entries(pkg.components ?? {})) {
+        // A component that declares node types but shows none of its own is the
+        // package's legacy loading shim — its nodes are attributed to the
+        // roadmap components they declare, so listing it as empty is noise.
+        if ((component.node_types ?? []).length > 0) continue
+        const entry = tops.get(top.name)
+        const label = componentDisplayName(name)
+        if (entry?.subs.has(label)) continue
+        place(top, label, top.color, undefined)
+      }
+    }
+
+    return Array.from(tops.entries())
+      .map(([name, { color, subs }]) => {
+        // A package leads with the category it is named after; built-in
+        // categories keep their curated order.
+        const rank = (sub: PaletteSubGroup) => {
+          if (sub.name === name) return -1
+          const i = CATEGORY_ORDER.indexOf(sub.name)
+          return i === -1 ? CATEGORY_ORDER.length : i
+        }
+        // Implemented components first; not-yet-built ones sink to the bottom.
+        const subgroups = Array.from(subs.values())
+          .sort((a, b) =>
+            Number(a.types.length === 0) - Number(b.types.length === 0)
+            || rank(a) - rank(b)
+            || a.name.localeCompare(b.name))
+        return { name, color, subgroups, count: subgroups.reduce((n, s) => n + s.types.length, 0) }
+      })
+      .sort((a, b) =>
+        Number(a.name !== CORE_GROUP.name) - Number(b.name !== CORE_GROUP.name)
+        || a.name.localeCompare(b.name))
+  }, [nodeTypes, nodeDefs, packages])
 
   const toggleGroup = (group: string) => {
     setOpenGroups(prev => {
@@ -202,40 +273,76 @@ export default function NodePalette() {
     setActiveTab(tab)
   }
 
-  const renderGroupHeader = (group: string, color: string, count: number) => {
-    const open = openGroups.has(group)
+  // `key` is the accordion path ('Core', 'Core/Flow') so a category name reused
+  // by two packages still expands independently.
+  const renderGroupHeader = (key: string, label: string, color: string, count: number, nested = false) => {
+    const open = openGroups.has(key)
+    // A declared component with no nodes yet: shown so the palette reads as the
+    // package roadmap, but dimmed and inert since there is nothing to expand.
+    if (nested && count === 0) {
+      return (
+        <div
+          title="Declared by the package but not implemented yet"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            padding: '4px 12px 4px 24px', color: 'var(--tx3)',
+            fontFamily: 'var(--font-ui)', opacity: 0.5, cursor: 'default',
+          }}
+        >
+          <span style={{ width: 10 }} />
+          <span style={{
+            width: 5, height: 5, borderRadius: 2, flexShrink: 0,
+            border: `1px solid ${color}`, background: 'transparent',
+          }} />
+          <span style={{
+            flex: 1, fontSize: 10, fontWeight: 600,
+            letterSpacing: '0.03em', textTransform: 'uppercase',
+          }}>
+            {label}
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>0</span>
+        </div>
+      )
+    }
     return (
       <button
-        onClick={() => toggleGroup(group)}
+        onClick={() => toggleGroup(key)}
         style={{
           width: '100%',
-          background: open ? 'var(--menu-active)' : 'transparent',
+          background: open && !nested ? 'var(--menu-active)' : 'transparent',
           border: 'none',
-          borderTop: '1px solid var(--line)',
+          borderTop: nested ? 'none' : '1px solid var(--line)',
           color,
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           gap: 7,
-          padding: '8px 12px',
+          padding: nested ? '4px 12px 4px 24px' : '8px 12px',
           textAlign: 'left',
           fontFamily: 'var(--font-ui)',
         }}
-        onMouseEnter={e => { if (!open) e.currentTarget.style.background = 'var(--hover)' }}
-        onMouseLeave={e => { if (!open) e.currentTarget.style.background = 'transparent' }}
+        onMouseEnter={e => { if (!open || nested) e.currentTarget.style.background = 'var(--hover)' }}
+        onMouseLeave={e => { if (!open || nested) e.currentTarget.style.background = 'transparent' }}
       >
         <span style={{ width: 10, color: 'var(--tx3)', fontSize: 12, lineHeight: 1 }}>
           {open ? '-' : '+'}
         </span>
-        <span style={{ width: 6, height: 6, borderRadius: 2, background: color, flexShrink: 0 }} />
+        <span style={{
+          width: nested ? 5 : 6,
+          height: nested ? 5 : 6,
+          borderRadius: 2,
+          background: color,
+          flexShrink: 0,
+        }} />
         <span style={{
           flex: 1,
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: '0.06em',
+          fontSize: nested ? 10 : 11,
+          fontWeight: nested ? 600 : 700,
+          letterSpacing: nested ? '0.03em' : '0.06em',
           textTransform: 'uppercase',
+          opacity: nested ? 0.85 : 1,
         }}>
-          {group}
+          {label}
         </span>
         <span style={{
           color: 'var(--tx3)',
@@ -248,6 +355,41 @@ export default function NodePalette() {
       </button>
     )
   }
+
+  const renderNodeItem = (type: string, color: string) => (
+    <div
+      key={type}
+      className={type === learnedNodeHighlight ? 'bn-node-palette-item bn-learned-node-pulse' : 'bn-node-palette-item'}
+      draggable
+      onDragStart={e => handleDragStart(e, type)}
+      onClick={() => {
+        const spec = nodeSpec(type)
+        addNode(spec.type, { x: 200 + Math.random() * 200, y: 80 + Math.random() * 200 }, spec.params)
+      }}
+      style={{
+        padding: '5px 14px 5px 38px',
+        color: 'var(--tx2)',
+        fontSize: 13,
+        cursor: 'grab',
+        borderRadius: 6,
+        margin: '1px 6px',
+        userSelect: 'none',
+        borderLeft: '2px solid transparent',
+      }}
+      onMouseEnter={e => {
+        e.currentTarget.style.background = 'var(--hover)'
+        e.currentTarget.style.color = 'var(--tx1)'
+        e.currentTarget.style.borderLeftColor = color
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.background = 'transparent'
+        e.currentTarget.style.color = 'var(--tx2)'
+        e.currentTarget.style.borderLeftColor = 'transparent'
+      }}
+    >
+      {type}
+    </div>
+  )
 
   return (
     <div style={{ display: 'flex', flexShrink: 0, height: '100%' }}>
@@ -455,78 +597,26 @@ export default function NodePalette() {
             {/* ── NODES ── */}
             {activeTab === 'nodes' && (
               <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-
-                {/* Structure — hardcoded, not from Python registry */}
-                <div style={{ marginBottom: 4 }}>
-                  {renderGroupHeader('Structure', '#6366f1', 1)}
-                  {openGroups.has('Structure') && (
-                    <div
-                      draggable
-                      onDragStart={e => handleDragStart(e, 'Subnet')}
-                      onClick={() => addNode('Subnet', { x: 200 + Math.random() * 200, y: 80 + Math.random() * 200 })}
-                      style={{
-                        padding: '5px 14px 5px 26px',
-                        color: 'var(--tx2)',
-                        fontSize: 13,
-                        cursor: 'grab',
-                        borderRadius: 6,
-                        margin: '1px 6px',
-                        userSelect: 'none',
-                        borderLeft: '2px solid transparent',
-                      }}
-                      onMouseEnter={e => {
-                        e.currentTarget.style.background = 'var(--hover)'
-                        e.currentTarget.style.color = '#6366f1'
-                        e.currentTarget.style.borderLeftColor = '#6366f1'
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.background = 'transparent'
-                        e.currentTarget.style.color = 'var(--tx2)'
-                        e.currentTarget.style.borderLeftColor = 'transparent'
-                      }}
-                    >
-                      Subnet
-                    </div>
-                  )}
-                  </div>
-
-                {groups.map(({ group, color, types }) => (
-                  <div key={group} style={{ marginBottom: 4 }}>
-                    {renderGroupHeader(group, color, types.length)}
-                    {openGroups.has(group) && types.map(type => (
-                        <div
-                          key={type}
-                          className={type === learnedNodeHighlight ? 'bn-node-palette-item bn-learned-node-pulse' : 'bn-node-palette-item'}
-                          draggable
-                          onDragStart={e => handleDragStart(e, type)}
-                          onClick={() => {
-                            const spec = nodeSpec(type)
-                            addNode(spec.type, { x: 200 + Math.random() * 200, y: 80 + Math.random() * 200 }, spec.params)
-                          }}
-                          style={{
-                            padding: '5px 14px 5px 26px',
-                            color: 'var(--tx2)',
-                            fontSize: 13,
-                            cursor: 'grab',
-                            borderRadius: 6,
-                            margin: '1px 6px',
-                            userSelect: 'none',
-                            borderLeft: '2px solid transparent',
-                          }}
-                          onMouseEnter={e => {
-                            e.currentTarget.style.background = 'var(--hover)'
-                            e.currentTarget.style.color = 'var(--tx1)'
-                            e.currentTarget.style.borderLeftColor = color
-                          }}
-                          onMouseLeave={e => {
-                            e.currentTarget.style.background = 'transparent'
-                            e.currentTarget.style.color = 'var(--tx2)'
-                            e.currentTarget.style.borderLeftColor = 'transparent'
-                          }}
-                        >
-                          {type}
-                        </div>
-                      ))}
+                {paletteGroups.map(group => (
+                  <div key={group.name} style={{ marginBottom: 4 }}>
+                    {renderGroupHeader(group.name, group.name, group.color, group.count)}
+                    {openGroups.has(group.name) && <>
+                      {/* The category a package is named after gets no header of
+                          its own — that row would just repeat the package. Its
+                          nodes sit directly under it, above the real subgroups. */}
+                      {group.subgroups
+                        .filter(sub => sub.name === group.name)
+                        .flatMap(sub => sub.types.map(type => renderNodeItem(type, sub.color)))}
+                      {group.subgroups.filter(sub => sub.name !== group.name).map(sub => {
+                        const subKey = `${group.name}/${sub.name}`
+                        return (
+                          <div key={subKey}>
+                            {renderGroupHeader(subKey, sub.name, sub.color, sub.types.length, true)}
+                            {openGroups.has(subKey) && sub.types.map(type => renderNodeItem(type, sub.color))}
+                          </div>
+                        )
+                      })}
+                    </>}
                   </div>
                 ))}
               </div>

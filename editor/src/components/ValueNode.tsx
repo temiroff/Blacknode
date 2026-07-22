@@ -5,6 +5,7 @@ import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { headerColor } from '../categories'
+import { useQualifiedTypeLabel } from '../nodeTypeLabel'
 import NodeFrame from './NodeFrame'
 import type { NodeCookState } from '../types'
 
@@ -38,6 +39,20 @@ function normalizeHexColor(value: unknown): string | null {
 function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   const { updateParam, cookNode, edges, disconnectEdge } = useStore()
   const updateNodeInternals = useUpdateNodeInternals()
+  const qualifiedType = useQualifiedTypeLabel(data.type)
+  const [editingLabel, setEditingLabel] = useState(false)
+  const [labelDraft, setLabelDraft] = useState('')
+  const label = data.params?.label ? String(data.params.label) : null
+  const startRename = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setLabelDraft(label ?? data.type)
+    setEditingLabel(true)
+  }
+  const commitRename = () => {
+    setEditingLabel(false)
+    const v = labelDraft.trim()
+    updateParam(id, 'label', v || null).catch(() => {})
+  }
   const color  = headerColor(data.type)
   const pColor = portColor(data.type)
   const isText  = data.type === 'Text'
@@ -135,9 +150,44 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
         alignItems: 'center',
         flexShrink: 0,
       }}>
-        <span style={{ fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-ui)' }}>
-          {data.type}
-        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {editingLabel ? (
+            <input
+              autoFocus
+              value={labelDraft}
+              onChange={e => setLabelDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); commitRename() }
+                if (e.key === 'Escape') setEditingLabel(false)
+              }}
+              onClick={e => e.stopPropagation()}
+              onMouseDown={e => e.stopPropagation()}
+              style={{
+                background: 'rgba(0,0,0,.25)', border: 'none', outline: 'none',
+                color: '#fff', fontWeight: 600, fontSize: 11,
+                fontFamily: 'var(--font-ui)', width: '100%', borderRadius: 3,
+                padding: '1px 4px',
+              }}
+            />
+          ) : (
+            <span
+              title="Double-click to rename"
+              onDoubleClick={startRename}
+              style={{ fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-ui)', display: 'block', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {label ?? data.type}
+            </span>
+          )}
+          {!editingLabel && (
+            <span
+              title={`Node type ${data.type}`}
+              style={{ fontSize: 8, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {qualifiedType}
+            </span>
+          )}
+        </div>
         <button
           onClick={e => { e.stopPropagation(); cookNode(id, 'value') }}
           style={{

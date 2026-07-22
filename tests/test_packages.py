@@ -743,7 +743,7 @@ def test_blacknode_cuda_loads_as_package():
     assert getattr(_NODE_REGISTRY["CUDAKernelLab"], "_bn_package", "") == "blacknode-cuda"
     info = _PACKAGE_REGISTRY["blacknode-cuda"]
     assert info.ok
-    assert info.categories.get("NVIDIA GPU")
+    assert info.categories.get("NVIDIA CUDA")
     assert info.templates_dir
     # stable import alias for tests and user code
     from blacknode.pkg.blacknode_cuda import cuda  # noqa: F401

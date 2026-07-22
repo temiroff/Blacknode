@@ -232,6 +232,7 @@ def node(
     outputs: list[str] | Mapping[str, TypingAny] | None = None,
     name: str | None = None,
     category: str | None = None,
+    component: str | None = None,
     description: str | None = None,
     hidden: bool = False,
     live: bool = False,
@@ -277,9 +278,9 @@ def node(
         automatic_inputs, automatic_outputs = _automatic_primary_ports(in_names, in_types, in_defaults, out_names)
         visible_inputs = [port for port in (primary_inputs or []) if port in in_names] if primary_inputs is not None else automatic_inputs
         visible_outputs = [port for port in (primary_outputs or []) if port in out_names] if primary_outputs is not None else automatic_outputs
-        _attach_metadata(runtime_fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description, hidden, live, variadic, visible_inputs, visible_outputs)
+        _attach_metadata(runtime_fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, component, description, hidden, live, variadic, visible_inputs, visible_outputs)
         if runtime_fn is not fn:
-            _attach_metadata(fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, description, hidden, live, variadic, visible_inputs, visible_outputs)
+            _attach_metadata(fn, type_name, in_names, in_types, in_defaults, in_choices, out_names, out_types, category, component, description, hidden, live, variadic, visible_inputs, visible_outputs)
         return fn
     return decorator
 
@@ -328,6 +329,7 @@ def _attach_metadata(
     outputs: list[str],
     output_types: dict[str, str],
     category: str | None,
+    component: str | None,
     description: str | None,
     hidden: bool,
     live: bool,
@@ -350,6 +352,11 @@ def _attach_metadata(
     fn._bn_primary_outputs = primary_outputs
     if category:
         fn._bn_category = category
+    if component:
+        # Declared explicitly, so the package loader must not overwrite it with
+        # the directory the node happened to be loaded from.
+        fn._bn_component = component
+        fn._bn_component_declared = True
     if description:
         fn._bn_description = description
 

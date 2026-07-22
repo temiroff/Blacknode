@@ -4,7 +4,7 @@ import {
   NodeChange, EdgeChange, Connection,
 } from 'reactflow'
 import { api, type ApiKeyStatus, type CookEvent, type DriverInfo, type DriverStatus, type LearnedNodeSummary, type RunRecord, type RuntimeStopResult } from './api'
-import { BnNodeDef, BnNodeMeta, ConnectionDraft, NodeCookState, SubnetFrame } from './types'
+import { BnNodeDef, BnNodeMeta, BnPackage, ConnectionDraft, NodeCookState, SubnetFrame } from './types'
 import { VALUE_NODE_TYPES, registerDynamicColors } from './categories'
 import { portsCompatible, portColor } from './portColors'
 import { organizeFlowNodes } from './graphLayout'
@@ -85,6 +85,7 @@ interface Store {
   edges: Edge[]
   nodeTypes: string[]
   nodeDefs: Record<string, BnNodeDef>
+  packages: BnPackage[]
   selectedId: string | null
   serverOk: boolean
   serverError: string | null
@@ -105,6 +106,7 @@ interface Store {
   runReplay: RunReplayState
 
   loadNodeTypes: () => Promise<void>
+  loadPackages: () => Promise<void>
   loadGraph: () => Promise<void>
   loadApiKeys: () => Promise<void>
   loadApiKeyStatus: () => Promise<void>
@@ -221,8 +223,6 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'DatasetBrowser' ? { style: { width: 980, height: 860 } } : {}),
     ...(hasDashboardImage ? { style: { width: 860, height: 720 } } : {}),
     ...(meta.type === 'ROS2VisualDashboard' ? { style: { width: 840, height: 760 } } : {}),
-    ...(meta.type === 'ROS2CompressedImageSnapshot' ? { style: { width: 700, height: 600 } } : {}),
-    ...(meta.type === 'ROS2ImageSnapshot' ? { style: { width: 700, height: 600 } } : {}),
     ...(meta.type === 'ROS2ImageStream' ? { style: { width: 760, height: 620 } } : {}),
     ...(meta.type === 'ROS2Run' ? { style: { width: 520, height: 360 } } : {}),
     ...(meta.type === 'ROS2MotionDashboard' ? { style: { width: 860, height: 720 } } : {}),
@@ -466,7 +466,7 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
       },
     }
   }
-  if (data.type === 'ROS2ManualMove' || data.type === 'ROS2TeachMode') {
+  if (data.type === 'ROS2ManualMove') {
     return {
       ...base,
       portResults: {
@@ -1253,6 +1253,7 @@ export const useStore = create<Store>((set, get) => ({
   edges: [],
   nodeTypes: [],
   nodeDefs: {},
+  packages: [],
   selectedId: null,
   serverOk: false,
   serverError: null,
@@ -1318,6 +1319,17 @@ export const useStore = create<Store>((set, get) => ({
     } catch {
       const types = await api.nodeTypes()
       set({ nodeTypes: types, nodeDefs: {} })
+    }
+    // Package manifests name and color the groups the node types fall into.
+    await get().loadPackages()
+  },
+
+  loadPackages: async () => {
+    try {
+      const result = await api.packages()
+      set({ packages: result.packages })
+    } catch {
+      set({ packages: [] })
     }
   },
 
@@ -3124,7 +3136,6 @@ export const useStore = create<Store>((set, get) => ({
           n.data.type === 'ROS2ContinuousFollowDetectionJoint' ||
           n.data.type === 'ROS2LeaderFollower' ||
           n.data.type === 'ROS2ManualMove' ||
-          n.data.type === 'ROS2TeachMode' ||
           n.data.type === 'ROS2MotionDashboard' ||
           n.data.type === 'Output' ||
           n.data.type === 'OutputImage' ||

@@ -1,5 +1,5 @@
 import { memo, useState, useRef, useEffect } from 'react'
-import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
+import { Handle, Position, NodeProps, useReactFlow, useUpdateNodeInternals } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
@@ -8,12 +8,32 @@ import { headerColor } from '../categories'
 import { isWireOnlyInput } from '../inputControls'
 import { copyTextToClipboard } from '../clipboard'
 import { portDisplayHint, portDisplayName } from '../portLabels'
+import { useQualifiedTypeLabel } from '../nodeTypeLabel'
 import NodeFrame from './NodeFrame'
 import DatasetBrowserPanel from './DatasetBrowserPanel'
 import type { NodeCookState } from '../types'
 import { LIVE_STREAM_NODE_TYPES } from '../liveNodeTypes'
 
 const TOOLBOX_NEW_HANDLE_COLOR = '#ef444488'
+
+// Widest a live camera preview grows its node to on the first frame.
+const STREAM_FIT_MAX_WIDTH = 480
+
+// A node shows at most one status badge. Every state below renders through the
+// same popup so two conditions can never stack at the same coordinates.
+type BadgeTone = 'ok' | 'warn' | 'err' | 'muted'
+const BADGE_TONE: Record<BadgeTone, string> = {
+  ok: 'var(--ok)',
+  warn: 'var(--warn)',
+  err: 'var(--err)',
+  muted: 'var(--tx3)',
+}
+interface StatusBadge {
+  text: string
+  tone: BadgeTone
+  title: string
+  action?: { label: string; pending: boolean; onClick: () => void }
+}
 
 // Chat trigger node types → the driver the Start/Stop buttons control.
 const TRIGGER_DRIVER: Record<string, string> = {
@@ -429,6 +449,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const startDriver = useStore(s => s.startDriver)
   const stopDriver  = useStore(s => s.stopDriver)
   const loadDriverStatus = useStore(s => s.loadDriverStatus)
+  const qualifiedType = useQualifiedTypeLabel(data.type)
   const driverName  = TRIGGER_DRIVER[data.type]
   const driverLive  = driverName ? Boolean(driverStatus[driverName]?.live) : false
   const driverNotInstalled = driverName ? drivers[driverName]?.packages_installed === false : false
@@ -442,13 +463,15 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [trainingPending, setTrainingPending] = useState<null | 'start' | 'stop'>(null)
   const [datasetFolderPending, setDatasetFolderPending] = useState(false)
   const dashboardAutoFitDone = useRef(false)
+  const streamFitDone = useRef(false)
+  const { getNode } = useReactFlow()
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
   const isToolBox   = data.type === 'ToolBox'
   const isRobotJointList = data.type === 'RobotJointList'
   const variadicInput = data.variadic_input ?? null
   const isVariadic = Boolean(variadicInput)
-  const isManualMove = data.type === 'ROS2ManualMove' || data.type === 'ROS2TeachMode'
+  const isManualMove = data.type === 'ROS2ManualMove'
   const isRobotCalibration = data.type === 'RobotCalibrationRecorder'
   const isEpisodeRecorder = data.type === 'EpisodeRecorder'
   const isDatasetCreate = data.type === 'DatasetCreate'
@@ -511,12 +534,19 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const inlineDashboardImage = inlineDashboardPort
     ? normalizedImageSrc(data.portResults?.[inlineDashboardPort])
     : null
+  // Stream nodes show their own picture in place: the live MJPEG URL while
+  // streaming, or the single frame a one-shot run captured. Without this a
+  // camera node renders only a STREAMING badge and the video is visible only
+  // if the graph happens to wire a separate OutputImage downstream.
+  const streamPreview = LIVE_STREAM_NODE_TYPES.has(data.type)
+    ? normalizedImageSrc(data.portResults?.preview)
+    : null
   const showImageResult = data.type === 'OutputImage'
     ? imageResult
-    : isImageSrc(inlineDashboardImage) ? inlineDashboardImage : null
+    : streamPreview ?? (isImageSrc(inlineDashboardImage) ? inlineDashboardImage : null)
   const streamUrl = typeof data.portResults?.stream_url === 'string' ? data.portResults.stream_url : ''
   const streamActive = LIVE_STREAM_NODE_TYPES.has(data.type) && data.portResults?.streaming === true && streamUrl.length > 0
-  const manualMoveLive = (data.type === 'ROS2ManualMove' || data.type === 'ROS2TeachMode') && data.portResults?.live === true
+  const manualMoveLive = data.type === 'ROS2ManualMove' && data.portResults?.live === true
   const manualMoveReady = manualMoveLive && data.portResults?.data_ready === true
   const manualMoveMode = data.portResults?.mode === 'released' ? 'RELEASED' : 'HOLD'
   const manualMoveJointCount = Array.isArray(data.portResults?.joints) ? data.portResults.joints.length : 0
@@ -610,9 +640,64 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     && !liveWaiting
     && data.portResults?.running !== true
     && !data.cooking
+    // Stream nodes are started and stopped deliberately, so "not updating" is
+    // the state the operator asked for, not a warning. Keyed on the node type
+    // rather than the preview: stopping clears the preview, which would
+    // otherwise let this badge reappear exactly when it is least wanted.
+    && !LIVE_STREAM_NODE_TYPES.has(data.type)
     && Object.keys(data.portResults ?? {}).length > 0
   const rosRunActive = data.type === 'ROS2Run' && data.portResults?.running === true
   const rosRunId = typeof data.portResults?.run_id === 'string' ? data.portResults.run_id : 'ros2_run'
+
+  // Ordered by urgency: a running process outranks a waiting one, which
+  // outranks a passive "this result is stale" note.
+  const statusBadge: StatusBadge | null =
+    streamActive ? {
+      text: 'STREAMING',
+      tone: 'ok',
+      title: streamUrl ? `Live stream: ${streamUrl}` : 'Live image stream is running',
+      action: {
+        label: streamStopPending ? 'Stopping...' : 'Stop stream',
+        pending: streamStopPending,
+        onClick: () => { void onStopImageStream() },
+      },
+    }
+    : rosRunActive ? {
+      text: 'ROS2 RUNNING',
+      tone: 'ok',
+      title: `ROS 2 run process is active: ${rosRunId}`,
+      action: {
+        label: rosRunStopPending ? 'Stopping...' : 'Stop run',
+        pending: rosRunStopPending,
+        onClick: () => { void onStopROS2Run() },
+      },
+    }
+    : liveBlocked || liveWaiting ? {
+      text: `${liveBlocked ? 'BLOCKED' : 'LIVE • WAITING'}`
+        + (liveStateReason ? ` • ${liveStateReason}` : liveWaiting ? ' • waiting for source data' : ''),
+      tone: liveBlocked ? 'err' : 'warn',
+      title: liveStateReport || (liveBlocked ? 'Live service is blocked' : 'Live service is waiting for source data'),
+    }
+    : manualMoveLive ? {
+      text: manualMoveReady
+        ? `LIVE • ${manualMoveMode} • ${manualMoveJointCount} JOINTS`
+        : 'LIVE • WAITING FOR JOINT DATA',
+      tone: 'ok',
+      title: manualMoveReady
+        ? `Live pose monitor: ${manualMoveJointCount} joint(s)`
+        : 'Live monitor is running; waiting for the first joint-state message',
+    }
+    : genericNodeLive ? {
+      text: 'LIVE • UPDATING',
+      tone: 'ok',
+      title: 'This node is receiving continuous runtime updates.',
+    }
+    : snapshotResult ? {
+      text: 'SNAPSHOT • NOT UPDATING',
+      tone: 'muted',
+      title: 'This is the result of one evaluation. It is not updating; use Go live to start supported continuous output.',
+    }
+    : null
 
   const effectivePortType = (portName: string, side: 'input' | 'output'): string => {
     const declared = side === 'input'
@@ -817,13 +902,41 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
 
   const fitNodeToImage = (naturalWidth: number, naturalHeight: number, extraControls = 0) => {
     if (!naturalWidth || !naturalHeight) return
-    const portRows = visibleInputs.length + (data.outputs?.length ?? 0) + (isToolBox ? 1 : 0)
+    // Count only the rows that actually render: a node with primary_outputs
+    // hides most of its ports, and budgeting for all of them leaves a large
+    // empty gap under the image.
+    const portRows = visibleInputs.length + visibleOutputs.length + (isToolBox ? 1 : 0)
     const chromeHeight = 34 + portRows * 22 + extraControls + 24
     resizeNode(id, {
       width: Math.max(160, Math.ceil(naturalWidth + 22)),
       height: Math.max(60, Math.ceil(naturalHeight + chromeHeight)),
     })
     requestAnimationFrame(() => updateNodeInternals(id))
+  }
+
+  // A live camera preview arrives at the sensor's own resolution. Growing the
+  // node once on the first frame keeps the stream legible even when the node
+  // was dropped small; without this the image is just squeezed to whatever
+  // width the node already had, because fitResultToNodeWidth only fixes height.
+  const fitNodeToStream = (image: HTMLImageElement) => {
+    if (streamFitDone.current || !image.naturalWidth || !image.naturalHeight) return
+    streamFitDone.current = true
+    // Cap the width so a 1080p camera does not produce a node that swamps the
+    // canvas; the sensor's aspect ratio is preserved either way.
+    const width = Math.max(160, Math.ceil(Math.min(image.naturalWidth, STREAM_FIT_MAX_WIDTH) + 22))
+    const current = getNode(id)
+    // Set the width only. The height then comes from measuring where the image
+    // actually starts, which accounts for the header, the status badge, port
+    // rows and any control strip without this code knowing they exist.
+    resizeNode(id, { width, height: current?.height ?? 200 })
+    // React Flow caches handle positions; without this the edges keep starting
+    // from where the ports used to be until something else forces a recalc.
+    updateNodeInternals(id)
+    requestAnimationFrame(() => {
+      if (!image.isConnected) return
+      dashboardAutoFitDone.current = false
+      fitResultToNodeWidth(image)
+    })
   }
 
   const fitResultToNodeWidth = (image: HTMLImageElement) => {
@@ -833,7 +946,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       const frame = image.closest<HTMLElement>(`[data-bn-node-frame="${id}"]`)
       const dashboard = image.closest<HTMLElement>('[data-bn-dashboard-result]')
       if (!frame || !dashboard) return
-      const currentNode = nodes.find(node => node.id === id)
+      // Read from React Flow's live store, not the `nodes` array captured in
+      // this render: a resize applied moments ago is not in the closure yet,
+      // and using the stale width would undo it.
+      const currentNode = getNode(id)
       const styledWidth = typeof currentNode?.style?.width === 'number' ? currentNode.style.width : undefined
       const styledHeight = typeof currentNode?.style?.height === 'number' ? currentNode.style.height : undefined
       const frameRect = frame.getBoundingClientRect()
@@ -864,8 +980,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       dashboardAutoFitDone.current = true
       if (Math.abs(currentHeight - targetHeight) >= 3) {
         resizeNode(id, { width: nodeWidth, height: targetHeight })
-        requestAnimationFrame(() => updateNodeInternals(id))
       }
+      // Always refresh handle positions, even when the height was already
+      // right: an earlier width change in this same fit still moved the ports.
+      requestAnimationFrame(() => updateNodeInternals(id))
     })
   }
 
@@ -876,6 +994,12 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     // by the node's previous height.
     dashboardAutoFitDone.current = false
   }, [showImageResult])
+
+  useEffect(() => {
+    // Re-fit when a stream restarts: the next run may use a different camera
+    // or resolution than the one this node was sized for.
+    if (!streamPreview) streamFitDone.current = false
+  }, [streamPreview])
 
   useEffect(() => {
     updateNodeInternals(id)
@@ -924,116 +1048,6 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         handleStyle={{ background: color, borderColor: color, width: 8, height: 8, borderRadius: 2 }}
       />
 
-      {streamActive && (
-        <div
-          className="nodrag"
-          title={streamUrl ? `Live stream: ${streamUrl}` : 'Live image stream is running'}
-          onMouseDown={e => e.stopPropagation()}
-          style={{
-            position: 'absolute',
-            left: 8,
-            top: -28,
-            zIndex: 22,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 7,
-            padding: '4px 7px',
-            borderRadius: 6,
-            border: '1px solid var(--ok)',
-            background: 'var(--panel)',
-            color: 'var(--ok)',
-            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
-            fontFamily: 'var(--font-ui)',
-            fontSize: 10,
-            fontWeight: 800,
-            letterSpacing: '0.06em',
-            lineHeight: 1,
-          }}
-        >
-          <span style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: 'var(--ok)',
-            boxShadow: '0 0 8px var(--ok)',
-            flexShrink: 0,
-          }} />
-          <span>STREAMING</span>
-          <button
-            disabled={streamStopPending}
-            onClick={e => { e.stopPropagation(); void onStopImageStream() }}
-            style={{
-              marginLeft: 2,
-              padding: '2px 6px',
-              borderRadius: 4,
-              border: '1px solid var(--err)',
-              background: 'transparent',
-              color: streamStopPending ? 'var(--tx3)' : 'var(--err)',
-              cursor: streamStopPending ? 'default' : 'pointer',
-              fontFamily: 'var(--font-ui)',
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: 0,
-            }}
-          >
-            {streamStopPending ? 'Stopping...' : 'Stop stream'}
-          </button>
-        </div>
-      )}
-
-      {manualMoveLive && (
-        <div
-          className="nodrag"
-          title={manualMoveReady ? `Live pose monitor: ${manualMoveJointCount} joint(s)` : 'Live monitor is running; waiting for the first joint-state message'}
-          onMouseDown={e => e.stopPropagation()}
-          style={{
-            position: 'absolute', left: 8, top: -28, zIndex: 22,
-            display: 'flex', alignItems: 'center', gap: 7,
-            padding: '5px 8px', borderRadius: 6,
-            border: `1px solid ${manualMoveReady ? 'var(--ok)' : 'var(--warn)'}`,
-            background: 'var(--panel)',
-            color: manualMoveReady ? 'var(--ok)' : 'var(--warn)',
-            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
-            letterSpacing: '0.04em', lineHeight: 1,
-          }}
-        >
-          <span style={{
-            width: 8, height: 8, borderRadius: '50%',
-            background: manualMoveReady ? 'var(--ok)' : 'var(--warn)',
-            boxShadow: `0 0 8px ${manualMoveReady ? 'var(--ok)' : 'var(--warn)'}`,
-          }} />
-          <span>{manualMoveReady ? `LIVE • ${manualMoveMode} • ${manualMoveJointCount} JOINTS` : 'LIVE • WAITING FOR JOINT DATA'}</span>
-        </div>
-      )}
-
-      {(liveBlocked || liveWaiting) && (
-        <div
-          className="nodrag"
-          title={liveStateReport || (liveBlocked ? 'Live service is blocked' : 'Live service is waiting for source data')}
-          onMouseDown={e => e.stopPropagation()}
-          style={{
-            position: 'absolute', left: 8, top: -28, zIndex: 22,
-            display: 'flex', alignItems: 'center', gap: 7,
-            maxWidth: 460, padding: '5px 8px', borderRadius: 6,
-            border: `1px solid ${liveBlocked ? 'var(--err)' : 'var(--warn)'}`,
-            background: 'var(--panel)', color: liveBlocked ? 'var(--err)' : 'var(--warn)',
-            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
-            letterSpacing: '0.03em', lineHeight: 1,
-          }}
-        >
-          <span style={{
-            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-            background: liveBlocked ? 'var(--err)' : 'var(--warn)',
-            boxShadow: `0 0 8px ${liveBlocked ? 'var(--err)' : 'var(--warn)'}`,
-          }} />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {liveBlocked ? 'BLOCKED' : 'LIVE • WAITING'}
-            {liveStateReason ? ` • ${liveStateReason}` : liveWaiting ? ' • waiting for source data' : ''}
-          </span>
-        </div>
-      )}
 
       {streamStartable && (
         <div className="nodrag" onMouseDown={e => e.stopPropagation()}
@@ -1095,102 +1109,6 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </div>
       )}
 
-      {snapshotResult && (
-        <div
-          className="nodrag"
-          title="This is the result of one evaluation. It is not updating; use Go live to start supported continuous output."
-          onMouseDown={e => e.stopPropagation()}
-          style={{
-            position: 'absolute', left: 8, top: -28, zIndex: 22,
-            display: 'flex', alignItems: 'center', gap: 7,
-            padding: '5px 8px', borderRadius: 6,
-            border: '1px solid var(--tx3)', background: 'var(--panel)', color: 'var(--tx2)',
-            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
-            letterSpacing: '0.04em', lineHeight: 1,
-          }}
-        >
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--tx3)' }} />
-          <span>SNAPSHOT • NOT UPDATING</span>
-        </div>
-      )}
-
-      {genericNodeLive && (
-        <div
-          className="nodrag"
-          title="This node is receiving continuous runtime updates."
-          onMouseDown={e => e.stopPropagation()}
-          style={{
-            position: 'absolute', left: 8, top: -28, zIndex: 22,
-            display: 'flex', alignItems: 'center', gap: 7,
-            padding: '5px 8px', borderRadius: 6,
-            border: '1px solid var(--ok)', background: 'var(--panel)', color: 'var(--ok)',
-            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
-            letterSpacing: '0.04em', lineHeight: 1,
-          }}
-        >
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ok)', boxShadow: '0 0 8px var(--ok)' }} />
-          <span>LIVE • UPDATING</span>
-        </div>
-      )}
-
-      {rosRunActive && (
-        <div
-          className="nodrag"
-          title={`ROS 2 run process is active: ${rosRunId}`}
-          onMouseDown={e => e.stopPropagation()}
-          style={{
-            position: 'absolute',
-            left: 8,
-            top: -28,
-            zIndex: 22,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 7,
-            padding: '4px 7px',
-            borderRadius: 6,
-            border: '1px solid var(--ok)',
-            background: 'var(--panel)',
-            color: 'var(--ok)',
-            boxShadow: '0 6px 18px rgba(0,0,0,.3)',
-            fontFamily: 'var(--font-ui)',
-            fontSize: 10,
-            fontWeight: 800,
-            letterSpacing: '0.06em',
-            lineHeight: 1,
-          }}
-        >
-          <span style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: 'var(--ok)',
-            boxShadow: '0 0 8px var(--ok)',
-            flexShrink: 0,
-          }} />
-          <span>ROS2 RUNNING</span>
-          <button
-            disabled={rosRunStopPending}
-            onClick={e => { e.stopPropagation(); void onStopROS2Run() }}
-            style={{
-              marginLeft: 2,
-              padding: '2px 6px',
-              borderRadius: 4,
-              border: '1px solid var(--err)',
-              background: 'transparent',
-              color: rosRunStopPending ? 'var(--tx3)' : 'var(--err)',
-              cursor: rosRunStopPending ? 'default' : 'pointer',
-              fontFamily: 'var(--font-ui)',
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: 0,
-            }}
-          >
-            {rosRunStopPending ? 'Stopping...' : 'Stop run'}
-          </button>
-        </div>
-      )}
 
       {/* header */}
       <div style={{
@@ -1231,9 +1149,12 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               {label ?? data.type}
             </span>
           )}
-          {label && !editingLabel && (
-            <span style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1 }}>
-              {data.type}
+          {!editingLabel && (
+            <span
+              title={`Node type ${data.type}`}
+              style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {qualifiedType}
             </span>
           )}
         </div>
@@ -1255,6 +1176,47 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           {data.cooking ? '…' : '▶'}
         </button>
       </div>
+
+      {statusBadge && (
+        <div
+          className="nodrag"
+          title={statusBadge.title}
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            margin: '6px 8px 0', padding: '5px 8px', borderRadius: 6,
+            border: `1px solid ${BADGE_TONE[statusBadge.tone]}`,
+            background: 'var(--lift)', color: BADGE_TONE[statusBadge.tone],
+            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
+            letterSpacing: '0.03em', lineHeight: 1,
+          }}
+        >
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+            background: BADGE_TONE[statusBadge.tone],
+            boxShadow: statusBadge.tone === 'muted' ? 'none' : `0 0 8px ${BADGE_TONE[statusBadge.tone]}`,
+          }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {statusBadge.text}
+          </span>
+          {statusBadge.action && (
+            <button
+              disabled={statusBadge.action.pending}
+              onClick={e => { e.stopPropagation(); statusBadge.action!.onClick() }}
+              style={{
+                marginLeft: 2, padding: '2px 6px', borderRadius: 4,
+                border: '1px solid var(--err)', background: 'transparent',
+                color: statusBadge.action.pending ? 'var(--tx3)' : 'var(--err)',
+                cursor: statusBadge.action.pending ? 'default' : 'pointer',
+                fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700,
+                letterSpacing: 0,
+              }}
+            >
+              {statusBadge.action.label}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Start/Stop for chat trigger nodes — the server launches the driver. */}
       {driverName && (
@@ -1639,6 +1601,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 style={widthFitResultImg}
                 onDragStart={e => e.preventDefault()}
                 onLoad={e => {
+                  if (streamPreview) fitNodeToStream(e.currentTarget)
                   fitResultToNodeWidth(e.currentTarget)
                 }}
                 onDoubleClick={e => {

@@ -338,7 +338,7 @@ def _stop_active_cook() -> None:
 
 _RUNTIME_MODULES = {
     "ros2": "blacknode.pkg.blacknode_ros2.ros2_runtime",
-    "ros2_live": "blacknode.pkg.blacknode_ros2.ros2_live",
+    "joint_control": "blacknode.pkg.blacknode_controllers.joint_control.adapters.ros2.joint_motion",
     "vision": "blacknode.pkg.blacknode_perception.cv2_runtime",
     "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
     "robot": "blacknode.pkg.blacknode_robot.robot",
@@ -351,7 +351,11 @@ _RUNTIME_MODULES = {
 # Resolve stateful robot runtime helpers through the registered launcher—the
 # exact module globals that own the live subprocess table—so status and Stop
 # All cannot silently look at an empty duplicate module.
-_RUNTIME_REGISTRY_ANCHORS = {"robot": "RobotDriverLauncher", "isaac": "IsaacPolicyBridge"}
+_RUNTIME_REGISTRY_ANCHORS = {
+    "robot": "RobotDriverLauncher",
+    "isaac": "IsaacPolicyBridge",
+    "joint_control": "ROS2ManualMove",
+}
 
 
 def _runtime_module(module_name: str):
@@ -1092,6 +1096,8 @@ def _node_def_payload(name: str, fn: Any) -> dict[str, Any]:
         "category": category,
         "color": package_category_colors().get(category, ""),
         "package": getattr(fn, "_bn_package", ""),
+        "component": getattr(fn, "_bn_component", "") or "",
+        "adapter": getattr(fn, "_bn_adapter", "") or "",
         "hidden": bool(getattr(fn, "_bn_hidden", False)),
         "live_capable": bool(getattr(fn, "_bn_live_capable", False)),
         "inputs": getattr(fn, "_bn_inputs", []),

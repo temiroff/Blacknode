@@ -19,6 +19,7 @@ import {
   shouldShowApiKeyForProvider,
   starterModelsForProvider,
 } from '../models'
+import { useQualifiedTypeLabel } from '../nodeTypeLabel'
 import NodeFrame from './NodeFrame'
 import type { NodeCookState } from '../types'
 
@@ -43,6 +44,7 @@ function lastModelsFromParam(value: unknown): Record<string, string> {
 function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
   const { updateParam, apiKeys, apiKeyStatus, setApiKey, customModels, addCustomModel, removeCustomModel, edges } = useStore()
   const updateNodeInternals = useUpdateNodeInternals()
+  const qualifiedType = useQualifiedTypeLabel(data.type)
   const showValueOutput = data.promoted_outputs == null
     || data.promoted_outputs.includes('value')
     || edges.some(edge => edge.source === id && edge.sourceHandle === 'value')
@@ -180,9 +182,17 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         justifyContent: 'space-between',
         gap: 8,
       }}>
-        <span style={{ fontWeight: 700, fontSize: 11, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em' }}>
-          MODEL
-        </span>
+        <div style={{ minWidth: 0 }}>
+          <span style={{ display: 'block', fontWeight: 700, fontSize: 11, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em' }}>
+            MODEL
+          </span>
+          <span
+            title={`Node type ${data.type}`}
+            style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, whiteSpace: 'nowrap' }}
+          >
+            {qualifiedType}
+          </span>
+        </div>
         <span style={{
           minWidth: 0,
           overflow: 'hidden',

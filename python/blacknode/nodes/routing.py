@@ -5,6 +5,7 @@ from blacknode.node import node
     inputs=["task:Text", "routes:Dict", "default_model:Text"],
     outputs=["model:Model", "route:Text"],
     name="LLMModelRouter",
+    category="AI",
 )
 def llm_model_router(ctx: dict) -> dict:
     task = str(ctx.get("task") or "").lower()

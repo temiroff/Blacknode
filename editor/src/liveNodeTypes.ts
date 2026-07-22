@@ -7,6 +7,8 @@ export const LIVE_STREAM_NODE_TYPES = new Set([
   'Camera',
   'CV2CameraStream',
   'ROS2ImageStream',
+  'ROS2USBCamera',
+  'ROS2WebVideoStream',
   'CV2ColorObjectStream',
   'ReasoningStream',
   'CUDAImageFilterStream',

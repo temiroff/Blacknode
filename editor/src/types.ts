@@ -61,6 +61,8 @@ export interface BnNodeDef {
   source?: string
   color?: string    // category color declared by the owning extension package
   package?: string  // extension package name, '' for built-ins
+  component?: string  // package component the node ships in, '' when uncomponentised
+  adapter?: string    // component adapter (e.g. 'ros2'), '' for the component's own nodes
   hidden?: boolean  // compatibility node: loadable in saved graphs, omitted from the palette
   live_capable?: boolean // keeps producing runtime output when the graph is in Live mode
   variadic_input?: { prefix: string; type: string } | null

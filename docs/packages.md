@@ -119,7 +119,7 @@ development:
 |---|---|
 | `blacknode-drivers` | Selectively enabled physical hardware drivers and firmware adapters; the first `feetech` component provides inert bus configuration, read-only probing, and torque-safe bus primitives. |
 | `blacknode-robot` | Generic USB robot discovery, serial permission help, driver descriptors, driver process launch, and the standard robot profile. |
-| `blacknode-controllers` | Mobile-base, navigation, manipulation, policy, arbitration, and safety controllers with optional transport adapters. |
+| `blacknode-controllers` | Joint-control, mobile-base, navigation, manipulation, policy, arbitration, and safety controllers with optional transport adapters. |
 | `blacknode-ros2` | ROS 2 graph discovery, topics, services, native/rosbridge transport, managed processes, and diagnostics. |
 | `blacknode-perception` | Camera, tracking, VLM, and spatial-perception components, organized as selectable components. |
 | `blacknode-dataset` | Blacknode-native episode journals, synchronized robot/camera recording, dataset validation, HDF5 and structured Parquet/MP4 export profiles, and explicit repository publishing. |
@@ -130,6 +130,17 @@ Keep the layers separate: `blacknode-robot` owns profiles, calibration, and the
 generic robot contract; `blacknode-drivers` owns physical protocol access and
 driver-boundary safeguards; and `blacknode-ros2` owns ROS graph and transport
 behavior. Optional adapters stay nested under the component they integrate.
+
+A node named `ROS2*` is not automatically a `blacknode-ros2` node. The
+integration layer owns only transport-agnostic ROS primitives; a node *about*
+a capability belongs to the capability's package as a ROS 2 adapter component
+that requires `blacknode-ros2/core`. That is why `ROS2ImageStream` lives in
+`blacknode-perception` (`camera/ros2`) and `ROS2SetJoint` in
+`blacknode-controllers` (`joint-control/ros2`). Dependencies point one way
+only — capability adapters depend on the integration layer, never the reverse
+— so a second transport can be added as a sibling adapter later without
+reorganizing any capability package. Each capability package also ships its
+own on-robot colcon sources under `<package>/ros2_ws/src/`.
 
 The `blacknode-skills/follow-person@ros2` CV2 local-reasoning template
 (camera and VLM nodes from `blacknode-perception`) routes target selection

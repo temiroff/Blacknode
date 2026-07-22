@@ -42,7 +42,7 @@ def color_value(ctx: dict) -> dict:
     return {"value": value or "#22c55e"}
 
 
-@node(inputs=[], outputs=["value:Model"], name="Model")
+@node(inputs=[], outputs=["value:Model"], name="Model", category="AI")
 def model_value(ctx: dict) -> dict:
     value = str(ctx.get("value", "claude-sonnet-4-6"))
     required = _required_api_key(value)

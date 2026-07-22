@@ -467,7 +467,7 @@ def agent_final_answer(ctx: dict) -> dict:
     return {"result": _user_facing_answer(final.text), "step": step}
 
 
-@node(inputs=["fn:Fn", "args:Dict"], outputs=["result:Any"], name="ToolCall")
+@node(inputs=["fn:Fn", "args:Dict"], outputs=["result:Any"], name="ToolCall", category="Tools")
 def tool_call(ctx: dict) -> dict:
     fn   = ctx.get("fn")
     args = ctx.get("args", {})
@@ -484,7 +484,7 @@ def tool_call(ctx: dict) -> dict:
     return {"result": result}
 
 
-@node(inputs=["code:Text", "name:Text", "description:Text"], outputs=["fn:Fn"], name="PythonFn")
+@node(inputs=["code:Text", "name:Text", "description:Text"], outputs=["fn:Fn"], name="PythonFn", category="Tools")
 def python_fn(ctx: dict) -> dict:
     """Write a Python function named 'run'; it becomes a callable tool."""
     import inspect
@@ -513,7 +513,7 @@ def python_fn(ctx: dict) -> dict:
     return {"fn": fn}
 
 
-@node(inputs=["name:Text=tool", "description:Text"], outputs=["fn:Fn"], name="SubnetAsTool")
+@node(inputs=["name:Text=tool", "description:Text"], outputs=["fn:Fn"], name="SubnetAsTool", category="Tools")
 def subnet_as_tool(ctx: dict) -> dict:
     """Expose this node's internal subgraph as a callable tool for AgentLoop."""
     graph       = ctx.get("__graph__")
@@ -554,6 +554,7 @@ def subnet_as_tool(ctx: dict) -> dict:
     inputs=[],
     outputs=["tools:List"],
     name="ToolBox",
+    category="Tools",
 )
 def toolbox(ctx: dict) -> dict:
     """Collect connected Fn values into a list for AgentLoop.tools."""

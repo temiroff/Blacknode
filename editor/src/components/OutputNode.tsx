@@ -1,8 +1,9 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { NodeResizer } from '@reactflow/node-resizer'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
+import { useQualifiedTypeLabel } from '../nodeTypeLabel'
 import NodeFrame from './NodeFrame'
 import type { NodeCookState } from '../types'
 
@@ -31,9 +32,23 @@ const imageSourceFrom = (value: unknown): string | null => {
 }
 
 function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
-  const cookNode   = useStore(s => s.cookNode)
+  const cookNode    = useStore(s => s.cookNode)
+  const updateParam = useStore(s => s.updateParam)
   const edges      = useStore(s => s.edges)
   const nodes      = useStore(s => s.nodes)
+  const qualifiedType = useQualifiedTypeLabel(data.type)
+  const [editingLabel, setEditingLabel] = useState(false)
+  const [labelDraft, setLabelDraft] = useState('')
+  const startRename = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setLabelDraft(typeof data.params.label === 'string' ? data.params.label : data.type)
+    setEditingLabel(true)
+  }
+  const commitRename = () => {
+    setEditingLabel(false)
+    const v = labelDraft.trim()
+    updateParam(id, 'label', v || null).catch(() => {})
+  }
 
   const valueEdge = edges.find(e => e.target === id && e.targetHandle === 'value')
   const sourceNode = valueEdge ? nodes.find(n => n.id === valueEdge.source) : undefined
@@ -46,9 +61,10 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
   const liveInput = data.portResults?.live === true
   const replayHasResult = replayResult !== undefined || !!replayError
   const hasResult = cookResult !== undefined || !!cookError || replayHasResult
-  const label = typeof data.params.label === 'string' && data.params.label.trim()
+  const customLabel = typeof data.params.label === 'string' && data.params.label.trim()
     ? data.params.label.trim()
-    : 'Output'
+    : null
+  const label = customLabel ?? data.type
 
   const displayText = cooking
     ? null
@@ -106,9 +122,44 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
         alignItems: 'center',
         flexShrink: 0,
       }}>
-        <span style={{ fontWeight: 700, fontSize: 12, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em' }}>
-          {label}
-        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {editingLabel ? (
+            <input
+              autoFocus
+              value={labelDraft}
+              onChange={e => setLabelDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); commitRename() }
+                if (e.key === 'Escape') setEditingLabel(false)
+              }}
+              onClick={e => e.stopPropagation()}
+              onMouseDown={e => e.stopPropagation()}
+              style={{
+                background: 'rgba(0,0,0,.25)', border: 'none', outline: 'none',
+                color: '#fff', fontWeight: 700, fontSize: 12,
+                fontFamily: 'var(--font-ui)', width: '100%', borderRadius: 3,
+                padding: '1px 4px', letterSpacing: '0.08em',
+              }}
+            />
+          ) : (
+            <span
+              title="Double-click to rename"
+              onDoubleClick={startRename}
+              style={{ fontWeight: 700, fontSize: 12, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em', display: 'block', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {label}
+            </span>
+          )}
+          {!editingLabel && (
+            <span
+              title={`Node type ${data.type}`}
+              style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            >
+              {qualifiedType}
+            </span>
+          )}
+        </div>
         {liveInput && (
           <span
             title="This output is receiving values from a live upstream node"

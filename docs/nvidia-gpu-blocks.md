@@ -9,8 +9,8 @@ These nodes ship in the
 [blacknode-cuda](https://github.com/temiroff/blacknode-cuda)
 [extension package](packages.md). Install it with
 `blacknode packages install https://github.com/temiroff/blacknode-cuda`
-(or clone it into `packages/`). Its nodes appear under the **NVIDIA GPU**
-palette category and its templates load from the Templates tab like any
+(or clone it into `packages/`). Its nodes appear under the **NVIDIA CUDA**
+palette group and its templates load from the Templates tab like any
 built-in.
 
 ## Requirements

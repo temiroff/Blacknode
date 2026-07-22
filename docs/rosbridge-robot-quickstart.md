@@ -26,7 +26,7 @@ those conventions; change the params if your robot remaps them.
 
 ## Connection Test
 
-1. Open **Templates** and open **Rosbridge Robot Connection Test** from
+1. Open **Templates** and open **Connect to a Robot Over WiFi** from
    `blacknode-ros2`.
 2. Replace `ROBOT_IP` with the robot's IP on all three nodes.
 3. Optionally change the echo node's topic — `/joint_states` is a safe

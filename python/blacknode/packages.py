@@ -1363,7 +1363,10 @@ def _tag_new_package_nodes(
         if before.get(name) is fn:
             continue
         fn._bn_package = package_name
-        fn._bn_component = component_name
+        # A node may name its own component via @node(component=...); the
+        # directory it loaded from is only the fallback.
+        if not getattr(fn, "_bn_component_declared", False):
+            fn._bn_component = component_name
         fn._bn_adapter = adapter_name
         if not getattr(fn, "_bn_source_path", ""):
             fn._bn_source_path = str(nodes_dir)

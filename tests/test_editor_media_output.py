@@ -39,13 +39,28 @@ def test_inline_node_dashboard_converts_legacy_raw_svg_images() -> None:
     assert "data:image/svg+xml;charset=utf-8," in source
 
 
+def test_live_stream_nodes_show_their_picture_inline() -> None:
+    # A camera/stream node must render its own video in place, not only a
+    # STREAMING badge that leaves the picture visible solely when the graph
+    # wires a separate OutputImage downstream.
+    black_node = (ROOT / "editor" / "src" / "components" / "BlackNode.tsx").read_text(encoding="utf-8")
+
+    assert "const streamPreview = LIVE_STREAM_NODE_TYPES.has(data.type)" in black_node
+    assert "normalizedImageSrc(data.portResults?.preview)" in black_node
+    assert "streamPreview ??" in black_node
+
+
 def test_public_camera_is_treated_as_a_live_stream_node() -> None:
+    # The shared list moved out of BlackNode.tsx into liveNodeTypes.ts; both
+    # BlackNode and the store now read Camera's live-stream status from there.
+    live_node_types = (ROOT / "editor" / "src" / "liveNodeTypes.ts").read_text(encoding="utf-8")
     black_node = (ROOT / "editor" / "src" / "components" / "BlackNode.tsx").read_text(encoding="utf-8")
     store = (ROOT / "editor" / "src" / "store.ts").read_text(encoding="utf-8")
 
-    assert "'Camera'," in black_node
-    assert "data.type === 'Camera'" in store
-    assert "n.data.type === 'Camera'" in store
+    assert "'Camera'," in live_node_types
+    assert "LIVE_STREAM_NODE_TYPES" in black_node
+    assert "LIVE_STREAM_NODE_TYPES.has(data.type)" in store
+    assert "LIVE_STREAM_NODE_TYPES.has(n.data.type)" in store
 
 
 def test_episode_recorder_has_direct_lifecycle_controls_and_live_status() -> None:

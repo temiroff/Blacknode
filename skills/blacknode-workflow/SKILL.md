@@ -127,8 +127,10 @@ or type error, inspect `get_node_schema` and fix the graph instead of guessing.
 ## Robot Manual-Move Semantics
 
 - Prefer `Robot` for setup, then `ROS2Status`, `ROS2JointState`,
-  `ROS2SetJoint`, and `ROS2ManualMove`. Transport-specific discovery names are
-  advanced compatibility implementations and should not appear in new user templates.
+  `ROS2SetJoint`, and `ROS2ManualMove`. `ROS2Status` comes from
+  `blacknode-ros2`; the joint nodes come from the `blacknode-controllers`
+  joint-control ROS 2 adapter, so templates using them must require both
+  packages. Each node picks the transport itself via `transport=auto`.
 - Treat torque control and pose streaming as independent state:
   - `Release + live pose` disables torque and keeps joint feedback live. Support
     the arm because gravity may move it.
