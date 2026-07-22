@@ -690,7 +690,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         : 'Live monitor is running; waiting for the first joint-state message',
     }
     : genericNodeLive ? {
-      text: 'LIVE • UPDATING',
+      // Same rule as STREAMING: do not stamp "live" over a picture that is
+      // visibly moving. Warnings below still show, because those are not
+      // liveness claims.
+      text: showImageResult ? '' : 'LIVE • UPDATING',
       tone: 'ok',
       title: 'This node is receiving continuous runtime updates.',
     }
@@ -1179,7 +1182,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </button>
       </div>
 
-      {statusBadge && (
+      {statusBadge && (statusBadge.text || statusBadge.action) && (
         <div
           className="nodrag"
           title={statusBadge.title}

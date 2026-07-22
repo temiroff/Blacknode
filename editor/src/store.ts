@@ -710,7 +710,17 @@ function cookEventLogEntry(event: CookEvent, nodes: Node<NodeData>[]): CookLogEn
       id: `${ts}-${event.node_id}-${event.port}-success`,
       kind: 'success',
       label,
-      message: `${label}${port} ${event.cached ? 'cached' : 'done'}${event.value !== undefined ? `: ${shortText(event.value)}` : ''}`,
+      // Nodes explain themselves in `report` ("LIVE: publishing to /camera/…"),
+      // which is what belongs in the log; the cooked port is usually a URL that
+      // says nothing. Fall back to the value when a node writes no report.
+      message: (() => {
+        const outputs = event.outputs as Record<string, unknown> | undefined
+        const report = typeof outputs?.report === 'string' ? outputs.report.trim() : ''
+        const summary = report
+          ? shortText(report, 180)
+          : (event.value !== undefined ? shortText(event.value) : '')
+        return `${label}${port} ${event.cached ? 'cached' : 'done'}${summary ? `: ${summary}` : ''}`
+      })(),
       detail: fullDetail(event.outputs ?? event.value),
       nodeId: event.node_id,
       port: event.port,
@@ -1456,7 +1466,9 @@ export const useStore = create<Store>((set, get) => ({
                 streaming: true,
                 stream_url: text(record.stream_url),
                 snapshot_url: text(record.snapshot_url),
-                preview: text(record.snapshot_url) || text(record.stream_url),
+                // The MJPEG endpoint first: a snapshot is one still frame, so
+                // preferring it brought the node back with a frozen picture.
+                preview: text(record.stream_url) || text(record.snapshot_url),
               } : {}),
               ...(run ? { running: true, run_id: runId } : {}),
             },
