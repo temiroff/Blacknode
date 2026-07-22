@@ -287,6 +287,34 @@ def run_workflow_logged(data: Mapping[str, Any]) -> dict[str, Any]:
     return run_workflow(data)
 
 
+#: Live stream node types kept for graphs exported on a machine where the
+#: owning package is not installed, so the registry cannot answer for them.
+_LEGACY_LIVE_RUNTIME_NODE_TYPES = frozenset({
+    "Camera", "CameraStream", "CameraROS2Subscribe", "CV2CameraStream",
+    "CV2ColorObjectStream", "ReasoningStream", "ROS2ImageStream", "ROS2Run",
+})
+
+
+def _live_runtime_node_types(node_meta: Mapping[str, Any]) -> set[str]:
+    """Node types in this graph that keep a background service open.
+
+    Derived from the registry (``@node(live=True)``) rather than a fixed list,
+    so a node moving between packages -- or a new live node type -- cannot
+    silently make an exported script exit while its streams are still meant
+    to be running.
+    """
+    types = {
+        str(meta.get("type") or "")
+        for meta in node_meta.values()
+        if isinstance(meta, Mapping)
+    }
+    live = {
+        node_type for node_type in types
+        if getattr(_NODE_REGISTRY.get(node_type), "_bn_live_capable", False)
+    }
+    return live | (types & _LEGACY_LIVE_RUNTIME_NODE_TYPES)
+
+
 def export_workflow_python(data: Mapping[str, Any], *, style: str = "flat") -> str:
     report = validate_workflow(data)
     if not report.ok:
@@ -382,7 +410,7 @@ def export_workflow_python(data: Mapping[str, Any], *, style: str = "flat") -> s
         "",
         "",
         f"_WORKFLOW = {_pretty_literal(workflow_payload)}",
-        "_BLACKNODE_LIVE_RUNTIME_NODE_TYPES = {'CameraROS2Subscribe', 'ROS2Run', 'Camera', 'CameraStream', 'CV2ColorObjectStream', 'ReasoningStream'}",
+        f"_BLACKNODE_LIVE_RUNTIME_NODE_TYPES = {_live_runtime_node_types(node_meta)!r}",
         "_blacknode_live_runtime_stopped = False",
         "",
         "",
