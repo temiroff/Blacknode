@@ -113,6 +113,7 @@ interface Store {
   setApiKey: (provider: string, key: string) => Promise<void>
   loadDriverStatus: () => Promise<void>
   loadRuntimeNodeOutputs: () => Promise<void>
+  reattachRuntimeState: () => Promise<void>
   loadDrivers: () => Promise<void>
   installDriver: (name: string) => Promise<boolean>
   startDriver: (name: string) => Promise<{ ok: boolean; error?: string }>
@@ -1381,6 +1382,58 @@ export const useStore = create<Store>((set, get) => ({
     } catch {}
   },
 
+  // Runtime work outlives the graph that started it, so a tab reopened while a
+  // stream is still running would otherwise render as idle. Match what the
+  // server reports back onto this tab's nodes by the id they own, so switching
+  // tabs shows the truth instead of a blank slate.
+  reattachRuntimeState: async () => {
+    let status
+    try {
+      status = await api.runtimeStatus()
+    } catch {
+      return
+    }
+    const streams = [
+      ...(status.streams ?? []),
+      ...(status.cv2_streams ?? []),
+      ...(status.reasoning_streams ?? []),
+    ]
+    const runs = status.managed_runs ?? []
+    if (!streams.length && !runs.length) return
+
+    const text = (v: unknown) => (typeof v === 'string' ? v : '')
+    set(s => ({
+      nodes: s.nodes.map(node => {
+        const streamId = String(node.data.params?.stream_id ?? '')
+        const runId = String(node.data.params?.run_id ?? '')
+        const stream = streamId
+          ? streams.find(item => String((item as Record<string, unknown>).stream_id ?? '') === streamId)
+          : undefined
+        const run = runId
+          ? runs.find(item => String((item as Record<string, unknown>).run_id ?? '') === runId)
+          : undefined
+        if (!stream && !run) return node
+        const record = (stream ?? run) as Record<string, unknown>
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            portResults: {
+              ...node.data.portResults,
+              ...(stream ? {
+                streaming: true,
+                stream_url: text(record.stream_url),
+                snapshot_url: text(record.snapshot_url),
+                preview: text(record.snapshot_url) || text(record.stream_url),
+              } : {}),
+              ...(run ? { running: true, run_id: runId } : {}),
+            },
+          },
+        }
+      }),
+    }))
+  },
+
   loadRuntimeNodeOutputs: async () => {
     try {
       const status = await api.runtimeStatus()
@@ -1476,6 +1529,7 @@ export const useStore = create<Store>((set, get) => ({
     const { nodes: bnNodes, edges: bnEdges } = await api.getGraph()
     const parsed = parseGraph(bnNodes, bnEdges)
     set({ nodes: ensureConnectedToolBoxSlots(parsed.nodes, parsed.edges), edges: parsed.edges, selectedId: null })
+    await get().reattachRuntimeState()
   },
 
   // ── Tab management ────────────────────────────────────────────────────────

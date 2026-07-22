@@ -9,6 +9,7 @@ import McpPanel from './McpPanel'
 import LearnedNodesPanel from './LearnedNodesPanel'
 import PackagesPanel from './PackagesPanel'
 import RunsPanel from './RunsPanel'
+import RuntimePanel from './RuntimePanel'
 import ScriptEditor from './ScriptEditor'
 import TemplateGallery from './TemplateGallery'
 import WorkflowManager from './WorkflowManager'
@@ -21,7 +22,7 @@ const CATEGORY_ORDER = Object.keys(CATEGORIES)
 interface PaletteSubGroup { name: string; color: string; types: string[] }
 interface PaletteGroup { name: string; color: string; subgroups: PaletteSubGroup[]; count: number }
 
-type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs' | 'learned' | 'mcp' | 'packages'
+type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs' | 'runtime' | 'learned' | 'mcp' | 'packages'
 
 const TOP_BAR_H = 44
 const RAIL_W = 78
@@ -95,12 +96,20 @@ const ICON_MCP = (
   </svg>
 )
 
+const ICON_RUNTIME = (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <circle cx="9" cy="9" r="3" fill="currentColor"/>
+    <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.3" strokeDasharray="3 2.5"/>
+  </svg>
+)
+
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'nodes',     label: 'Nodes',     icon: ICON_NODES     },
   { id: 'templates', label: 'Templates', icon: ICON_TEMPLATES },
   { id: 'workflows', label: 'Workflows', icon: ICON_WORKFLOWS },
   { id: 'script',    label: 'Script',    icon: ICON_SCRIPT    },
   { id: 'runs',      label: 'Runs',      icon: ICON_RUNS      },
+  { id: 'runtime',   label: 'Runtime',   icon: ICON_RUNTIME   },
   { id: 'learned',   label: 'Learned',   icon: ICON_LEARNED   },
   { id: 'packages',  label: 'Packages',  icon: ICON_PACKAGES  },
   { id: 'mcp',       label: 'MCP',       icon: ICON_MCP       },
@@ -642,6 +651,9 @@ export default function NodePalette() {
 
             {/* ── RUNS ── */}
             {activeTab === 'runs' && <RunsPanel />}
+
+            {/* ── RUNTIME ── */}
+            {activeTab === 'runtime' && <RuntimePanel />}
 
             {/* ── LEARNED ── */}
             {activeTab === 'learned' && <LearnedNodesPanel />}
