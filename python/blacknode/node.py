@@ -307,7 +307,7 @@ def _wrap_direct_node(fn: Callable, inputs: list[str], defaults: dict[str, objec
     return wrapper
 
 
-def _fill_frame_stream(result: dict, outputs: list[str]) -> dict:
+def fill_frame_stream(result: dict, outputs: list[str]) -> dict:
     """Populate a declared ``frame_stream`` port from the node's own URLs.
 
     Every stream node already returns stream_url/snapshot_url/stream_id, so a
@@ -316,11 +316,16 @@ def _fill_frame_stream(result: dict, outputs: list[str]) -> dict:
     """
     if "frame_stream" not in outputs or result.get("frame_stream"):
         return result
+    from blacknode.streams import frame_stream as _build
+
     stream_url = str(result.get("stream_url") or "")
     snapshot_url = str(result.get("snapshot_url") or "")
     if not stream_url and not snapshot_url:
+        # A declared port must always be produced, or cooking it raises rather
+        # than reporting why the node has nothing to offer. An empty handle
+        # says "no video here", which consumers already understand.
+        result["frame_stream"] = {}
         return result
-    from blacknode.streams import frame_stream as _build
 
     result["frame_stream"] = _build(
         stream_id=str(result.get("stream_id") or ""),
@@ -335,7 +340,7 @@ def _fill_frame_stream(result: dict, outputs: list[str]) -> dict:
 
 def _normalize_result(result: TypingAny, outputs: list[str]) -> dict:
     if isinstance(result, dict):
-        return _fill_frame_stream(result, outputs)
+        return fill_frame_stream(result, outputs)
     if result is None:
         return {}
     if len(outputs) == 1:

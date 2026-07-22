@@ -3,7 +3,7 @@ from typing import Any
 import uuid
 import json
 
-from .node import _NODE_REGISTRY
+from .node import _NODE_REGISTRY, fill_frame_stream
 
 
 class _Wire:
@@ -140,6 +140,10 @@ class Graph:
 
         if not isinstance(result, dict):
             result = {"output": result}
+        # Filled here rather than in the decorator: ctx-style nodes are
+        # registered unwrapped on purpose, and wrapping them would move
+        # __globals__ out from under anything that patches the node module.
+        result = fill_frame_stream(result, list(getattr(fn, "_bn_outputs", []) or []))
 
         for k, v in result.items():
             self._cache[(node_id, k)] = v
