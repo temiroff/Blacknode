@@ -1404,14 +1404,22 @@ export const useStore = create<Store>((set, get) => ({
     const text = (v: unknown) => (typeof v === 'string' ? v : '')
     set(s => ({
       nodes: s.nodes.map(node => {
-        const streamId = String(node.data.params?.stream_id ?? '')
-        const runId = String(node.data.params?.run_id ?? '')
-        const stream = streamId
-          ? streams.find(item => String((item as Record<string, unknown>).stream_id ?? '') === streamId)
-          : undefined
-        const run = runId
-          ? runs.find(item => String((item as Record<string, unknown>).run_id ?? '') === runId)
-          : undefined
+        // A port left at its default never appears in params, so the id a node
+        // actually runs under lives in input_defaults until someone edits it.
+        const owned = (port: string) =>
+          String(node.data.params?.[port] ?? node.data.input_defaults?.[port] ?? '')
+        const streamId = owned('stream_id')
+        const runId = owned('run_id')
+        // node_id is exact: the runtime records which node started the work.
+        // The id ports are the fallback for runtimes that do not report it yet.
+        const mine = (item: unknown, port: string, value: string) => {
+          const record = item as Record<string, unknown>
+          const owner = String(record.node_id ?? '')
+          if (owner) return owner === node.id
+          return Boolean(value) && String(record[port] ?? '') === value
+        }
+        const stream = streams.find(item => mine(item, 'stream_id', streamId))
+        const run = runs.find(item => mine(item, 'run_id', runId))
         if (!stream && !run) return node
         const record = (stream ?? run) as Record<string, unknown>
         return {

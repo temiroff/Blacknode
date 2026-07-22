@@ -45,8 +45,15 @@ export default function RuntimePanel() {
   const total = rows.reduce((n, r) => n + r.items.length, 0)
   const detached = status?.detached_count ?? 0
 
-  const onCanvas = (id: string) => nodes.some(n =>
-    str(n.data.params?.stream_id) === id || str(n.data.params?.run_id) === id)
+  // Ports left at their default never reach params, so fall back to the node's
+  // declared defaults for the id it actually runs under.
+  const owned = (n: typeof nodes[number], port: string) =>
+    str(n.data.params?.[port] ?? n.data.input_defaults?.[port])
+  const onCanvas = (item: Record<string, unknown>, id: string) => {
+    const owner = str(item.node_id)
+    if (owner) return nodes.some(n => n.id === owner)
+    return nodes.some(n => owned(n, 'stream_id') === id || owned(n, 'run_id') === id)
+  }
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px', fontFamily: 'var(--font-ui)' }}>
@@ -98,7 +105,7 @@ export default function RuntimePanel() {
           </div>
           {row.items.map((item, i) => {
             const id = str(item[row.idField]) || `#${i + 1}`
-            const here = onCanvas(id)
+            const here = onCanvas(item, id)
             const url = str(item.stream_url)
             return (
               <div
