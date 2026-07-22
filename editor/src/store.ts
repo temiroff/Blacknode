@@ -30,6 +30,11 @@ export interface WorkflowTab {
   cookLog?: CookLogEntry[]
   cookActive?: boolean
   cookStatusHidden?: boolean
+  // What each node was showing when this tab was last open. Runtime work
+  // outlives the graph, so without this every switch redraws a running camera
+  // as idle - and it has to hold for every node type, not the few whose
+  // runtime happens to report which node owns its work.
+  liveState?: Record<string, Record<string, unknown>>
 }
 
 interface GraphSnapshot {
@@ -114,6 +119,7 @@ interface Store {
   loadDriverStatus: () => Promise<void>
   loadRuntimeNodeOutputs: () => Promise<void>
   reattachRuntimeState: () => Promise<void>
+  restoreTabLiveState: (tabId: string) => void
   loadDrivers: () => Promise<void>
   installDriver: (name: string) => Promise<boolean>
   startDriver: (name: string) => Promise<{ ok: boolean; error?: string }>
@@ -1386,6 +1392,24 @@ export const useStore = create<Store>((set, get) => ({
   // stream is still running would otherwise render as idle. Match what the
   // server reports back onto this tab's nodes by the id they own, so switching
   // tabs shows the truth instead of a blank slate.
+  // Put back what this tab's nodes were showing. loadGraph has already asked
+  // the server what is still running, so anything it reattached wins; this only
+  // fills the nodes whose runtime cannot say which node owns its work.
+  restoreTabLiveState: (tabId: string) => {
+    const tab = get().tabs.find(t => t.id === tabId)
+    const saved = tab?.liveState
+    if (!saved || !Object.keys(saved).length) return
+    set(s => ({
+      nodes: s.nodes.map(node => {
+        const remembered = saved[node.id]
+        if (!remembered) return node
+        const current = node.data.portResults
+        if (current && Object.keys(current).length) return node
+        return { ...node, data: { ...node.data, portResults: remembered } }
+      }),
+    }))
+  },
+
   reattachRuntimeState: async () => {
     let status
     try {
@@ -1544,10 +1568,15 @@ export const useStore = create<Store>((set, get) => ({
 
   saveActiveTabSnapshot: async () => {
     try {
-      const { activeTabId } = get()
+      const { activeTabId, nodes } = get()
       const graph = await api.getGraph()
+      const liveState: Record<string, Record<string, unknown>> = {}
+      for (const node of nodes) {
+        const results = node.data.portResults
+        if (results && Object.keys(results).length) liveState[node.id] = results
+      }
       set(s => ({
-        tabs: s.tabs.map(t => t.id === activeTabId ? { ...t, graph: cloneGraph(graph) } : t),
+        tabs: s.tabs.map(t => t.id === activeTabId ? { ...t, graph: cloneGraph(graph), liveState } : t),
       }))
       return graph
     } catch {
@@ -1605,10 +1634,12 @@ export const useStore = create<Store>((set, get) => ({
       const graph = cloneGraph(tab.graph)
       await api.setGraph(graph.nodes, graph.edges)
       await get().loadGraph()
+      get().restoreTabLiveState(tabId)
     } else if (tab.slug) {
       const graph = await api.loadWorkflow(tab.slug)
       set(s => ({ tabs: s.tabs.map(t => t.id === tabId ? { ...t, graph: cloneGraph(graph), dirty: false } : t) }))
       await get().loadGraph()
+      get().restoreTabLiveState(tabId)
     } else {
       await api.reset()
       set({ nodes: [], edges: [], selectedId: null })

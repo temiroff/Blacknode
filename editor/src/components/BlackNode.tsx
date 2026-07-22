@@ -653,7 +653,9 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   // outranks a passive "this result is stale" note.
   const statusBadge: StatusBadge | null =
     streamActive ? {
-      text: 'STREAMING',
+      // A moving picture already says it is live, so label it only when there is
+      // no picture to speak for itself. The Stop control stays either way.
+      text: showImageResult ? '' : 'STREAMING',
       tone: 'ok',
       title: streamUrl ? `Live stream: ${streamUrl}` : 'Live image stream is running',
       action: {
@@ -1191,14 +1193,18 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             letterSpacing: '0.03em', lineHeight: 1,
           }}
         >
-          <span style={{
-            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-            background: BADGE_TONE[statusBadge.tone],
-            boxShadow: statusBadge.tone === 'muted' ? 'none' : `0 0 8px ${BADGE_TONE[statusBadge.tone]}`,
-          }} />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {statusBadge.text}
-          </span>
+          {statusBadge.text && (
+            <>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                background: BADGE_TONE[statusBadge.tone],
+                boxShadow: statusBadge.tone === 'muted' ? 'none' : `0 0 8px ${BADGE_TONE[statusBadge.tone]}`,
+              }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {statusBadge.text}
+              </span>
+            </>
+          )}
           {statusBadge.action && (
             <button
               disabled={statusBadge.action.pending}
