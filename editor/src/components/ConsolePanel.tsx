@@ -22,7 +22,6 @@ export default function ConsolePanel() {
   const [diagnostics, setDiagnostics] = useState<Array<{ id: string; label: string }>>([])
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
-  const [open, setOpen] = useState<number | null>(null)
   const [now, setNow] = useState(Date.now())
   const [input, setInput] = useState('')
   const [history, setHistory] = useState<string[]>([])
@@ -146,43 +145,35 @@ export default function ConsolePanel() {
             the ROS 2 graph without building a workflow.
           </div>
         )}
+        {/* A transcript, not a list of expanders: every command and everything it
+            printed stays on screen, the way a terminal reads. */}
         {entries.map(entry => {
           const output = [entry.stdout, entry.stderr, entry.error].filter(Boolean).join('\n')
-          const expanded = open === entry.id
           return (
-            <div key={entry.id} style={{ marginBottom: 2 }}>
-              <div
-                onClick={() => setOpen(expanded ? null : entry.id)}
-                style={{
-                  display: 'flex', alignItems: 'baseline', gap: 7, padding: '3px 6px',
-                  borderRadius: 4, cursor: output ? 'pointer' : 'default',
-                  borderLeft: `2px solid ${TONE[entry.status] ?? 'var(--tx3)'}`,
-                  background: expanded ? 'var(--lift)' : 'transparent',
-                }}
-              >
-                <span style={{
-                  flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 11,
-                  color: 'var(--tx1)', overflow: 'hidden', textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}>
+            <div key={entry.id} style={{ marginBottom: 4 }}>
+              <div style={{
+                display: 'flex', alignItems: 'baseline', gap: 6,
+                fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.5,
+              }}>
+                <span style={{ color: TONE[entry.status] ?? 'var(--tx3)', flexShrink: 0 }}>
+                  {entry.status === 'running' ? '›' : entry.status === 'failed' ? '✗' : '$'}
+                </span>
+                <span style={{ flex: 1, minWidth: 0, color: 'var(--tx1)', wordBreak: 'break-all' }}>
                   {entry.command}
                 </span>
-                {entry.backend && (
-                  <span style={{ fontSize: 9, color: 'var(--tx3)', flexShrink: 0 }}>{entry.backend}</span>
-                )}
                 <span style={{
-                  fontSize: 10, flexShrink: 0, fontFamily: 'var(--font-mono)',
-                  color: TONE[entry.status] ?? 'var(--tx3)',
+                  flexShrink: 0, fontSize: 10,
+                  color: entry.status === 'running' ? 'var(--warn)' : 'var(--tx3)',
                 }}>
                   {clock(entry, now)}
                 </span>
               </div>
-              {expanded && output && (
+              {output && (
                 <pre style={{
-                  margin: '2px 0 6px 8px', padding: '6px 8px', borderRadius: 4,
-                  background: 'var(--lift)', border: '1px solid var(--line)',
-                  color: 'var(--tx2)', fontFamily: 'var(--font-mono)', fontSize: 10,
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 260, overflow: 'auto',
+                  margin: '1px 0 0 14px', padding: 0, background: 'transparent', border: 'none',
+                  color: entry.status === 'failed' ? 'var(--err)' : 'var(--tx2)',
+                  fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.5,
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 }}>
                   {output}
                 </pre>

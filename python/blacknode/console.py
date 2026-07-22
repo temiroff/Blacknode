@@ -11,6 +11,7 @@ is running, how long it has taken, and what it printed.
 from __future__ import annotations
 
 import itertools
+import sys
 import threading
 import time
 from typing import Any
@@ -54,6 +55,51 @@ class Entry:
                 error=_trim(error),
                 exit_code=exit_code,
             )
+
+
+_suppress = threading.local()
+
+
+class suppress:
+    """Hide spawns from the audit hook while a caller records them itself.
+
+    Runtimes that wrap a subprocess in :func:`record` already report duration,
+    exit code and output. Without this the same command would appear twice: once
+    richly, once as a bare spawn.
+    """
+
+    def __enter__(self) -> None:
+        _suppress.on = getattr(_suppress, "on", 0) + 1
+
+    def __exit__(self, *_exc: Any) -> None:
+        _suppress.on = max(0, getattr(_suppress, "on", 0) - 1)
+
+
+def install_spawn_hook() -> None:
+    """Log every subprocess Blacknode starts, whoever starts it.
+
+    Nodes shell out from a dozen packages, so instrumenting each call site would
+    both miss cases and drift. CPython raises a ``subprocess.Popen`` audit event
+    for every spawn, which catches them all with no cooperation from callers.
+    The hook only sees the launch, so these entries carry the command and no
+    exit status - callers that want detail wrap themselves in :func:`record`.
+    """
+    if getattr(install_spawn_hook, "_installed", False):
+        return
+    install_spawn_hook._installed = True  # type: ignore[attr-defined]
+
+    def hook(event: str, args: tuple[Any, ...]) -> None:
+        if event != "subprocess.Popen" or getattr(_suppress, "on", 0):
+            return
+        try:
+            command = args[1]
+            text = command if isinstance(command, str) else " ".join(str(part) for part in command)
+        except Exception:  # pragma: no cover - never break a spawn over logging
+            return
+        entry = record(text.strip(), backend="host", source="spawn")
+        entry.finish(True)
+
+    sys.addaudithook(hook)
 
 
 def record(command: str, *, backend: str = "", source: str = "") -> Entry:

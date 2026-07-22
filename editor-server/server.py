@@ -48,6 +48,10 @@ from run_store import RunStore
 app = FastAPI(title="Blacknode Editor Server")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# Log every subprocess any node starts, so the Console shows the whole picture
+# rather than only the calls that remembered to instrument themselves.
+command_console.install_spawn_hook()
+
 # ── Persistence ───────────────────────────────────────────────────────────────
 
 _SAVE_PATH      = os.path.join(os.path.dirname(__file__), "blacknode_graph.json")
@@ -2518,9 +2522,12 @@ def _console_execute(raw: str, timeout: float) -> dict[str, Any]:
 
     logged = command_console.record(raw, backend="host", source="console")
     try:
-        proc = subprocess.run(
-            [*prefix, *rest], capture_output=True, text=True, timeout=timeout, env=env,
-        )
+        # Recorded above with output and exit code, so keep the audit hook from
+        # logging the same spawn a second time.
+        with command_console.suppress():
+            proc = subprocess.run(
+                [*prefix, *rest], capture_output=True, text=True, timeout=timeout, env=env,
+            )
     except FileNotFoundError:
         message = f"'{tool}' is not installed or not on PATH"
         logged.finish(False, error=message)
