@@ -51,6 +51,42 @@ from run_store import RunStore
 app = FastAPI(title="Blacknode Editor Server")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+
+def _reap_orphaned_stream_servers() -> None:
+    """Kill stream-server helpers left behind by a previous run before serving.
+
+    Stream servers are spawned detached so a cook can end without killing them.
+    When the editor exits uncleanly - a crash, a hard reload, a Windows restart
+    that skips atexit - they keep holding the camera, and the next capture reads
+    nothing ("camera frame read failed"). Clearing them at startup means a
+    restart always begins with the hardware free.
+    """
+    marker = "stream_server.py"
+    my_pid = os.getpid()
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(
+                ["wmic", "process", "where", "name='python.exe'", "get", "ProcessId,CommandLine"],
+                capture_output=True, text=True, timeout=15,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            ).stdout
+            for line in out.splitlines():
+                if marker not in line:
+                    continue
+                pid = line.strip().rsplit(None, 1)[-1]
+                if pid.isdigit() and int(pid) != my_pid:
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", pid],
+                                   capture_output=True, timeout=10,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        else:
+            subprocess.run(["pkill", "-f", marker], capture_output=True, timeout=10)
+    except Exception:
+        # Best effort: a failure here must never stop the server booting.
+        pass
+
+
+_reap_orphaned_stream_servers()
+
 # Log every subprocess any node starts, so the Console shows the whole picture
 # rather than only the calls that remembered to instrument themselves.
 command_console.install_spawn_hook()
@@ -4474,13 +4510,18 @@ def delete_workflow(slug: str):
 
 if __name__ == "__main__":
     import uvicorn
+    # Auto-reload is a code-editing convenience, not something an app being used
+    # should do: every reload restarts the worker, and a worker that owns live
+    # streams tears them down on the way out. Off by default; opt in with
+    # BLACKNODE_DEV_RELOAD=1 when actually editing the server.
+    dev_reload = os.environ.get("BLACKNODE_DEV_RELOAD", "").strip().lower() in {"1", "true", "yes"}
     uvicorn.run(
         "server:app",
         host="127.0.0.1",
         port=7777,
-        reload=True,
+        reload=dev_reload,
         reload_dirs=[
             os.path.dirname(__file__),
             os.path.join(os.path.dirname(__file__), "..", "python"),
-        ],
+        ] if dev_reload else None,
     )
