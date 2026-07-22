@@ -134,7 +134,7 @@ behavior. Optional adapters stay nested under the component they integrate.
 A node named `ROS2*` is not automatically a `blacknode-ros2` node. The
 integration layer owns only transport-agnostic ROS primitives; a node *about*
 a capability belongs to the capability's package as a ROS 2 adapter component
-that requires `blacknode-ros2/core`. That is why `ROS2ImageStream` lives in
+that requires `blacknode-ros2/core`. That is why `CameraROS2Subscribe` lives in
 `blacknode-perception` (`camera/ros2`) and `ROS2SetJoint` in
 `blacknode-controllers` (`joint-control/ros2`). Dependencies point one way
 only — capability adapters depend on the integration layer, never the reverse

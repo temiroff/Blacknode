@@ -518,9 +518,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             "name": "ros2",
                             "default": True,
                             "node_types": [
-                                "ROS2ImageStream",
-                                "ROS2USBCamera",
-                                "ROS2WebVideoStream"
+                                "CameraROS2Subscribe",
+                                "CameraROS2Publish",
+                                "CameraROS2Http"
                             ]
                         }
                     }
@@ -593,9 +593,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "CameraStream",
                 "DetectionPrompt",
                 "FramePrompt",
-                "ROS2ImageStream",
-                "ROS2USBCamera",
-                "ROS2WebVideoStream",
+                "CameraROS2Subscribe",
+                "CameraROS2Publish",
+                "CameraROS2Http",
                 "ReasoningDashboard",
                 "ReasoningStream",
                 "VLM"

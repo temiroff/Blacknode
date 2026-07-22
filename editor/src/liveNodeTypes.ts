@@ -5,9 +5,9 @@
 // sync with the actual `live=True` stream nodes in the Python registry.
 export const LIVE_STREAM_NODE_TYPES = new Set([
   'Camera',
-  'ROS2ImageStream',
-  'ROS2USBCamera',
-  'ROS2WebVideoStream',
+  'CameraROS2Subscribe',
+  'CameraROS2Publish',
+  'CameraROS2Http',
   'CV2ColorObjectStream',
   'ReasoningStream',
   'CUDAImageFilterStream',

@@ -223,7 +223,7 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'DatasetBrowser' ? { style: { width: 980, height: 860 } } : {}),
     ...(hasDashboardImage ? { style: { width: 860, height: 720 } } : {}),
     ...(meta.type === 'ROS2VisualDashboard' ? { style: { width: 840, height: 760 } } : {}),
-    ...(meta.type === 'ROS2ImageStream' ? { style: { width: 760, height: 620 } } : {}),
+    ...(meta.type === 'CameraROS2Subscribe' ? { style: { width: 760, height: 620 } } : {}),
     ...(meta.type === 'ROS2Run' ? { style: { width: 520, height: 360 } } : {}),
     ...(meta.type === 'ROS2MotionDashboard' ? { style: { width: 860, height: 720 } } : {}),
   }
