@@ -26,6 +26,7 @@ export default function ConsolePanel() {
   const [input, setInput] = useState('')
   const [history, setHistory] = useState<string[]>([])
   const [recall, setRecall] = useState<number | null>(null)
+  const [collapse, setCollapse] = useState(true)
   const feed = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -61,6 +62,24 @@ export default function ConsolePanel() {
   }
 
   const active = entries.filter(e => e.status === 'running').length
+
+  // Housekeeping repeats the same handful of commands constantly - reading each
+  // package's git status alone spawns one process per package per request - so
+  // hundreds of rows say very little. Fold repeats into one row carrying a
+  // count and the latest timing; nothing is dropped from the server's log.
+  const shown = (() => {
+    if (!collapse) return entries
+    const byCommand = new Map<string, ConsoleEntry & { repeats: number }>()
+    for (const entry of entries) {
+      const seen = byCommand.get(entry.command)
+      if (seen) {
+        byCommand.set(entry.command, { ...entry, repeats: seen.repeats + 1 })
+      } else {
+        byCommand.set(entry.command, { ...entry, repeats: 1 })
+      }
+    }
+    return Array.from(byCommand.values()).sort((a, b) => a.id - b.id)
+  })()
 
   const submit = async () => {
     const command = input.trim()
@@ -102,8 +121,20 @@ export default function ConsolePanel() {
           boxShadow: active ? '0 0 8px var(--warn)' : 'none',
         }} />
         <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: 'var(--tx1)' }}>
-          {active ? `${active} command${active === 1 ? '' : 's'} running` : `${entries.length} commands`}
+          {active ? `${active} running` : `${shown.length} of ${entries.length} commands`}
         </span>
+        <button
+          onClick={() => setCollapse(c => !c)}
+          title={collapse ? 'Showing one row per command' : 'Showing every run'}
+          style={{
+            padding: '3px 8px', borderRadius: 5,
+            border: `1px solid ${collapse ? 'var(--accent)' : 'var(--line2)'}`,
+            background: 'transparent', color: collapse ? 'var(--accent)' : 'var(--tx3)',
+            cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700,
+          }}
+        >
+          Collapse
+        </button>
         <button
           onClick={() => { void api.consoleClear().then(() => setEntries([])) }}
           style={{
@@ -147,7 +178,7 @@ export default function ConsolePanel() {
         )}
         {/* A transcript, not a list of expanders: every command and everything it
             printed stays on screen, the way a terminal reads. */}
-        {entries.map(entry => {
+        {shown.map(entry => {
           const output = [entry.stdout, entry.stderr, entry.error].filter(Boolean).join('\n')
           return (
             <div key={entry.id} style={{ marginBottom: 4 }}>
@@ -161,6 +192,11 @@ export default function ConsolePanel() {
                 <span style={{ flex: 1, minWidth: 0, color: 'var(--tx1)', wordBreak: 'break-all' }}>
                   {entry.command}
                 </span>
+                {(entry as ConsoleEntry & { repeats?: number }).repeats! > 1 && (
+                  <span style={{ flexShrink: 0, fontSize: 10, color: 'var(--tx3)' }}>
+                    ×{(entry as ConsoleEntry & { repeats?: number }).repeats}
+                  </span>
+                )}
                 <span style={{
                   flexShrink: 0, fontSize: 10,
                   color: entry.status === 'running' ? 'var(--warn)' : 'var(--tx3)',
