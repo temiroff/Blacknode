@@ -3,6 +3,7 @@ import { api } from '../api'
 import { useStore } from '../store'
 import { CATEGORIES } from '../categories'
 import { CORE_GROUP, componentDisplayName, groupForPackage, packageGroupIndex } from '../packageGroups'
+import { freeCanvasSpot } from '../placement'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from '../pythonToolPresets'
 import McpPanel from './McpPanel'
 import LearnedNodesPanel from './LearnedNodesPanel'
@@ -106,7 +107,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 ]
 
 export default function NodePalette() {
-  const { nodeTypes, nodeDefs, packages, addNode, loadNodeTypes, learnedNodeHighlight } = useStore()
+  const { nodeTypes, nodeDefs, packages, nodes, selectedId, addNode, loadNodeTypes, learnedNodeHighlight } = useStore()
   const [activeTab, setActiveTab] = useState<Tab | null>('templates')
   const [showPackageWelcome, setShowPackageWelcome] = useState(false)
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
@@ -364,7 +365,7 @@ export default function NodePalette() {
       onDragStart={e => handleDragStart(e, type)}
       onClick={() => {
         const spec = nodeSpec(type)
-        addNode(spec.type, { x: 200 + Math.random() * 200, y: 80 + Math.random() * 200 }, spec.params)
+        addNode(spec.type, freeCanvasSpot(nodes, selectedId), spec.params)
       }}
       style={{
         padding: '5px 14px 5px 38px',
