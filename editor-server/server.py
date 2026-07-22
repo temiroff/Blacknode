@@ -13,7 +13,10 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import blacknode as bn
 import blacknode.integrations  # noqa: F401  registers chat drivers (slack/telegram)
+# The server executes nodes itself rather than going through Graph, so the
+# frame-stream contract has to be filled here too.
 from blacknode import console as command_console
+from blacknode.node import fill_frame_stream as bn_fill_frame_stream
 from blacknode.deployments import DeploymentError, DeploymentStore
 from blacknode.discovery import discover_node_modules, load_node_file
 from blacknode.integrations import registry as driver_registry
@@ -2254,6 +2257,8 @@ def _cook_trace(
             try:
                 with contextlib.redirect_stdout(_out_buf), contextlib.redirect_stderr(_err_buf):
                     result = fn(ctx)
+                    if isinstance(result, dict):
+                        result = bn_fill_frame_stream(result, list(getattr(fn, "_bn_outputs", []) or []))
             finally:
                 yield from drain_logger()
                 for _stream, _buf in (("stdout", _out_buf), ("stderr", _err_buf)):
@@ -3067,6 +3072,8 @@ def _subgraph_cook_trace(
                     ctx["__run_mode__"] = "live" if run_mode == "live" else "once"
                     try:
                         result = fn(ctx)
+                        if isinstance(result, dict):
+                            result = bn_fill_frame_stream(result, list(getattr(fn, "_bn_outputs", []) or []))
                     finally:
                         yield from drain_logger()
                     if not isinstance(result, dict):
@@ -3197,6 +3204,8 @@ def _subgraph_cook_trace(
                     ctx["__graph__"] = inner
                     ctx["__node_id__"] = current_id
                     result = fn(ctx)
+                    if isinstance(result, dict):
+                        result = bn_fill_frame_stream(result, list(getattr(fn, "_bn_outputs", []) or []))
                     if not isinstance(result, dict):
                         result = {"output": result}
                 _raise_if_stopped(stop_event)
