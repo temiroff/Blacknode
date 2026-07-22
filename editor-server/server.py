@@ -2684,6 +2684,15 @@ def get_deployment(deployment_id: str):
 
 @app.post("/deployments/{deployment_id}/start")
 def start_deployment(deployment_id: str):
+    # A deployment runs the same graph as its own process. If the editor is
+    # still live, two copies fight over the camera and the second lands on the
+    # "next available" device. Hand the hardware over: stop the editor's live
+    # runtime first, then deploy. The graph on the canvas is untouched.
+    try:
+        _stop_active_cook()
+        _stop_runtime_services()
+    except Exception:
+        pass
     try:
         return _deployment_store.start(deployment_id)
     except DeploymentError as exc:
