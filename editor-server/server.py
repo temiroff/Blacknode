@@ -85,7 +85,6 @@ def _reap_orphaned_stream_servers() -> None:
         pass
 
 
-_reap_orphaned_stream_servers()
 
 # Log every subprocess any node starts, so the Console shows the whole picture
 # rather than only the calls that remembered to instrument themselves.
@@ -2695,6 +2694,18 @@ def create_deployment(req: DeployReq):
         req.name or "Deployed graph",
         metadata={"source": "deploy"},
     )
+    # This is the button the editor's Deploy uses, and it autostarts. A
+    # deployment runs its own copy of the graph, so if the editor is still live
+    # both open the camera and the deployment lands on the next device. Stop the
+    # editor's live runtime first and wait for it to release the hardware; the
+    # camera stop blocks until the process is gone, so the device is free before
+    # the deployment claims it. The canvas graph is left untouched.
+    if req.autostart:
+        try:
+            _stop_active_cook()
+            _stop_runtime_services()
+        except Exception:
+            pass
     try:
         record = _deployment_store.create(
             workflow,
@@ -4510,6 +4521,9 @@ def delete_workflow(slug: str):
 
 if __name__ == "__main__":
     import uvicorn
+    # Clear orphaned stream servers once, at cold boot - not on every worker
+    # import, which under auto-reload would kill live streams on each reload.
+    _reap_orphaned_stream_servers()
     # Auto-reload is a code-editing convenience, not something an app being used
     # should do: every reload restarts the worker, and a worker that owns live
     # streams tears them down on the way out. Off by default; opt in with
