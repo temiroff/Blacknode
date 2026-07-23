@@ -23,7 +23,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             "name": "ros2",
                             "default": False,
                             "node_types": [
-                                "ROS2ContinuousFollowDetectionJoint",
+                                "RobotFollow",
                                 "ROS2FollowDetectionJoint",
                                 "ROS2LeaderFollower",
                                 "ROS2NativeFollowDetectionJoint"
@@ -50,7 +50,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "git_url": "https://github.com/temiroff/blacknode-skills.git",
             "description": "Reusable task-level robot skills composed from stable capabilities.",
             "node_types": [
-                "ROS2ContinuousFollowDetectionJoint",
+                "RobotFollow",
                 "ROS2FollowDetectionJoint",
                 "ROS2LeaderFollower",
                 "ROS2NativeFollowDetectionJoint"
@@ -573,10 +573,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "tracking",
                     "default": True,
                     "node_types": [
-                        "CV2ColorObjectStream",
-                        "CV2ColorObjectTracker",
-                        "CV2ColorTargetHint",
-                        "CV2HSVMask"
+                        "TrackingObject",
+                        "TrackingColorHint",
+                        "TrackingColorMask"
                     ]
                 },
                 "slam": {
@@ -593,10 +592,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "git_url": "https://github.com/temiroff/blacknode-perception.git",
             "description": "Camera, tracking, VLM, and spatial-perception capabilities organized as selectable components.",
             "node_types": [
-                "CV2ColorObjectStream",
-                "CV2ColorObjectTracker",
-                "CV2ColorTargetHint",
-                "CV2HSVMask",
+                "TrackingObject",
+                "TrackingColorHint",
+                "TrackingColorMask",
                 "Camera",
                 "CameraCalibration",
                 "CameraDashboard",

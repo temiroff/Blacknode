@@ -213,6 +213,39 @@ function reactNodeType(typeName: string): string {
   return OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode'
 }
 
+// Push neighbours below/right of a node that just grew, by exactly the growth
+// delta, so they keep their original gap and never overlap the larger node.
+// Only nodes past the grower's old edges move, which keeps this idempotent
+// across the repeated measurements a streaming preview or dashboard triggers on
+// run.
+function spaceOutGrowth(
+  nodes: Node<NodeData>[],
+  id: string,
+  oldW: number,
+  oldH: number,
+  newW: number,
+  newH: number,
+): Node<NodeData>[] {
+  const growDown = Math.max(0, newH - oldH)
+  const growRight = Math.max(0, newW - oldW)
+  if (growDown === 0 && growRight === 0) return nodes
+  const grower = nodes.find(n => n.id === id)
+  if (!grower) return nodes
+  const num = (v: unknown, f: number) => (typeof v === 'number' ? v : f)
+  const gx = grower.position.x
+  const gy = grower.position.y
+  return nodes.map(n => {
+    if (n.id === id) return n
+    let x = n.position.x
+    let y = n.position.y
+    const nW = num(n.width ?? n.style?.width, 220)
+    const nH = num(n.height ?? n.style?.height, 140)
+    if (growDown > 0 && n.position.y >= gy && x < gx + oldW && x + nW > gx) y += growDown
+    if (growRight > 0 && n.position.x >= gx && y < gy + oldH && y + nH > gy) x += growRight
+    return x === n.position.x && y === n.position.y ? n : { ...n, position: { x, y } }
+  })
+}
+
 function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
   const hasDashboardImage = meta.outputs?.some(port =>
     port === 'dashboard' && meta.output_types?.[port] === 'Image'
@@ -222,6 +255,7 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     type: reactNodeType(meta.type),
     position: { x: meta.pos[0], y: meta.pos[1] },
     data: { ...meta },
+    ...(meta.type === 'Camera' ? { style: { width: 260 } } : {}),
     ...(meta.type === 'Text'   ? { style: { width: 220, height: 120 } } : {}),
     ...(meta.type === 'List'   ? { style: { width: 260, height: 150 } } : {}),
     ...(meta.type === 'Dict'   ? { style: { width: 260, height: 150 } } : {}),
@@ -501,7 +535,7 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
       },
     }
   }
-  if (data.type === 'ROS2ContinuousFollowDetectionJoint' || data.type === 'ROS2LeaderFollower') {
+  if (data.type === 'RobotFollow' || data.type === 'ROS2LeaderFollower') {
     return {
       ...base,
       portResults: {
@@ -2169,30 +2203,11 @@ export const useStore = create<Store>((set, get) => ({
       const num = (v: unknown, f: number) => (typeof v === 'number' ? v : f)
       const oldW = grower?.width ?? num(grower?.style?.width, width)
       const oldH = grower?.height ?? num(grower?.style?.height, height)
-      const growDown = Math.max(0, height - oldH)
-      const growRight = Math.max(0, width - oldW)
-      const gx = grower?.position.x ?? 0
-      const gy = grower?.position.y ?? 0
 
-      const resized = s.nodes.map(n => {
-        if (n.id === id) {
-          return { ...n, width, height, style: { ...(n.style ?? {}), width, height } }
-        }
-        // Make room by exactly how much the node grew, so a node below/right of
-        // it keeps its original gap instead of being shoved far away. Shifting
-        // by the growth delta (not the overlap) never overshoots, and applying
-        // it only to nodes past the grower's old edges keeps it idempotent
-        // across the repeated fits a streaming preview triggers.
-        let x = n.position.x
-        let y = n.position.y
-        if (growDown > 0 && n.position.y >= gy && x < gx + oldW && x + num(n.width ?? n.style?.width, 220) > gx) {
-          y += growDown
-        }
-        if (growRight > 0 && n.position.x >= gx && y < gy + oldH && y + num(n.height ?? n.style?.height, 140) > gy) {
-          x += growRight
-        }
-        return x === n.position.x && y === n.position.y ? n : { ...n, position: { x, y } }
-      })
+      const sized = s.nodes.map(n =>
+        n.id === id ? { ...n, width, height, style: { ...(n.style ?? {}), width, height } } : n
+      )
+      const resized = spaceOutGrowth(sized, id, oldW, oldH, width, height)
       return {
         ...pushUndoSnapshot(s),
         nodes: resized,
@@ -2229,10 +2244,29 @@ export const useStore = create<Store>((set, get) => ({
       return
     }
 
-    set(s => ({
-      nodes: applyNodeChanges(changes, s.nodes),
-      ...(shouldMarkDirty ? markActiveTabDirty(s) : {}),
-    }))
+    set(s => {
+      let nextNodes = applyNodeChanges(changes, s.nodes)
+      // When a node grows on its own — a preview or dashboard image loading when
+      // the graph runs — React Flow reports a "dimensions" change, not a
+      // resizeNode call. Space neighbours out here too so growing nodes never
+      // overlap. Skip the very first measurement (no prior size) and manual
+      // NodeResizer drags (resizing=true handles its own spacing).
+      for (const c of changes) {
+        if (c.type !== 'dimensions' || !c.dimensions || (c as { resizing?: boolean }).resizing) continue
+        const prev = s.nodes.find(n => n.id === c.id)
+        const oldW = typeof prev?.width === 'number' ? prev.width : undefined
+        const oldH = typeof prev?.height === 'number' ? prev.height : undefined
+        if (oldW === undefined || oldH === undefined) continue
+        // 4px guard against sub-pixel measurement jitter re-triggering shifts.
+        if (c.dimensions.width - oldW > 4 || c.dimensions.height - oldH > 4) {
+          nextNodes = spaceOutGrowth(nextNodes, c.id, oldW, oldH, c.dimensions.width, c.dimensions.height)
+        }
+      }
+      return {
+        nodes: nextNodes,
+        ...(shouldMarkDirty ? markActiveTabDirty(s) : {}),
+      }
+    })
     const shouldSyncSubgraphPositions = subnetStack.length > 0
       && changes.some(c => c.type === 'position' && c.position && !Boolean((c as any).dragging))
     if (shouldSyncSubgraphPositions) {
@@ -3258,7 +3292,7 @@ export const useStore = create<Store>((set, get) => ({
       nodes: s.nodes.map(n => {
         const runtimeNode = (
           LIVE_STREAM_NODE_TYPES.has(n.data.type) ||
-          n.data.type === 'ROS2ContinuousFollowDetectionJoint' ||
+          n.data.type === 'RobotFollow' ||
           n.data.type === 'ROS2LeaderFollower' ||
           n.data.type === 'ROS2ManualMove' ||
           n.data.type === 'ROS2MotionDashboard' ||

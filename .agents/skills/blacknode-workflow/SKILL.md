@@ -106,10 +106,10 @@ or type error, inspect `get_node_schema` and fix the graph instead of guessing.
 - `Run once` evaluates every required node once. `Go live` starts or updates
   nodes declared `live=True` and evaluates non-live dependencies once; it does
   not make every node a polling loop.
-- Nodes such as `Camera`, `CV2ColorObjectStream`,
+- Nodes such as `Camera`, `TrackingObject`,
   `CUDAImageFilterStream`, robot drivers, and
   `ROS2ManualMove`, `ROS2MotionDashboard`, and
-  `ROS2ContinuousFollowDetectionJoint` own or consume persistent background
+  `RobotFollow` own or consume persistent background
   services. Downstream dashboards and Output nodes should receive pushed live
   values without repeatedly cooking the graph.
 - Use `get_editor_runtime_status` after starting a persistent template to verify

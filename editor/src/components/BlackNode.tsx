@@ -482,6 +482,12 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   // DetectionYolo picks its model by name; offer built-in weights plus any
   // custom model dropped in .blacknode/models, rather than a typed path.
   const hasModelPicker = data.type === 'DetectionYolo' && (data.inputs ?? []).includes('model')
+  // TrackingObject hot-updates these while the stream runs (no recook), so expose
+  // them as live sliders right on the node.
+  const isTrackingObject = data.type === 'TrackingObject'
+  // YOLO-World is open-vocabulary: it detects whatever classes you type. Show the
+  // classes field only for those weights, where it actually does something.
+  const isWorldModel = /world/i.test(String(data.params?.model ?? ''))
   const [modelList, setModelList] = useState<{ builtin: string[]; custom: string[]; dir: string }>({ builtin: [], custom: [], dir: '' })
   const loadModels = async () => {
     try {
@@ -1048,6 +1054,19 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     updateNodeInternals(id)
   }, [id, inputsKey, outputsKey, updateNodeInternals])
 
+  // Whenever the node's rendered size changes — a manual resize, the camera
+  // preview auto-fit, or content growth — the right/bottom handles move but
+  // React Flow keeps their cached positions, so edges connect to the old spot
+  // and read as offset. Remeasure internals on every size change so the wires
+  // follow the knobs.
+  useEffect(() => {
+    const el = document.querySelector(`[data-bn-node-frame="${CSS.escape(id)}"]`)
+    if (!el) return
+    const observer = new ResizeObserver(() => updateNodeInternals(id))
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [id, updateNodeInternals])
+
   useEffect(() => {
     if (!isACTTraining || !trainingRunning) return
     let cancelled = false
@@ -1270,7 +1289,15 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           <select
             value={String(data.params?.model ?? 'yolov8n.pt')}
             onFocus={() => { if (!modelList.builtin.length) void loadModels() }}
-            onChange={e => { void updateParam(id, 'model', e.target.value) }}
+            onChange={e => {
+              const next = e.target.value
+              void updateParam(id, 'model', next)
+              // Open-vocab models score low; drop the threshold to a workable
+              // default when switching to one, unless the user already set a
+              // low conf themselves. Standard models keep 0.35.
+              const conf = Number(data.params?.conf ?? 0.35)
+              if (/world/i.test(next) && conf >= 0.3) void updateParam(id, 'conf', 0.1)
+            }}
             title={modelList.dir ? `Custom models: drop .pt/.onnx into ${modelList.dir}` : undefined}
             style={{
               flex: 1, minWidth: 0, background: 'var(--lift)', color: 'var(--tx1)',
@@ -1291,6 +1318,82 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               {(modelList.builtin.length ? modelList.builtin : ['yolov8n.pt']).map(m => <option key={m} value={m}>{m}</option>)}
             </optgroup>
           </select>
+        </div>
+      )}
+
+      {hasModelPicker && isWorldModel && (
+        <>
+          <div
+            className="nodrag"
+            onMouseDown={e => e.stopPropagation()}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '6px 8px 0' }}
+          >
+            <span style={{ fontSize: 10, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Classes</span>
+            {/* Controlled + commit on every keystroke: a blur-only commit lost the
+                text when Go Live was clicked before the field lost focus, so the
+                model ran with no prompt and found nothing. */}
+            <input
+              value={String(data.params?.classes ?? '')}
+              placeholder="box, red cube, coffee mug"
+              title="Comma-separated objects to find. Use plain nouns/short phrases ('box', 'red cube') — abstract words like 'cube' score near zero. Empty falls back to the model's default classes."
+              onChange={e => { void updateParam(id, 'classes', e.target.value) }}
+              style={{
+                flex: 1, minWidth: 0, background: 'var(--lift)', color: 'var(--tx1)',
+                border: '1px solid var(--line)', borderRadius: 5, padding: '2px 5px',
+                fontFamily: 'var(--font-ui)', fontSize: 11,
+              }}
+            />
+          </div>
+          <div
+            className="nodrag"
+            onMouseDown={e => e.stopPropagation()}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '4px 8px 0' }}
+          >
+            <span style={{ fontSize: 10, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Confidence</span>
+            {/* Open-vocab scores are low (often 0.1–0.3); the 0.35 default hides
+                them, so surface conf here with a world-appropriate default. */}
+            <input
+              type="number" min={0.01} max={1} step={0.01}
+              value={String(data.params?.conf ?? 0.1)}
+              title="Detection threshold. YOLO-World custom classes score low — start around 0.05–0.15 and raise if you get false boxes."
+              onChange={e => { void updateParam(id, 'conf', Math.max(0.01, Math.min(1, Number(e.target.value) || 0.1))) }}
+              style={{
+                width: 64, background: 'var(--lift)', color: 'var(--tx1)',
+                border: '1px solid var(--line)', borderRadius: 5, padding: '2px 5px',
+                fontFamily: 'var(--font-ui)', fontSize: 11,
+              }}
+            />
+            <span style={{ fontSize: 9, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>lower = more boxes</span>
+          </div>
+        </>
+      )}
+
+      {isTrackingObject && (
+        <div className="nodrag" onMouseDown={e => e.stopPropagation()}
+          style={{ margin: '6px 8px 0', display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {([
+            { key: 'min_area', label: 'Min area', min: 0, max: 3000, step: 50, def: 300 },
+            { key: 'blur', label: 'Blur', min: 0, max: 25, step: 2, def: 5 },
+            { key: 'morphology_iters', label: 'Cleanup', min: 0, max: 6, step: 1, def: 1 },
+            { key: 'follow_target_x', label: 'Aim X', min: 0, max: 1, step: 0.05, def: 0.4 },
+            { key: 'follow_deadband', label: 'Deadband', min: 0, max: 0.5, step: 0.01, def: 0.12 },
+          ] as const).map(s => {
+            const val = Number(data.params?.[s.key] ?? s.def)
+            return (
+              <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 9, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', width: 54, flexShrink: 0 }}>{s.label}</span>
+                <input
+                  type="range" min={s.min} max={s.max} step={s.step} value={val}
+                  onChange={e => { void updateParam(id, s.key, Number(e.target.value)) }}
+                  style={{ flex: 1, minWidth: 0, accentColor: 'var(--accent)', height: 3 }}
+                />
+                <span style={{ fontSize: 9, color: 'var(--tx2)', fontFamily: 'var(--font-mono)', width: 32, textAlign: 'right', flexShrink: 0 }}>
+                  {s.step < 1 ? val.toFixed(2) : val}
+                </span>
+              </div>
+            )
+          })}
+          <span style={{ fontSize: 8, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>adjusts live while streaming — no recook</span>
         </div>
       )}
 

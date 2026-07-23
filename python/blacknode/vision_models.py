@@ -13,8 +13,19 @@ from pathlib import Path
 BUILTIN_MODELS = [
     "yolov8n.pt", "yolov8s.pt", "yolov8m.pt",
     "yolo11n.pt", "yolo11s.pt", "yolo11m.pt",
+    # Open-vocabulary YOLO-World: detects the classes you name (via the node's
+    # "classes" field) instead of the fixed 80-class COCO list. Ignore the COCO
+    # names entirely and type "cube, box, mug" to find exactly those.
+    "yolov8s-world.pt", "yolov8m-world.pt", "yolov8x-worldv2.pt",
 ]
 _MODEL_SUFFIXES = {".pt", ".onnx", ".engine"}
+
+
+def is_open_vocabulary(model: str) -> bool:
+    """True for YOLO-World weights, which take a caller-supplied class list
+    instead of a fixed label set. The node exposes a "classes" field only for
+    these, and the detector calls set_classes() with it."""
+    return "world" in Path(model or "").name.lower()
 
 
 def _repo_root() -> Path:

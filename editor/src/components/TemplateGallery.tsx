@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   api,
   templateDependencyError,
+  type MissingTemplateAdapter,
+  type MissingTemplateComponent,
   type MissingTemplatePackage,
   type TemplateDependencyError,
   type TemplateMeta,
@@ -14,6 +16,7 @@ export default function TemplateGallery() {
   const [loading, setLoading] = useState<string | null>(null)
   const [loaded, setLoaded] = useState<string | null>(null)
   const [installing, setInstalling] = useState<{ slug: string; packageName: string } | null>(null)
+  const [enabling, setEnabling] = useState<{ slug: string; label: string } | null>(null)
   const [missing, setMissing] = useState<Record<string, TemplateDependencyError>>({})
   const [error, setError] = useState<string | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
@@ -136,6 +139,41 @@ export default function TemplateGallery() {
     }
   }
 
+  // Enable a disabled component (and, for an adapter requirement, its parent
+  // component too), then retry the load. The backend pulls in any required
+  // dependency packages when enabling.
+  const enableTarget = async (
+    event: React.MouseEvent,
+    template: TemplateMeta,
+    target: { package: string; component: string; adapter?: string },
+  ) => {
+    event.stopPropagation()
+    if (enabling || installing) return
+    const label = target.adapter
+      ? `${target.package}/${target.component}@${target.adapter}`
+      : `${target.package}/${target.component}`
+    setEnabling({ slug: template.slug, label })
+    try {
+      await api.setPackageComponent(target.package, target.component, true)
+      if (target.adapter) {
+        await api.setPackageAdapter(target.package, target.component, target.adapter, true)
+      }
+      await loadNodeTypes()
+      await refreshTemplates()
+      await loadTemplate(template)
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: `Could not enable ${label}`,
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
+    } finally {
+      setEnabling(null)
+    }
+  }
+
   return (
     <div style={{ padding: '10px 10px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto' }}>
       <div style={{
@@ -227,7 +265,8 @@ export default function TemplateGallery() {
         const wasLoaded = loaded === template.slug
         const dependencyError = missing[template.slug]
         const isInstalling = installing?.slug === template.slug
-        const isBusy = isLoading || isInstalling
+        const isEnabling = enabling?.slug === template.slug
+        const isBusy = isLoading || isInstalling || isEnabling
         return (
           <div
             key={template.slug}
@@ -270,11 +309,13 @@ export default function TemplateGallery() {
                   ? 'loading...'
                   : isInstalling
                     ? 'installing...'
-                    : dependencyError
-                      ? 'missing nodes'
-                      : wasLoaded
-                        ? 'loaded'
-                        : `${template.node_count} nodes`}
+                    : isEnabling
+                      ? 'enabling...'
+                      : dependencyError
+                        ? 'needs setup'
+                        : wasLoaded
+                          ? 'loaded'
+                          : `${template.node_count} nodes`}
               </span>
             </div>
             <div style={{ color: 'var(--tx2)', fontSize: 12, lineHeight: 1.4 }}>
@@ -333,6 +374,52 @@ export default function TemplateGallery() {
                           }}
                         >
                           {packageInstalling ? 'Installing...' : 'Install'}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+                {dependencyError.missing_components.map((comp: MissingTemplateComponent) => (
+                  <div key={`${comp.package}/${comp.component}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0, color: 'var(--warn)', fontSize: 11, lineHeight: 1.35 }}>
+                      Component <strong>{comp.package}/{comp.component}</strong>
+                      <div style={{ color: 'var(--tx3)', fontSize: 10 }}>{comp.reason}</div>
+                    </div>
+                    <button
+                      onClick={event => enableTarget(event, template, comp)}
+                      disabled={Boolean(installing || enabling)}
+                      style={{
+                        background: 'transparent', border: '1px solid var(--warn)', borderRadius: 5,
+                        color: 'var(--warn)', cursor: installing || enabling ? 'wait' : 'pointer',
+                        fontFamily: 'var(--font-ui)', fontSize: 11, padding: '3px 9px',
+                      }}
+                    >
+                      {enabling?.label === `${comp.package}/${comp.component}` ? 'Enabling...' : 'Enable'}
+                    </button>
+                  </div>
+                ))}
+                {dependencyError.missing_adapters.map((ad: MissingTemplateAdapter) => {
+                  const label = `${ad.package}/${ad.component}@${ad.adapter}`
+                  const notInstalled = /not installed/i.test(ad.reason)
+                  return (
+                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ flex: 1, minWidth: 0, color: 'var(--warn)', fontSize: 11, lineHeight: 1.35 }}>
+                        Adapter <strong>{label}</strong>
+                        <div style={{ color: 'var(--tx3)', fontSize: 10 }}>{ad.reason}</div>
+                      </div>
+                      {notInstalled ? (
+                        <span style={{ color: 'var(--tx3)', fontSize: 10 }}>install package first</span>
+                      ) : (
+                        <button
+                          onClick={event => enableTarget(event, template, ad)}
+                          disabled={Boolean(installing || enabling)}
+                          style={{
+                            background: 'transparent', border: '1px solid var(--warn)', borderRadius: 5,
+                            color: 'var(--warn)', cursor: installing || enabling ? 'wait' : 'pointer',
+                            fontFamily: 'var(--font-ui)', fontSize: 11, padding: '3px 9px',
+                          }}
+                        >
+                          {enabling?.label === label ? 'Enabling...' : 'Enable'}
                         </button>
                       )}
                     </div>

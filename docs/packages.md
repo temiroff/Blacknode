@@ -149,17 +149,17 @@ through the VLM:
 ```text
 Text target prompt
   -> ReasoningStream
-  -> CV2ColorObjectStream.reasoning_state_url
+  -> TrackingObject.reasoning_state_url
   -> live overlay / mask / detection JSON
 ```
 
 The prompt does not connect directly to the CV2 target in that template. The
-model answer chooses the target color, and `CV2ColorObjectStream` retargets its
+model answer chooses the target color, and `TrackingObject` retargets its
 HSV range while running. Tracker properties such as HSV thresholds, minimum
 area, morphology, FPS, width, JPEG quality, direct target text, and fallback
 color hot-update the running overlay/mask/detection stream from the editor.
 Direct text targets such as `track red cube` remain available for non-VLM graphs
-through `CV2ColorTargetHint.target` or `CV2ColorObjectStream.target`.
+through `TrackingColorHint.target` or `TrackingObject.target`.
 
 When a tracker is working, use the top-bar **Export** dropdown on the actual
 canvas graph. **Plain Python** exports the same nodes and edges you built

@@ -747,3 +747,24 @@ def test_blacknode_cuda_loads_as_package():
     assert info.template_dirs
     # stable import alias for tests and user code
     from blacknode.pkg.blacknode_cuda import cuda  # noqa: F401
+
+
+def test_package_statuses_skips_git_on_the_hot_path(monkeypatch):
+    """Node grouping refreshes constantly; it must not shell out to git. Only the
+    Packages panel (git=True) pays for per-package git status."""
+    import blacknode.packages as packages_module
+
+    fake = SimpleNamespace(
+        name="bn-fake", source="folder", path="/tmp/bn-fake",
+        git_status=None, to_dict=lambda: {"name": "bn-fake", "git_status": fake.git_status},
+    )
+    monkeypatch.setattr(packages_module, "installed_packages", lambda: [fake])
+    calls = []
+    monkeypatch.setattr(packages_module, "package_git_status",
+                        lambda *a, **k: calls.append(a) or {"is_git_repo": True, "ok": True})
+
+    packages_module.package_statuses(git=False)
+    assert calls == [], "hot path must not run git status"
+
+    packages_module.package_statuses(git=True)
+    assert len(calls) == 1, "Packages panel path still reports git status"

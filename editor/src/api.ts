@@ -32,12 +32,29 @@ export interface MissingTemplatePackage {
   load_error: string
 }
 
+export interface MissingTemplateComponent {
+  package: string
+  component: string
+  git_url: string
+  reason: string
+}
+
+export interface MissingTemplateAdapter {
+  package: string
+  component: string
+  adapter: string
+  git_url: string
+  reason: string
+}
+
 export interface TemplateDependencyError {
   ok: false
-  code: 'missing_packages' | 'missing_node_types'
+  code: 'missing_packages' | 'missing_node_types' | 'missing_components' | 'missing_adapters'
   message: string
   missing_node_types: string[]
   missing_packages: MissingTemplatePackage[]
+  missing_components: MissingTemplateComponent[]
+  missing_adapters: MissingTemplateAdapter[]
   unresolved_node_types: string[]
 }
 
@@ -257,8 +274,18 @@ export function templateDependencyError(err: unknown): TemplateDependencyError |
     return null
   }
   const detail = err.detail as Partial<TemplateDependencyError>
-  if (detail.code !== 'missing_packages' && detail.code !== 'missing_node_types') return null
-  return detail as TemplateDependencyError
+  const known = new Set(['missing_packages', 'missing_node_types', 'missing_components', 'missing_adapters'])
+  if (!detail.code || !known.has(detail.code)) return null
+  // Older/other error shapes may omit some arrays; default them so consumers can
+  // map over each without guarding.
+  return {
+    missing_packages: [],
+    missing_node_types: [],
+    missing_components: [],
+    missing_adapters: [],
+    unresolved_node_types: [],
+    ...detail,
+  } as TemplateDependencyError
 }
 
 async function fetchBackend(path: string, init: RequestInit): Promise<Response> {
@@ -372,7 +399,10 @@ async function streamCook(
 export const api = {
   nodeTypes: ()                              => req<string[]>('GET', '/node-types'),
   nodeDefs:  ()                              => req<Record<string, BnNodeDef>>('GET', '/node-defs'),
-  packages:  ()                              => req<{ packages: BnPackage[] }>('GET', '/packages'),
+  // withGit runs per-package git status (branch/ahead/behind), which the
+  // Packages panel shows. Leave it off for the frequent node-grouping refresh so
+  // switching tabs or saving a script doesn't fire a burst of git commands.
+  packages:  (withGit = false)               => req<{ packages: BnPackage[] }>('GET', withGit ? '/packages?git=true' : '/packages'),
   packageIndex: ()                           => req<BnPackageIndex>('GET', '/packages/index'),
   reloadPackages: ()                         => req<{ ok: boolean }>('POST', '/packages/reload'),
   installPackage: (url: string)              => req<{ ok: boolean; package: BnPackage | null; error: string; log: string[] }>('POST', '/packages/install', { url }),

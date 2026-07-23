@@ -291,7 +291,7 @@ def run_workflow_logged(data: Mapping[str, Any]) -> dict[str, Any]:
 #: owning package is not installed, so the registry cannot answer for them.
 _LEGACY_LIVE_RUNTIME_NODE_TYPES = frozenset({
     "Camera", "CameraStream", "CameraROS2Subscribe", "CV2CameraStream",
-    "CV2ColorObjectStream", "ReasoningStream", "ROS2ImageStream", "ROS2Run",
+    "TrackingObject", "CV2ColorObjectStream", "ReasoningStream", "ROS2ImageStream", "ROS2Run",
 })
 
 

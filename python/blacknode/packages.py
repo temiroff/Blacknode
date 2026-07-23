@@ -1709,11 +1709,17 @@ def package_git_status(pkg_dir: str | Path, fetch: bool = False) -> dict[str, An
     return state
 
 
-def package_statuses(fetch: bool = False) -> list[dict[str, Any]]:
-    """Return installed package records with git status attached."""
+def package_statuses(fetch: bool = False, git: bool = True) -> list[dict[str, Any]]:
+    """Return installed package records, optionally with git status attached.
+
+    Each folder package's git status costs ~6 git subprocesses (branch, upstream,
+    ahead/behind, dirty). Only the Packages panel shows that, so pass git=False on
+    the hot path that just needs manifest names/colors (node grouping) to avoid a
+    burst of git commands on every reload.
+    """
     statuses: list[dict[str, Any]] = []
     for info in installed_packages():
-        if info.source == "folder" and info.path:
+        if git and info.source == "folder" and info.path:
             info.git_status = package_git_status(info.path, fetch=fetch)
         else:
             info.git_status = {"is_git_repo": False, "ok": True, "error": ""}

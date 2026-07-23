@@ -556,6 +556,9 @@ _CV2_STREAM_LIVE_CONFIG_KEYS = {
     "max_detections",
     "blur",
     "morphology_iters",
+    "show_follow_guides",
+    "follow_target_x",
+    "follow_deadband",
     "max_fps",
     "max_width",
     "jpeg_quality",
@@ -576,7 +579,7 @@ def _push_live_node_param_update(meta: dict[str, Any], key: str, value: Any, old
         if not result.get("ok", True) and "not running" not in str(result.get("report") or ""):
             print(f"[blacknode] live leader-follower update failed for {run_id}.{key}: {result.get('error') or result.get('report')}")
         return
-    if meta.get("type") != "CV2ColorObjectStream" or key not in _CV2_STREAM_LIVE_CONFIG_KEYS:
+    if meta.get("type") != "TrackingObject" or key not in _CV2_STREAM_LIVE_CONFIG_KEYS:
         return
     runtime = _runtime_module(_RUNTIME_MODULES["vision"])
     if runtime is None or not hasattr(runtime, "update_color_stream_config"):
@@ -3779,8 +3782,10 @@ def list_custom_nodes():
 
 
 @app.get("/packages")
-def list_packages():
-    return {"packages": package_statuses(fetch=False)}
+def list_packages(git: bool = False):
+    # git status is ~6 subprocesses per folder package; only the Packages panel
+    # needs it (git=true). The default hot path (node grouping) skips it.
+    return {"packages": package_statuses(fetch=False, git=git)}
 
 
 @app.get("/packages/index")
@@ -4181,8 +4186,12 @@ def _workflow_summary(
 
 
 def _workflow_dependency_report(data: dict[str, Any]) -> dict[str, Any]:
+    # Pass the full package state (version, components, adapters), not just
+    # {ok, error}: the resolver checks state["components"][…]["adapters"] to see
+    # whether a template's required component/adapter is published and enabled.
+    # A stripped state made every adapter read as "not published".
     package_states = {
-        info.name: {"ok": info.ok, "error": info.error}
+        info.name: info.to_dict()
         for info in installed_packages()
     }
     return resolve_workflow_dependencies(

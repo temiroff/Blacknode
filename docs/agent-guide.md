@@ -96,9 +96,9 @@ managed node can start a background service during that cook, but frames,
 detections, joint feedback, and commands must flow through the service rather
 than repeatedly re-cooking the graph.
 
-Examples include `Camera`, `CV2ColorObjectStream`,
+Examples include `Camera`, `TrackingObject`,
 `CUDAImageFilterStream`, robot-driver nodes, and
-`ROS2ContinuousFollowDetectionJoint`.
+`RobotFollow`.
 
 For MCP-controlled demos:
 

@@ -99,7 +99,9 @@ export default function PackagesPanel() {
 
   const refresh = async () => {
     try {
-      const [installed, index] = await Promise.all([api.packages(), api.packageIndex()])
+      // This panel shows git status (branch/ahead/behind), so request it here —
+      // the only place that needs the extra git commands.
+      const [installed, index] = await Promise.all([api.packages(true), api.packageIndex()])
       setPackages(installed.packages)
       setCatalog(Object.values(index.packages))
       setError(null)
