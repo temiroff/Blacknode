@@ -52,7 +52,7 @@ Hardware drivers, cameras, buses, and the physical robot
 | Control and safety | Joint control, mobile bases, manipulation, policies, arbitration, limits, freshness checks, and stop paths | [`blacknode-controllers`](https://github.com/temiroff/blacknode-controllers) |
 | Robot model | Robot profiles, capability contracts, calibration, discovery, and connection health | [`blacknode-robot`](https://github.com/temiroff/blacknode-robot) |
 | Integration | ROS 2 graph, topics, services, processes, native transport, and rosbridge | [`blacknode-ros2`](https://github.com/temiroff/blacknode-ros2) |
-| Devices | Generic hardware contracts, replaceable adapters, physical drivers, and firmware protocols | `blacknode-hardware`, [`blacknode-drivers`](https://github.com/temiroff/blacknode-drivers) |
+| Hardware deployment | Runtime device contracts, capability inspection, safe device control, replaceable adapters, physical drivers, and firmware protocols | [`blacknode-hardware`](https://github.com/temiroff/blacknode-hardware), [`blacknode-drivers`](https://github.com/temiroff/blacknode-drivers) |
 | Learning and deployment | Episode recording, policy training, simulation, and accelerated compute | [`blacknode-dataset`](https://github.com/temiroff/blacknode-dataset), [`blacknode-training`](https://github.com/temiroff/blacknode-training), [`blacknode-isaac`](https://github.com/temiroff/blacknode-isaac), [`blacknode-cuda`](https://github.com/temiroff/blacknode-cuda) |
 
 The workflow depends on stable capabilities such as a camera, joint controller,
@@ -96,6 +96,13 @@ blacknode packages install https://github.com/temiroff/blacknode-robot.git
 
 Templates declare required packages and Blacknode resolves missing
 capabilities. See [Extension Packages](docs/packages.md).
+
+For deployment on physical hardware, use
+[`blacknode-hardware`](https://github.com/temiroff/blacknode-hardware) for
+runtime hardware contracts, capability checks, safe device control, and
+replaceable adapters. Add
+[`blacknode-drivers`](https://github.com/temiroff/blacknode-drivers) for the
+physical bus, firmware, or device protocol used by the robot.
 
 ## Core Platform
 
