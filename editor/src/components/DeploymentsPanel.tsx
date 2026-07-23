@@ -85,6 +85,19 @@ export default function DeploymentsPanel() {
     })
   }
 
+  const handleExport = async (deployment: Deployment) => {
+    setBusy(true); setError(null)
+    try {
+      const res = await api.exportDeployment(deployment.id)
+      // Not an error, but the message row is the one visible surface for a path.
+      setError(`Saved runnable script to ${res.path}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handleDelete = async (deployment: Deployment) => {
     if (!window.confirm(`Delete "${deployment.name}"? This stops it and removes its snapshot.`)) return
     await act(() => api.deleteDeployment(deployment.id))
@@ -127,6 +140,7 @@ export default function DeploymentsPanel() {
             onToggle={() => setOpenId(prev => (prev === deployment.id ? null : deployment.id))}
             onStart={() => act(() => api.startDeployment(deployment.id))}
             onStop={() => act(() => api.stopDeployment(deployment.id))}
+            onExport={() => handleExport(deployment)}
             onDelete={() => handleDelete(deployment)}
           />
         ))}
@@ -135,7 +149,7 @@ export default function DeploymentsPanel() {
   )
 }
 
-function DeploymentRow({ deployment, busy, expanded, log, onToggle, onStart, onStop, onDelete }: {
+function DeploymentRow({ deployment, busy, expanded, log, onToggle, onStart, onStop, onExport, onDelete }: {
   deployment: Deployment
   busy: boolean
   expanded: boolean
@@ -143,6 +157,7 @@ function DeploymentRow({ deployment, busy, expanded, log, onToggle, onStart, onS
   onToggle: () => void
   onStart: () => void
   onStop: () => void
+  onExport: () => void
   onDelete: () => void
 }) {
   const color = STATE_COLOR[deployment.state]
@@ -191,6 +206,7 @@ function DeploymentRow({ deployment, busy, expanded, log, onToggle, onStart, onS
             {isRunning
               ? <button onClick={onStop} disabled={busy} style={miniButton}>Stop</button>
               : <button onClick={onStart} disabled={busy} style={miniButton}>Start</button>}
+            <button onClick={onExport} disabled={busy} style={miniButton} title="Copy the runnable script to a folder Delete never touches">Export .py</button>
             <button onClick={onDelete} disabled={busy} style={miniButton}>Delete</button>
           </div>
         </div>

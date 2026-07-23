@@ -500,6 +500,34 @@ class DeploymentStore:
             })
             return self._write(record)
 
+    def export(self, deployment_id: str, dest: str | os.PathLike | None = None) -> Path:
+        """Copy the standalone script out of the deployment so Delete cannot take it.
+
+        The generated graph.py is self-contained and runnable, but it lives in
+        the deployment's working directory, which Delete removes. Export copies
+        it to a stable ``exports`` folder (or a path you choose) that Delete
+        never touches, so a deployed graph can be kept and run by hand.
+        """
+        with self._lock:
+            record = self._read(deployment_id)
+            if record is None:
+                raise DeploymentError(f"Unknown deployment '{deployment_id}'.")
+            script = self.script_path(deployment_id)
+            if not script.exists():
+                raise DeploymentError("This deployment has no generated script to export.")
+            name = _slug(str(record.get("name") or deployment_id)) or deployment_id
+            if dest is not None:
+                target = Path(dest)
+                if target.is_dir() or not target.suffix:
+                    target = target / f"{name}.py"
+            else:
+                exports = self.root.parent / "exports"
+                exports.mkdir(parents=True, exist_ok=True)
+                target = exports / f"{name}.py"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(script, target)
+            return target
+
     def delete(self, deployment_id: str) -> bool:
         with self._lock:
             if self._read(deployment_id) is None:

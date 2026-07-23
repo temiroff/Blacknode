@@ -2754,6 +2754,15 @@ def stop_deployment(deployment_id: str):
         raise HTTPException(404, str(exc)) from exc
 
 
+@app.post("/deployments/{deployment_id}/export")
+def export_deployment(deployment_id: str):
+    try:
+        path = _deployment_store.export(deployment_id)
+    except DeploymentError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"ok": True, "id": deployment_id, "path": str(path)}
+
+
 @app.delete("/deployments/{deployment_id}")
 def delete_deployment(deployment_id: str):
     if not _deployment_store.delete(deployment_id):

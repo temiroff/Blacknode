@@ -530,6 +530,8 @@ export const api = {
     req<Deployment>('POST', `/deployments/${encodeURIComponent(id)}/stop`),
   deleteDeployment: (id: string) =>
     req<{ ok: boolean; id: string }>('DELETE', `/deployments/${encodeURIComponent(id)}`),
+  exportDeployment: (id: string) =>
+    req<{ ok: boolean; id: string; path: string }>('POST', `/deployments/${encodeURIComponent(id)}/export`),
   deploymentLogs: (id: string) =>
     req<{ id: string; logs: string }>('GET', `/deployments/${encodeURIComponent(id)}/logs`),
 
