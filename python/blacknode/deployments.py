@@ -163,10 +163,16 @@ def _terminate_pid(pid: int) -> None:
 
 
 def _spawn_kwargs() -> dict[str, Any]:
-    """Detach the child so it outlives the editor server."""
+    """Detach the child so it outlives the editor server.
+
+    On Windows a detached console app pops a new console window - the "black
+    terminal" - even though its output already goes to deployment.log.
+    CREATE_NO_WINDOW detaches without that window; the log is the place to read
+    what it is doing.
+    """
     if os.name == "nt":
         flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        flags |= getattr(subprocess, "DETACHED_PROCESS", 0)
+        flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
         return {"creationflags": flags}
     return {"start_new_session": True}
 
