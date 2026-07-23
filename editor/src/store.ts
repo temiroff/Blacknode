@@ -924,6 +924,56 @@ function makeUndoSnapshot(s: Store): UndoSnapshot {
   }
 }
 
+// When a node grows - a camera node gaining a live preview is the common case -
+// it can cover whatever sits below or beside it. Push the nodes it now overlaps
+// out of the way by the smallest move that clears them, away from the grower,
+// and cascade so a pushed node does not land on the next one. Only overlapping
+// nodes move; the rest of the layout is left alone.
+function resolveNodeOverlaps<T extends { id: string; position: { x: number; y: number }; width?: number | null; height?: number | null; style?: { width?: number | string; height?: number | string } }>(
+  nodes: T[],
+  grownId: string,
+): T[] {
+  const GAP = 22
+  const dim = (v: number | string | null | undefined, fallback: number) =>
+    typeof v === 'number' ? v : fallback
+  const box = (n: T) => ({
+    x: n.position.x,
+    y: n.position.y,
+    w: n.width ?? dim(n.style?.width, 220),
+    h: n.height ?? dim(n.style?.height, 140),
+  })
+
+  const byId = new Map(nodes.map(n => [n.id, { ...n }]))
+  if (!byId.has(grownId)) return nodes
+
+  const queue = [grownId]
+  let guard = 0
+  while (queue.length && guard < 400) {
+    guard += 1
+    const a = box(byId.get(queue.shift()!)!)
+    for (const node of byId.values()) {
+      if (node.id === grownId || queue.includes(node.id)) continue
+      const b = box(node)
+      const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
+      const overlapY = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
+      if (overlapX <= 0 || overlapY <= 0) continue
+
+      const aCx = a.x + a.w / 2
+      const aCy = a.y + a.h / 2
+      const bCx = b.x + b.w / 2
+      const bCy = b.y + b.h / 2
+      // Clear along the axis that needs the smaller shove, pushing away.
+      if (overlapY <= overlapX) {
+        node.position = { ...node.position, y: bCy >= aCy ? a.y + a.h + GAP : a.y - b.h - GAP }
+      } else {
+        node.position = { ...node.position, x: bCx >= aCx ? a.x + a.w + GAP : a.x - b.w - GAP }
+      }
+      queue.push(node.id)
+    }
+  }
+  return nodes.map(n => byId.get(n.id) ?? n)
+}
+
 function pushUndoSnapshot(s: Store): Pick<Store, 'undoHistory'> {
   const snapshot = makeUndoSnapshot(s)
   const undoHistory = [...s.undoHistory, snapshot]
@@ -2164,9 +2214,8 @@ export const useStore = create<Store>((set, get) => ({
   resizeNode: (id, size) => {
     const width = Math.max(1, Math.round(size.width))
     const height = Math.max(1, Math.round(size.height))
-    set(s => ({
-      ...pushUndoSnapshot(s),
-      nodes: s.nodes.map(n =>
+    set(s => {
+      const resized = s.nodes.map(n =>
         n.id === id
           ? {
               ...n,
@@ -2175,9 +2224,13 @@ export const useStore = create<Store>((set, get) => ({
               style: { ...(n.style ?? {}), width, height },
             }
           : n
-      ),
-      ...markActiveTabDirty(s),
-    }))
+      )
+      return {
+        ...pushUndoSnapshot(s),
+        nodes: resolveNodeOverlaps(resized, id),
+        ...markActiveTabDirty(s),
+      }
+    })
   },
 
   onNodesChange: (changes) => {
