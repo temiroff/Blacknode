@@ -1631,8 +1631,29 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                   e.stopPropagation()
                   fitNodeToImage(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)
                 }}
+                onError={e => { (e.currentTarget as HTMLImageElement).dataset.bnFailed = '1' }}
               />
             </div>
+          </div>
+        )}
+        {/* Stream nodes always show their own state, under the picture rather
+            than over it. When the backend says it is streaming but no frame is
+            on screen, this is the only visible clue to why - the node's report,
+            and the live URL to open directly in a browser as a cross-check. */}
+        {LIVE_STREAM_NODE_TYPES.has(data.type) && typeof data.portResults?.report === 'string' && data.portResults.report.trim() && (
+          <div style={{
+            padding: '4px 8px 6px', fontFamily: 'var(--font-ui)', fontSize: 10,
+            color: data.portResults?.streaming === true ? 'var(--ok)' : 'var(--tx3)',
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+              background: data.portResults?.streaming === true ? 'var(--ok)' : 'var(--tx3)',
+            }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              title={String(data.portResults.report)}>
+              {String(data.portResults.report)}
+            </span>
           </div>
         )}
       </div>
