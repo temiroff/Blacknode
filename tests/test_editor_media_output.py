@@ -123,5 +123,5 @@ def test_yolo_models_endpoint_lists_builtin_and_custom(tmp_path, monkeypatch):
     (md / "custom_traffic.pt").write_bytes(b"w")
     assert "custom_traffic.pt" in vm.custom_models()
     assert vm.resolve_model("custom_traffic.pt") == str(md / "custom_traffic.pt")
-    assert vm.resolve_model("yolov8n.pt") == "yolov8n.pt"  # unknown -> passthrough for download
+    assert vm.resolve_model("definitely-not-a-file-xyz.pt") == "definitely-not-a-file-xyz.pt"  # unknown -> passthrough
     assert "yolov8n.pt" in vm.BUILTIN_MODELS
