@@ -556,7 +556,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "detection",
                     "default": True,
                     "node_types": [
-                        "DetectionStream"
+                        "DetectionStream",
+                        "YoloDetection"
                     ],
                     "dependencies": {
                         "requires": [
@@ -610,7 +611,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "FramePrompt",
                 "ReasoningDashboard",
                 "ReasoningStream",
-                "VLM"
+                "VLM",
+                "YoloDetection"
             ]
         },
         "blacknode-dataset": {
