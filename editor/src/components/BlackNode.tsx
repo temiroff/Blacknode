@@ -1272,7 +1272,14 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           >
             {pingPending ? 'Pinging…' : '📍 Ping'}
           </button>
-          <span style={{ color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9, flex: 1, minWidth: 0 }}>
+          <span
+            title={pingReport || undefined}
+            style={{
+              color: pingReport.startsWith('ping FAILED') ? 'var(--err)' : 'var(--tx3)',
+              fontFamily: 'var(--font-ui)', fontSize: 9, flex: 1, minWidth: 0,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}
+          >
             {pingReport || 'identify this robot — small jitter'}
           </span>
         </div>
