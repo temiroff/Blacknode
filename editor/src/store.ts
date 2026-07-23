@@ -924,59 +924,6 @@ function makeUndoSnapshot(s: Store): UndoSnapshot {
   }
 }
 
-// When a node grows - a camera node gaining a live preview is the common case -
-// it can cover whatever sits below or beside it. Push the nodes it now overlaps
-// out of the way by the smallest move that clears them, away from the grower,
-// and cascade so a pushed node does not land on the next one. Only overlapping
-// nodes move; the rest of the layout is left alone.
-function resolveNodeOverlaps<T extends { id: string; position: { x: number; y: number }; width?: number | null; height?: number | null; style?: { width?: number | string; height?: number | string } }>(
-  nodes: T[],
-  grownId: string,
-): T[] {
-  const GAP = 22
-  const dim = (v: number | string | null | undefined, fallback: number) =>
-    typeof v === 'number' ? v : fallback
-  const box = (n: T) => ({
-    x: n.position.x,
-    y: n.position.y,
-    w: n.width ?? dim(n.style?.width, 220),
-    h: n.height ?? dim(n.style?.height, 140),
-  })
-
-  const byId = new Map(nodes.map(n => [n.id, { ...n }]))
-  if (!byId.has(grownId)) return nodes
-
-  const queue = [grownId]
-  let guard = 0
-  while (queue.length && guard < 400) {
-    guard += 1
-    const a = box(byId.get(queue.shift()!)!)
-    for (const node of byId.values()) {
-      if (node.id === grownId || queue.includes(node.id)) continue
-      const b = box(node)
-      const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
-      const overlapY = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
-      if (overlapX <= 0 || overlapY <= 0) continue
-
-      const aCy = a.y + a.h / 2
-      const bCx = b.x + b.w / 2
-      const bCy = b.y + b.h / 2
-      // Nudge only far enough to clear the overlap plus the gap, along the axis
-      // that needs the smaller move - not all the way past the grown node,
-      // which sent a node far down when a tall camera preview appeared.
-      if (overlapY <= overlapX) {
-        const shove = overlapY + GAP
-        node.position = { ...node.position, y: bCy >= aCy ? b.y + shove : b.y - shove }
-      } else {
-        const shove = overlapX + GAP
-        node.position = { ...node.position, x: bCx >= (a.x + a.w / 2) ? b.x + shove : b.x - shove }
-      }
-      queue.push(node.id)
-    }
-  }
-  return nodes.map(n => byId.get(n.id) ?? n)
-}
-
 function pushUndoSnapshot(s: Store): Pick<Store, 'undoHistory'> {
   const snapshot = makeUndoSnapshot(s)
   const undoHistory = [...s.undoHistory, snapshot]
@@ -2218,19 +2165,37 @@ export const useStore = create<Store>((set, get) => ({
     const width = Math.max(1, Math.round(size.width))
     const height = Math.max(1, Math.round(size.height))
     set(s => {
-      const resized = s.nodes.map(n =>
-        n.id === id
-          ? {
-              ...n,
-              width,
-              height,
-              style: { ...(n.style ?? {}), width, height },
-            }
-          : n
-      )
+      const grower = s.nodes.find(n => n.id === id)
+      const num = (v: unknown, f: number) => (typeof v === 'number' ? v : f)
+      const oldW = grower?.width ?? num(grower?.style?.width, width)
+      const oldH = grower?.height ?? num(grower?.style?.height, height)
+      const growDown = Math.max(0, height - oldH)
+      const growRight = Math.max(0, width - oldW)
+      const gx = grower?.position.x ?? 0
+      const gy = grower?.position.y ?? 0
+
+      const resized = s.nodes.map(n => {
+        if (n.id === id) {
+          return { ...n, width, height, style: { ...(n.style ?? {}), width, height } }
+        }
+        // Make room by exactly how much the node grew, so a node below/right of
+        // it keeps its original gap instead of being shoved far away. Shifting
+        // by the growth delta (not the overlap) never overshoots, and applying
+        // it only to nodes past the grower's old edges keeps it idempotent
+        // across the repeated fits a streaming preview triggers.
+        let x = n.position.x
+        let y = n.position.y
+        if (growDown > 0 && n.position.y >= gy && x < gx + oldW && x + num(n.width ?? n.style?.width, 220) > gx) {
+          y += growDown
+        }
+        if (growRight > 0 && n.position.x >= gx && y < gy + oldH && y + num(n.height ?? n.style?.height, 140) > gy) {
+          x += growRight
+        }
+        return x === n.position.x && y === n.position.y ? n : { ...n, position: { x, y } }
+      })
       return {
         ...pushUndoSnapshot(s),
-        nodes: resolveNodeOverlaps(resized, id),
+        nodes: resized,
         ...markActiveTabDirty(s),
       }
     })
