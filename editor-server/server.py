@@ -566,6 +566,20 @@ _CV2_STREAM_LIVE_CONFIG_KEYS = {
 
 
 def _push_live_node_param_update(meta: dict[str, Any], key: str, value: Any, old_params: dict[str, Any]) -> None:
+    if meta.get("type") == "ROS2JointSliders" and key in {"targets", "armed"}:
+        run_id = str(old_params.get("run_id") or meta.get("params", {}).get("run_id") or "joint_sliders").strip() or "joint_sliders"
+        fn_name = "set_joint_slider_targets" if key == "targets" else "set_joint_slider_armed"
+        update_fn = _runtime_callable("joint_control", _RUNTIME_MODULES["joint_control"], fn_name)
+        if update_fn is None:
+            return
+        try:
+            result = update_fn(run_id, value)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[blacknode] live joint-slider update failed for {run_id}.{key}: {type(exc).__name__}: {exc}")
+            return
+        if not result.get("ok", True) and "not running" not in str(result.get("report") or ""):
+            print(f"[blacknode] live joint-slider update for {run_id}.{key}: {result.get('report')}")
+        return
     if meta.get("type") == "ROS2LeaderFollower":
         update_fn = _runtime_callable("ros2_live", _RUNTIME_MODULES["ros2_live"], "update_leader_follower_config")
         if update_fn is None:

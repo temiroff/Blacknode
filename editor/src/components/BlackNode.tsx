@@ -485,6 +485,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   // TrackingObject hot-updates these while the stream runs (no recook), so expose
   // them as live sliders right on the node.
   const isTrackingObject = data.type === 'TrackingObject'
+  const isJointSliders = data.type === 'ROS2JointSliders'
   const [pingPending, setPingPending] = useState(false)
   const pingRobot = async () => {
     setPingPending(true)
@@ -1443,6 +1444,46 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           <span style={{ fontSize: 8, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>adjusts live while streaming — no recook</span>
         </div>
       )}
+
+      {isJointSliders && (() => {
+        const joints = Array.isArray(data.portResults?.joints) ? data.portResults!.joints as Array<{ name: string; min: number; max: number; value: number }> : []
+        const armed = data.params?.armed === true
+        const targets = (data.params?.targets as Record<string, number> | undefined) ?? {}
+        return (
+          <div className="nodrag" onMouseDown={e => e.stopPropagation()}
+            style={{ margin: '6px 8px 4px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input type="checkbox" checked={armed}
+                onChange={e => { void updateParam(id, 'armed', e.target.checked) }}
+                style={{ accentColor: armed ? 'var(--err)' : 'var(--tx3)' }}
+              />
+              <span style={{ fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-ui)', color: armed ? 'var(--err)' : 'var(--tx3)' }}>
+                {armed ? 'ARMED — sliders move the robot' : 'Arm to move'}
+              </span>
+            </label>
+            {joints.length === 0 && (
+              <span style={{ fontSize: 9, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>
+                Go Live to read the robot's joints
+              </span>
+            )}
+            {joints.map(j => {
+              const val = typeof targets[j.name] === 'number' ? targets[j.name] : j.value
+              return (
+                <div key={j.name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span title={j.name} style={{ fontSize: 9, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', width: 68, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.name}</span>
+                  <input
+                    type="range" min={j.min} max={j.max} step={0.5} value={val}
+                    disabled={!armed}
+                    onChange={e => { void updateParam(id, 'targets', { ...targets, [j.name]: Number(e.target.value) }) }}
+                    style={{ flex: 1, minWidth: 0, accentColor: 'var(--accent)', height: 3, opacity: armed ? 1 : 0.45 }}
+                  />
+                  <span style={{ fontSize: 9, color: 'var(--tx2)', fontFamily: 'var(--font-mono)', width: 38, textAlign: 'right', flexShrink: 0 }}>{Number(val).toFixed(1)}</span>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
 
       {statusBadge && (statusBadge.text || statusBadge.action) && (
         <div

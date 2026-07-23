@@ -41,6 +41,14 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["packages"]["blacknode-perception"]["layer"] == "perception"
     assert payload["packages"]["blacknode-ros2"]["layer"] == "ros2"
     assert payload["packages"]["blacknode-ros2"]["components"]["core"]["default"] is True
+    assert set(payload["packages"]["blacknode-ros2"]["components"]) == {
+        "core",
+        "diagnostics",
+        "processes",
+        "rosbridge",
+        "services",
+        "topics",
+    }
     assert payload["packages"]["blacknode-skills"]["layer"] == "skills"
     assert payload["packages"]["blacknode-agent"]["layer"] == "agent"
     assert payload["packages"]["blacknode-controllers"]["layer"] == "controllers"
@@ -68,6 +76,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "git_url": "https://github.com/temiroff/blacknode-cuda.git",
     }
     assert payload["nodes"]["ROS2TopicList"]["package"] == "blacknode-ros2"
+    assert payload["nodes"]["ROS2TopicPublisher"]["package"] == "blacknode-ros2"
     assert payload["nodes"]["RobotDiscovery"]["package"] == "blacknode-robot"
     assert payload["nodes"]["EpisodeRecorder"] == {
         "package": "blacknode-dataset",

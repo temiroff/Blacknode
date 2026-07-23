@@ -115,6 +115,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             "name": "ros2",
                             "default": True,
                             "node_types": [
+                                "ROS2JointSliders",
                                 "ROS2JointState",
                                 "ROS2ManualMove",
                                 "ROS2MotionDashboard",
@@ -185,6 +186,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "PolicySafetyGate",
                 "ROS2BaseMove",
                 "ROS2BaseStop",
+                "ROS2JointSliders",
                 "ROS2JointState",
                 "ROS2LaserScanCheck",
                 "ROS2ManualMove",
@@ -334,11 +336,6 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "default": True,
                     "node_types": []
                 },
-                "native": {
-                    "name": "native",
-                    "default": False,
-                    "node_types": []
-                },
                 "rosbridge": {
                     "name": "rosbridge",
                     "default": True,
@@ -356,7 +353,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "ROS2DemoPublisher",
                         "ROS2TopicEcho",
                         "ROS2TopicList",
-                        "ROS2TopicPublish"
+                        "ROS2TopicPublish",
+                        "ROS2TopicPublisher"
                     ]
                 },
                 "services": {
@@ -365,16 +363,6 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "node_types": [
                         "ROS2ServiceList"
                     ]
-                },
-                "actions": {
-                    "name": "actions",
-                    "default": False,
-                    "node_types": []
-                },
-                "tf": {
-                    "name": "tf",
-                    "default": False,
-                    "node_types": []
                 },
                 "processes": {
                     "name": "processes",
@@ -416,6 +404,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "ROS2TopicEcho",
                 "ROS2TopicList",
                 "ROS2TopicPublish",
+                "ROS2TopicPublisher",
                 "ROS2VisualDashboard"
             ]
         },
