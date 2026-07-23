@@ -192,7 +192,7 @@ interface Store {
     copyIdMap: Record<string, string> | null,
   ) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
-  controlNode: (id: string, action: string) => Promise<void>
+  controlNode: (id: string, action: string) => Promise<{ ok: boolean; node_id: string; outputs: Record<string, unknown> }>
   pickDirectory: (initialPath?: string) => Promise<string | null>
   updatePortVisibility: (id: string, promotedInputs?: string[], promotedOutputs?: string[]) => Promise<void>
   cookNode: (id: string, port?: string, graphTargets?: GraphRunTarget[], runMode?: 'once' | 'live') => Promise<void>
@@ -2978,6 +2978,7 @@ export const useStore = create<Store>((set, get) => ({
         },
       } : node), s.edges),
     }))
+    return result
   },
 
   pickDirectory: async (initialPath = '') => {

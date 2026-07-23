@@ -485,6 +485,21 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   // TrackingObject hot-updates these while the stream runs (no recook), so expose
   // them as live sliders right on the node.
   const isTrackingObject = data.type === 'TrackingObject'
+  const [pingPending, setPingPending] = useState(false)
+  const [pingReport, setPingReport] = useState('')
+  const pingRobot = async () => {
+    setPingPending(true)
+    setPingReport('')
+    try {
+      const res = await controlNode(id, 'ping')
+      const report = (res?.outputs?.report as string) ?? ''
+      setPingReport(report)
+    } catch (err) {
+      setPingReport(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPingPending(false)
+    }
+  }
   // YOLO-World is open-vocabulary: it detects whatever classes you type. Show the
   // classes field only for those weights, where it actually does something.
   const isWorldModel = /world/i.test(String(data.params?.model ?? ''))
@@ -511,6 +526,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const variadicInput = data.variadic_input ?? null
   const isVariadic = Boolean(variadicInput)
   const isManualMove = data.type === 'ROS2ManualMove'
+  const isRobot = data.type === 'Robot'
   const isRobotCalibration = data.type === 'RobotCalibrationRecorder'
   const isEpisodeRecorder = data.type === 'EpisodeRecorder'
   const isDatasetCreate = data.type === 'DatasetCreate'
@@ -1238,6 +1254,29 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           {data.cooking ? '…' : '▶'}
         </button>
       </div>
+
+      {isRobot && (
+        <div className="nodrag" onMouseDown={e => e.stopPropagation()}
+          style={{ display: 'flex', alignItems: 'center', gap: 7, margin: '6px 8px 0' }}>
+          <button
+            disabled={pingPending}
+            title="Wiggle a joint a few degrees and back so you can see which physical robot this node controls (needs the driver running and armed)."
+            onClick={e => { e.stopPropagation(); void pingRobot() }}
+            style={{
+              padding: '4px 10px', borderRadius: 5, border: '1px solid var(--accent)',
+              background: 'rgba(99,102,241,.18)',
+              color: pingPending ? 'var(--tx3)' : 'var(--tx1)',
+              cursor: pingPending ? 'default' : 'pointer',
+              fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700, flexShrink: 0,
+            }}
+          >
+            {pingPending ? 'Pinging…' : '📍 Ping'}
+          </button>
+          <span style={{ color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9, flex: 1, minWidth: 0 }}>
+            {pingReport || 'identify this robot — small jitter'}
+          </span>
+        </div>
+      )}
 
       {hasCameraSelection && (
         <div

@@ -1370,6 +1370,14 @@ def control_node(node_id: str, req: NodeControlReq):
             _session.graph._cache[(node_id, port)] = value
         _session.graph._dirty.discard(node_id)
         return {"ok": True, "node_id": node_id, "outputs": outputs}
+    if meta.get("type") == "Robot":
+        if req.action != "ping":
+            raise HTTPException(400, "Robot supports the ping control")
+        control_fn = _runtime_callable("robot", _RUNTIME_MODULES["robot"], "identify_robot")
+        if control_fn is None:
+            raise HTTPException(503, "blacknode-robot runtime is not loaded")
+        outputs = dict(control_fn(dict(meta.get("params") or {})))
+        return {"ok": True, "node_id": node_id, "outputs": outputs}
     if meta.get("type") != "EpisodeRecorder":
         raise HTTPException(400, "This node does not expose direct controls")
     control_fn = _runtime_callable("dataset", _RUNTIME_MODULES["dataset"], "control_configured_recorder")
