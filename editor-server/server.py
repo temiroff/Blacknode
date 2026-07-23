@@ -2754,6 +2754,36 @@ def stop_deployment(deployment_id: str):
         raise HTTPException(404, str(exc)) from exc
 
 
+@app.get("/cameras")
+def list_cameras(max_devices: int = 8):
+    """Discovered local cameras, so the editor can offer a pick-by-name menu.
+
+    Runs the camera discovery node, which only returns devices that actually
+    open and deliver a frame - so a virtual camera with no source (a common
+    index-0 trap) is filtered out and you pick the real webcam by name instead
+    of guessing the index.
+    """
+    fn = _NODE_REGISTRY.get("CameraDiscovery")
+    if fn is None:
+        return {"ok": False, "cameras": [], "report": "camera discovery is not installed"}
+    try:
+        result = fn({"backend": "auto", "max_devices": max(1, min(32, int(max_devices)))})
+    except Exception as exc:  # pragma: no cover - discovery is best-effort
+        return {"ok": False, "cameras": [], "report": f"{type(exc).__name__}: {exc}"}
+    cameras = [
+        {
+            "index": item.get("index"),
+            "label": item.get("label") or f"Camera {item.get('index')}",
+            "device": item.get("device"),
+            "width": item.get("width"),
+            "height": item.get("height"),
+        }
+        for item in (result.get("devices") or [])
+        if isinstance(item, dict)
+    ]
+    return {"ok": bool(cameras), "cameras": cameras, "report": result.get("report", "")}
+
+
 @app.post("/deployments/{deployment_id}/export")
 def export_deployment(deployment_id: str):
     try:

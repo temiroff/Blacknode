@@ -3,6 +3,7 @@ import { Handle, Position, NodeProps, useReactFlow, useUpdateNodeInternals } fro
 import { NodeResizer } from '@reactflow/node-resizer'
 import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
+import { api } from '../api'
 import { portColor } from '../portColors'
 import { headerColor } from '../categories'
 import { isWireOnlyInput } from '../inputControls'
@@ -464,6 +465,20 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [datasetFolderPending, setDatasetFolderPending] = useState(false)
   const dashboardAutoFitDone = useRef(false)
   const streamFitDone = useRef(false)
+  // A camera node picks its device by index today; discovery already knows the
+  // names, so offer a pick-by-name menu instead of guessing which index is the
+  // real webcam versus a virtual camera with no source.
+  const hasCameraSelection = data.type === 'Camera' && (data.inputs ?? []).includes('selection')
+  const [cameraList, setCameraList] = useState<Array<{ index: number; label: string }>>([])
+  const [cameraScanning, setCameraScanning] = useState(false)
+  const loadCameras = async () => {
+    setCameraScanning(true)
+    try {
+      const res = await api.listCameras()
+      setCameraList(res.cameras.map(c => ({ index: c.index, label: c.label })))
+    } catch { /* leave the list empty; the number field still works */ }
+    finally { setCameraScanning(false) }
+  }
   // A browser <img> pointed at an MJPEG stream keeps showing the last frame of
   // its old connection when the src does not change - so restarting a stream on
   // the same URL looks frozen, a "snapshot". Bump a key when a new stream
@@ -1194,6 +1209,46 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           {data.cooking ? '…' : '▶'}
         </button>
       </div>
+
+      {hasCameraSelection && (
+        <div
+          className="nodrag"
+          onMouseDown={e => e.stopPropagation()}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '6px 8px 0' }}
+        >
+          <span style={{ fontSize: 10, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Camera</span>
+          <select
+            value={String(data.params?.selection ?? 0)}
+            onFocus={() => { if (!cameraList.length && !cameraScanning) void loadCameras() }}
+            onChange={e => { void updateParam(id, 'selection', Number(e.target.value)) }}
+            style={{
+              flex: 1, minWidth: 0, background: 'var(--lift)', color: 'var(--tx1)',
+              border: '1px solid var(--line)', borderRadius: 5, padding: '2px 5px',
+              fontFamily: 'var(--font-ui)', fontSize: 11,
+            }}
+          >
+            {/* Always offer the current value; discovery fills real names on focus. */}
+            {cameraList.length === 0 && (
+              <option value={String(data.params?.selection ?? 0)}>
+                {cameraScanning ? 'Scanning…' : `Camera ${data.params?.selection ?? 0} — click to scan`}
+              </option>
+            )}
+            {cameraList.map(c => (
+              <option key={c.index} value={String(c.index)}>{c.index}: {c.label}</option>
+            ))}
+          </select>
+          <button
+            title="Rescan cameras"
+            onClick={e => { e.stopPropagation(); void loadCameras() }}
+            style={{
+              flexShrink: 0, background: 'var(--lift)', border: '1px solid var(--line)',
+              borderRadius: 5, color: 'var(--tx2)', cursor: 'pointer', fontSize: 11, padding: '2px 6px',
+            }}
+          >
+            ⟳
+          </button>
+        </div>
+      )}
 
       {statusBadge && (statusBadge.text || statusBadge.action) && (
         <div

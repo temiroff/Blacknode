@@ -532,6 +532,8 @@ export const api = {
     req<{ ok: boolean; id: string }>('DELETE', `/deployments/${encodeURIComponent(id)}`),
   exportDeployment: (id: string) =>
     req<{ ok: boolean; id: string; path: string }>('POST', `/deployments/${encodeURIComponent(id)}/export`),
+  listCameras: () =>
+    req<{ ok: boolean; cameras: Array<{ index: number; label: string; device: string; width: number; height: number }>; report: string }>('GET', '/cameras'),
   deploymentLogs: (id: string) =>
     req<{ id: string; logs: string }>('GET', `/deployments/${encodeURIComponent(id)}/logs`),
 
