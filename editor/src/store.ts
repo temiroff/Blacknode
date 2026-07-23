@@ -958,15 +958,18 @@ function resolveNodeOverlaps<T extends { id: string; position: { x: number; y: n
       const overlapY = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
       if (overlapX <= 0 || overlapY <= 0) continue
 
-      const aCx = a.x + a.w / 2
       const aCy = a.y + a.h / 2
       const bCx = b.x + b.w / 2
       const bCy = b.y + b.h / 2
-      // Clear along the axis that needs the smaller shove, pushing away.
+      // Nudge only far enough to clear the overlap plus the gap, along the axis
+      // that needs the smaller move - not all the way past the grown node,
+      // which sent a node far down when a tall camera preview appeared.
       if (overlapY <= overlapX) {
-        node.position = { ...node.position, y: bCy >= aCy ? a.y + a.h + GAP : a.y - b.h - GAP }
+        const shove = overlapY + GAP
+        node.position = { ...node.position, y: bCy >= aCy ? b.y + shove : b.y - shove }
       } else {
-        node.position = { ...node.position, x: bCx >= aCx ? a.x + a.w + GAP : a.x - b.w - GAP }
+        const shove = overlapX + GAP
+        node.position = { ...node.position, x: bCx >= (a.x + a.w / 2) ? b.x + shove : b.x - shove }
       }
       queue.push(node.id)
     }
