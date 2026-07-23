@@ -344,25 +344,33 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "ROS2BridgePublish",
                         "ROS2RosbridgeServer",
                         "ROS2RosbridgeStatus"
-                    ]
+                    ],
+                    "dependencies": {
+                        "requires": [{"component": "core"}]
+                    }
                 },
                 "topics": {
                     "name": "topics",
                     "default": True,
                     "node_types": [
-                        "ROS2DemoPublisher",
                         "ROS2TopicEcho",
                         "ROS2TopicList",
                         "ROS2TopicPublish",
                         "ROS2TopicPublisher"
-                    ]
+                    ],
+                    "dependencies": {
+                        "requires": [{"component": "core"}]
+                    }
                 },
                 "services": {
                     "name": "services",
                     "default": True,
                     "node_types": [
                         "ROS2ServiceList"
-                    ]
+                    ],
+                    "dependencies": {
+                        "requires": [{"component": "core"}]
+                    }
                 },
                 "processes": {
                     "name": "processes",
@@ -371,7 +379,10 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "ROS2Launch",
                         "ROS2PackageExecutables",
                         "ROS2Run"
-                    ]
+                    ],
+                    "dependencies": {
+                        "requires": [{"component": "core"}]
+                    }
                 },
                 "diagnostics": {
                     "name": "diagnostics",
@@ -382,7 +393,10 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "ROS2Status",
                         "ROS2SystemCheck",
                         "ROS2VisualDashboard"
-                    ]
+                    ],
+                    "dependencies": {
+                        "requires": [{"component": "core"}]
+                    }
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-ros2.git",
@@ -390,7 +404,6 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "node_types": [
                 "ROS2BridgeEcho",
                 "ROS2BridgePublish",
-                "ROS2DemoPublisher",
                 "ROS2InterfaceShow",
                 "ROS2Launch",
                 "ROS2NodeList",
