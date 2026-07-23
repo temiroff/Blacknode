@@ -6,55 +6,97 @@
 
 [![CI](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml/badge.svg)](https://github.com/temiroff/Blacknode/actions/workflows/ci.yml)
 
-**Plug in a robot, build a workflow visually, and control or deploy it — no code required.**
+**Build, run, inspect, and deploy robot behavior as typed visual workflows.**
 
-**Blacknode makes testing, building, controlling, and deploying robots
-accessible to anyone — students, educators, makers, researchers, and engineers.**
+Blacknode connects robot hardware, perception, controllers, datasets, training,
+simulation, and deployment on one visual canvas. Start with a tested robot
+template, inspect live state, authorize a bounded action, and follow every
+result through run history and replay.
 
-Plug in a supported robot and Blacknode detects it, brings it online, and lets
-you drive it through a live graph you can see, run, stop, and share. No terminal,
-no ROS setup, no boilerplate — plug-and-play from the first connection.
+Workflows stay readable as systems grow: each node has typed ports, each
+connection is validated, and hardware-specific implementations remain behind
+stable robot capabilities.
 
-Build behavior by connecting nodes on a canvas: read the camera, track an
-object, move a joint, follow a target, record a dataset, train a policy, deploy
-it. Every connection is typed and validated, every run is visible and
-replayable, and the same graph runs on a laptop, a Jetson, the robot itself, a
-simulator, or the cloud.
+<p align="center">
+  <a href="docs/images/blacknode-light-theme.png">
+    <img src="docs/images/blacknode-light-theme.png" alt="Blacknode visual workflow editor" width="860">
+  </a>
+</p>
 
-Because it's a general workflow runtime underneath, the same canvas also handles
-AI models, GPU/CUDA compute, and agent control through MCP — but you don't need
-any of that to get a robot moving. Start simple, grow into the rest.
+## A Robot Workflow, Layer by Layer
 
-<table>
-  <tr>
-    <td colspan="2"><a href="docs/images/blacknode-cuda-custom-kernels.jpg"><img src="docs/images/blacknode-cuda-custom-kernels.jpg" alt="Blacknode CUDA custom kernels image workflow" width="860"></a></td>
-  </tr>
-  <tr>
-    <td><a href="docs/images/blacknode-light-theme.png"><img src="docs/images/blacknode-light-theme.png" alt="Blacknode visual editor light theme" width="420"></a></td>
-    <td><a href="docs/images/blacknode-launcher.png"><img src="docs/images/blacknode-launcher.png" alt="Blacknode launcher terminal" width="420"></a></td>
-  </tr>
-  <tr>
-    <td><a href="docs/images/blacknode-mcp-nim-editor-demo.png"><img src="docs/images/blacknode-mcp-nim-editor-demo.png" alt="MCP NVIDIA NIM workflow in the editor" width="420"></a></td>
-    <td><a href="docs/images/blacknode-research-pipeline.png"><img src="docs/images/blacknode-research-pipeline.png" alt="Research pipeline workflow" width="420"></a></td>
-  </tr>
-</table>
+A Blacknode robot workflow moves from task intent to physical hardware through
+explicit, replaceable layers:
 
-<table>
-  <tr>
-    <td>
-      <video src="https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2" controls width="420"></video>
-    </td>
-    <td>
-      <video src="https://github.com/user-attachments/assets/16a0d311-f237-4d6f-9fec-c303fc3e41d0" controls width="420"></video>
-    </td>
-  </tr>
-</table>
+```text
+Operator / application / agent
+              │
+              ▼
+Task skills and mission workflows
+              │
+       ┌──────┴──────┐
+       ▼             ▼
+  Perception    Controllers + safety
+       │             │
+       └──────┬──────┘
+              ▼
+Robot profile, capabilities, calibration, and limits
+              │
+              ▼
+Transport adapters and ROS 2 integration
+              │
+              ▼
+Hardware drivers, cameras, buses, and the physical robot
+              │
+              └──────── live state and observations flow back up
+```
 
-## Start Here
+| Layer | What it owns | Packages |
+|---|---|---|
+| Tasks and missions | Reusable robot skills, planning, confirmation, and orchestration | [`blacknode-skills`](https://github.com/temiroff/blacknode-skills), [`blacknode-agent`](https://github.com/temiroff/blacknode-agent) |
+| Perception | Cameras, tracking, VLMs, and spatial observations | [`blacknode-perception`](https://github.com/temiroff/blacknode-perception) |
+| Control and safety | Joint control, mobile bases, manipulation, policies, arbitration, limits, freshness checks, and stop paths | [`blacknode-controllers`](https://github.com/temiroff/blacknode-controllers) |
+| Robot model | Robot profiles, capability contracts, calibration, discovery, and connection health | [`blacknode-robot`](https://github.com/temiroff/blacknode-robot) |
+| Integration | ROS 2 graph, topics, services, processes, native transport, and rosbridge | [`blacknode-ros2`](https://github.com/temiroff/blacknode-ros2) |
+| Devices | Generic hardware contracts, replaceable adapters, physical drivers, and firmware protocols | `blacknode-hardware`, [`blacknode-drivers`](https://github.com/temiroff/blacknode-drivers) |
+| Learning and deployment | Episode recording, policy training, simulation, and accelerated compute | [`blacknode-dataset`](https://github.com/temiroff/blacknode-dataset), [`blacknode-training`](https://github.com/temiroff/blacknode-training), [`blacknode-isaac`](https://github.com/temiroff/blacknode-isaac), [`blacknode-cuda`](https://github.com/temiroff/blacknode-cuda) |
 
-Clone Blacknode and run its launcher. The first run creates an isolated Python
-environment, installs the backend and editor dependencies, starts both services,
-and opens the browser. Later starts reuse the installed dependencies.
+The workflow depends on stable capabilities such as a camera, joint controller,
+mobile base, or navigation interface. Robot profiles select the concrete
+providers, so compatible hardware or transport changes do not require mission
+logic to be rebuilt.
+
+## What You Can Build
+
+```text
+Discover robot
+  → load its profile and calibrated limits
+  → start drivers and transport services
+  → inspect live camera and joint state
+  → run a perception or control skill
+  → authorize motion
+  → record an episode
+  → train and preview a policy
+  → deploy to simulation or the robot
+  → inspect metrics and replay
+```
+
+Common workflows include:
+
+- Move one named joint to a bounded angle.
+- Track an object and turn a robot toward it.
+- Follow a person with camera, controller, and mobile-base safety nodes.
+- Record synchronized camera and robot-state episodes.
+- Train an action-chunking policy and preview its artifact.
+- Deploy a policy through a safety gate to Isaac Sim or supported hardware.
+
+Physical motion is disarmed by default. Motion nodes preserve joint limits,
+state freshness checks, explicit authorization, and shutdown behavior across
+supported transports.
+
+## Start Blacknode
+
+Python 3.11+ and Node.js 20.19+ or 22.12+ are required.
 
 Windows:
 
@@ -73,225 +115,121 @@ chmod +x start.sh
 ./start.sh
 ```
 
-Python 3.11+ and Node.js 20.19+ or 22.12+ are required. A warm start normally
-takes less than a minute; first-run time depends on network and package caches.
+The launcher prepares the Python environment, installs editor dependencies,
+starts the runtime and editor, and opens the browser. On first launch, use the
+**Packages** tab to install the robot capabilities needed by a template.
 
-On the first launch of a Blacknode workspace, the editor opens **Packages** with
-a one-time welcome message. Install the official packages needed for robotics,
-ROS 2, vision, CUDA, datasets, and training workflows, or continue directly
-with the core templates. The acknowledgement is stored locally in
-`.blacknode/onboarding.json`, and the Packages tab remains available in the
-left sidebar. After onboarding, normal editor sessions start in **Templates**;
-the full Nodes palette remains available when building a graph manually.
+Continue with the [Beginner Walkthrough](docs/walkthrough.md), or connect an
+SO-ARM101 with the [robot quickstart](docs/so-arm101-quickstart.md).
 
-Continue with the [Beginner Walkthrough](docs/walkthrough.md).
+## Run a Real Robot Workflow
 
-It shows the exact commands to run, buttons to press, templates to open, results
-to expect, NVIDIA NIM paths, MCP setup, framework export, Docker Compose,
-custom nodes, run history, and troubleshooting.
-
-## Connect an SO-ARM101
-
-The SO-ARM101 workflow covers discovery, driver startup, live state, bounded
-movement, and shutdown:
+The **SO-ARM101 Motion Test** template organizes first motion into observable
+stages:
 
 ```text
-Plug in SO-ARM101
-  → select the tested preset
-  → start the driver
-  → verify live joint state
-  → arm one bounded movement
-  → Stop all safely
+USB discovery
+  → robot profile
+  → driver and ROS 2 readiness
+  → live six-joint state
+  → joint name + target angle
+  → Armed safety control
+  → bounded movement
+  → safe stop
 ```
 
-The **SO-ARM101 Motion Test** template includes one connection dashboard
-for USB, driver, ROS 2, and live-pose readiness. Motion remains disarmed until
-the operator explicitly enables it. The shipped cube-follow workflow can turn
-the shoulder toward a colored cube using a USB camera, OpenCV tracking, and a
-safety-gated ROS 2 controller.
+Use the workflow dashboard to confirm the physical robot, transport, live
+state, selected joint, and allowed range before enabling **Armed**. See:
 
-Use the [SO-ARM101 quickstart](docs/so-arm101-quickstart.md) for setup, safety
-checks, controlled movement, shutdown, and the visual-follow workflow.
-
-## Why Blacknode
-
-**Accessible to anyone.** Robotics usually means a terminal, ROS, driver
-configs, and boilerplate before anything moves. Blacknode replaces that with a
-visual canvas: plug in the robot, open a template, press run. Non-technical
-users, students, and educators can test and control real hardware without
-writing code, while engineers get the depth underneath when they need it.
-
-**The whole robot lifecycle, visually.** The same runtime carries a robot from
-first plug-in to deployment — discover USB hardware, start drivers, watch live
-joint state on a dashboard, arm bounded movement safely, track and follow
-objects with a camera, record demonstration datasets, train a policy, and deploy
-it. Managed runtimes keep continuous processes visible, and explicit controls
-gate startup, motion, and shutdown so nothing moves by surprise.
-
-**Built for teaching and iteration.** Every connection is typed and validated,
-every run is visible and replayable, and a graph exports to plain Python — so a
-workflow doubles as a lesson you can inspect, and a prototype you can ship.
-
-**One runtime, room to grow.** Underneath, Blacknode is a general workflow
-engine, so the same canvas also connects AI models, tools, APIs, custom Python,
-and GPU/CUDA operations, and exposes everything to AI agents through MCP, HTTP,
-and WebSocket APIs. You never need any of that to drive a robot — it's there
-when a project calls for it.
+- [SO-ARM101 quickstart](docs/so-arm101-quickstart.md)
+- [ROSBridge robot quickstart](docs/rosbridge-robot-quickstart.md)
+- [SO-ARM101 leader/follower setup](docs/so-arm101-leader-follower.md)
+- [Robot episode datasets](docs/episode-datasets.md)
+- [Robot policy training](docs/robot-policy-training.md)
 
 ## Extension Packages
 
-The base app stays small. Node libraries ship as **extension packages** —
-separate git repositories cloned into `packages/`:
+Blacknode core provides the graph model, typed runtime, editor, package system,
+run replay, exports, and agent-facing APIs. Robot capabilities live in focused
+extension packages with their own nodes, components, templates, dependencies,
+and tests.
+
+Install a package from the editor or CLI:
 
 ```bash
-blacknode packages install git@github.com:temiroff/blacknode-cuda.git
+blacknode packages install https://github.com/temiroff/blacknode-robot.git
+blacknode packages setup blacknode-robot
 ```
 
-Blacknode discovers each package at startup and registers its nodes, palette
-categories, and workflow templates. Delete the folder to remove it; a broken
-or missing package never breaks the core. Manage everything from the editor's
-**Packages** tab, and write your own package by copying
-[blacknode-cuda](https://github.com/temiroff/blacknode-cuda) — see
-[Extension Packages](docs/packages.md).
+Templates declare their required packages. Blacknode can resolve those
+requirements, present missing capabilities, and load the nodes after
+installation. Optional SDKs and hardware providers report their availability
+without preventing unrelated packages from loading.
 
-## Feature Map
+Read [Extension Packages](docs/packages.md) for package installation,
+components, dependency resolution, authoring, and lifecycle details.
 
-Robotics comes first; the general-purpose AI, GPU, and agent features follow.
+## Core Platform
 
-| Feature | What it gives you | Read more |
-|---|---|---|
-| Plug-and-play robots | Auto-detect USB hardware, start drivers, read live joint state, and control motion — generic USB/driver setup through `blacknode-robot` and native/rosbridge ROS 2 transport/control through `blacknode-ros2`. Identify which physical robot a node drives with one Ping. | [SO-ARM101 quickstart](docs/so-arm101-quickstart.md), [Extension Packages](docs/packages.md) |
-| Camera, vision, and tracking | Plug-and-play cameras, live object detection and colour tracking, and VLM reasoning through `blacknode-perception` — wire a camera into detection or tracking and watch it live. | [Extension Packages](docs/packages.md) |
-| Robot episode datasets | Crash-recoverable synchronized teleoperation and camera recording, dataset validation, HDF5 and structured Parquet/MP4 exports, and explicit repository publishing through `blacknode-dataset`. | [Robot episode datasets](docs/episode-datasets.md) |
-| Robot learning loop | Synchronized demonstrations, validation, ACT training, policy preview, artifact export, safety-gated deployment, takeover, e-stop, metrics, and replay logs. | [SO-ARM101 robot learning](docs/robot-policy-training.md) |
-| Simulation and deployment | Closed-loop Isaac Sim deployment through `blacknode-isaac`, and run the same graph on a laptop, Jetson, robot, or a self-hosted server stack. | [Docker Compose](docs/docker-compose.md), [Docker Publishing](docs/docker-publish.md) |
-| Visual workflow editor | Build and inspect typed node graphs with visible execution state. | [Beginner Walkthrough](docs/walkthrough.md) |
-| Typed ports and validation | Text, Int, Float, Bool, List, Dict, Embedding, Fn, Model, Number, Any, cycle checks, and MCP repair suggestions. | [Workflow Schema](docs/workflow-schema.md), [Agent Skill](.agents/skills/blacknode-workflow/SKILL.md) |
-| Run history and replay | Event logs, model calls, tool calls, node timings, final values, and errors. | [Beginner Walkthrough](docs/walkthrough.md) |
-| Custom nodes | Persistent editor-created nodes, Python decorator nodes, auto-discovery, and community node packs. | [Custom Nodes](docs/custom-nodes.md) |
-| Extension packages | Modular node libraries in separate git repos (`blacknode-cuda`, ...) cloned into `packages/` — install, remove, or write your own without touching the core app. | [Extension Packages](docs/packages.md) |
-| Framework export | Turn a visual graph into Python, LangGraph, CrewAI, AutoGen, OpenAI Swarm, or an NVIDIA Agent Stack manifest. | [Framework Export](docs/framework-export.md) |
-| Python round-trip | Export readable Python, import it back into the editor, and live-sync Python runs into replay. | [Python Round-Trip](docs/python-roundtrip.md) |
-| Agent control surface | MCP, HTTP, and WebSocket APIs for agents to create, connect, validate, run, save, inspect, and export workflows. | [Agent Guide](docs/agent-guide.md), [MCP Quickstart](docs/quickstart-mcp.md) |
-| GPU/CUDA blocks | Real CUDA kernels, custom NVRTC-compiled kernels, GPU image nodes, and capability/preflight nodes that run on your local NVIDIA GPU — shipped as the [blacknode-cuda](https://github.com/temiroff/blacknode-cuda) extension package. | [NVIDIA GPU Blocks](docs/nvidia-gpu-blocks.md) |
-| NVIDIA workflow surface | Hosted/local NIM, Nemotron query rewriting, NeMo Retriever embedding and reranking, visual RAG comparison, benchmarks, AI-Q/NeMo Agent Toolkit integration, and streamable HTTP MCP. | [NVIDIA Mission Control](docs/nvidia-mission-control.md), [NVIDIA Visual RAG](docs/nvidia-visual-rag.md), [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) |
-| Local chat agents | Control a local Blacknode workflow through Telegram long polling or Slack Socket Mode, with editor start/stop, live status, tools, images, and replay. | [Local Telegram Agent](docs/telegram-nim-demo.md), [Slack Agent](docs/slack-nim-demo.md) |
-| Learned nodes | MCP agents can create reusable Docker-sandboxed node types that appear live in the editor palette. | [Learned Nodes](docs/learned-nodes.md) |
-
-## Learned Nodes
-
-Agents connected via MCP can create new permanent node types when no existing
-node fits a task. Generated nodes:
-
-- Are stored as plain Python in `nodes/learned/<name>/`
-- Execute inside a Docker sandbox with no network by default
-- Appear live in the editor palette under "Learned" or a chosen category
-- Persist across sessions and are reusable
-- Can be promoted into `custom-nodes/` or `community-nodes/` when stable
-
-Requires Docker. Run `blacknode doctor` to verify your setup.
-
-See [docs/learned-nodes.md](docs/learned-nodes.md) for details and
-[docs/learned-nodes-test-plan.md](docs/learned-nodes-test-plan.md) for the
-step-by-step test path.
-
-## NVIDIA Agent Stack
-
-Blacknode complements NVIDIA AI-Q and NeMo Agent Toolkit by giving agent
-harnesses a visual workflow surface. AI-Q can research and reason over
-enterprise data; Blacknode turns agent intent into typed, visible, runnable
-workflows through MCP.
-
-**Blacknode is the visual workflow editor for the NVIDIA agent stack.**
-
-See [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) and
-[NVIDIA Mission Control](docs/nvidia-mission-control.md).
+- **Visual workflow editor:** compose and inspect typed node graphs.
+- **Validated runtime:** catch missing ports, incompatible types, and graph
+  cycles before execution.
+- **Managed services:** keep cameras, robot drivers, ROS processes, and
+  controllers visible and stoppable.
+- **Run history and replay:** inspect node timing, values, model calls, tool
+  calls, and errors.
+- **Portable artifacts:** save workflow JSON and export supported graphs to
+  Python or framework integrations.
+- **Control APIs:** create, connect, validate, run, save, and inspect workflows
+  through MCP, HTTP, and WebSocket APIs.
 
 ## Documentation
 
-### First Run
+### Build Robot Workflows
 
 | Guide | Use it for |
 |---|---|
-| [Beginner Walkthrough](docs/walkthrough.md) | Step-by-step setup, editor use, CLI checks, NVIDIA workflows, MCP, Docker, and troubleshooting. |
-| [MCP Quickstart](docs/quickstart-mcp.md) | Connecting Blacknode to an MCP client. |
-| [MCP Test Prompts](docs/mcp-test-prompts.md) | Copy-paste prompts for proving agent workflow control. |
+| [Beginner Walkthrough](docs/walkthrough.md) | Install Blacknode, navigate the editor, run templates, and inspect results. |
+| [SO-ARM101 Quickstart](docs/so-arm101-quickstart.md) | Discover, connect, verify, move, and stop an SO-ARM101 safely. |
+| [Robot Episode Datasets](docs/episode-datasets.md) | Record, validate, export, and publish synchronized robot episodes. |
+| [Robot Policy Training](docs/robot-policy-training.md) | Train, preview, and deploy a robot policy artifact. |
+| [YOLO Object Detection](docs/yolo-object-detection.md) | Connect camera streams to object detection workflows. |
 
-### NVIDIA
-
-| Guide | Use it for |
-|---|---|
-| [NVIDIA NIM Quickstart](docs/nvidia-nim-demo.md) | Run a hosted NVIDIA NIM workflow through MCP and the editor. |
-| [NVIDIA Mission Control](docs/nvidia-mission-control.md) | NVIDIA nodes, templates, local readiness, local NIM launch, and benchmark flow. |
-| [NVIDIA Visual RAG Comparator](docs/nvidia-visual-rag.md) | Compare original and Q2E retrieval with NVIDIA embeddings, reranking, cited answers, and run replay. |
-| [Blacknode and NVIDIA AI-Q](docs/aiq-integration.md) | Connect AI-Q or NeMo Agent Toolkit to Blacknode over streamable HTTP MCP. |
-
-### Deployment
+### Extend the Platform
 
 | Guide | Use it for |
 |---|---|
-| [Local Telegram Agent](docs/telegram-nim-demo.md) | Exposing a locally controlled workflow through Telegram, including tools, images, memory, long polling, lifecycle controls, security, and troubleshooting. |
-| [Integration Drivers](docs/drivers.md) | Driver architecture, readiness states, editor lifecycle, and adding another transport. |
-| [Docker Compose](docs/docker-compose.md) | Running the editor, backend, and HTTP MCP server as a self-hosted stack. |
-| [Docker Publishing](docs/docker-publish.md) | Publishing prebuilt server/editor images to GHCR and running without local builds. |
+| [Extension Packages](docs/packages.md) | Install, manage, and author modular capability packages. |
+| [Workflow Schema](docs/workflow-schema.md) | Understand the portable workflow JSON format. |
+| [Custom Nodes](docs/custom-nodes.md) | Create reusable Python nodes and node libraries. |
+| [Agent Guide](docs/agent-guide.md) | Route workflow construction and reusable development tasks. |
+| [Framework Export](docs/framework-export.md) | Export workflows to Python and supported framework formats. |
+| [MCP Quickstart](docs/quickstart-mcp.md) | Connect an MCP client to the Blacknode control surface. |
 
-### Workflow Reference
+### Integrations
 
-| Guide | Use it for |
-|---|---|
-| [Workflow Schema](docs/workflow-schema.md) | The saved workflow JSON format. |
-| [Workflow JSON Schema](docs/workflow.schema.json) | Machine-readable schema for validation and tooling. |
-| [Framework Export](docs/framework-export.md) | Exporting workflows to Python, LangGraph, CrewAI, AutoGen, Swarm, REST, and WebSocket control. |
-| [Python Round-Trip](docs/python-roundtrip.md) | Export Python, import Python back into the editor, and live-sync Python runs into replay. |
-| [Custom Nodes](docs/custom-nodes.md) | Persistent editor-created nodes, auto-discovery, community node packs, and node library extension. |
-| [Extension Packages](docs/packages.md) | Modular node libraries as separate git repos: manifest format, install via CLI or clone, package-shipped templates. |
-| [NVIDIA GPU Blocks](docs/nvidia-gpu-blocks.md) | Real CUDA/GPU nodes: curated ops, image workflows, custom NVRTC kernels, capability detection, and preflight, with measured speedups. |
-| [Learned Nodes](docs/learned-nodes.md) | MCP-created reusable nodes, opt-in behavior, editor behavior, and user workflow. |
-| [Learned Nodes Test Plan](docs/learned-nodes-test-plan.md) | Step-by-step commands for validating Docker, MCP, editor refresh, consent, and the camera demo dry run. |
-| [Learned Nodes Internals](docs/learned-nodes-internals.md) | Registry wiring, manifest schema, execution wrapper, and SSE events. |
-| [Learned Nodes Sandbox](docs/learned-nodes-sandbox.md) | Docker image, runtime limits, configuration, and troubleshooting. |
-| [Agent Guide](docs/agent-guide.md) | How agents route workflow construction, reusable development, and package work. |
-| [Repository Agent Instructions](AGENTS.md) | Always-on repository map, invariants, safety rules, and verification commands. |
-| [Blacknode Workflow Skill](.agents/skills/blacknode-workflow/SKILL.md) | Build, validate, run, inspect, and export graphs using core and package nodes. |
-| [Blacknode Development Skill](.agents/skills/blacknode-development/SKILL.md) | Extend core, editor, MCP, reusable nodes, and extension packages. |
-
-## Demos
-
-| Demo | What it shows |
-|---|---|
-| [MCP + NVIDIA NIM preview](https://github.com/user-attachments/assets/9debbc72-68d7-4717-9a44-433ae65fd4d2) | Claude opens, organizes, and cooks an NVIDIA NIM workflow through MCP. |
-| [Run workflow live replay](https://github.com/user-attachments/assets/16a0d311-f237-4d6f-9fec-c303fc3e41d0) | The editor runs a visible graph with live node highlights and run replay. |
-| `python scripts/complex_learned_demo.py --mock-sandbox` | Deterministic learned-node plumbing test with fixture text, categorized nodes, and a 14-node workflow. Not a real-world data demo. |
-| `python scripts/real_repo_learned_demo.py --target . --open-editor` | Real-world local repo audit: samples actual files from `--target`, creates learned nodes, opens a 14-node graph, and reports findings from that input. |
-
-## Visuals
-
-| Preview | Link |
-|---|---|
-| CUDA custom kernel image workflow | [docs/images/blacknode-cuda-custom-kernels.jpg](docs/images/blacknode-cuda-custom-kernels.jpg) |
-| MCP + NVIDIA NIM editor demo | [docs/images/blacknode-mcp-nim-editor-demo.png](docs/images/blacknode-mcp-nim-editor-demo.png) |
-| Claude Desktop MCP connector | [docs/images/blacknode-mcp-claude-connector.png](docs/images/blacknode-mcp-claude-connector.png) |
-| Research pipeline template | [docs/images/blacknode-research-pipeline.png](docs/images/blacknode-research-pipeline.png) |
-| Light theme | [docs/images/blacknode-light-theme.png](docs/images/blacknode-light-theme.png) |
-| Dark theme | [docs/images/blacknode-dark-theme.png](docs/images/blacknode-dark-theme.png) |
+- [NVIDIA Agent Stack](docs/nvidia-agent-stack.md)
+- [NVIDIA GPU and CUDA blocks](docs/nvidia-gpu-blocks.md)
+- [Docker deployment](docs/docker-compose.md)
+- [Python round-trip](docs/python-roundtrip.md)
 
 ## Project Map
 
 | Path | Purpose |
 |---|---|
-| `python/blacknode/` | Python workflow runtime, node registry, providers, CLI, and MCP server. |
-| `editor-server/` | FastAPI backend for the visual editor, cook API, workflows, and runs. |
-| `editor/` | React visual workflow editor. |
-| `templates/` | Tracked starter workflows. |
-| `packages/` | Extension packages — separate git repos cloned in place (e.g. `blacknode-cuda`). |
-| `workflows/` | Local saved workflows, ignored by git. |
-| `docs/` | Walkthroughs, integration guides, workflow schema, and example assets. |
-| `AGENTS.md` | Repository-wide coding-agent routing and development rules. |
-| `skills/` | Canonical distributable Blacknode workflow and development skills. |
-| `docker-compose.yml` | Self-hosted editor, backend, and streamable HTTP MCP stack. |
-| `crates/` | Rust crates and no-server CLI. |
+| `python/blacknode/` | Python graph model, runtime, registry, packages, CLI, exports, and MCP server |
+| `editor-server/` | Editor API, managed runtime services, sessions, and run replay |
+| `editor/` | React visual workflow editor |
+| `templates/` | Core starter workflows |
+| `packages/` | Independently versioned extension-package checkouts |
+| `docs/` | Robot guides, platform references, and integration documentation |
+| `crates/` | Rust graph types, runtime, bindings, and CLI |
+
+## Development
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup and verification. Repository
+architecture and safety invariants are documented in [AGENTS.md](AGENTS.md).
 
 ## License
 
-Blacknode is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for
-the full license text.
+Blacknode is licensed under the Apache License 2.0. See [LICENSE](LICENSE).
