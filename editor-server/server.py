@@ -2757,7 +2757,7 @@ def stop_deployment(deployment_id: str):
 @app.get("/yolo-models")
 def list_yolo_models():
     """Built-in YOLO weights plus any custom model dropped in .blacknode/models,
-    so YoloDetection can offer a pick-by-name menu instead of a typed path."""
+    so DetectionYolo can offer a pick-by-name menu instead of a typed path."""
     from blacknode.vision_models import BUILTIN_MODELS, custom_models, models_dir
     custom = custom_models()
     return {

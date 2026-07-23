@@ -10,7 +10,7 @@ export const LIVE_STREAM_NODE_TYPES = new Set([
   'CameraROS2Http',
   'CV2ColorObjectStream',
   'DetectionStream',
-  'YoloDetection',
+  'DetectionYolo',
   'ReasoningStream',
   'CUDAImageFilterStream',
   'StreamPublisher',

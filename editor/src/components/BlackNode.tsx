@@ -479,9 +479,9 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     } catch { /* leave the list empty; the number field still works */ }
     finally { setCameraScanning(false) }
   }
-  // YoloDetection picks its model by name; offer built-in weights plus any
+  // DetectionYolo picks its model by name; offer built-in weights plus any
   // custom model dropped in .blacknode/models, rather than a typed path.
-  const hasModelPicker = data.type === 'YoloDetection' && (data.inputs ?? []).includes('model')
+  const hasModelPicker = data.type === 'DetectionYolo' && (data.inputs ?? []).includes('model')
   const [modelList, setModelList] = useState<{ builtin: string[]; custom: string[]; dir: string }>({ builtin: [], custom: [], dir: '' })
   const loadModels = async () => {
     try {
