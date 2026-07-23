@@ -522,8 +522,8 @@ export const api = {
 
   listDeployments: () =>
     req<{ deployments: Deployment[] }>('GET', '/deployments'),
-  deployGraph: (name: string) =>
-    req<Deployment>('POST', '/deployments', { name }),
+  deployGraph: (name: string, autostart = true) =>
+    req<Deployment>('POST', '/deployments', { name, autostart }),
   startDeployment: (id: string) =>
     req<Deployment>('POST', `/deployments/${encodeURIComponent(id)}/start`),
   stopDeployment: (id: string) =>

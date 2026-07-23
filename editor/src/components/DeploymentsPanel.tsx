@@ -73,15 +73,18 @@ export default function DeploymentsPanel() {
     }
   }
 
-  const handleDeploy = async () => {
+  const handleDeploy = async (autostart: boolean) => {
     const name = window.prompt('Name this deployment', 'Deployed graph')
     if (name === null) return
-    // Deploying hands the graph off to its own process. Stop the editor's live
-    // run first so the top bar no longer shows it as live and the hardware is
-    // freed, then deploy. The canvas graph itself is left in place.
+    const finalName = name.trim() || 'Deployed graph'
     await act(async () => {
-      try { await stopRuntimeServices() } catch { /* deploy stops it too */ }
-      return api.deployGraph(name.trim() || 'Deployed graph')
+      // Only a running deployment competes for the hardware, so stop the
+      // editor's live graph first in that case. Save-only just writes the
+      // files and runs nothing, so it leaves the live graph alone.
+      if (autostart) {
+        try { await stopRuntimeServices() } catch { /* deploy stops it too */ }
+      }
+      return api.deployGraph(finalName, autostart)
     })
   }
 
@@ -117,7 +120,8 @@ export default function DeploymentsPanel() {
         </div>
         <div className="bn-runs-actions">
           <button onClick={refresh} style={miniButton}>Refresh</button>
-          <button onClick={handleDeploy} disabled={busy} style={primaryButton}>Deploy graph</button>
+          <button onClick={() => handleDeploy(false)} disabled={busy} style={miniButton} title="Save the runnable script without running it">Save only</button>
+          <button onClick={() => handleDeploy(true)} disabled={busy} style={primaryButton} title="Stop the live graph, then run it as a deployment">Deploy &amp; run</button>
         </div>
       </div>
 
