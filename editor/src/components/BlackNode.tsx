@@ -479,6 +479,16 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     } catch { /* leave the list empty; the number field still works */ }
     finally { setCameraScanning(false) }
   }
+  // YoloDetection picks its model by name; offer built-in weights plus any
+  // custom model dropped in .blacknode/models, rather than a typed path.
+  const hasModelPicker = data.type === 'YoloDetection' && (data.inputs ?? []).includes('model')
+  const [modelList, setModelList] = useState<{ builtin: string[]; custom: string[]; dir: string }>({ builtin: [], custom: [], dir: '' })
+  const loadModels = async () => {
+    try {
+      const res = await api.listYoloModels()
+      setModelList({ builtin: res.builtin, custom: res.custom, dir: res.models_dir })
+    } catch { /* the typed field still works */ }
+  }
   // A browser <img> pointed at an MJPEG stream keeps showing the last frame of
   // its old connection when the src does not change - so restarting a stream on
   // the same URL looks frozen, a "snapshot". Bump a key when a new stream
@@ -1247,6 +1257,40 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           >
             ⟳
           </button>
+        </div>
+      )}
+
+      {hasModelPicker && (
+        <div
+          className="nodrag"
+          onMouseDown={e => e.stopPropagation()}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '6px 8px 0' }}
+        >
+          <span style={{ fontSize: 10, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Model</span>
+          <select
+            value={String(data.params?.model ?? 'yolov8n.pt')}
+            onFocus={() => { if (!modelList.builtin.length) void loadModels() }}
+            onChange={e => { void updateParam(id, 'model', e.target.value) }}
+            title={modelList.dir ? `Custom models: drop .pt/.onnx into ${modelList.dir}` : undefined}
+            style={{
+              flex: 1, minWidth: 0, background: 'var(--lift)', color: 'var(--tx1)',
+              border: '1px solid var(--line)', borderRadius: 5, padding: '2px 5px',
+              fontFamily: 'var(--font-ui)', fontSize: 11,
+            }}
+          >
+            {/* Keep the current value selectable even before a scan. */}
+            {![...modelList.builtin, ...modelList.custom].includes(String(data.params?.model ?? 'yolov8n.pt')) && (
+              <option value={String(data.params?.model ?? 'yolov8n.pt')}>{String(data.params?.model ?? 'yolov8n.pt')}</option>
+            )}
+            {modelList.custom.length > 0 && (
+              <optgroup label="Custom (.blacknode/models)">
+                {modelList.custom.map(m => <option key={m} value={m}>{m}</option>)}
+              </optgroup>
+            )}
+            <optgroup label="Built-in (auto-download)">
+              {(modelList.builtin.length ? modelList.builtin : ['yolov8n.pt']).map(m => <option key={m} value={m}>{m}</option>)}
+            </optgroup>
+          </select>
         </div>
       )}
 

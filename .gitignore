@@ -58,3 +58,8 @@ editor-server/.driver-*.json
 # folder README is tracked here.
 /packages/*
 !/packages/README.md
+
+# Vision model weights (downloaded/trained, never committed)
+*.pt
+*.onnx
+*.engine

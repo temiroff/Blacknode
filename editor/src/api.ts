@@ -534,6 +534,8 @@ export const api = {
     req<{ ok: boolean; id: string; path: string }>('POST', `/deployments/${encodeURIComponent(id)}/export`),
   listCameras: () =>
     req<{ ok: boolean; cameras: Array<{ index: number; label: string; device: string; width: number; height: number }>; report: string }>('GET', '/cameras'),
+  listYoloModels: () =>
+    req<{ ok: boolean; builtin: string[]; custom: string[]; models_dir: string }>('GET', '/yolo-models'),
   deploymentLogs: (id: string) =>
     req<{ id: string; logs: string }>('GET', `/deployments/${encodeURIComponent(id)}/logs`),
 

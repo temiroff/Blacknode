@@ -114,3 +114,14 @@ def test_smoother_parameter_updates_use_direct_control_instead_of_graph_cook() -
 
     assert "node.data.type === 'TrajectorySmoother'" in store
     assert "await get().controlNode(id, 'apply')" in store
+
+
+def test_yolo_models_endpoint_lists_builtin_and_custom(tmp_path, monkeypatch):
+    import blacknode.vision_models as vm
+    monkeypatch.setenv("BLACKNODE_HOME", str(tmp_path))
+    md = vm.models_dir()
+    (md / "custom_traffic.pt").write_bytes(b"w")
+    assert "custom_traffic.pt" in vm.custom_models()
+    assert vm.resolve_model("custom_traffic.pt") == str(md / "custom_traffic.pt")
+    assert vm.resolve_model("yolov8n.pt") == "yolov8n.pt"  # unknown -> passthrough for download
+    assert "yolov8n.pt" in vm.BUILTIN_MODELS

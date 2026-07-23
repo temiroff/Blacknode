@@ -2754,6 +2754,20 @@ def stop_deployment(deployment_id: str):
         raise HTTPException(404, str(exc)) from exc
 
 
+@app.get("/yolo-models")
+def list_yolo_models():
+    """Built-in YOLO weights plus any custom model dropped in .blacknode/models,
+    so YoloDetection can offer a pick-by-name menu instead of a typed path."""
+    from blacknode.vision_models import BUILTIN_MODELS, custom_models, models_dir
+    custom = custom_models()
+    return {
+        "ok": True,
+        "builtin": list(BUILTIN_MODELS),
+        "custom": custom,
+        "models_dir": str(models_dir()),
+    }
+
+
 @app.get("/cameras")
 def list_cameras(max_devices: int = 8):
     """Discovered local cameras, so the editor can offer a pick-by-name menu.
