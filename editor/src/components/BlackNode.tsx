@@ -486,16 +486,21 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   // them as live sliders right on the node.
   const isTrackingObject = data.type === 'TrackingObject'
   const [pingPending, setPingPending] = useState(false)
-  const [pingReport, setPingReport] = useState('')
   const pingRobot = async () => {
     setPingPending(true)
-    setPingReport('')
     try {
       const res = await controlNode(id, 'ping')
       const report = (res?.outputs?.report as string) ?? ''
-      setPingReport(report)
+      const moved = res?.outputs?.moved === true
+      // Report through a toast, not inline text — the Robot node auto-sizes to
+      // its content, so a message on the node would grow it.
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: { kind: moved ? 'info' : 'error', title: moved ? 'Robot ping' : 'Ping failed', message: report },
+      }))
     } catch (err) {
-      setPingReport(err instanceof Error ? err.message : String(err))
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: { kind: 'error', title: 'Ping failed', message: err instanceof Error ? err.message : String(err) },
+      }))
     } finally {
       setPingPending(false)
     }
@@ -1272,15 +1277,11 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           >
             {pingPending ? 'Pinging…' : '📍 Ping'}
           </button>
-          <span
-            title={pingReport || undefined}
-            style={{
-              color: pingReport.startsWith('ping FAILED') ? 'var(--err)' : 'var(--tx3)',
-              fontFamily: 'var(--font-ui)', fontSize: 9, flex: 1, minWidth: 0,
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            }}
-          >
-            {pingReport || 'identify this robot — small jitter'}
+          <span style={{
+            color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
+          }}>
+            identify this robot
           </span>
         </div>
       )}
