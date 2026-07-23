@@ -58,6 +58,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   const isText  = data.type === 'Text'
   const isFloat = data.type === 'Float'
   const isInt   = data.type === 'Int'
+  const isBool  = data.type === 'Bool'
   const isColor = data.type === 'Color'
   const isList  = data.type === 'List'
   const isDict  = data.type === 'Dict'
@@ -79,8 +80,11 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
   useEffect(() => { updateNodeInternals(id) }, [id, variadicPorts.join('|'), showValueOutput, updateNodeInternals])
 
   const rawValue  = data.params.value
-  const resolveDraft = (value: unknown): string | number => isFloat ? formatFloat(value)
+  const resolveDraft = (value: unknown): string | number | boolean => isFloat ? formatFloat(value)
     : isInt  ? Number(value ?? 0)
+    : isBool ? (typeof value === 'string'
+      ? !['false', '0', ''].includes(value.trim().toLowerCase())
+      : Boolean(value))
     : isColor ? normalizeHexColor(value) ?? '#22c55e'
     : isList ? (typeof value === 'string' ? value : JSON.stringify(value ?? [], null, 2))
     : isDict ? (typeof value === 'string' ? value : JSON.stringify(value ?? {}, null, 2))
@@ -88,7 +92,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
     : value === undefined || value === null ? ''
     : String(value)
   const initDraft = resolveDraft(rawValue)
-  const [draft, setDraft] = useState<string | number>(initDraft)
+  const [draft, setDraft] = useState<string | number | boolean>(initDraft)
   const [jsonError, setJsonError] = useState(false)
   const commitRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -229,7 +233,12 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
         {data.type === 'Bool' ? (
           <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', width: '100%' }}>
             <div
-              onClick={e => { e.stopPropagation(); commit(!draft) }}
+              onClick={e => {
+                e.stopPropagation()
+                const next = !Boolean(draft)
+                setDraft(next)
+                commit(next)
+              }}
               style={{
                 width: 34, height: 18, borderRadius: 9,
                 background: draft ? pColor : 'var(--line2)',

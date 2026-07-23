@@ -49,6 +49,16 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "services",
         "topics",
     }
+    for component_name in {
+        "diagnostics",
+        "processes",
+        "rosbridge",
+        "services",
+        "topics",
+    }:
+        assert payload["packages"]["blacknode-ros2"]["components"][component_name]["dependencies"] == {
+            "requires": [{"component": "core"}],
+        }
     assert payload["packages"]["blacknode-skills"]["layer"] == "skills"
     assert payload["packages"]["blacknode-agent"]["layer"] == "agent"
     assert payload["packages"]["blacknode-controllers"]["layer"] == "controllers"
@@ -77,6 +87,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
     }
     assert payload["nodes"]["ROS2TopicList"]["package"] == "blacknode-ros2"
     assert payload["nodes"]["ROS2TopicPublisher"]["package"] == "blacknode-ros2"
+    assert "ROS2DemoPublisher" not in payload["nodes"]
     assert payload["nodes"]["RobotDiscovery"]["package"] == "blacknode-robot"
     assert payload["nodes"]["EpisodeRecorder"] == {
         "package": "blacknode-dataset",
