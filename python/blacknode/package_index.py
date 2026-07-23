@@ -554,8 +554,19 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "detection": {
                     "name": "detection",
-                    "default": False,
-                    "node_types": []
+                    "default": True,
+                    "node_types": [
+                        "DetectionStream"
+                    ],
+                    "dependencies": {
+                        "requires": [
+                            {
+                                "package": "blacknode-perception",
+                                "component": "camera",
+                                "version": ">=0.2.0,<1.0.0"
+                            }
+                        ]
+                    }
                 },
                 "tracking": {
                     "name": "tracking",
@@ -589,13 +600,14 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "CameraCalibration",
                 "CameraDashboard",
                 "CameraDiscovery",
+                "CameraROS2Http",
+                "CameraROS2Publish",
+                "CameraROS2Subscribe",
                 "CameraSelect",
                 "CameraStream",
                 "DetectionPrompt",
+                "DetectionStream",
                 "FramePrompt",
-                "CameraROS2Subscribe",
-                "CameraROS2Publish",
-                "CameraROS2Http",
                 "ReasoningDashboard",
                 "ReasoningStream",
                 "VLM"
