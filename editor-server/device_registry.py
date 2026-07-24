@@ -105,6 +105,12 @@ class HardwareDeviceClient:
         return self._request("POST", "/rpc", payload=payload)
 
     def validate_pairing(self) -> dict[str, Any]:
+        if urllib.parse.urlsplit(self.base_url).port == 8766:
+            raise DeviceRegistryError(
+                "Port 8766 is the shared Blacknode runtime, not a robot hardware "
+                "service. Use the hardware URL printed by './pair.sh --all --show', "
+                "such as port 8765 or 8767."
+            )
         health = self.health()
         if health.get("service") != "blacknode-hardware":
             raise DeviceRegistryError(
