@@ -3103,6 +3103,87 @@ def _embed_selected_calibration(workflow: dict[str, Any]) -> None:
     meta["input_defaults"] = defaults
 
 
+def _bind_robot_to_device(
+    workflow: dict[str, Any],
+    remote_status: dict[str, Any],
+) -> None:
+    """Bind a one-robot deployment to the serial device behind its paired service."""
+    robot_nodes = _workflow_robot_nodes(workflow)
+    if not robot_nodes:
+        return
+    if len(robot_nodes) != 1:
+        raise ValueError(
+            "Deploy one Robot node per device so its physical hardware binding is unambiguous."
+        )
+    connection = (
+        remote_status.get("connection")
+        if isinstance(remote_status.get("connection"), dict)
+        else {}
+    )
+    serial_port = str(connection.get("port") or "").strip()
+    if str(connection.get("transport") or "").strip() != "serial" or not serial_port:
+        raise ValueError(
+            "The paired hardware service did not report its serial port. "
+            "Update blacknode-hardware and restart this robot service."
+        )
+    calibration = (
+        remote_status.get("calibration")
+        if isinstance(remote_status.get("calibration"), dict)
+        else {}
+    )
+    hardware_id = str(
+        calibration.get("hardware_id")
+        or remote_status.get("device_id")
+        or ""
+    ).strip()
+    if not hardware_id:
+        raise ValueError("The paired hardware service did not report a hardware identity.")
+
+    recommended = {
+        "path": serial_port,
+        "serial": hardware_id,
+        "serial_number": hardware_id,
+    }
+    hardware = {
+        "found": True,
+        "ready": bool(remote_status.get("connected")),
+        "port": serial_port,
+        "serial": hardware_id,
+        "recommended": recommended,
+        "devices": [recommended],
+        "permissions": {},
+        "report": (
+            "Deployment target\n"
+            f"serial_port: {serial_port}\n"
+            f"hardware_id: {hardware_id}"
+        ),
+    }
+    meta = robot_nodes[0]
+    params = meta.setdefault("params", {})
+    params["hardware"] = hardware
+    params["auto_discover"] = False
+    params["serial_port"] = serial_port
+    inputs = list(meta.get("inputs") or [])
+    for port in ("hardware", "auto_discover", "serial_port"):
+        if port not in inputs:
+            inputs.append(port)
+    meta["inputs"] = inputs
+    input_types = dict(meta.get("input_types") or {})
+    input_types.update({
+        "hardware": "Dict",
+        "auto_discover": "Bool",
+        "serial_port": "Text",
+    })
+    meta["input_types"] = input_types
+    defaults = dict(meta.get("input_defaults") or {})
+    defaults.update({
+        "hardware": {},
+        "auto_discover": True,
+        "serial_port": "",
+    })
+    meta["input_defaults"] = defaults
+
+
 @app.get("/graph/calibrations")
 def list_graph_calibrations():
     workflow = _device_deployment_workflow()
@@ -3405,6 +3486,28 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
         blocking=armed,
     ))
 
+    robot_nodes = _workflow_robot_nodes(workflow)
+    if robot_nodes:
+        try:
+            binding_probe = json.loads(json.dumps(workflow))
+            _bind_robot_to_device(binding_probe, remote_status)
+        except ValueError as exc:
+            checks.append(_preflight_check(
+                "hardware_binding",
+                "Robot hardware binding",
+                "fail",
+                str(exc),
+                blocking=True,
+            ))
+        else:
+            connection = remote_status.get("connection") or {}
+            checks.append(_preflight_check(
+                "hardware_binding",
+                "Robot hardware binding",
+                "pass",
+                f"Deployment will use {connection.get('port')}.",
+            ))
+
     required_capabilities = _workflow_required_capabilities(workflow)
     available_capabilities = sorted({
         str(item)
@@ -3684,6 +3787,31 @@ def _require_device_safe_to_start(device_id: str) -> None:
         )
 
 
+def _set_device_deployment_lease(device_id: str, *, leased: bool) -> None:
+    method = "release" if leased else "resume"
+    payload = {
+        "jsonrpc": "2.0",
+        "id": f"deployment-{method}",
+        "method": method,
+        "params": {},
+    }
+    try:
+        result = _paired_device_client(device_id).rpc(payload)
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    error = result.get("error") if isinstance(result, dict) else None
+    if error:
+        message = (
+            str(error.get("message") or error)
+            if isinstance(error, dict)
+            else str(error)
+        )
+        raise HTTPException(
+            502,
+            f"Could not {method} the robot hardware monitor: {message}",
+        )
+
+
 @app.get("/devices/{device_id}/deployments")
 def list_device_deployments(device_id: str):
     try:
@@ -3719,6 +3847,7 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
         )
 
     try:
+        _bind_robot_to_device(workflow, preflight.get("status") or {})
         workflow["entrypoint"] = resolve_entrypoint(workflow)
         script = export_workflow_python(workflow)
     except (WorkflowRunError, ValueError) as exc:
@@ -3792,7 +3921,12 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
         deployment = client.stage_deployment(payload)
         if req.start:
             _require_device_safe_to_start(device_id)
-            deployment = client.start_deployment(str(deployment["id"]))
+            _set_device_deployment_lease(device_id, leased=True)
+            try:
+                deployment = client.start_deployment(str(deployment["id"]))
+            except Exception:
+                _set_device_deployment_lease(device_id, leased=False)
+                raise
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {
@@ -3813,18 +3947,24 @@ def get_device_deployment(device_id: str, deployment_id: str):
 @app.post("/devices/{device_id}/deployments/{deployment_id}/start")
 def start_device_deployment(device_id: str, deployment_id: str):
     _require_device_safe_to_start(device_id)
+    _set_device_deployment_lease(device_id, leased=True)
     try:
         return _runtime_client_or_404(device_id).start_deployment(deployment_id)
-    except DeviceRegistryError as exc:
-        raise HTTPException(502, str(exc)) from exc
+    except Exception as exc:
+        _set_device_deployment_lease(device_id, leased=False)
+        if isinstance(exc, DeviceRegistryError):
+            raise HTTPException(502, str(exc)) from exc
+        raise
 
 
 @app.post("/devices/{device_id}/deployments/{deployment_id}/stop")
 def stop_device_deployment(device_id: str, deployment_id: str):
     try:
-        return _runtime_client_or_404(device_id).stop_deployment(deployment_id)
+        deployment = _runtime_client_or_404(device_id).stop_deployment(deployment_id)
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
+    _set_device_deployment_lease(device_id, leased=False)
+    return deployment
 
 
 @app.post("/devices/{device_id}/deployments/{deployment_id}/rollback")
@@ -3835,13 +3975,21 @@ def rollback_device_deployment(
 ):
     if req.start:
         _require_device_safe_to_start(device_id)
+        _set_device_deployment_lease(device_id, leased=True)
     try:
-        return _runtime_client_or_404(device_id).rollback_deployment(
+        deployment = _runtime_client_or_404(device_id).rollback_deployment(
             deployment_id,
             start=req.start,
         )
-    except DeviceRegistryError as exc:
-        raise HTTPException(502, str(exc)) from exc
+    except Exception as exc:
+        if req.start:
+            _set_device_deployment_lease(device_id, leased=False)
+        if isinstance(exc, DeviceRegistryError):
+            raise HTTPException(502, str(exc)) from exc
+        raise
+    if not req.start:
+        _set_device_deployment_lease(device_id, leased=False)
+    return deployment
 
 
 @app.get("/devices/{device_id}/deployments/{deployment_id}/logs")

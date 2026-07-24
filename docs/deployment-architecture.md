@@ -234,6 +234,24 @@ Credentials are referenced by a local credential ID or operating-system secret
 store. They are never embedded in workflows, deployment artifacts, browser
 responses, logs, or provider-neutral configuration.
 
+Each paired robot record uses the exact hardware service URL printed by
+`blacknode-hardware` pairing. On a multi-robot computer, hardware services use
+`8765`, `8767`, `8768`, and subsequent assigned ports. Port `8766` remains the
+shared deployment runtime. The editor requires the hardware port explicitly,
+rejects `8766` as a robot hardware endpoint, and derives the runtime URL from
+the same host.
+
+For a workflow containing one `Robot` node, deployment also embeds the serial
+path reported by the selected hardware service and disables runtime USB
+auto-discovery. This makes the editor device selection authoritative when
+multiple robots share one computer: each deployment opens the physical bus
+behind the paired service it targeted.
+
+Immediately before the runtime starts that workflow, the editor asks only the
+targeted hardware service to release its read-only serial monitor. Stopping or
+rolling back the deployment resumes that monitor. Other paired robot services
+and serial buses remain active.
+
 The deployment plan sends package source and version from the editor. The
 runtime package provider is generic: it does not contain a list of perception,
 robot, training, or other extension packages. Publishing a new extension

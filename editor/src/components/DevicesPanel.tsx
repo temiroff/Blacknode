@@ -8,12 +8,64 @@ type DeviceState = {
   checkedAt?: number
 }
 
+const DEFAULT_HARDWARE_URL = 'http://192.168.1.87:8765'
+const FIRST_HARDWARE_PORT = 8765
+const RUNTIME_PORT = 8766
+
+function suggestedHardwareUrl(devices: HardwareDevice[]): string {
+  const latest = devices[devices.length - 1]
+  if (!latest) return DEFAULT_HARDWARE_URL
+  try {
+    const latestUrl = new URL(latest.base_url)
+    const usedPorts = new Set(
+      devices.flatMap(device => {
+        try {
+          const parsed = new URL(device.base_url)
+          if (parsed.protocol !== latestUrl.protocol || parsed.hostname !== latestUrl.hostname) {
+            return []
+          }
+          return parsed.port ? [Number(parsed.port)] : []
+        } catch {
+          return []
+        }
+      }),
+    )
+    let port = FIRST_HARDWARE_PORT
+    while (port === RUNTIME_PORT || usedPorts.has(port)) port += 1
+    const host = latestUrl.hostname.includes(':')
+      ? `[${latestUrl.hostname}]`
+      : latestUrl.hostname
+    return `${latestUrl.protocol}//${host}:${port}`
+  } catch {
+    return DEFAULT_HARDWARE_URL
+  }
+}
+
+function hardwareUrlError(value: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(value.trim())
+  } catch {
+    return 'Enter the complete hardware URL printed by pair.sh.'
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return 'Hardware URL must start with http:// or https://.'
+  }
+  if (!parsed.port) {
+    return 'Include the hardware service port printed by pair.sh.'
+  }
+  if (Number(parsed.port) === RUNTIME_PORT) {
+    return 'Port 8766 is the shared Blacknode runtime. Use the robot hardware port printed by pair.sh, such as 8765 or 8767.'
+  }
+  return null
+}
+
 export default function DevicesPanel() {
   const [devices, setDevices] = useState<HardwareDevice[]>([])
   const [states, setStates] = useState<Record<string, DeviceState>>({})
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
-  const [baseUrl, setBaseUrl] = useState('http://192.168.1.87:8765')
+  const [baseUrl, setBaseUrl] = useState(DEFAULT_HARDWARE_URL)
   const [token, setToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -53,7 +105,7 @@ export default function DevicesPanel() {
 
   const openPairForm = (device?: HardwareDevice) => {
     setName(device?.name ?? '')
-    setBaseUrl(device?.base_url ?? 'http://192.168.1.87:8765')
+    setBaseUrl(device?.base_url ?? suggestedHardwareUrl(devices))
     setToken('')
     setError(null)
     setShowForm(true)
@@ -61,6 +113,11 @@ export default function DevicesPanel() {
 
   const pair = async (event: FormEvent) => {
     event.preventDefault()
+    const urlError = hardwareUrlError(baseUrl)
+    if (urlError) {
+      setError(urlError)
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -98,6 +155,8 @@ export default function DevicesPanel() {
     }
   }
 
+  const pairUrlError = showForm ? hardwareUrlError(baseUrl) : null
+
   return (
     <div className="bn-runs-panel">
       <div className="bn-runs-toolbar">
@@ -115,7 +174,9 @@ export default function DevicesPanel() {
         <form className="bn-device-form" onSubmit={pair}>
           <div className="bn-device-form-title">Pair hardware service</div>
           <div className="bn-device-help">
-            On the Raspberry Pi, run <code>./pair.sh</code>, then paste its token here.
+            On the hardware computer, run <code>./pair.sh --all --show</code>, then copy
+            one robot’s name, complete hardware URL, and token. Port 8766 is reserved
+            for the shared runtime service.
           </div>
           <label>
             <span>Name</span>
@@ -127,7 +188,7 @@ export default function DevicesPanel() {
             />
           </label>
           <label>
-            <span>Device URL</span>
+            <span>Hardware service URL · port required</span>
             <input
               value={baseUrl}
               onChange={event => setBaseUrl(event.target.value)}
@@ -138,6 +199,11 @@ export default function DevicesPanel() {
               spellCheck={false}
             />
           </label>
+          {pairUrlError && (
+            <div className="bn-device-recovery-hint" role="alert">
+              {pairUrlError}
+            </div>
+          )}
           <label>
             <span>Pairing token</span>
             <input

@@ -55,6 +55,10 @@ class _HardwareService:
             "calibrated": False,
             "joint_names": [f"servo_{index}" for index in range(1, 7)],
             "capabilities": ["joint_group", "servo_bus", "position_feedback"],
+            "connection": {
+                "transport": "serial",
+                "port": "/dev/serial/by-id/workshop-arm",
+            },
             **(status_overrides or {}),
         }
         self.runtime_deployments: dict[str, dict] = {}
@@ -357,6 +361,53 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("rejected", response.json()["detail"].lower())
         self.assertFalse(self.registry_path.exists())
+
+    def test_runtime_port_is_rejected_as_a_hardware_pairing_url(self):
+        response = self.client.post("/devices", json={
+            "name": "Wrong endpoint",
+            "base_url": "http://192.168.1.87:8766",
+            "token": "pairing-token",
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("shared Blacknode runtime", response.json()["detail"])
+        self.assertFalse(self.registry_path.exists())
+
+    def test_robot_deployment_is_bound_to_the_paired_service_serial_port(self):
+        workflow = {
+            "node_meta": {
+                "robot": {
+                    "id": "robot",
+                    "type": "Robot",
+                    "params": {},
+                    "inputs": [],
+                    "input_types": {},
+                    "input_defaults": {},
+                },
+            },
+            "edges": [],
+        }
+
+        server._bind_robot_to_device(workflow, {
+            "device_id": "robot-service-id",
+            "connected": True,
+            "connection": {
+                "transport": "serial",
+                "port": "/dev/serial/by-id/follower-arm",
+            },
+            "calibration": {"hardware_id": "FOLLOWER-USB-ID"},
+        })
+
+        params = workflow["node_meta"]["robot"]["params"]
+        self.assertEqual(
+            params["serial_port"],
+            "/dev/serial/by-id/follower-arm",
+        )
+        self.assertEqual(
+            params["hardware"]["recommended"]["serial"],
+            "FOLLOWER-USB-ID",
+        )
+        self.assertFalse(params["auto_discover"])
 
     def test_invalid_url_and_unknown_device_are_rejected(self):
         response = self.client.post("/devices", json={
@@ -784,6 +835,12 @@ class EditorDeviceApiTests(unittest.TestCase):
             preflight["workflow"]["hash"],
         )
         self.assertNotIn(hardware.token, response.text)
+        lease_requests = [
+            body
+            for method, path, _auth, body in hardware.requests
+            if method == "POST" and path == "/rpc"
+        ]
+        self.assertIn("release", [body["method"] for body in lease_requests])
 
     def test_staging_rejects_graph_changed_after_validation(self):
         hardware = _HardwareService()
