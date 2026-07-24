@@ -213,7 +213,7 @@ export default function DevicesPanel() {
   const reuseRuntimeToken = Boolean(reusableRuntimeDevice) && !changeRuntimeToken
 
   return (
-    <div className="bn-runs-panel">
+    <div className="bn-runs-panel bn-devices-panel">
       <div className="bn-runs-toolbar">
         <div>
           <div className="bn-runs-title">Devices</div>

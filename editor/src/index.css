@@ -633,8 +633,43 @@ body {
   border-color: var(--ok);
 }
 
+.bn-devices-panel {
+  container-name: devices-panel;
+  container-type: inline-size;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.bn-devices-panel > .bn-runs-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  flex: 0 0 auto;
+  background: var(--panel);
+}
+
+.bn-devices-panel > .bn-device-form,
+.bn-devices-panel > .bn-runs-list {
+  flex: 0 0 auto;
+  min-height: auto;
+}
+
+.bn-devices-panel > .bn-runs-list {
+  overflow: visible;
+}
+
+.bn-devices-panel .bn-run-node,
+.bn-devices-panel .bn-run-badges span,
+.bn-devices-panel .bn-device-fact strong {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .bn-device-form-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
 }
@@ -683,6 +718,72 @@ body {
   font-family: var(--font-mono);
   font-size: 10px;
   white-space: nowrap;
+}
+
+@container devices-panel (max-width: 430px) {
+  .bn-devices-panel > .bn-runs-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bn-devices-panel > .bn-runs-toolbar .bn-runs-actions,
+  .bn-devices-panel .bn-run-detail-actions {
+    justify-content: flex-start;
+  }
+
+  .bn-devices-panel > .bn-runs-toolbar .bn-runs-actions button,
+  .bn-devices-panel .bn-run-detail-actions button,
+  .bn-device-form-actions button {
+    flex: 1 1 auto;
+    min-height: 30px;
+  }
+
+  .bn-device-summary {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+
+  .bn-device-summary .bn-run-status {
+    grid-column: 2;
+    align-items: flex-start;
+    white-space: normal;
+  }
+
+  .bn-device-summary .bn-run-status > span:last-child {
+    overflow-wrap: anywhere;
+  }
+
+  .bn-device-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bn-devices-panel .bn-run-detail {
+    padding-left: 30px;
+  }
+
+  .bn-devices-panel .bn-device-runtime-reuse {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bn-devices-panel .bn-device-runtime-reuse button {
+    align-self: flex-start;
+    min-height: 30px;
+  }
+}
+
+@container devices-panel (max-width: 280px) {
+  .bn-device-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .bn-device-form-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .bn-devices-panel .bn-run-detail {
+    padding: 10px;
+  }
 }
 
 .bn-deploy-target {
