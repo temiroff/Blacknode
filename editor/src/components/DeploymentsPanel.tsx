@@ -20,7 +20,12 @@ const JOINT_MOTION_NODE_TYPES = new Set([
   'ROS2SetJoint',
   'ROS2ManualMove',
   'ROS2JointSliders',
+  'ROS2LeaderFollower',
+  'ROS2NativeFollowDetectionJoint',
+  'ROS2FollowDetectionJoint',
+  'RobotFollow',
   'PolicyRuntime',
+  'IsaacPolicyRuntime',
 ])
 
 const STATE_COLOR: Record<DeploymentState, string> = {
@@ -231,7 +236,6 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
       || selectedCalibration
       || requirementsBusy
       || profileBusyId
-      || !hasJointMotion
       || isCalibrationWorkflow
     ) return
     const calibration = calibrations[0]
@@ -242,7 +246,6 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
   }, [
     calibrations,
     inferredCapabilities.join('|'),
-    hasJointMotion,
     isCalibrationWorkflow,
     profileBusyId,
     requirementsBusy,
@@ -655,81 +658,133 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
                 <div className="bn-robot-step-status">
                   A robot calibration will appear here after the workflow has a Robot node.
                 </div>
-              ) : !hasJointMotion ? (
-                <div className="bn-robot-step-status is-info">
-                  This workflow only reads robot state, so a safety calibration is optional.
-                  Blacknode will require one automatically when motion controls are added.
-                </div>
               ) : robotNodes.length > 1 ? (
                 <div className="bn-robot-step-status is-warning">
                   Calibration is selected per deployment. Split this graph so it contains one
                   Robot node, then choose that physical robot’s calibration below.
                 </div>
-              ) : calibrations.length === 0 ? (
-                <div className="bn-robot-step-empty">
-                  <strong>No saved calibration matches this profile.</strong>
-                  <span>
-                    Open the guided workflow, calibrate this connected robot locally, then return
-                    here and select the saved calibration.
-                  </span>
-                </div>
               ) : (
                 <>
-                  <label className="bn-robot-calibration-choice">
-                    <span>Calibration for this robot</span>
-                    <select
-                      className="bn-deploy-device-select"
-                      value={selectedCalibration
-                        ? `${selectedCalibration.profile_id}\u0000${selectedCalibration.hardware_id}`
-                        : ''}
-                      disabled={requirementsBusy}
-                      onChange={event => selectCalibration(event.target.value)}
-                    >
-                      {calibrations.length > 1 && (
-                        <option value="">
-                          Choose one of {calibrations.length} saved calibrations…
-                        </option>
-                      )}
-                      {calibrations.map(calibration => (
-                        <option
-                          key={`${calibration.profile_id}\u0000${calibration.hardware_id}`}
-                          value={`${calibration.profile_id}\u0000${calibration.hardware_id}`}
-                        >
-                          {calibration.name} · {calibration.profile_name}
-                          {' · '}
-                          {calibration.hardware_id}
-                          {' · '}
-                          {formatCalibrationTime(calibration.recorded_at)}
-                          {' · '}
-                          {calibration.joint_count} joints
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {!hasJointMotion && (
+                    <div className="bn-robot-step-status is-info">
+                      This workflow only reads robot state, so calibration is optional. Its
+                      open-graph selection is still shown below and will become required if
+                      motion controls are added.
+                    </div>
+                  )}
 
-                  {calibrationIsActive ? (
-                    <div className="bn-robot-step-status is-success">
-                      Ready: {activeCalibration?.name
-                        || selectedCalibrationCandidate?.name
-                        || 'this calibration'} is active on
-                      {' '}
-                      {targetStatus?.device_id || 'the device'}.
-                    </div>
-                  ) : (
-                    <div className="bn-robot-calibration-activate">
-                      <div className="bn-robot-step-status is-warning">
-                        {selectedCalibration
-                          ? 'Saved calibration found. Activate it on the connected, disarmed device.'
-                          : 'Choose which physical robot is connected to this device.'}
+                  {calibrations.length === 0 ? (
+                    <>
+                      {selectedCalibration && (
+                        <div className="bn-robot-step-status is-warning">
+                          <strong>Open graph calibration:</strong>
+                          {' '}
+                          {selectedCalibration.profile_id} · {selectedCalibration.hardware_id}.
+                          The saved calibration record is not currently available.
+                        </div>
+                      )}
+                      <div className="bn-robot-step-empty">
+                        <strong>No saved calibration matches this profile.</strong>
+                        <span>
+                          Open the guided workflow, calibrate this connected robot locally, then
+                          return here and select the saved calibration.
+                        </span>
                       </div>
-                      <button
-                        onClick={() => void activateCalibration()}
-                        disabled={busy || requirementsBusy || !selectedDeviceId || !selectedCalibration}
-                        style={primaryButton}
-                      >
-                        Use this calibration
-                      </button>
-                    </div>
+                    </>
+                  ) : (
+                    <>
+                      <label className="bn-robot-calibration-choice">
+                        <span>Calibration from the open graph</span>
+                        <select
+                          className="bn-deploy-device-select"
+                          value={selectedCalibration
+                            ? `${selectedCalibration.profile_id}\u0000${selectedCalibration.hardware_id}`
+                            : ''}
+                          disabled={requirementsBusy}
+                          onChange={event => selectCalibration(event.target.value)}
+                        >
+                          {(!selectedCalibration || calibrations.length > 1) && (
+                            <option value="">
+                              {calibrations.length > 1
+                                ? `Choose one of ${calibrations.length} saved calibrations…`
+                                : 'Choose the saved calibration…'}
+                            </option>
+                          )}
+                          {selectedCalibration && !selectedCalibrationCandidate && (
+                            <option
+                              value={`${selectedCalibration.profile_id}\u0000${selectedCalibration.hardware_id}`}
+                            >
+                              Selected: {selectedCalibration.profile_id} · {selectedCalibration.hardware_id} (not found)
+                            </option>
+                          )}
+                          {calibrations.map(calibration => (
+                            <option
+                              key={`${calibration.profile_id}\u0000${calibration.hardware_id}`}
+                              value={`${calibration.profile_id}\u0000${calibration.hardware_id}`}
+                            >
+                              {calibration.name} · {calibration.profile_name}
+                              {' · '}
+                              {calibration.hardware_id}
+                              {' · '}
+                              {formatCalibrationTime(calibration.recorded_at)}
+                              {' · '}
+                              {calibration.joint_count} joints
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <div className={`bn-robot-step-status${
+                        selectedCalibrationCandidate ? ' is-info' : ' is-warning'
+                      }`}>
+                        {selectedCalibrationCandidate ? (
+                          <>
+                            <strong>Open graph calibration:</strong>
+                            {' '}
+                            {selectedCalibrationCandidate.name}
+                            {' · '}
+                            {selectedCalibrationCandidate.profile_name}
+                            {' · '}
+                            {selectedCalibrationCandidate.hardware_id}.
+                            Changing this dropdown also updates the Robot node.
+                          </>
+                        ) : (
+                          <>
+                            <strong>No calibration is picked in the open graph.</strong>
+                            {' '}
+                            Choose the named physical robot above. The Robot node will update
+                            to the same selection.
+                          </>
+                        )}
+                      </div>
+
+                      {hasJointMotion && (
+                        calibrationIsActive ? (
+                          <div className="bn-robot-step-status is-success">
+                            Ready: {activeCalibration?.name
+                              || selectedCalibrationCandidate?.name
+                              || 'this calibration'} is active on
+                            {' '}
+                            {targetStatus?.device_id || 'the device'}.
+                          </div>
+                        ) : (
+                          <div className="bn-robot-calibration-activate">
+                            <div className="bn-robot-step-status is-warning">
+                              {selectedCalibration
+                                ? 'Saved calibration found. Activate it on the connected, disarmed device.'
+                                : 'Choose which physical robot is connected to this device.'}
+                            </div>
+                            <button
+                              onClick={() => void activateCalibration()}
+                              disabled={busy || requirementsBusy || !selectedDeviceId || !selectedCalibration}
+                              style={primaryButton}
+                            >
+                              Use this calibration
+                            </button>
+                          </div>
+                        )
+                      )}
+                    </>
                   )}
                 </>
               )}

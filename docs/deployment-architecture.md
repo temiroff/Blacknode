@@ -78,7 +78,9 @@ The `Robot` node and Deployment Step 2 show the same selector with both values,
 select exactly one calibration, and record its stable identity in workflow
 metadata. Changing the selection in either place updates the other; the Robot
 node always states the calibration name and hardware identity that deployment
-will use.
+will use. Deployment Step 2 keeps this open-graph selection visible even before
+the paired device authenticates and when calibration is optional for a
+read-only workflow.
 
 Blacknode derives `metadata.required_capabilities` from the workflow. Robot
 motion workflows receive `joint_group`, `position_feedback`, and `servo_bus`.
