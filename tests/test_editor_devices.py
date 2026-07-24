@@ -373,17 +373,21 @@ class EditorDeviceApiTests(unittest.TestCase):
 
     def test_deployment_preflight_reports_auto_installable_target_package(self):
         hardware = _HardwareService()
-        workflow = json.loads(
-            (
-                ROOT
-                / "packages"
-                / "blacknode-perception"
-                / "templates"
-                / "vision-camera-console.json"
-            ).read_text(encoding="utf-8")
-        )
-        workflow["metadata"].pop("required_packages", None)
-        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+        workflow = _workflow([])
+        package_specs = [_target_package_spec()]
+        with (
+            patch("device_registry.urllib.request.urlopen", side_effect=hardware),
+            patch.object(
+                server,
+                "_workflow_target_package_specs",
+                return_value=package_specs,
+            ),
+            patch.object(
+                server,
+                "_workflow_target_packages",
+                return_value=[package_specs[0]["name"]],
+            ),
+        ):
             device_id = self.client.post("/devices", json={
                 "name": "Workshop camera",
                 "base_url": "http://192.168.1.87:8765",
@@ -450,17 +454,21 @@ class EditorDeviceApiTests(unittest.TestCase):
 
     def test_staging_auto_installs_extension_packages_before_upload(self):
         hardware = _HardwareService()
-        workflow = json.loads(
-            (
-                ROOT
-                / "packages"
-                / "blacknode-perception"
-                / "templates"
-                / "vision-camera-console.json"
-            ).read_text(encoding="utf-8")
-        )
-        workflow["metadata"].pop("required_packages", None)
-        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+        workflow = _workflow([])
+        package_specs = [_target_package_spec()]
+        with (
+            patch("device_registry.urllib.request.urlopen", side_effect=hardware),
+            patch.object(
+                server,
+                "_workflow_target_package_specs",
+                return_value=package_specs,
+            ),
+            patch.object(
+                server,
+                "_workflow_target_packages",
+                return_value=[package_specs[0]["name"]],
+            ),
+        ):
             device_id = self.client.post("/devices", json={
                 "name": "Workshop camera",
                 "base_url": "http://192.168.1.87:8765",
@@ -492,11 +500,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         self.assertEqual(
             sync_request[3]["packages"],
-            [{
-                "name": "blacknode-perception",
-                "git_url": "https://github.com/temiroff/blacknode-perception.git",
-                "version": "0.3.0",
-            }],
+            package_specs,
         )
 
     def test_deployment_preflight_returns_structured_failure_when_device_is_offline(self):
@@ -721,6 +725,14 @@ def _workflow(required_capabilities: list[str]) -> dict:
             },
         },
         "edges": [],
+    }
+
+
+def _target_package_spec() -> dict[str, str]:
+    return {
+        "name": "blacknode-perception",
+        "git_url": "https://github.com/temiroff/blacknode-perception.git",
+        "version": "0.3.0",
     }
 
 
