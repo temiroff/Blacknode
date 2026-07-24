@@ -115,9 +115,10 @@ pairing token:
 ```
 
 In the Blacknode editor, open **Devices**, select **Pair device**, and enter the
-Pi's service URL, such as `http://192.168.1.87:8765`. Paste the token printed by
-`pair.sh` and select **Pair and verify**. Blacknode checks the public service
-identity and then makes an authenticated status request before saving it.
+Pi's service URL, such as `http://192.168.1.87:8765`. Paste the hardware token
+printed by `pair.sh`. Run `blacknode-runtime/service.sh pairing` and paste its
+shared runtime token as well. Blacknode checks both authenticated services
+before marking the device ready for deployment.
 
 Device records are local to the editor installation at
 `.blacknode/devices.json`, which is excluded from Git. Pairing tokens remain in
@@ -132,8 +133,9 @@ the device is reachable through an untrusted network.
 ### Deploy a workflow to a paired device
 
 Open **Deploy**, select a paired device under **Remote target**, and select
-**Validate deployment**. This preflight does not upload, start, arm, or move
-anything. It checks:
+**Check setup**. It verifies the setup and, for a matching connected robot,
+activates the selected calibration while the device is disarmed. It does not
+start, arm, or move the robot. It checks:
 
 - workflow structure and editor-side package resolution;
 - authenticated device-service access and physical hardware connection;
@@ -166,8 +168,9 @@ it; use **Run** after checking its state. A running deployment must be stopped
 before it can be updated or deleted. Every remote start rechecks that hardware
 is connected and disarmed.
 
-The editor sends runtime requests through its backend, using the pairing token
-stored in `.blacknode/devices.json`; the browser never receives that token.
+The editor sends runtime requests through its backend, using the hardware and
+runtime tokens stored in `.blacknode/devices.json`; the browser never receives
+either token.
 Existing **Save local** and **Run local** actions continue to operate on the
 editor computer.
 

@@ -355,6 +355,7 @@ class PairDeviceReq(BaseModel):
     name: str = ""
     base_url: str
     token: str
+    runtime_token: str | None = None
 
 class DeploymentPreflightReq(BaseModel):
     # Omit to validate the graph currently open in the editor.
@@ -2808,6 +2809,35 @@ def list_devices():
         raise HTTPException(500, str(exc)) from exc
 
 
+def _device_runtime_status(device_id: str) -> dict[str, Any]:
+    try:
+        device = _device_registry.get_public(device_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if device is None:
+        raise HTTPException(404, "Device not found")
+    try:
+        manifest = _device_registry.runtime_client(device_id).manifest()
+        if (
+            manifest.get("service") != "blacknode-runtime"
+            or manifest.get("protocol_version") != 1
+        ):
+            raise DeviceRegistryError(
+                "Runtime service identity or protocol is incompatible."
+            )
+    except (DeviceRegistryError, KeyError) as exc:
+        return {
+            "ok": False,
+            "runtime_url": device["runtime_url"],
+            "error": str(exc),
+        }
+    return {
+        "ok": True,
+        "runtime_url": device["runtime_url"],
+        "manifest": manifest,
+    }
+
+
 @app.post("/devices")
 def pair_device(req: PairDeviceReq):
     try:
@@ -2817,11 +2847,16 @@ def pair_device(req: PairDeviceReq):
             name=req.name,
             base_url=client.base_url,
             token=req.token,
+            runtime_token=req.runtime_token,
             status=status,
         )
     except DeviceRegistryError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"device": device, "status": status}
+    return {
+        "device": device,
+        "status": status,
+        "runtime": _device_runtime_status(device["id"]),
+    }
 
 
 @app.get("/devices/{device_id}")
@@ -2841,6 +2876,11 @@ def get_device_status(device_id: str):
         return _paired_device_client(device_id).status()
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
+
+
+@app.get("/devices/{device_id}/runtime-status")
+def get_device_runtime_status(device_id: str):
+    return _device_runtime_status(device_id)
 
 
 @app.get("/devices/{device_id}/capabilities")
@@ -2890,14 +2930,18 @@ def _preflight_check(
     message: str,
     *,
     blocking: bool = False,
+    action: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    check = {
         "id": check_id,
         "label": label,
         "status": status,
         "message": message,
         "blocking": blocking,
     }
+    if action:
+        check["action"] = action
+    return check
 
 
 def _workflow_required_capabilities(workflow: dict[str, Any]) -> list[str]:
@@ -3668,6 +3712,15 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
                     )
             except ValueError as exc:
                 selection_error = str(exc)
+        calibration_action = (
+            "select_calibration"
+            if selection is None or selection_error
+            else "choose_matching_hardware"
+            if hardware_mismatch
+            else "activate_calibration"
+            if not calibration_matches
+            else None
+        )
         checks.append(_preflight_check(
             "calibration",
             "Calibration",
@@ -3686,15 +3739,23 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
                     else ""
                 )
                 or (
-                    "Select a saved device calibration, then activate it on this device."
+                    "Select a saved device calibration."
                     if selection is None
                     else (
-                        f"Activate {selection['profile_id']} / {selection['hardware_id']} "
-                        "on this device before staging."
+                        (
+                            "Disarm this device, then Check setup will prepare "
+                            f"{selection['profile_id']} / {selection['hardware_id']}."
+                        )
+                        if armed
+                        else (
+                            f"Check setup will prepare {selection['profile_id']} / "
+                            f"{selection['hardware_id']} automatically."
+                        )
                     )
                 )
             ),
             blocking=not calibration_matches or bool(selection_error),
+            action=calibration_action,
         ))
     elif calibrated is False and "joint_group" in available_capabilities:
         checks.append(_preflight_check(
@@ -3816,12 +3877,18 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
             blocking=bool(problems),
         ))
     except (DeviceRegistryError, KeyError) as exc:
+        runtime_error = str(exc)
+        if "pairing token was rejected" in runtime_error.casefold():
+            runtime_error = (
+                "Runtime authentication needs attention. Open Devices, choose "
+                "Re-pair, and paste the token shown by ./service.sh pairing."
+            )
         checks.append(_preflight_check(
             "target_runtime",
             "Target runtime",
             "pending",
             (
-                f"{exc} Install and start blacknode-runtime on "
+                f"{runtime_error} Install and start blacknode-runtime on "
                 f"{device.get('runtime_url')}."
             ),
             blocking=True,

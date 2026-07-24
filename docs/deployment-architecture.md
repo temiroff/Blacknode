@@ -68,8 +68,8 @@ separate workflows and are deployed one at a time to the computer connected to
 each robot. The Deployments panel guides robot setup in three steps:
 
 1. choose the profile for the workflow's `Robot` node;
-2. choose and activate the matching physical robot calibration, or open the
-   guided calibration workflow to create one; and
+2. choose the matching physical robot calibration, or open the guided
+   calibration workflow to create one; and
 3. check the setup before sending the workflow to the device.
 
 Several calibrations may be saved for the same profile because each calibration
@@ -107,8 +107,9 @@ Hardware-bound calibration is declared separately as
 ```
 
 Selecting a calibration records the intended profile and physical hardware in
-the workflow. **Use this calibration** uploads it to the paired, connected,
-disarmed device. Preflight accepts `joint_group` only when the
+the workflow. **Check setup** verifies the connected hardware identity and
+automatically activates a matching saved calibration while the device is
+disarmed. Preflight accepts `joint_group` only when the
 workflow selection, Robot profile, device hardware identity, and device's
 active calibration all match. The staged workflow embeds the same profile and
 calibration so the robot driver applies the reviewed home positions and safe
@@ -246,7 +247,9 @@ Each paired robot record uses the exact hardware service URL printed by
 `8765`, `8767`, `8768`, and subsequent assigned ports. Port `8766` remains the
 shared deployment runtime. The editor requires the hardware port explicitly,
 rejects `8766` as a robot hardware endpoint, and derives the runtime URL from
-the same host.
+the same host. Devices checks the hardware token and the shared runtime token
+independently. Run `blacknode-runtime/service.sh pairing` on the device when
+port `8766` needs a different token from its robot hardware services.
 
 For a workflow containing one `Robot` node, deployment also embeds the serial
 path reported by the selected hardware service and disables runtime USB

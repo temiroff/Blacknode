@@ -253,22 +253,6 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
     selectedCalibration,
   ])
 
-  const activateCalibration = async () => {
-    if (!selectedDeviceId || !selectedCalibration) return
-    setBusy(true)
-    setError(null)
-    try {
-      await api.activateDeviceCalibration(selectedDeviceId)
-      const status = await api.deviceStatus(selectedDeviceId)
-      setTargetStatus(status)
-      setPreflight(await api.validateDeviceDeployment(selectedDeviceId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   useEffect(() => {
     if (!selectedDeviceId) {
       setRemoteDeployments([])
@@ -279,8 +263,8 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
       try {
         const result = await api.listRemoteDeployments(selectedDeviceId)
         if (!cancelled) setRemoteDeployments(result.deployments)
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+      } catch {
+        if (!cancelled) setRemoteDeployments([])
       }
     }
     pull()
@@ -391,7 +375,19 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
     setPreflight(null)
     try {
       await setWorkflowRequirements(inferredCapabilities, selectedCalibration)
-      setPreflight(await api.validateDeviceDeployment(selectedDeviceId))
+      let result = await api.validateDeviceDeployment(selectedDeviceId)
+      const calibrationCheck = result.checks.find(check => check.id === 'calibration')
+      const safetyReady = result.checks.some(
+        check => check.id === 'safety' && check.status === 'pass',
+      )
+      if (calibrationCheck?.action === 'activate_calibration' && safetyReady) {
+        const activation = await api.activateDeviceCalibration(selectedDeviceId)
+        setTargetStatus(activation.status)
+        result = await api.validateDeviceDeployment(selectedDeviceId)
+      } else {
+        setTargetStatus(result.status)
+      }
+      setPreflight(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -734,56 +730,34 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
                         </select>
                       </label>
 
-                      <div className={`bn-robot-step-status${
-                        selectedCalibrationCandidate ? ' is-info' : ' is-warning'
+                      <div className={`bn-robot-calibration-summary${
+                        selectedCalibrationCandidate
+                          ? calibrationIsActive
+                            ? ' is-success'
+                            : ''
+                          : ' is-warning'
                       }`}>
                         {selectedCalibrationCandidate ? (
                           <>
-                            <strong>Open graph calibration:</strong>
+                            Selected:
                             {' '}
                             {selectedCalibrationCandidate.name}
                             {' · '}
-                            {selectedCalibrationCandidate.profile_name}
-                            {' · '}
                             {selectedCalibrationCandidate.hardware_id}.
-                            Changing this dropdown also updates the Robot node.
+                            {' '}
+                            {hasJointMotion && (
+                              calibrationIsActive
+                                ? 'Active on this device.'
+                                : 'Check setup will verify the robot and prepare it automatically.'
+                            )}
                           </>
                         ) : (
                           <>
-                            <strong>No calibration is picked in the open graph.</strong>
-                            {' '}
-                            Choose the named physical robot above. The Robot node will update
-                            to the same selection.
+                            Choose the named calibration for the physical robot connected to
+                            this device.
                           </>
                         )}
                       </div>
-
-                      {hasJointMotion && (
-                        calibrationIsActive ? (
-                          <div className="bn-robot-step-status is-success">
-                            Ready: {activeCalibration?.name
-                              || selectedCalibrationCandidate?.name
-                              || 'this calibration'} is active on
-                            {' '}
-                            {targetStatus?.device_id || 'the device'}.
-                          </div>
-                        ) : (
-                          <div className="bn-robot-calibration-activate">
-                            <div className="bn-robot-step-status is-warning">
-                              {selectedCalibration
-                                ? 'Saved calibration found. Activate it on the connected, disarmed device.'
-                                : 'Choose which physical robot is connected to this device.'}
-                            </div>
-                            <button
-                              onClick={() => void activateCalibration()}
-                              disabled={busy || requirementsBusy || !selectedDeviceId || !selectedCalibration}
-                              style={primaryButton}
-                            >
-                              Use this calibration
-                            </button>
-                          </div>
-                        )
-                      )}
                     </>
                   )}
                 </>

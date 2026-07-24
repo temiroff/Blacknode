@@ -1,8 +1,14 @@
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
-import { api, type HardwareDevice, type HardwareDeviceStatus } from '../api'
+import {
+  api,
+  type DeviceRuntimeStatus,
+  type HardwareDevice,
+  type HardwareDeviceStatus,
+} from '../api'
 
 type DeviceState = {
   status?: HardwareDeviceStatus
+  runtime?: DeviceRuntimeStatus
   error?: string
   loading?: boolean
   checkedAt?: number
@@ -67,27 +73,40 @@ export default function DevicesPanel() {
   const [name, setName] = useState('')
   const [baseUrl, setBaseUrl] = useState(DEFAULT_HARDWARE_URL)
   const [token, setToken] = useState('')
+  const [runtimeToken, setRuntimeToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const refreshStatus = async (device: HardwareDevice) => {
     setStates(prev => ({ ...prev, [device.id]: { ...prev[device.id], loading: true } }))
-    try {
-      const status = await api.deviceStatus(device.id)
-      setStates(prev => ({
-        ...prev,
-        [device.id]: { status, loading: false, checkedAt: Date.now() },
-      }))
-    } catch (err) {
-      setStates(prev => ({
-        ...prev,
-        [device.id]: {
-          error: err instanceof Error ? err.message : String(err),
-          loading: false,
-          checkedAt: Date.now(),
-        },
-      }))
-    }
+    const [hardwareResult, runtimeResult] = await Promise.allSettled([
+      api.deviceStatus(device.id),
+      api.deviceRuntimeStatus(device.id),
+    ])
+    setStates(prev => ({
+      ...prev,
+      [device.id]: {
+        status: hardwareResult.status === 'fulfilled' ? hardwareResult.value : undefined,
+        runtime: runtimeResult.status === 'fulfilled'
+          ? runtimeResult.value
+          : {
+              ok: false,
+              runtime_url: device.runtime_url,
+              error: runtimeResult.reason instanceof Error
+                ? runtimeResult.reason.message
+                : String(runtimeResult.reason),
+            },
+        error: hardwareResult.status === 'rejected'
+          ? (
+              hardwareResult.reason instanceof Error
+                ? hardwareResult.reason.message
+                : String(hardwareResult.reason)
+            )
+          : undefined,
+        loading: false,
+        checkedAt: Date.now(),
+      },
+    }))
   }
 
   const refresh = async () => {
@@ -107,6 +126,7 @@ export default function DevicesPanel() {
     setName(device?.name ?? '')
     setBaseUrl(device?.base_url ?? suggestedHardwareUrl(devices))
     setToken('')
+    setRuntimeToken('')
     setError(null)
     setShowForm(true)
   }
@@ -121,13 +141,25 @@ export default function DevicesPanel() {
     setBusy(true)
     setError(null)
     try {
-      const result = await api.pairDevice(name.trim(), baseUrl.trim(), token.trim())
+      const result = await api.pairDevice(
+        name.trim(),
+        baseUrl.trim(),
+        token.trim(),
+        runtimeToken.trim(),
+      )
       setShowForm(false)
       setToken('')
-      await refresh()
+      setRuntimeToken('')
+      const listed = await api.listDevices()
+      setDevices(listed.devices)
       setStates(prev => ({
         ...prev,
-        [result.device.id]: { status: result.status, loading: false, checkedAt: Date.now() },
+        [result.device.id]: {
+          status: result.status,
+          runtime: result.runtime,
+          loading: false,
+          checkedAt: Date.now(),
+        },
       }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -175,8 +207,9 @@ export default function DevicesPanel() {
           <div className="bn-device-form-title">Pair hardware service</div>
           <div className="bn-device-help">
             On the hardware computer, run <code>./pair.sh --all --show</code>, then copy
-            one robot’s name, complete hardware URL, and token. Port 8766 is reserved
-            for the shared runtime service.
+            one robot’s name, complete hardware URL, and token. Also run
+            {' '}<code>blacknode-runtime/service.sh pairing</code> and paste the shared
+            runtime token below. Port 8766 is reserved for that runtime service.
           </div>
           <label>
             <span>Name</span>
@@ -205,7 +238,7 @@ export default function DevicesPanel() {
             </div>
           )}
           <label>
-            <span>Pairing token</span>
+            <span>Hardware token · selected robot</span>
             <input
               value={token}
               onChange={event => setToken(event.target.value)}
@@ -215,8 +248,30 @@ export default function DevicesPanel() {
               autoComplete="new-password"
             />
           </label>
+          <label>
+            <span>Runtime token · shared port 8766</span>
+            <input
+              value={runtimeToken}
+              onChange={event => setRuntimeToken(event.target.value)}
+              type="password"
+              placeholder="Paste token from service.sh pairing"
+              autoComplete="new-password"
+            />
+          </label>
+          <div className="bn-device-help">
+            Leave the runtime token empty only when runtime and hardware use the same
+            token. Re-pairing with it empty keeps an already saved runtime token.
+          </div>
           <div className="bn-device-form-actions">
-            <button type="button" onClick={() => { setShowForm(false); setToken('') }} style={miniButton}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowForm(false)
+                setToken('')
+                setRuntimeToken('')
+              }}
+              style={miniButton}
+            >
               Cancel
             </button>
             <button type="submit" disabled={busy} style={primaryButton}>
@@ -260,10 +315,23 @@ function DeviceRow({ device, state, busy, onRefresh, onRepair, onRemove }: {
   onRemove: () => void
 }) {
   const status = state?.status
+  const runtime = state?.runtime
   const online = Boolean(status)
   const connected = Boolean(status?.connected)
-  const color = online ? (connected ? 'var(--ok)' : 'var(--warn)') : 'var(--err)'
-  const label = state?.loading ? 'CHECK' : online ? (connected ? 'READY' : 'ONLINE') : 'OFF'
+  const runtimeReady = runtime?.ok === true
+  const ready = connected && runtimeReady
+  const color = ready
+    ? 'var(--ok)'
+    : online || runtime
+      ? 'var(--warn)'
+      : 'var(--err)'
+  const label = state?.loading
+    ? 'CHECK'
+    : ready
+      ? 'READY'
+      : online
+        ? 'NEEDS SETUP'
+        : 'OFF'
   const recoveryHint = hardwareRecoveryHint(status?.error)
 
   return (
@@ -278,7 +346,10 @@ function DeviceRow({ device, state, busy, onRefresh, onRepair, onRemove }: {
           <div className="bn-run-node" title={device.runtime_url}>runtime {device.runtime_url}</div>
           <div className="bn-run-badges">
             <span>{device.remote_device_id}</span>
-            <span>token {device.token_fingerprint}</span>
+            <span>hardware token {device.token_fingerprint}</span>
+            <span>
+              runtime token {device.runtime_token_fingerprint || device.token_fingerprint}
+            </span>
             {status?.joint_names && <span>{status.joint_names.length} joints</span>}
           </div>
           {state?.error && (
@@ -287,17 +358,41 @@ function DeviceRow({ device, state, busy, onRefresh, onRepair, onRemove }: {
           {status?.error && (
             <div className="bn-run-error-line bn-device-error" role="alert">{status.error}</div>
           )}
+          {runtime && !runtime.ok && (
+            <>
+              <div className="bn-run-error-line bn-device-error" role="alert">
+                Runtime: {runtime.error || 'Unavailable'}
+              </div>
+              <div className="bn-device-recovery-hint">
+                On the device, run <code>blacknode-runtime/service.sh pairing</code>,
+                then choose Re-pair and paste its runtime token.
+              </div>
+            </>
+          )}
           {recoveryHint && <div className="bn-device-recovery-hint">{recoveryHint}</div>}
         </div>
         <div className="bn-run-status">
           <span className="bn-run-status-pill">{label}</span>
-          <span>{state?.loading ? 'Checking…' : online ? (connected ? 'Hardware connected' : 'Service connected') : 'Unavailable'}</span>
+          <span>
+            {state?.loading
+              ? 'Checking hardware and runtime…'
+              : ready
+                ? 'Hardware and runtime ready'
+                : online
+                  ? 'Hardware ready · runtime needs attention'
+                  : 'Unavailable'}
+          </span>
         </div>
       </div>
       <div className="bn-run-detail">
         <div className="bn-device-facts">
           <DeviceFact label="Armed" value={status ? (status.armed ? 'Yes' : 'No') : '—'} warn={Boolean(status?.armed)} />
           <DeviceFact label="Calibrated" value={status?.calibrated == null ? '—' : status.calibrated ? 'Yes' : 'No'} />
+          <DeviceFact
+            label="Deployment runtime"
+            value={runtime == null ? '—' : runtime.ok ? 'Ready' : 'Needs token'}
+            warn={runtime != null && !runtime.ok}
+          />
           <DeviceFact label="Capabilities" value={status?.capabilities?.join(', ') || '—'} />
           <DeviceFact label="Last check" value={formatCheckedAt(state?.checkedAt)} />
         </div>

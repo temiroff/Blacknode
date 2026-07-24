@@ -98,8 +98,22 @@ export interface HardwareDevice {
   runtime_url: string
   remote_device_id: string
   token_fingerprint: string
+  runtime_token_fingerprint?: string
   created_at: string
   updated_at: string
+}
+
+export interface DeviceRuntimeStatus {
+  ok: boolean
+  runtime_url: string
+  manifest?: {
+    service?: string
+    protocol_version?: number
+    runtime_version?: string
+    device_id?: string
+    [key: string]: unknown
+  }
+  error?: string
 }
 
 export interface HardwareDeviceStatus {
@@ -161,6 +175,7 @@ export interface DeploymentPreflightCheck {
   status: DeploymentPreflightStatus
   message: string
   blocking: boolean
+  action?: 'activate_calibration' | 'select_calibration' | 'choose_matching_hardware'
 }
 
 export interface DeploymentPreflight {
@@ -620,15 +635,26 @@ export const api = {
   setApiKey:        (provider: string, key: string) =>
     req<{ ok: boolean; restarted?: string | null; credential?: ApiKeyStatus }>('POST', '/settings/api-key', { provider, key }),
   listDevices:      () => req<{ devices: HardwareDevice[] }>('GET', '/devices'),
-  pairDevice:       (name: string, baseUrl: string, token: string) =>
-    req<{ device: HardwareDevice; status: HardwareDeviceStatus }>(
+  pairDevice:       (name: string, baseUrl: string, token: string, runtimeToken = '') =>
+    req<{
+      device: HardwareDevice
+      status: HardwareDeviceStatus
+      runtime: DeviceRuntimeStatus
+    }>(
       'POST',
       '/devices',
-      { name, base_url: baseUrl, token },
+      { name, base_url: baseUrl, token, runtime_token: runtimeToken || null },
       10000,
     ),
   deviceStatus:     (id: string) =>
     req<HardwareDeviceStatus>('GET', `/devices/${encodeURIComponent(id)}/status`, undefined, 7000),
+  deviceRuntimeStatus: (id: string) =>
+    req<DeviceRuntimeStatus>(
+      'GET',
+      `/devices/${encodeURIComponent(id)}/runtime-status`,
+      undefined,
+      7000,
+    ),
   deviceCapabilities: (id: string) =>
     req<{ device_id: string; connected: boolean; capabilities: string[] }>(
       'GET',

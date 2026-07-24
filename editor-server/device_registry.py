@@ -68,6 +68,8 @@ def _slug(value: str) -> str:
 class HardwareDeviceClient:
     """Talk to one hardware service while keeping its bearer token server-side."""
 
+    pairing_command = "./pair.sh --show"
+
     def __init__(self, base_url: str, token: str, *, timeout: float = 5.0) -> None:
         self.base_url = normalize_base_url(base_url)
         self.token = str(token or "").strip()
@@ -157,8 +159,8 @@ class HardwareDeviceClient:
         except urllib.error.HTTPError as exc:
             if exc.code == 401:
                 raise DeviceRegistryError(
-                    "Pairing token was rejected. Run ./pair.sh --show on the device "
-                    "and paste the current token."
+                    f"Pairing token was rejected. Run {self.pairing_command} on the "
+                    "device and paste the current token."
                 ) from exc
             if exc.code == 404 and endpoint == "/calibration":
                 raise DeviceRegistryError(
@@ -207,6 +209,8 @@ class HardwareDeviceClient:
 
 class RuntimeDeviceClient(HardwareDeviceClient):
     """Authenticated client for the deployment runtime on a paired device."""
+
+    pairing_command = "./service.sh pairing"
 
     def manifest(self) -> dict[str, Any]:
         return self._request("GET", "/manifest")
@@ -308,7 +312,8 @@ class DeviceRegistry:
             if record is None:
                 raise KeyError(device_id)
             runtime_url = record.get("runtime_url") or default_runtime_url(record["base_url"])
-            return RuntimeDeviceClient(runtime_url, record["token"])
+            runtime_token = record.get("runtime_token") or record["token"]
+            return RuntimeDeviceClient(runtime_url, runtime_token)
 
     def pair(
         self,
@@ -316,6 +321,7 @@ class DeviceRegistry:
         name: str,
         base_url: str,
         token: str,
+        runtime_token: str | None = None,
         status: dict[str, Any],
     ) -> dict[str, Any]:
         clean_name = str(name or "").strip()
@@ -344,6 +350,14 @@ class DeviceRegistry:
                     device_id = f"{base_id}-{suffix}"
                     suffix += 1
                 created_at = now
+            clean_runtime_token = str(runtime_token or "").strip()
+            runtime_token_explicit = bool(clean_runtime_token)
+            if not clean_runtime_token and existing and existing.get("runtime_token_explicit"):
+                clean_runtime_token = (
+                    str(existing.get("runtime_token") or "").strip()
+                )
+                runtime_token_explicit = True
+            clean_runtime_token = clean_runtime_token or clean_token
             record = {
                 "id": device_id,
                 "name": clean_name or remote_device_id,
@@ -355,11 +369,29 @@ class DeviceRegistry:
                 ),
                 "token": clean_token,
                 "token_fingerprint": token_fingerprint(clean_token),
+                "runtime_token": clean_runtime_token,
+                "runtime_token_fingerprint": token_fingerprint(clean_runtime_token),
+                "runtime_token_explicit": runtime_token_explicit,
                 "remote_device_id": remote_device_id,
                 "created_at": created_at,
                 "updated_at": now,
             }
             records[device_id] = record
+            if runtime_token_explicit:
+                for other_id, other in records.items():
+                    if (
+                        other_id != device_id
+                        and (
+                            other.get("runtime_url")
+                            or default_runtime_url(other["base_url"])
+                        ) == record["runtime_url"]
+                    ):
+                        other["runtime_token"] = clean_runtime_token
+                        other["runtime_token_fingerprint"] = token_fingerprint(
+                            clean_runtime_token
+                        )
+                        other["runtime_token_explicit"] = True
+                        other["updated_at"] = now
             self._save(records)
             return self._public(record)
 
@@ -417,7 +449,11 @@ class DeviceRegistry:
         public = {
             key: value
             for key, value in record.items()
-            if key != "token"
+            if key not in {"token", "runtime_token", "runtime_token_explicit"}
         }
         public.setdefault("runtime_url", default_runtime_url(str(record["base_url"])))
+        public.setdefault(
+            "runtime_token_fingerprint",
+            str(record.get("token_fingerprint") or ""),
+        )
         return public

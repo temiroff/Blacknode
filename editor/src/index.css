@@ -1131,11 +1131,6 @@ body {
   margin-top: 9px;
 }
 
-.bn-robot-calibration-choice + .bn-robot-step-status,
-.bn-robot-calibration-choice + .bn-robot-calibration-activate {
-  margin-bottom: 7px;
-}
-
 .bn-robot-step-status {
   margin-top: 8px;
   padding: 7px 8px;
@@ -1163,7 +1158,6 @@ body {
   border-left-color: var(--accent);
 }
 
-.bn-robot-calibration-activate,
 .bn-robot-step-actions {
   display: flex;
   align-items: center;
@@ -1173,9 +1167,20 @@ body {
   margin-top: 8px;
 }
 
-.bn-robot-calibration-activate .bn-robot-step-status {
-  flex: 1 1 240px;
-  margin-top: 0;
+.bn-robot-calibration-summary {
+  margin-top: 5px;
+  color: var(--tx3);
+  font-size: 9px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.bn-robot-calibration-summary.is-success {
+  color: var(--ok);
+}
+
+.bn-robot-calibration-summary.is-warning {
+  color: var(--warn);
 }
 
 .bn-deploy-panel {
@@ -1225,10 +1230,6 @@ body {
     justify-content: flex-start;
   }
 
-  .bn-robot-calibration-activate {
-    align-items: stretch;
-    flex-direction: column;
-  }
 }
 
 @container deployment-panel (max-width: 330px) {

@@ -281,6 +281,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(payload["device"]["id"], "alex-desktop")
         self.assertEqual(payload["device"]["base_url"], "http://192.168.1.87:8765")
         self.assertEqual(payload["device"]["runtime_url"], "http://192.168.1.87:8766")
+        self.assertTrue(payload["runtime"]["ok"])
         self.assertNotIn("token", payload["device"])
         self.assertNotIn(hardware.token, response.text)
 
@@ -293,10 +294,135 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(saved["devices"]["alex-desktop"]["token"], hardware.token)
         self.assertEqual(
             [item[1] for item in hardware.requests],
-            ["/health", "/status"],
+            ["/health", "/status", "/manifest"],
         )
         self.assertIsNone(hardware.requests[0][2])
         self.assertEqual(hardware.requests[1][2], f"Bearer {hardware.token}")
+
+    def test_pairing_stores_and_checks_a_separate_runtime_token(self):
+        hardware = _HardwareService("hardware-token")
+        runtime = _HardwareService("runtime-token")
+
+        def route(request, timeout=0):
+            if urllib.parse.urlsplit(request.full_url).port == 8766:
+                return runtime(request, timeout)
+            return hardware(request, timeout)
+
+        with patch("device_registry.urllib.request.urlopen", side_effect=route):
+            response = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+                "runtime_token": runtime.token,
+            })
+            runtime_status = self.client.get(
+                f"/devices/{response.json()['device']['id']}/runtime-status",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["runtime"]["ok"])
+        self.assertTrue(runtime_status.json()["ok"])
+        device = response.json()["device"]
+        self.assertNotIn("token", device)
+        self.assertNotIn("runtime_token", device)
+        self.assertNotIn(hardware.token, response.text)
+        self.assertNotIn(runtime.token, response.text)
+        saved = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        record = saved["devices"]["alex-desktop"]
+        self.assertEqual(record["token"], hardware.token)
+        self.assertEqual(record["runtime_token"], runtime.token)
+        manifest_requests = [
+            item for item in runtime.requests if item[1] == "/manifest"
+        ]
+        self.assertTrue(manifest_requests)
+        self.assertTrue(all(
+            authorization == f"Bearer {runtime.token}"
+            for _method, _path, authorization, _body in manifest_requests
+        ))
+
+    def test_pairing_succeeds_but_devices_reports_rejected_runtime_token(self):
+        hardware = _HardwareService("hardware-token")
+        runtime = _HardwareService("runtime-token")
+
+        def route(request, timeout=0):
+            if urllib.parse.urlsplit(request.full_url).port == 8766:
+                return runtime(request, timeout)
+            return hardware(request, timeout)
+
+        with patch("device_registry.urllib.request.urlopen", side_effect=route):
+            response = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            })
+            preflight = self.client.post(
+                f"/devices/{response.json()['device']['id']}/deployment-preflight",
+                json={"workflow": _workflow([])},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["runtime"]["ok"])
+        self.assertIn(
+            "./service.sh pairing",
+            response.json()["runtime"]["error"],
+        )
+        runtime_check = next(
+            item for item in preflight.json()["checks"]
+            if item["id"] == "target_runtime"
+        )
+        self.assertIn("Open Devices", runtime_check["message"])
+        self.assertNotIn("Pairing token was rejected", runtime_check["message"])
+
+    def test_shared_runtime_token_updates_every_robot_on_the_same_runtime(self):
+        leader = _HardwareService(
+            "leader-token",
+            status_overrides={"device_id": "leader-arm"},
+        )
+        follower = _HardwareService(
+            "follower-token",
+            status_overrides={"device_id": "follower-arm"},
+        )
+        runtime = _HardwareService("runtime-token")
+
+        def route(request, timeout=0):
+            port = urllib.parse.urlsplit(request.full_url).port
+            if port == 8766:
+                return runtime(request, timeout)
+            if port == 8767:
+                return follower(request, timeout)
+            return leader(request, timeout)
+
+        with patch("device_registry.urllib.request.urlopen", side_effect=route):
+            leader_id = self.client.post("/devices", json={
+                "name": "Leader",
+                "base_url": "http://192.168.1.87:8765",
+                "token": leader.token,
+            }).json()["device"]["id"]
+            follower_id = self.client.post("/devices", json={
+                "name": "Follower",
+                "base_url": "http://192.168.1.87:8767",
+                "token": follower.token,
+            }).json()["device"]["id"]
+            repaired = self.client.post("/devices", json={
+                "name": "Leader",
+                "base_url": "http://192.168.1.87:8765",
+                "token": leader.token,
+                "runtime_token": runtime.token,
+            })
+            follower_runtime = self.client.get(
+                f"/devices/{follower_id}/runtime-status",
+            )
+
+        self.assertEqual(leader_id, "leader-arm")
+        self.assertTrue(repaired.json()["runtime"]["ok"])
+        self.assertTrue(follower_runtime.json()["ok"])
+        devices = {
+            item["id"]: item for item in self.client.get("/devices").json()["devices"]
+        }
+        self.assertEqual(
+            devices[leader_id]["runtime_token_fingerprint"],
+            devices[follower_id]["runtime_token_fingerprint"],
+        )
 
     def test_status_and_rpc_use_saved_token_on_fixed_device_endpoints(self):
         hardware = _HardwareService()
@@ -539,6 +665,10 @@ class EditorDeviceApiTests(unittest.TestCase):
                     "token": hardware.token,
                 }).json()["device"]["id"]
                 candidates = self.client.get("/graph/calibrations")
+                before_activation = self.client.post(
+                    f"/devices/{device_id}/deployment-preflight",
+                    json={"workflow": workflow},
+                )
                 activated = self.client.post(f"/devices/{device_id}/calibration")
                 preflight = self.client.post(
                     f"/devices/{device_id}/deployment-preflight",
@@ -566,6 +696,13 @@ class EditorDeviceApiTests(unittest.TestCase):
             "Workshop left arm",
         )
         self.assertEqual(activated.status_code, 200)
+        before_checks = {
+            item["id"]: item for item in before_activation.json()["checks"]
+        }
+        self.assertEqual(
+            before_checks["calibration"]["action"],
+            "activate_calibration",
+        )
         self.assertTrue(activated.json()["status"]["calibrated"])
         checks = {item["id"]: item for item in preflight.json()["checks"]}
         self.assertEqual(checks["calibration"]["status"], "pass")
@@ -700,6 +837,10 @@ class EditorDeviceApiTests(unittest.TestCase):
         checks = {item["id"]: item for item in preflight.json()["checks"]}
         self.assertEqual(checks["calibration"]["status"], "fail")
         self.assertTrue(checks["calibration"]["blocking"])
+        self.assertEqual(
+            checks["calibration"]["action"],
+            "choose_matching_hardware",
+        )
         self.assertIn(
             "different physical robot",
             checks["calibration"]["message"],
