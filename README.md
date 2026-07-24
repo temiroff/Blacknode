@@ -53,7 +53,7 @@ Hardware drivers, cameras, buses, and the physical robot
 | Robot model | Robot profiles, capability contracts, calibration, discovery, and connection health | [`blacknode-robot`](https://github.com/temiroff/blacknode-robot) |
 | Integration | ROS 2 graph, topics, services, processes, native transport, and rosbridge | [`blacknode-ros2`](https://github.com/temiroff/blacknode-ros2) |
 | Hardware deployment | Runtime device contracts, capability inspection, safe device control, replaceable adapters, physical drivers, and firmware protocols | [`blacknode-hardware`](https://github.com/temiroff/blacknode-hardware), [`blacknode-drivers`](https://github.com/temiroff/blacknode-drivers) |
-| Learning and deployment | Episode recording, policy training, simulation, and accelerated compute | [`blacknode-dataset`](https://github.com/temiroff/blacknode-dataset), [`blacknode-training`](https://github.com/temiroff/blacknode-training), [`blacknode-isaac`](https://github.com/temiroff/blacknode-isaac), [`blacknode-cuda`](https://github.com/temiroff/blacknode-cuda) |
+| Learning and deployment | Episode recording, policy training, remote runtime, simulation, and accelerated compute | [`blacknode-dataset`](https://github.com/temiroff/blacknode-dataset), [`blacknode-training`](https://github.com/temiroff/blacknode-training), [`blacknode-runtime`](https://github.com/temiroff/blacknode-runtime), [`blacknode-isaac`](https://github.com/temiroff/blacknode-isaac), [`blacknode-cuda`](https://github.com/temiroff/blacknode-cuda) |
 
 The workflow depends on stable capabilities such as a camera, joint controller,
 mobile base, or navigation interface. Robot profiles select the concrete
@@ -104,6 +104,73 @@ replaceable adapters. Add
 [`blacknode-drivers`](https://github.com/temiroff/blacknode-drivers) for the
 physical bus, firmware, or device protocol used by the robot.
 
+### Pair a deployed device
+
+Start and verify the hardware service on the Raspberry Pi, then generate its
+pairing token:
+
+```bash
+./service.sh check --require-hardware
+./pair.sh
+```
+
+In the Blacknode editor, open **Devices**, select **Pair device**, and enter the
+Pi's service URL, such as `http://192.168.1.87:8765`. Paste the token printed by
+`pair.sh` and select **Pair and verify**. Blacknode checks the public service
+identity and then makes an authenticated status request before saving it.
+
+Device records are local to the editor installation at
+`.blacknode/devices.json`, which is excluded from Git. Pairing tokens remain in
+the editor backend: API responses, workflows, and deployment artifacts refer to
+the device ID and do not contain the token. Re-pair the same URL to replace a
+rotated token or update the device name.
+
+Plain HTTP protects access with the pairing token but does not encrypt network
+traffic. Use it only on a trusted local network; use HTTPS or a private VPN when
+the device is reachable through an untrusted network.
+
+### Deploy a workflow to a paired device
+
+Open **Deploy**, select a paired device under **Remote target**, and select
+**Validate deployment**. This preflight does not upload, start, arm, or move
+anything. It checks:
+
+- workflow structure and editor-side package resolution;
+- authenticated device-service access and physical hardware connection;
+- disarmed state;
+- declared `metadata.required_capabilities` against device capabilities;
+- calibration when a workflow declares the `joint_group` capability; and
+- availability of the target runtime manifest.
+
+Checks appear as pass, warning, failure, or pending. Install and start
+`blacknode-runtime` on the target to validate its Python version, Blacknode
+version, deployment features, required packages, and registered node types. If
+preflight reports an indexed extension package as **will install**, staging
+automatically clones it, installs its declared prerequisites, loads its nodes,
+and verifies the target manifest before uploading the workflow.
+
+When preflight reports **Ready**, choose:
+
+- **Stage** to export and upload the workflow without starting it.
+- **Stage & run** to upload it and explicitly start it on the device.
+
+Blacknode hashes the exact validated graph. If the canvas changes before
+staging, the upload is rejected; select **Validate** again so a different graph
+cannot be deployed accidentally.
+
+Remote deployments appear below the preflight report. Expand one to view its
+device log and use **Run**, **Stop**, **Stage update**, or **Rollback**.
+**Stage update** uploads the currently validated graph as another revision of
+that deployment. **Rollback** selects the previous revision without starting
+it; use **Run** after checking its state. A running deployment must be stopped
+before it can be updated or deleted. Every remote start rechecks that hardware
+is connected and disarmed.
+
+The editor sends runtime requests through its backend, using the pairing token
+stored in `.blacknode/devices.json`; the browser never receives that token.
+Existing **Save local** and **Run local** actions continue to operate on the
+editor computer.
+
 ## Core Platform
 
 - **Visual workflow editor:** compose and inspect typed node graphs.
@@ -121,6 +188,7 @@ physical bus, firmware, or device protocol used by the robot.
   [Datasets](docs/episode-datasets.md) ·
   [Policy training](docs/robot-policy-training.md)
 - Platform: [Packages](docs/packages.md) ·
+  [Device deployment](docs/deployment-architecture.md) ·
   [Workflow schema](docs/workflow-schema.md) ·
   [Custom nodes](docs/custom-nodes.md) ·
   [MCP](docs/quickstart-mcp.md) ·

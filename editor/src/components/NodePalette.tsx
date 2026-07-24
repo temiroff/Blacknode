@@ -10,6 +10,7 @@ import LearnedNodesPanel from './LearnedNodesPanel'
 import PackagesPanel from './PackagesPanel'
 import RunsPanel from './RunsPanel'
 import DeploymentsPanel from './DeploymentsPanel'
+import DevicesPanel from './DevicesPanel'
 import RuntimePanel from './RuntimePanel'
 import ConsolePanel from './ConsolePanel'
 import ScriptEditor from './ScriptEditor'
@@ -24,7 +25,7 @@ const CATEGORY_ORDER = Object.keys(CATEGORIES)
 interface PaletteSubGroup { name: string; color: string; types: string[] }
 interface PaletteGroup { name: string; color: string; subgroups: PaletteSubGroup[]; count: number }
 
-type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs' | 'runtime' | 'console' | 'deployments' | 'learned' | 'mcp' | 'packages'
+type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs' | 'runtime' | 'console' | 'deployments' | 'devices' | 'learned' | 'mcp' | 'packages'
 
 const TOP_BAR_H = 44
 const RAIL_W = 78
@@ -114,6 +115,14 @@ const ICON_DEPLOYMENTS = (
   </svg>
 )
 
+const ICON_DEVICES = (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <rect x="3" y="2.5" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+    <path d="M6 15.5h6M9 11.5v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    <circle cx="12.2" cy="5.4" r="1" fill="currentColor"/>
+  </svg>
+)
+
 const ICON_CONSOLE = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
     <rect x="2" y="3" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.3"/>
@@ -129,6 +138,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'script',    label: 'Script',    icon: ICON_SCRIPT    },
   { id: 'runs',      label: 'Runs',      icon: ICON_RUNS      },
   { id: 'deployments', label: 'Deploy',  icon: ICON_DEPLOYMENTS },
+  { id: 'devices',   label: 'Devices',   icon: ICON_DEVICES   },
   { id: 'runtime',   label: 'Runtime',   icon: ICON_RUNTIME   },
   { id: 'console',   label: 'Console',   icon: ICON_CONSOLE   },
   { id: 'learned',   label: 'Learned',   icon: ICON_LEARNED   },
@@ -674,6 +684,8 @@ export default function NodePalette() {
             {activeTab === 'runs' && <RunsPanel />}
 
             {activeTab === 'deployments' && <DeploymentsPanel />}
+
+            {activeTab === 'devices' && <DevicesPanel />}
 
             {/* ── RUNTIME ── */}
             {activeTab === 'runtime' && <RuntimePanel />}

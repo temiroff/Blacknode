@@ -91,6 +91,56 @@ export interface ApiKeyStatus {
   env_var: string
 }
 
+export interface HardwareDevice {
+  id: string
+  name: string
+  base_url: string
+  runtime_url: string
+  remote_device_id: string
+  token_fingerprint: string
+  created_at: string
+  updated_at: string
+}
+
+export interface HardwareDeviceStatus {
+  device_id: string
+  connected: boolean
+  armed: boolean
+  calibrated?: boolean
+  capabilities: string[]
+  joint_names?: string[]
+  positions?: Record<string, number>
+  raw_positions?: Record<string, number>
+  error?: string
+  updated_at?: number
+}
+
+export type DeploymentPreflightStatus = 'pass' | 'fail' | 'warning' | 'pending'
+
+export interface DeploymentPreflightCheck {
+  id: string
+  label: string
+  status: DeploymentPreflightStatus
+  message: string
+  blocking: boolean
+}
+
+export interface DeploymentPreflight {
+  ready: boolean
+  summary: string
+  device: HardwareDevice
+  workflow: {
+    name: string
+    node_count: number
+    required_capabilities: string[]
+    hash: string
+  }
+  status: HardwareDeviceStatus | null
+  runtime: Record<string, unknown> | null
+  checks: DeploymentPreflightCheck[]
+  checked_at: string
+}
+
 export type RunStatus = 'success' | 'error' | 'running'
 
 export interface RunSummary {
@@ -129,6 +179,22 @@ export interface Deployment {
   pid: number | null
   exit_code: number | null
   error: string
+}
+
+export type RemoteDeploymentState = 'staged' | 'running' | 'stopped' | 'exited' | 'failed'
+
+export interface RemoteDeployment {
+  id: string
+  name: string
+  state: RemoteDeploymentState
+  staged_revision: string
+  active_revision: string | null
+  revisions: string[]
+  pid: number | null
+  exit_code: number | null
+  error: string
+  created_at: string
+  updated_at: string
 }
 
 export interface WorkflowSnapshot {
@@ -501,6 +567,99 @@ export const api = {
   getApiKeyStatus:  () => req<Record<string, ApiKeyStatus>>('GET', '/settings/api-key-status'),
   setApiKey:        (provider: string, key: string) =>
     req<{ ok: boolean; restarted?: string | null; credential?: ApiKeyStatus }>('POST', '/settings/api-key', { provider, key }),
+  listDevices:      () => req<{ devices: HardwareDevice[] }>('GET', '/devices'),
+  pairDevice:       (name: string, baseUrl: string, token: string) =>
+    req<{ device: HardwareDevice; status: HardwareDeviceStatus }>(
+      'POST',
+      '/devices',
+      { name, base_url: baseUrl, token },
+      10000,
+    ),
+  deviceStatus:     (id: string) =>
+    req<HardwareDeviceStatus>('GET', `/devices/${encodeURIComponent(id)}/status`, undefined, 7000),
+  deviceCapabilities: (id: string) =>
+    req<{ device_id: string; connected: boolean; capabilities: string[] }>(
+      'GET',
+      `/devices/${encodeURIComponent(id)}/capabilities`,
+      undefined,
+      7000,
+    ),
+  validateDeviceDeployment: (id: string) =>
+    req<DeploymentPreflight>(
+      'POST',
+      `/devices/${encodeURIComponent(id)}/deployment-preflight`,
+      {},
+      10000,
+    ),
+  listRemoteDeployments: (deviceId: string) =>
+    req<{ deployments: RemoteDeployment[] }>(
+      'GET',
+      `/devices/${encodeURIComponent(deviceId)}/deployments`,
+      undefined,
+      10000,
+    ),
+  stageRemoteDeployment: (
+    deviceId: string,
+    name: string,
+    workflowHash: string,
+    start = false,
+    deploymentId?: string,
+  ) =>
+    req<{ deployment: RemoteDeployment; workflow_hash: string; started: boolean }>(
+      'POST',
+      `/devices/${encodeURIComponent(deviceId)}/deployments`,
+      {
+        name,
+        workflow_hash: workflowHash,
+        start,
+        deployment_id: deploymentId ?? null,
+      },
+      600000,
+    ),
+  startRemoteDeployment: (deviceId: string, deploymentId: string) =>
+    req<RemoteDeployment>(
+      'POST',
+      `/devices/${encodeURIComponent(deviceId)}/deployments/${encodeURIComponent(deploymentId)}/start`,
+      {},
+      15000,
+    ),
+  stopRemoteDeployment: (deviceId: string, deploymentId: string) =>
+    req<RemoteDeployment>(
+      'POST',
+      `/devices/${encodeURIComponent(deviceId)}/deployments/${encodeURIComponent(deploymentId)}/stop`,
+      {},
+      15000,
+    ),
+  rollbackRemoteDeployment: (deviceId: string, deploymentId: string, start = false) =>
+    req<RemoteDeployment>(
+      'POST',
+      `/devices/${encodeURIComponent(deviceId)}/deployments/${encodeURIComponent(deploymentId)}/rollback`,
+      { start },
+      15000,
+    ),
+  remoteDeploymentLogs: (deviceId: string, deploymentId: string) =>
+    req<{ id: string; logs: string }>(
+      'GET',
+      `/devices/${encodeURIComponent(deviceId)}/deployments/${encodeURIComponent(deploymentId)}/logs`,
+      undefined,
+      10000,
+    ),
+  deleteRemoteDeployment: (deviceId: string, deploymentId: string) =>
+    req<{ ok: boolean; id: string }>(
+      'DELETE',
+      `/devices/${encodeURIComponent(deviceId)}/deployments/${encodeURIComponent(deploymentId)}`,
+      undefined,
+      15000,
+    ),
+  deviceRpc: (id: string, method: string, params: Record<string, unknown> = {}, requestId: string | number | null = null) =>
+    req<Record<string, unknown>>(
+      'POST',
+      `/devices/${encodeURIComponent(id)}/rpc`,
+      { jsonrpc: '2.0', id: requestId, method, params },
+      10000,
+    ),
+  deleteDevice:     (id: string) =>
+    req<{ ok: boolean; id: string }>('DELETE', `/devices/${encodeURIComponent(id)}`),
   getOnboarding:    () => req<{ package_welcome_seen: boolean }>('GET', '/settings/onboarding'),
   setOnboarding:    (packageWelcomeSeen: boolean) =>
     req<{ ok: boolean; package_welcome_seen: boolean }>('POST', '/settings/onboarding', { package_welcome_seen: packageWelcomeSeen }),
