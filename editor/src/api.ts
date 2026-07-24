@@ -99,6 +99,7 @@ export interface HardwareDevice {
   remote_device_id: string
   token_fingerprint: string
   runtime_token_fingerprint?: string
+  runtime_token_configured?: boolean
   created_at: string
   updated_at: string
 }

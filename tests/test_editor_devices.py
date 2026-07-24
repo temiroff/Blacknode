@@ -398,23 +398,25 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "base_url": "http://192.168.1.87:8765",
                 "token": leader.token,
             }).json()["device"]["id"]
-            follower_id = self.client.post("/devices", json={
-                "name": "Follower",
-                "base_url": "http://192.168.1.87:8767",
-                "token": follower.token,
-            }).json()["device"]["id"]
             repaired = self.client.post("/devices", json={
                 "name": "Leader",
                 "base_url": "http://192.168.1.87:8765",
                 "token": leader.token,
                 "runtime_token": runtime.token,
             })
+            follower_pairing = self.client.post("/devices", json={
+                "name": "Follower",
+                "base_url": "http://192.168.1.87:8767",
+                "token": follower.token,
+            })
+            follower_id = follower_pairing.json()["device"]["id"]
             follower_runtime = self.client.get(
                 f"/devices/{follower_id}/runtime-status",
             )
 
         self.assertEqual(leader_id, "leader-arm")
         self.assertTrue(repaired.json()["runtime"]["ok"])
+        self.assertTrue(follower_pairing.json()["runtime"]["ok"])
         self.assertTrue(follower_runtime.json()["ok"])
         devices = {
             item["id"]: item for item in self.client.get("/devices").json()["devices"]
@@ -423,6 +425,8 @@ class EditorDeviceApiTests(unittest.TestCase):
             devices[leader_id]["runtime_token_fingerprint"],
             devices[follower_id]["runtime_token_fingerprint"],
         )
+        self.assertTrue(devices[leader_id]["runtime_token_configured"])
+        self.assertTrue(devices[follower_id]["runtime_token_configured"])
 
     def test_status_and_rpc_use_saved_token_on_fixed_device_endpoints(self):
         hardware = _HardwareService()

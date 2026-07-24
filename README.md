@@ -118,7 +118,9 @@ In the Blacknode editor, open **Devices**, select **Pair device**, and enter the
 Pi's service URL, such as `http://192.168.1.87:8765`. Paste the hardware token
 printed by `pair.sh`. Run `blacknode-runtime/service.sh pairing` and paste its
 shared runtime token as well. Blacknode checks both authenticated services
-before marking the device ready for deployment.
+before marking the device ready for deployment. The runtime token is entered
+once per computer and reused automatically when more robot hardware services
+from that computer are paired.
 
 Device records are local to the editor installation at
 `.blacknode/devices.json`, which is excluded from Git. Pairing tokens remain in

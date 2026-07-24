@@ -66,6 +66,19 @@ function hardwareUrlError(value: string): string | null {
   return null
 }
 
+function runtimeUrlForHardware(value: string): string {
+  try {
+    const parsed = new URL(value.trim())
+    parsed.port = String(RUNTIME_PORT)
+    parsed.pathname = ''
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.toString().replace(/\/$/, '')
+  } catch {
+    return ''
+  }
+}
+
 export default function DevicesPanel() {
   const [devices, setDevices] = useState<HardwareDevice[]>([])
   const [states, setStates] = useState<Record<string, DeviceState>>({})
@@ -74,6 +87,7 @@ export default function DevicesPanel() {
   const [baseUrl, setBaseUrl] = useState(DEFAULT_HARDWARE_URL)
   const [token, setToken] = useState('')
   const [runtimeToken, setRuntimeToken] = useState('')
+  const [changeRuntimeToken, setChangeRuntimeToken] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -127,6 +141,7 @@ export default function DevicesPanel() {
     setBaseUrl(device?.base_url ?? suggestedHardwareUrl(devices))
     setToken('')
     setRuntimeToken('')
+    setChangeRuntimeToken(false)
     setError(null)
     setShowForm(true)
   }
@@ -150,6 +165,7 @@ export default function DevicesPanel() {
       setShowForm(false)
       setToken('')
       setRuntimeToken('')
+      setChangeRuntimeToken(false)
       const listed = await api.listDevices()
       setDevices(listed.devices)
       setStates(prev => ({
@@ -188,6 +204,13 @@ export default function DevicesPanel() {
   }
 
   const pairUrlError = showForm ? hardwareUrlError(baseUrl) : null
+  const pairRuntimeUrl = runtimeUrlForHardware(baseUrl)
+  const reusableRuntimeDevice = devices.find(device => (
+    device.runtime_url === pairRuntimeUrl
+    && device.runtime_token_configured
+    && states[device.id]?.runtime?.ok
+  ))
+  const reuseRuntimeToken = Boolean(reusableRuntimeDevice) && !changeRuntimeToken
 
   return (
     <div className="bn-runs-panel">
@@ -207,9 +230,8 @@ export default function DevicesPanel() {
           <div className="bn-device-form-title">Pair hardware service</div>
           <div className="bn-device-help">
             On the hardware computer, run <code>./pair.sh --all --show</code>, then copy
-            one robot’s name, complete hardware URL, and token. Also run
-            {' '}<code>blacknode-runtime/service.sh pairing</code> and paste the shared
-            runtime token below. Port 8766 is reserved for that runtime service.
+            one robot’s name, complete hardware URL, and token. The computer runtime
+            on port 8766 is connected once and reused for its other robots.
           </div>
           <label>
             <span>Name</span>
@@ -248,20 +270,42 @@ export default function DevicesPanel() {
               autoComplete="new-password"
             />
           </label>
-          <label>
-            <span>Runtime token · shared port 8766</span>
-            <input
-              value={runtimeToken}
-              onChange={event => setRuntimeToken(event.target.value)}
-              type="password"
-              placeholder="Paste token from service.sh pairing"
-              autoComplete="new-password"
-            />
-          </label>
-          <div className="bn-device-help">
-            Leave the runtime token empty only when runtime and hardware use the same
-            token. Re-pairing with it empty keeps an already saved runtime token.
-          </div>
+          {reuseRuntimeToken ? (
+            <div className="bn-device-runtime-reuse">
+              <div>
+                <strong>Computer runtime already connected</strong>
+                <span>
+                  {reusableRuntimeDevice?.runtime_url} will be reused automatically.
+                  Only this robot’s hardware token is needed.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChangeRuntimeToken(true)}
+                style={miniButton}
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <>
+              <label>
+                <span>Computer runtime token · once per computer</span>
+                <input
+                  value={runtimeToken}
+                  onChange={event => setRuntimeToken(event.target.value)}
+                  type="password"
+                  placeholder="Paste token from service.sh pairing"
+                  autoComplete="new-password"
+                />
+              </label>
+              <div className="bn-device-help">
+                Enter this once for port 8766. Future robots on this computer reuse
+                it automatically. Leave it empty only when runtime intentionally
+                shares the hardware token.
+              </div>
+            </>
+          )}
           <div className="bn-device-form-actions">
             <button
               type="button"
@@ -269,6 +313,7 @@ export default function DevicesPanel() {
                 setShowForm(false)
                 setToken('')
                 setRuntimeToken('')
+                setChangeRuntimeToken(false)
               }}
               style={miniButton}
             >

@@ -350,6 +350,11 @@ class DeviceRegistry:
                     device_id = f"{base_id}-{suffix}"
                     suffix += 1
                 created_at = now
+            runtime_url = (
+                existing.get("runtime_url")
+                if existing and existing.get("runtime_url")
+                else default_runtime_url(clean_url)
+            )
             clean_runtime_token = str(runtime_token or "").strip()
             runtime_token_explicit = bool(clean_runtime_token)
             if not clean_runtime_token and existing and existing.get("runtime_token_explicit"):
@@ -357,16 +362,29 @@ class DeviceRegistry:
                     str(existing.get("runtime_token") or "").strip()
                 )
                 runtime_token_explicit = True
+            if not clean_runtime_token:
+                runtime_peer = next(
+                    (
+                        item
+                        for item in records.values()
+                        if (
+                            item.get("runtime_url")
+                            or default_runtime_url(item["base_url"])
+                        ) == runtime_url
+                        and item.get("runtime_token_explicit")
+                        and str(item.get("runtime_token") or "").strip()
+                    ),
+                    None,
+                )
+                if runtime_peer is not None:
+                    clean_runtime_token = str(runtime_peer["runtime_token"]).strip()
+                    runtime_token_explicit = True
             clean_runtime_token = clean_runtime_token or clean_token
             record = {
                 "id": device_id,
                 "name": clean_name or remote_device_id,
                 "base_url": clean_url,
-                "runtime_url": (
-                    existing.get("runtime_url")
-                    if existing and existing.get("runtime_url")
-                    else default_runtime_url(clean_url)
-                ),
+                "runtime_url": runtime_url,
                 "token": clean_token,
                 "token_fingerprint": token_fingerprint(clean_token),
                 "runtime_token": clean_runtime_token,
@@ -455,5 +473,8 @@ class DeviceRegistry:
         public.setdefault(
             "runtime_token_fingerprint",
             str(record.get("token_fingerprint") or ""),
+        )
+        public["runtime_token_configured"] = bool(
+            record.get("runtime_token_explicit")
         )
         return public

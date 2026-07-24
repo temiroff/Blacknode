@@ -1256,6 +1256,36 @@ body {
   white-space: normal;
 }
 
+.bn-device-runtime-reuse {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--ok) 45%, var(--line2));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ok) 7%, transparent);
+}
+
+.bn-device-runtime-reuse > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bn-device-runtime-reuse strong {
+  color: var(--ok);
+  font-size: 10px;
+}
+
+.bn-device-runtime-reuse span {
+  color: var(--tx3);
+  font-size: 9px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .bn-device-recovery-hint {
   margin-top: 6px;
   color: var(--warn);

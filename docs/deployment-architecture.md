@@ -249,7 +249,9 @@ shared deployment runtime. The editor requires the hardware port explicitly,
 rejects `8766` as a robot hardware endpoint, and derives the runtime URL from
 the same host. Devices checks the hardware token and the shared runtime token
 independently. Run `blacknode-runtime/service.sh pairing` on the device when
-port `8766` needs a different token from its robot hardware services.
+port `8766` needs a different token from its robot hardware services. The
+editor stores that credential once for the shared runtime URL and reuses it
+automatically as additional robots on the same computer are paired.
 
 For a workflow containing one `Robot` node, deployment also embeds the serial
 path reported by the selected hardware service and disables runtime USB
