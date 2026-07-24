@@ -653,6 +653,12 @@ export const api = {
       { name, base_url: baseUrl, token, runtime_token: runtimeToken || null },
       10000,
     ),
+  renameDevice:     (id: string, name: string) =>
+    req<{ device: HardwareDevice }>(
+      'PATCH',
+      `/devices/${encodeURIComponent(id)}`,
+      { name },
+    ),
   deviceStatus:     (id: string) =>
     req<HardwareDeviceStatus>('GET', `/devices/${encodeURIComponent(id)}/status`, undefined, 7000),
   deviceRuntimeStatus: (id: string) =>

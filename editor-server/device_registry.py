@@ -422,6 +422,21 @@ class DeviceRegistry:
             self._save(records)
             return True
 
+    def rename(self, device_id: str, name: str) -> dict[str, Any]:
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            raise ValueError("Device name is required.")
+        with self._lock:
+            records = self._load()
+            record = records.get(device_id)
+            if record is None:
+                raise KeyError(device_id)
+            record["name"] = clean_name
+            record["updated_at"] = _iso_now()
+            records[device_id] = record
+            self._save(records)
+            return self._public(record)
+
     def _load(self) -> dict[str, dict[str, Any]]:
         if not self.path.exists():
             return {}

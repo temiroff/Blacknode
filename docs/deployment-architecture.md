@@ -107,7 +107,10 @@ Hardware-bound calibration is declared separately as
 ```
 
 Selecting a calibration records the intended profile and physical hardware in
-the workflow. **Check setup** verifies the connected hardware identity and
+the workflow. When exactly one paired device reports that hardware identity,
+the Deployments panel selects it automatically and shows the calibration match.
+The Devices panel can rename a paired robot without asking for its pairing
+tokens again. **Check setup** verifies the connected hardware identity and
 automatically activates a matching saved calibration while the device is
 disarmed. Preflight accepts `joint_group` only when the
 workflow selection, Robot profile, device hardware identity, and device's

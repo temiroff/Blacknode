@@ -352,6 +352,42 @@ class EditorDeviceApiTests(unittest.TestCase):
             for _method, _path, authorization, _body in manifest_requests
         ))
 
+    def test_device_can_be_renamed_without_repairing_or_exposing_tokens(self):
+        hardware = _HardwareService()
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            device = self.client.post("/devices", json={
+                "name": "Leader",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]
+
+        response = self.client.patch(
+            f"/devices/{device['id']}",
+            json={"name": "Leader — 31481"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["device"]["name"], "Leader — 31481")
+        self.assertNotIn(hardware.token, response.text)
+        listed = self.client.get("/devices").json()["devices"]
+        self.assertEqual(listed[0]["name"], "Leader — 31481")
+        saved = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["devices"][device["id"]]["token"], hardware.token)
+        self.assertEqual(
+            self.client.patch(
+                f"/devices/{device['id']}",
+                json={"name": "  "},
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.patch(
+                "/devices/missing",
+                json={"name": "Missing"},
+            ).status_code,
+            404,
+        )
+
     def test_pairing_succeeds_but_devices_reports_rejected_runtime_token(self):
         hardware = _HardwareService("hardware-token")
         runtime = _HardwareService("runtime-token")

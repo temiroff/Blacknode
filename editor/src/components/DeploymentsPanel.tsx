@@ -28,6 +28,22 @@ const JOINT_MOTION_NODE_TYPES = new Set([
   'IsaacPolicyRuntime',
 ])
 
+function normalizedHardwareIdentity(value: unknown): string {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function deviceForHardwareIdentity(
+  devices: HardwareDevice[],
+  hardwareId: string,
+): HardwareDevice | null {
+  const hardwareToken = normalizedHardwareIdentity(hardwareId)
+  if (hardwareToken.length < 6) return null
+  const matches = devices.filter(device => (
+    normalizedHardwareIdentity(device.remote_device_id).includes(hardwareToken)
+  ))
+  return matches.length === 1 ? matches[0] : null
+}
+
 const STATE_COLOR: Record<DeploymentState, string> = {
   running: 'var(--ok)',
   stopped: 'var(--tx3)',
@@ -144,6 +160,13 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
     && targetStatus?.calibrated
     && activeCalibration?.profile_id === selectedCalibration.profile_id
     && activeCalibration?.hardware_id === selectedCalibration.hardware_id
+  )
+  const calibrationMatchedDevice = useMemo(
+    () => deviceForHardwareIdentity(
+      devices,
+      String(selectedCalibration?.hardware_id ?? ''),
+    ),
+    [devices, selectedCalibration?.hardware_id],
   )
 
   const refresh = async () => {
@@ -287,6 +310,17 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
       })
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
   }, [])
+
+  useEffect(() => {
+    if (!calibrationMatchedDevice) return
+    setSelectedDeviceId(current => (
+      current === calibrationMatchedDevice.id
+        ? current
+        : calibrationMatchedDevice.id
+    ))
+    setPreflight(null)
+    setRemoteNotice(null)
+  }, [activeTabId, calibrationMatchedDevice?.id, selectedCalibration?.hardware_id])
 
   // Only the open row's log is fetched, and only while it is open, so a long
   // list of deployments does not turn into a log-tail storm every 3s.
@@ -513,6 +547,13 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
           </select>
         ) : (
           <div className="bn-device-help">Pair a Raspberry Pi in the Devices tab first.</div>
+        )}
+        {calibrationMatchedDevice && selectedDeviceId === calibrationMatchedDevice.id && (
+          <div className="bn-robot-step-status is-success">
+            <strong>Matched to the graph calibration:</strong>
+            {' '}
+            {calibrationMatchedDevice.name} · {selectedCalibration?.hardware_id}
+          </div>
         )}
 
         <div className="bn-robot-deploy-steps">

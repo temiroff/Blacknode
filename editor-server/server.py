@@ -363,6 +363,9 @@ class PairDeviceReq(BaseModel):
     token: str
     runtime_token: str | None = None
 
+class RenameDeviceReq(BaseModel):
+    name: str
+
 class DeploymentPreflightReq(BaseModel):
     # Omit to validate the graph currently open in the editor.
     workflow: dict[str, Any] | None = None
@@ -2874,6 +2877,18 @@ def get_device(device_id: str):
     if device is None:
         raise HTTPException(404, "Device not found")
     return device
+
+
+@app.patch("/devices/{device_id}")
+def rename_device(device_id: str, req: RenameDeviceReq):
+    try:
+        return {"device": _device_registry.rename(device_id, req.name)}
+    except KeyError as exc:
+        raise HTTPException(404, "Device not found") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
 
 
 @app.get("/devices/{device_id}/status")

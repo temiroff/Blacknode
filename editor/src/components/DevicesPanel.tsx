@@ -203,6 +203,23 @@ export default function DevicesPanel() {
     }
   }
 
+  const rename = async (device: HardwareDevice) => {
+    const name = window.prompt('Name this robot', device.name)
+    if (name === null || name.trim() === device.name) return
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await api.renameDevice(device.id, name.trim())
+      setDevices(prev => prev.map(item => (
+        item.id === device.id ? result.device : item
+      )))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const stopDeployment = async (device: HardwareDevice, deploymentId: string) => {
     if (!window.confirm(
       `Stop the deployment using "${device.name}" and reconnect its hardware monitor?`,
@@ -358,6 +375,7 @@ export default function DevicesPanel() {
             state={states[device.id]}
             busy={busy}
             onRefresh={() => refreshStatus(device)}
+            onRename={() => rename(device)}
             onRepair={() => openPairForm(device)}
             onRemove={() => remove(device)}
             onStopDeployment={deploymentId => stopDeployment(device, deploymentId)}
@@ -373,6 +391,7 @@ function DeviceRow({
   state,
   busy,
   onRefresh,
+  onRename,
   onRepair,
   onRemove,
   onStopDeployment,
@@ -381,6 +400,7 @@ function DeviceRow({
   state?: DeviceState
   busy: boolean
   onRefresh: () => void
+  onRename: () => void
   onRepair: () => void
   onRemove: () => void
   onStopDeployment: (deploymentId: string) => void
@@ -489,6 +509,7 @@ function DeviceRow({
             </button>
           )}
           <button onClick={onRefresh} disabled={busy || state?.loading} style={miniButton}>Check</button>
+          <button onClick={onRename} disabled={busy} style={miniButton}>Rename</button>
           <button onClick={onRepair} disabled={busy} style={miniButton}>Re-pair</button>
           <button onClick={onRemove} disabled={busy} style={dangerButton}>Remove</button>
         </div>
