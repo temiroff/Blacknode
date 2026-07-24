@@ -211,6 +211,15 @@ class _HardwareService:
                 "capabilities": ["joint_group", "servo_bus", "position_feedback"],
             })
         if path == "/rpc":
+            method = str((body or {}).get("method") or "")
+            if method == "resume":
+                self.status_payload["connected"] = True
+                self.status_payload.pop("error", None)
+            elif method == "release":
+                self.status_payload["connected"] = False
+                self.status_payload["error"] = (
+                    "serial hardware is leased to a Blacknode deployment"
+                )
             return _JsonResponse({
                 "jsonrpc": "2.0",
                 "id": body.get("id"),
@@ -1191,6 +1200,74 @@ class EditorDeviceApiTests(unittest.TestCase):
             if method == "POST" and path == "/rpc"
         ]
         self.assertIn("release", [body["method"] for body in lease_requests])
+        self.assertEqual(
+            stage_request[3]["manifest"]["target_device_id"],
+            device_id,
+        )
+
+    def test_preflight_recovers_stale_hardware_deployment_lease(self):
+        hardware = _HardwareService(status_overrides={
+            "connected": False,
+            "error": "serial hardware is leased to a Blacknode deployment",
+        })
+        workflow = _workflow([])
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            device_id = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]["id"]
+            with patch.object(server, "_workflow_payload", return_value=workflow):
+                response = self.client.post(
+                    f"/devices/{device_id}/deployment-preflight",
+                    json={},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        hardware_check = next(
+            item for item in response.json()["checks"]
+            if item["id"] == "hardware"
+        )
+        self.assertEqual(hardware_check["status"], "pass")
+        rpc_methods = [
+            body["method"]
+            for method, path, _auth, body in hardware.requests
+            if method == "POST" and path == "/rpc"
+        ]
+        self.assertIn("resume", rpc_methods)
+
+    def test_preflight_names_running_deployment_that_owns_hardware(self):
+        hardware = _HardwareService(status_overrides={
+            "connected": False,
+            "error": "serial hardware is leased to a Blacknode deployment",
+        })
+        workflow = _workflow([])
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            device_id = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]["id"]
+            hardware.runtime_deployments["leader-live"] = {
+                "id": "leader-live",
+                "name": "Leader live",
+                "state": "running",
+                "target_device_id": device_id,
+            }
+            with patch.object(server, "_workflow_payload", return_value=workflow):
+                response = self.client.post(
+                    f"/devices/{device_id}/deployment-preflight",
+                    json={},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        hardware_check = next(
+            item for item in response.json()["checks"]
+            if item["id"] == "hardware"
+        )
+        self.assertEqual(hardware_check["status"], "fail")
+        self.assertIn("Leader live", hardware_check["message"])
+        self.assertIn("Stop that deployment", hardware_check["message"])
 
     def test_staging_rejects_graph_changed_after_validation(self):
         hardware = _HardwareService()

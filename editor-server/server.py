@@ -3623,7 +3623,7 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
         ))
 
     try:
-        remote_status = _paired_device_client(device_id).status()
+        remote_status = _deployment_aware_device_status(device_id)
     except DeviceRegistryError as exc:
         checks.append(_preflight_check(
             "service",
@@ -4055,7 +4055,7 @@ def _runtime_client_or_404(device_id: str):
 
 def _require_device_safe_to_start(device_id: str) -> None:
     try:
-        status = _paired_device_client(device_id).status()
+        status = _deployment_aware_device_status(device_id)
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
     if not status.get("connected"):
@@ -4093,6 +4093,49 @@ def _set_device_deployment_lease(device_id: str, *, leased: bool) -> None:
             502,
             f"Could not {method} the robot hardware monitor: {message}",
         )
+
+
+def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
+    """Recover an orphaned hardware lease, or explain the active owner."""
+    client = _paired_device_client(device_id)
+    status = client.status()
+    error = str(status.get("error") or "")
+    folded_error = error.casefold()
+    if "leased" not in folded_error or "deployment" not in folded_error:
+        return status
+
+    try:
+        payload = _device_registry.runtime_client(device_id).list_deployments()
+    except (DeviceRegistryError, KeyError):
+        return status
+    deployments = [
+        item
+        for item in (payload.get("deployments") or [])
+        if isinstance(item, dict)
+    ]
+    active = [
+        item
+        for item in deployments
+        if (
+            str(item.get("state") or "") == "running"
+            and str(item.get("target_device_id") or "") in {"", device_id}
+        )
+    ]
+    if active:
+        owner = active[0]
+        result = dict(status)
+        result["error"] = (
+            "Robot hardware is being used by running deployment "
+            f"'{owner.get('name') or owner.get('id')}'. Stop that deployment "
+            "in Deployments, then check setup again."
+        )
+        return result
+
+    try:
+        _set_device_deployment_lease(device_id, leased=False)
+    except HTTPException:
+        return status
+    return client.status()
 
 
 @app.get("/devices/{device_id}/deployments")
@@ -4152,6 +4195,7 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
             "package_requirements": _workflow_target_package_specs(workflow),
             "blacknode_version": str(getattr(bn, "__version__", "")),
             "runtime_protocol_version": runtime_manifest.get("protocol_version"),
+            "target_device_id": device_id,
             "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         },
     }
