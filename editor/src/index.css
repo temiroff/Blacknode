@@ -1167,6 +1167,37 @@ body {
   margin-top: 8px;
 }
 
+.bn-robot-deployment-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 9px;
+}
+
+.bn-robot-deployment-name > span {
+  color: var(--tx3);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.bn-robot-deployment-name input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  background: var(--lift);
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  color: var(--tx);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  outline: none;
+}
+
+.bn-robot-deployment-name input:focus {
+  border-color: var(--accent);
+}
+
 .bn-robot-calibration-summary {
   margin-top: 5px;
   color: var(--tx3);

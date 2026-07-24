@@ -119,6 +119,7 @@ class _HardwareService:
                     "process_supervision_v1",
                     "rollback_v1",
                     "package_sync_v1",
+                    "component_sync_v1",
                 ],
                 "python": {"version": "3.12.3"},
                 "blacknode": {"installed": True, "version": "0.3.0"},
@@ -959,6 +960,10 @@ class EditorDeviceApiTests(unittest.TestCase):
             path=str(package_dir),
         )
         workflow = {
+            "metadata": {
+                "required_components": ["blacknode-new-camera/capture"],
+                "required_adapters": ["blacknode-new-camera/capture@ros2"],
+            },
             "node_meta": {"camera": {"type": "NewCamera"}},
             "edges": [],
         }
@@ -977,7 +982,75 @@ class EditorDeviceApiTests(unittest.TestCase):
             "name": "blacknode-new-camera",
             "git_url": "https://github.com/example/blacknode-new-camera.git",
             "version": "1.4.0",
+            "components": ["capture"],
+            "adapters": [{"component": "capture", "adapter": "ros2"}],
         }])
+
+    def test_preflight_can_activate_an_installed_package_adapter(self):
+        hardware = _HardwareService()
+        hardware.runtime_packages.append({
+            "name": "blacknode-skills",
+            "version": "0.1.0",
+            "source": "workspace",
+        })
+        workflow = _workflow([])
+        package_specs = [{
+            "name": "blacknode-skills",
+            "git_url": "https://github.com/temiroff/blacknode-skills.git",
+            "version": "0.1.0",
+            "components": ["follow-person"],
+            "adapters": [{"component": "follow-person", "adapter": "ros2"}],
+        }]
+        package_index = {
+            "packages": {},
+            "nodes": {
+                "ROS2LeaderFollower": {
+                    "package": "blacknode-skills",
+                    "git_url": "https://github.com/temiroff/blacknode-skills.git",
+                },
+            },
+        }
+        with (
+            patch("device_registry.urllib.request.urlopen", side_effect=hardware),
+            patch.object(
+                server,
+                "_workflow_target_package_specs",
+                return_value=package_specs,
+            ),
+            patch.object(
+                server,
+                "_workflow_target_packages",
+                return_value=["blacknode-skills"],
+            ),
+            patch.object(
+                server,
+                "workflow_node_types",
+                return_value={"ROS2LeaderFollower"},
+            ),
+            patch.object(
+                server,
+                "package_index_payload",
+                return_value=package_index,
+            ),
+        ):
+            device_id = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]["id"]
+            response = self.client.post(
+                f"/devices/{device_id}/deployment-preflight",
+                json={"workflow": workflow},
+            )
+
+        target_runtime = next(
+            item for item in response.json()["checks"]
+            if item["id"] == "target_runtime"
+        )
+        self.assertEqual(target_runtime["status"], "warning")
+        self.assertFalse(target_runtime["blocking"])
+        self.assertIn("blacknode-skills", target_runtime["message"])
+        self.assertTrue(response.json()["ready"])
 
     def test_staging_auto_installs_extension_packages_before_upload(self):
         hardware = _HardwareService()

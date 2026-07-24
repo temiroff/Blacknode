@@ -150,8 +150,9 @@ Every mutating request will support:
 The runtime owns deployment state independently from its network adapter. Its
 service contract is responsible for:
 
-- synchronizing declared extension packages through a replaceable package
-  provider before artifact staging;
+- synchronizing declared extension packages and activating the workflow's
+  required components and adapters through a replaceable package provider
+  before artifact staging;
 - validating artifact size, schema, hash, and executable form;
 - preserving revisions;
 - separating stage from start;

@@ -26,7 +26,13 @@ from blacknode.learned import registry as learned_registry
 from blacknode.mcp import tools as mcp_tools
 from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
-from blacknode.package_index import package_index_payload, resolve_workflow_dependencies, workflow_node_types
+from blacknode.package_index import (
+    package_index_payload,
+    resolve_workflow_dependencies,
+    template_adapter_requirements,
+    template_component_requirements,
+    workflow_node_types,
+)
 from blacknode.packages import MANIFEST_NAME as BN_MANIFEST_NAME
 from blacknode.packages import component_dependency_plan as bn_component_dependency_plan
 from blacknode.packages import adapter_dependency_plan as bn_adapter_dependency_plan
@@ -3376,7 +3382,7 @@ def _package_git_source(path: str) -> str:
 
 def _workflow_target_package_specs(
     workflow: dict[str, Any],
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     index = package_index_payload()
     indexed_packages = index.get("packages") or {}
     node_index = index.get("nodes") or {}
@@ -3457,6 +3463,68 @@ def _workflow_target_package_specs(
                 ) or git_url,
                 "version": version,
             }
+
+    def requirement_spec(package_name: str) -> dict[str, Any]:
+        existing = specs.get(package_name)
+        if existing is not None:
+            return existing
+        indexed = indexed_packages.get(package_name)
+        local = local_packages.get(package_name)
+        spec: dict[str, Any] = {
+            "name": package_name,
+            "git_url": (
+                _package_git_source(str(local.path or ""))
+                if local is not None
+                else str(indexed.get("git_url") or "")
+                if isinstance(indexed, dict)
+                else ""
+            ),
+            "version": (
+                str(local.version or "")
+                if local is not None
+                else str(indexed.get("version") or "")
+                if isinstance(indexed, dict)
+                else ""
+            ),
+        }
+        specs[package_name] = spec
+        return spec
+
+    for requirement in template_component_requirements(workflow):
+        package_name = str(requirement.get("package") or "").strip()
+        component_name = str(requirement.get("component") or "").strip()
+        if not package_name or not component_name:
+            continue
+        spec = requirement_spec(package_name)
+        components = {
+            str(item)
+            for item in spec.get("components", [])
+            if str(item)
+        }
+        components.add(component_name)
+        spec["components"] = sorted(components)
+
+    for requirement in template_adapter_requirements(workflow):
+        package_name = str(requirement.get("package") or "").strip()
+        component_name = str(requirement.get("component") or "").strip()
+        adapter_name = str(requirement.get("adapter") or "").strip()
+        if not package_name or not component_name or not adapter_name:
+            continue
+        spec = requirement_spec(package_name)
+        adapters = {
+            (
+                str(item.get("component") or ""),
+                str(item.get("adapter") or ""),
+            )
+            for item in spec.get("adapters", [])
+            if isinstance(item, dict)
+        }
+        adapters.add((component_name, adapter_name))
+        spec["adapters"] = [
+            {"component": component, "adapter": adapter}
+            for component, adapter in sorted(adapters)
+            if component and adapter
+        ]
     return [specs[name] for name in sorted(specs)]
 
 
@@ -3820,26 +3888,42 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
         if missing_features:
             problems.append("missing runtime features: " + ", ".join(missing_features))
         package_sync_available = "package_sync_v1" in features
+        component_sync_available = "component_sync_v1" in features
         installable_packages = {
             item["name"]
             for item in package_specs
             if item.get("git_url")
         }
+        activation_packages = {
+            str(item["name"])
+            for item in package_specs
+            if item.get("components") or item.get("adapters")
+        }
+        package_sync_ready = (
+            package_sync_available
+            and set(packages_to_sync) <= installable_packages
+        )
+        preparable_packages = (
+            set(packages_to_sync) - activation_packages
+            if package_sync_ready
+            else set()
+        )
+        if package_sync_ready and component_sync_available:
+            preparable_packages.update(set(packages_to_sync) & activation_packages)
+        if component_sync_available:
+            preparable_packages.update(activation_packages)
         package_owned_nodes = {
             str(node_type)
             for node_type, resolution in (package_index_payload().get("nodes") or {}).items()
             if (
                 isinstance(resolution, dict)
-                and str(resolution.get("package") or "") in set(packages_to_sync)
+                and str(resolution.get("package") or "") in preparable_packages
             )
         }
-        auto_installable = (
-            package_sync_available
-            and set(packages_to_sync) <= installable_packages
-        )
+        auto_installable = package_sync_ready
         hard_missing_nodes = (
             sorted(set(missing_node_types) - package_owned_nodes)
-            if auto_installable
+            if package_sync_ready or component_sync_available
             else missing_node_types
         )
         if packages_to_sync and not auto_installable:
@@ -3847,11 +3931,41 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
                 problems.append("missing target packages: " + ", ".join(missing_packages))
             if outdated_packages:
                 problems.append("outdated target packages: " + ", ".join(outdated_packages))
+        activation_missing_nodes = sorted(
+            set(missing_node_types)
+            & {
+                str(node_type)
+                for node_type, resolution in (package_index_payload().get("nodes") or {}).items()
+                if (
+                    isinstance(resolution, dict)
+                    and str(resolution.get("package") or "") in activation_packages
+                )
+            }
+        )
+        if activation_missing_nodes and not component_sync_available:
+            problems.append(
+                "target runtime must be updated to activate workflow components: "
+                + ", ".join(activation_missing_nodes)
+            )
+            hard_missing_nodes = sorted(
+                set(hard_missing_nodes) - set(activation_missing_nodes)
+            )
         if hard_missing_nodes:
             problems.append("unregistered target nodes: " + ", ".join(hard_missing_nodes))
+        activation_to_sync = sorted({
+            str(resolution.get("package") or "")
+            for node_type, resolution in (package_index_payload().get("nodes") or {}).items()
+            if (
+                node_type in set(missing_node_types)
+                and isinstance(resolution, dict)
+                and str(resolution.get("package") or "") in activation_packages
+                and component_sync_available
+            )
+        })
+        preparation_to_sync = sorted(set(packages_to_sync) | set(activation_to_sync))
         package_message = (
-            " · will synchronize " + ", ".join(packages_to_sync) + " when staged"
-            if packages_to_sync and auto_installable
+            " · will synchronize " + ", ".join(preparation_to_sync) + " when sent"
+            if preparation_to_sync and auto_installable
             else ""
         )
         checks.append(_preflight_check(
@@ -3861,7 +3975,7 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
                 "fail"
                 if problems
                 else "warning"
-                if packages_to_sync and auto_installable
+                if preparation_to_sync and auto_installable
                 else "pass"
             ),
             (

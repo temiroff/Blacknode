@@ -74,6 +74,9 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
   const [remoteDeployments, setRemoteDeployments] = useState<RemoteDeployment[]>([])
   const [remoteOpenId, setRemoteOpenId] = useState<string | null>(null)
   const [remoteLogs, setRemoteLogs] = useState<Record<string, string>>({})
+  const [remoteDeploymentName, setRemoteDeploymentName] = useState('')
+  const [remoteAction, setRemoteAction] = useState<'send' | 'send-run' | null>(null)
+  const [remoteNotice, setRemoteNotice] = useState<string | null>(null)
   const stopRuntimeServices = useStore(s => s.stopRuntimeServices)
   const tabs = useStore(s => s.tabs)
   const activeTabId = useStore(s => s.activeTabId)
@@ -372,6 +375,7 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
     if (!selectedDeviceId) return
     setBusy(true)
     setError(null)
+    setRemoteNotice(null)
     setPreflight(null)
     try {
       await setWorkflowRequirements(inferredCapabilities, selectedCalibration)
@@ -388,6 +392,7 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
         setTargetStatus(result.status)
       }
       setPreflight(result)
+      setRemoteDeploymentName(current => current.trim() || result.workflow.name)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -419,22 +424,37 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
     existing?: RemoteDeployment,
   ) => {
     if (!selectedDeviceId || !preflight?.ready) return
-    let name = existing?.name
-    if (!name) {
-      const entered = window.prompt('Name this remote deployment', preflight.workflow.name)
-      if (entered === null) return
-      name = entered.trim() || preflight.workflow.name || 'Deployed graph'
-    }
-    await actRemote(async () => {
+    const name = (
+      existing?.name
+      || remoteDeploymentName.trim()
+      || preflight.workflow.name
+      || 'Deployed graph'
+    )
+    setBusy(true)
+    setRemoteAction(start ? 'send-run' : 'send')
+    setRemoteNotice(null)
+    setError(null)
+    try {
       const result = await api.stageRemoteDeployment(
         selectedDeviceId,
-        name!,
+        name,
         preflight.workflow.hash,
         start,
         existing?.id,
       )
       setRemoteOpenId(result.deployment.id)
-    })
+      await refreshRemote()
+      setRemoteNotice(
+        start
+          ? `"${name}" was sent to the device and started.`
+          : `"${name}" was sent to the device and is ready to start.`,
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRemoteAction(null)
+      setBusy(false)
+    }
   }
 
   const deleteRemote = async (deployment: RemoteDeployment) => {
@@ -482,6 +502,7 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
             onChange={event => {
               setSelectedDeviceId(event.target.value)
               setPreflight(null)
+              setRemoteNotice(null)
             }}
           >
             {devices.map(device => (
@@ -788,6 +809,17 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
                   ? inferredCapabilities.join(', ')
                   : 'no device-specific capabilities'}.
               </div>
+              {preflight?.ready && (
+                <label className="bn-robot-deployment-name">
+                  <span>Deployment name</span>
+                  <input
+                    value={remoteDeploymentName}
+                    onChange={event => setRemoteDeploymentName(event.target.value)}
+                    placeholder={preflight.workflow.name || 'Deployed graph'}
+                    disabled={busy}
+                  />
+                </label>
+              )}
               <div className="bn-robot-step-actions">
                 <button
                   onClick={validateRemoteDeployment}
@@ -805,14 +837,23 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
                 {preflight?.ready && (
                   <>
                     <button onClick={() => stageRemote(false)} disabled={busy} style={miniButton}>
-                      Send to device
+                      {remoteAction === 'send' ? 'Sending…' : 'Send to device'}
                     </button>
                     <button onClick={() => stageRemote(true)} disabled={busy} style={primaryButton}>
-                      Send &amp; run
+                      {remoteAction === 'send-run' ? 'Sending & starting…' : 'Send & run'}
                     </button>
                   </>
                 )}
               </div>
+              {remoteAction && (
+                <div className="bn-robot-step-status is-info">
+                  Synchronizing required packages and sending the workflow. This can take a few
+                  minutes the first time.
+                </div>
+              )}
+              {remoteNotice && !remoteAction && (
+                <div className="bn-robot-step-status is-success">{remoteNotice}</div>
+              )}
             </div>
           </section>
         </div>
@@ -832,8 +873,8 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
       <div className="bn-runs-list">
         {selectedDeviceId && remoteDeployments.length === 0 && (
           <div className="bn-runs-empty">
-            No deployment is staged on this device. Validate the graph, then choose
-            <strong> Stage</strong> or <strong>Stage &amp; run</strong>.
+            No deployment has been sent to this device. Check the setup, then choose
+            <strong> Send to device</strong> or <strong>Send &amp; run</strong>.
           </div>
         )}
         {remoteDeployments.map(deployment => (
