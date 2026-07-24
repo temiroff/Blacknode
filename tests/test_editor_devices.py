@@ -447,7 +447,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         original_metadata = dict(server._session.metadata)
         original_node_meta = dict(server._session.node_meta)
         workflow = _workflow(["joint_group"])
-        robot_fn = server._NODE_REGISTRY["Robot"]
+        robot_fn = server._NODE_REGISTRY["Output"]
         workflow["node_meta"]["robot"] = {
             "id": "robot",
             "type": "Robot",
@@ -473,6 +473,7 @@ class EditorDeviceApiTests(unittest.TestCase):
                 },
             }
             with (
+                patch.dict(server._NODE_REGISTRY, {"Robot": robot_fn}),
                 patch.dict("os.environ", {"BLACKNODE_ROBOTS_DIR": str(robots_root)}),
                 patch("device_registry.urllib.request.urlopen", side_effect=hardware),
             ):
