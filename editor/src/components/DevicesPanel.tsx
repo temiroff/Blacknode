@@ -203,6 +203,22 @@ export default function DevicesPanel() {
     }
   }
 
+  const stopDeployment = async (device: HardwareDevice, deploymentId: string) => {
+    if (!window.confirm(
+      `Stop the deployment using "${device.name}" and reconnect its hardware monitor?`,
+    )) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.stopRemoteDeployment(device.id, deploymentId)
+      await refreshStatus(device)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const pairUrlError = showForm ? hardwareUrlError(baseUrl) : null
   const pairRuntimeUrl = runtimeUrlForHardware(baseUrl)
   const reusableRuntimeDevice = devices.find(device => (
@@ -344,6 +360,7 @@ export default function DevicesPanel() {
             onRefresh={() => refreshStatus(device)}
             onRepair={() => openPairForm(device)}
             onRemove={() => remove(device)}
+            onStopDeployment={deploymentId => stopDeployment(device, deploymentId)}
           />
         ))}
       </div>
@@ -351,32 +368,45 @@ export default function DevicesPanel() {
   )
 }
 
-function DeviceRow({ device, state, busy, onRefresh, onRepair, onRemove }: {
+function DeviceRow({
+  device,
+  state,
+  busy,
+  onRefresh,
+  onRepair,
+  onRemove,
+  onStopDeployment,
+}: {
   device: HardwareDevice
   state?: DeviceState
   busy: boolean
   onRefresh: () => void
   onRepair: () => void
   onRemove: () => void
+  onStopDeployment: (deploymentId: string) => void
 }) {
   const status = state?.status
   const runtime = state?.runtime
-  const online = Boolean(status)
+  const serviceOnline = Boolean(status)
   const connected = Boolean(status?.connected)
+  const deploymentLease = status?.deployment_lease
+  const leased = Boolean(status?.leased_to_deployment || deploymentLease)
   const runtimeReady = runtime?.ok === true
   const ready = connected && runtimeReady
   const color = ready
     ? 'var(--ok)'
-    : online || runtime
+    : serviceOnline || runtime
       ? 'var(--warn)'
       : 'var(--err)'
   const label = state?.loading
     ? 'CHECK'
-    : ready
-      ? 'READY'
-      : online
-        ? 'NEEDS SETUP'
-        : 'OFF'
+    : leased
+      ? 'IN USE'
+      : ready
+        ? 'READY'
+        : serviceOnline
+          ? 'NEEDS SETUP'
+          : 'OFF'
   const recoveryHint = hardwareRecoveryHint(status?.error)
 
   return (
@@ -421,11 +451,13 @@ function DeviceRow({ device, state, busy, onRefresh, onRepair, onRemove }: {
           <span>
             {state?.loading
               ? 'Checking hardware and runtime…'
-              : ready
-                ? 'Hardware and runtime ready'
-                : online
-                  ? 'Hardware ready · runtime needs attention'
-                  : 'Unavailable'}
+              : deploymentLease
+                ? `Running deployment: ${deploymentLease.name}`
+                : ready
+                  ? 'Hardware and runtime ready'
+                  : serviceOnline
+                    ? 'Hardware ready · runtime needs attention'
+                    : 'Unavailable'}
           </span>
         </div>
       </div>
@@ -433,6 +465,11 @@ function DeviceRow({ device, state, busy, onRefresh, onRepair, onRemove }: {
         <div className="bn-device-facts">
           <DeviceFact label="Armed" value={status ? (status.armed ? 'Yes' : 'No') : '—'} warn={Boolean(status?.armed)} />
           <DeviceFact label="Calibrated" value={status?.calibrated == null ? '—' : status.calibrated ? 'Yes' : 'No'} />
+          <DeviceFact
+            label="Hardware"
+            value={deploymentLease ? `Used by ${deploymentLease.name}` : connected ? 'Connected' : 'Unavailable'}
+            warn={leased || (status != null && !connected)}
+          />
           <DeviceFact
             label="Deployment runtime"
             value={runtime == null ? '—' : runtime.ok ? 'Ready' : 'Needs token'}
@@ -442,6 +479,15 @@ function DeviceRow({ device, state, busy, onRefresh, onRepair, onRemove }: {
           <DeviceFact label="Last check" value={formatCheckedAt(state?.checkedAt)} />
         </div>
         <div className="bn-run-detail-actions">
+          {deploymentLease?.id && (
+            <button
+              onClick={() => onStopDeployment(deploymentLease.id)}
+              disabled={busy || state?.loading}
+              style={dangerButton}
+            >
+              Stop deployment
+            </button>
+          )}
           <button onClick={onRefresh} disabled={busy || state?.loading} style={miniButton}>Check</button>
           <button onClick={onRepair} disabled={busy} style={miniButton}>Re-pair</button>
           <button onClick={onRemove} disabled={busy} style={dangerButton}>Remove</button>
@@ -456,6 +502,9 @@ function hardwareRecoveryHint(error?: string): string | null {
   const normalized = error.toLowerCase()
   if (normalized.includes('no response from servo') || normalized.includes('no position response from servo')) {
     return 'The latest check reached the device service, but the servo bus did not answer. Check servo power, bus wiring, the configured serial port, baud rate, and servo IDs. On the device, run ./probe.sh --servos 6.'
+  }
+  if (normalized.includes('leased') && normalized.includes('deployment')) {
+    return 'The hardware monitor is paused for a deployment. Restore the deployment runtime connection, then press Check so Blacknode can identify the owner or recover a stale lease.'
   }
   return null
 }

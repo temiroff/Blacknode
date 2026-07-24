@@ -122,6 +122,12 @@ export interface HardwareDeviceStatus {
   connected: boolean
   armed: boolean
   calibrated?: boolean
+  leased_to_deployment?: boolean
+  deployment_lease?: {
+    id: string
+    name: string
+    state: string
+  }
   capabilities: string[]
   joint_names?: string[]
   positions?: Record<string, number>

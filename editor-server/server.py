@@ -2879,7 +2879,7 @@ def get_device(device_id: str):
 @app.get("/devices/{device_id}/status")
 def get_device_status(device_id: str):
     try:
-        return _paired_device_client(device_id).status()
+        return _deployment_aware_device_status(device_id)
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
 
@@ -4124,10 +4124,15 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
     if active:
         owner = active[0]
         result = dict(status)
+        result["deployment_lease"] = {
+            "id": str(owner.get("id") or ""),
+            "name": str(owner.get("name") or owner.get("id") or "Deployment"),
+            "state": str(owner.get("state") or "running"),
+        }
         result["error"] = (
             "Robot hardware is being used by running deployment "
             f"'{owner.get('name') or owner.get('id')}'. Stop that deployment "
-            "in Deployments, then check setup again."
+            "here or in Deployments before using the hardware monitor."
         )
         return result
 

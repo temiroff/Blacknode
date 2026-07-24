@@ -263,7 +263,9 @@ behind the paired service it targeted.
 Immediately before the runtime starts that workflow, the editor asks only the
 targeted hardware service to release its read-only serial monitor. Stopping or
 rolling back the deployment resumes that monitor. Other paired robot services
-and serial buses remain active.
+and serial buses remain active. The Devices panel names the running deployment
+that owns a serial lease and can stop it directly. If no deployment is running,
+checking the device recovers the stale lease and reconnects the monitor.
 
 The deployment plan sends package source and version from the editor. The
 runtime package provider is generic: it does not contain a list of perception,

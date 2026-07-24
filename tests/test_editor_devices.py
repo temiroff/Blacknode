@@ -214,9 +214,11 @@ class _HardwareService:
             method = str((body or {}).get("method") or "")
             if method == "resume":
                 self.status_payload["connected"] = True
+                self.status_payload["leased_to_deployment"] = False
                 self.status_payload.pop("error", None)
             elif method == "release":
                 self.status_payload["connected"] = False
+                self.status_payload["leased_to_deployment"] = True
                 self.status_payload["error"] = (
                     "serial hardware is leased to a Blacknode deployment"
                 )
@@ -458,6 +460,65 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(hardware.requests[-2][2], f"Bearer {hardware.token}")
         self.assertEqual(hardware.requests[-1][1], "/rpc")
         self.assertEqual(hardware.requests[-1][3]["method"], "stop")
+
+    def test_device_status_recovers_a_stale_deployment_lease(self):
+        hardware = _HardwareService(status_overrides={
+            "connected": False,
+            "leased_to_deployment": True,
+            "error": "serial hardware is leased to a Blacknode deployment",
+        })
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            paired = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]
+            response = self.client.get(f"/devices/{paired['id']}/status")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["connected"])
+        self.assertFalse(response.json()["leased_to_deployment"])
+        rpc_methods = [
+            body["method"]
+            for method, path, _auth, body in hardware.requests
+            if method == "POST" and path == "/rpc"
+        ]
+        self.assertIn("resume", rpc_methods)
+
+    def test_device_status_identifies_the_running_lease_owner(self):
+        hardware = _HardwareService(status_overrides={
+            "connected": False,
+            "leased_to_deployment": True,
+            "error": "serial hardware is leased to a Blacknode deployment",
+        })
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            paired = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]
+            hardware.runtime_deployments["leader-live"] = {
+                "id": "leader-live",
+                "name": "Leader live",
+                "state": "running",
+                "target_device_id": paired["id"],
+            }
+            response = self.client.get(f"/devices/{paired['id']}/status")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["deployment_lease"], {
+            "id": "leader-live",
+            "name": "Leader live",
+            "state": "running",
+        })
+        self.assertIn("Leader live", payload["error"])
+        rpc_methods = [
+            body["method"]
+            for method, path, _auth, body in hardware.requests
+            if method == "POST" and path == "/rpc"
+        ]
+        self.assertNotIn("resume", rpc_methods)
 
     def test_repairing_same_url_replaces_token_without_duplicating_device(self):
         first = _HardwareService("first-token")
