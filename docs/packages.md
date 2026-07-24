@@ -143,7 +143,7 @@ only — capability adapters depend on the integration layer, never the reverse
 reorganizing any capability package. Each capability package also ships its
 own on-robot colcon sources under `<package>/ros2_ws/src/`.
 
-The `blacknode-skills/follow-person@ros2` CV2 local-reasoning template
+The `blacknode-skills/follow@ros2` CV2 local-reasoning template
 (camera and VLM nodes from `blacknode-perception`) routes target selection
 through the VLM:
 

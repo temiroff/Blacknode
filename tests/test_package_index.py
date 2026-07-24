@@ -221,3 +221,36 @@ def test_workflow_adapter_requirement_adds_missing_official_package():
     assert result["code"] == "missing_packages"
     assert result["missing_packages"][0]["name"] == "blacknode-drivers"
     assert result["missing_adapters"][0]["reason"] == "package is not installed"
+
+
+def test_legacy_component_alias_resolves_against_renamed_installed_component():
+    workflow = _workflow("ROS2LeaderFollower")
+    workflow["metadata"]["required_components"] = [
+        "blacknode-skills/follow-person"
+    ]
+    workflow["metadata"]["required_adapters"] = [
+        "blacknode-skills/follow-person@ros2"
+    ]
+    installed = {
+        "blacknode-skills": {
+            "ok": True,
+            "version": "0.2.0",
+            "components": {
+                "follow": {
+                    "aliases": ["follow-person"],
+                    "enabled": True,
+                    "adapters": {"ros2": {"enabled": True}},
+                },
+            },
+        },
+    }
+
+    result = resolve_workflow_dependencies(
+        workflow,
+        available_node_types={"ROS2LeaderFollower", "NestedNode"},
+        installed_packages=installed,
+    )
+
+    assert result["ok"]
+    assert result["missing_components"] == []
+    assert result["missing_adapters"] == []

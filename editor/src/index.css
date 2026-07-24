@@ -1388,6 +1388,24 @@ body {
   white-space: normal;
 }
 
+.bn-device-error-action {
+  display: flex;
+  margin-top: 6px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.bn-device-error-action .bn-run-error-line {
+  min-width: 180px;
+  flex: 1 1 260px;
+}
+
+.bn-device-error-action button {
+  min-height: 28px;
+  flex: 0 1 auto;
+}
+
 .bn-device-runtime-reuse {
   display: flex;
   align-items: center;

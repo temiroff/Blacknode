@@ -178,6 +178,11 @@ def _package_components(value: Any) -> dict[str, dict[str, Any]]:
         requirements, requirement_errors = _component_requirements(dependencies.get("requires", []))
         components[name] = {
             "name": name,
+            "aliases": [
+                alias
+                for alias in (_component_name(item) for item in config.get("aliases", []))
+                if alias and alias != name
+            ] if isinstance(config.get("aliases", []), list) else [],
             "description": str(config.get("description") or ""),
             "default": bool(config.get("default", False)),
             "capabilities": sorted({
@@ -278,6 +283,44 @@ def _package_name(value: Any) -> str:
 
 def _component_name(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+
+
+def _canonical_component_name(
+    components: Mapping[str, Mapping[str, Any]],
+    value: Any,
+) -> str:
+    """Resolve a saved or CLI component alias to its current manifest name."""
+    requested = _component_name(value)
+    if requested in components:
+        return requested
+    for name, component in components.items():
+        if requested in component.get("aliases", []):
+            return name
+    return requested
+
+
+def _component_state_keys(
+    component_name: str,
+    component: Mapping[str, Any],
+    adapter_name: str = "",
+) -> list[str]:
+    names = [component_name, *component.get("aliases", [])]
+    if adapter_name:
+        return [_adapter_state_key(name, adapter_name) for name in names]
+    return names
+
+
+def _component_override_value(
+    overrides: Mapping[str, bool],
+    component_name: str,
+    component: Mapping[str, Any],
+    default: bool,
+    adapter_name: str = "",
+) -> bool:
+    for state_key in _component_state_keys(component_name, component, adapter_name):
+        if state_key in overrides:
+            return overrides[state_key]
+    return default
 
 
 def _string_list(value: Any) -> list[str]:
@@ -409,6 +452,12 @@ def validate_package_catalog(pkg_dir: str | Path) -> list[str]:
     for component_name in sorted(set(manifest_components) & set(catalog_components)):
         component = manifest_components[component_name]
         catalog_component = catalog_components[component_name]
+        if set(component["aliases"]) != set(catalog_component["aliases"]):
+            errors.append(
+                f"component {component_name} aliases differ: "
+                f"manifest={sorted(component['aliases'])} "
+                f"catalog={sorted(catalog_component['aliases'])}"
+            )
         actual = set(component["node_types"])
         expected = set(catalog_component["node_types"])
         if actual != expected:
@@ -530,7 +579,12 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
             info.warnings.append(state_warning)
     for component_name, component in info.components.items():
         component["enabled"] = (
-            overrides.get(component_name, component["default"])
+            _component_override_value(
+                overrides,
+                component_name,
+                component,
+                component["default"],
+            )
             if info.component_mode else True
         )
         if not component["enabled"]:
@@ -541,9 +595,12 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
         info.docker_images = _merge_strings(info.docker_images, component["docker_images"])
         info.setup_hooks = _merge_strings(info.setup_hooks, component["setup_hooks"])
         for adapter_name, adapter in component.get("adapters", {}).items():
-            adapter["enabled"] = overrides.get(
-                _adapter_state_key(component_name, adapter_name),
+            adapter["enabled"] = _component_override_value(
+                overrides,
+                component_name,
+                component,
                 adapter["default"],
+                adapter_name,
             )
             if not adapter["enabled"]:
                 continue
@@ -652,6 +709,11 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
                         _tag_new_package_nodes(
                             before, info.name, nodes_dir, component_name, adapter_name
                         )
+                _register_component_module_aliases(
+                    snake_name,
+                    component_name,
+                    component.get("aliases", []),
+                )
         else:
             nodes_dir = pkg_path / "nodes"
             if not nodes_dir.is_dir():
@@ -678,11 +740,21 @@ def component_dependency_plan(package_name: str, component_name: str) -> dict[st
     """Resolve installed dependencies in activation order without mutation."""
     target_package = _package_name(package_name)
     target_component = _component_name(component_name)
+    target_info = _PACKAGE_REGISTRY.get(target_package)
+    if target_info is not None:
+        target_component = _canonical_component_name(target_info.components, target_component)
     plan: list[dict[str, Any]] = []
     visited: set[tuple[str, str]] = set()
     visiting: list[tuple[str, str]] = []
 
     def visit(current_package: str, current_component: str, version: str = "") -> None:
+        info = _PACKAGE_REGISTRY.get(current_package)
+        if info is None:
+            indexed = indexed_package(current_package) or {}
+            git_url = str(indexed.get("git_url") or "")
+            fix = f"; install it with: blacknode packages install {git_url}" if git_url else ""
+            raise ValueError(f"Required package '{current_package}' is not installed{fix}")
+        current_component = _canonical_component_name(info.components, current_component)
         key = (current_package, current_component)
         if key in visiting:
             cycle = visiting[visiting.index(key):] + [key]
@@ -691,12 +763,6 @@ def component_dependency_plan(package_name: str, component_name: str) -> dict[st
                 for package, component in cycle
             )
             raise ValueError(f"Component dependency cycle: {rendered}")
-        info = _PACKAGE_REGISTRY.get(current_package)
-        if info is None:
-            indexed = indexed_package(current_package) or {}
-            git_url = str(indexed.get("git_url") or "")
-            fix = f"; install it with: blacknode packages install {git_url}" if git_url else ""
-            raise ValueError(f"Required package '{current_package}' is not installed{fix}")
         if version:
             if not info.version:
                 raise ValueError(
@@ -767,6 +833,9 @@ def component_dependency_install_plan(
     """
     target_package = _package_name(package_name)
     target_component = _component_name(component_name)
+    target_info = _PACKAGE_REGISTRY.get(target_package)
+    if target_info is not None:
+        target_component = _canonical_component_name(target_info.components, target_component)
     actions: list[dict[str, Any]] = []
     conflicts: list[str] = []
     visited: set[tuple[str, str, str]] = set()
@@ -775,14 +844,6 @@ def component_dependency_install_plan(
     def visit(current_package: str, current_component: str, version: str = "") -> None:
         signature = (current_package, current_component, version)
         if signature in visited:
-            return
-        key = (current_package, current_component)
-        if key in visiting:
-            cycle = visiting[visiting.index(key):] + [key]
-            conflicts.append("Component dependency cycle: " + " -> ".join(
-                f"{package}/{component}" if component else package
-                for package, component in cycle
-            ))
             return
         info = _PACKAGE_REGISTRY.get(current_package)
         if info is None:
@@ -799,6 +860,18 @@ def component_dependency_install_plan(
                 "source": source,
             })
             visited.add(signature)
+            return
+        current_component = _canonical_component_name(info.components, current_component)
+        signature = (current_package, current_component, version)
+        if signature in visited:
+            return
+        key = (current_package, current_component)
+        if key in visiting:
+            cycle = visiting[visiting.index(key):] + [key]
+            conflicts.append("Component dependency cycle: " + " -> ".join(
+                f"{package}/{component}" if component else package
+                for package, component in cycle
+            ))
             return
         if version and (not info.version or not _version_constraint_satisfied(version, info.version)):
             state = package_git_status(info.path, fetch=True) if info.source == "folder" and info.path else {}
@@ -867,7 +940,7 @@ def adapter_dependency_plan(
     package = _package_name(package_name)
     component = _component_name(component_name)
     adapter = _component_name(adapter_name)
-    info, adapter_info = _adapter_package_info(package, component, adapter)
+    info, component, adapter_info = _adapter_package_info(package, component, adapter)
     combined: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
 
@@ -912,7 +985,7 @@ def adapter_dependency_install_plan(
     package = _package_name(package_name)
     component = _component_name(component_name)
     adapter = _component_name(adapter_name)
-    info, adapter_info = _adapter_package_info(package, component, adapter)
+    info, component, adapter_info = _adapter_package_info(package, component, adapter)
     plans = [component_dependency_install_plan(package, component)]
     for requirement in adapter_info.get("requirements", []):
         plans.append(component_dependency_install_plan(
@@ -957,7 +1030,9 @@ def ensure_component_enabled(
     progress: Callable[[str], None] = print,
 ) -> PackageInfo:
     """Install/update official dependencies, then transactionally activate."""
-    target = _component_package_info(_package_name(package_name), _component_name(component_name))
+    target, _component = _component_package_info(
+        _package_name(package_name), _component_name(component_name)
+    )
     root = Path(target.path).resolve().parent
     newly_installed: list[str] = []
     try:
@@ -993,7 +1068,7 @@ def ensure_adapter_enabled(
     progress: Callable[[str], None] = print,
 ) -> PackageInfo:
     """Install official dependencies, then enable one nested adapter."""
-    target, _adapter = _adapter_package_info(
+    target, _component, _adapter = _adapter_package_info(
         _package_name(package_name), _component_name(component_name), _component_name(adapter_name)
     )
     root = Path(target.path).resolve().parent
@@ -1039,7 +1114,9 @@ def set_component_enabled(package_name: str, component_name: str, enabled: bool)
     """
     normalized_package = _package_name(package_name)
     normalized_component = _component_name(component_name)
-    info = _component_package_info(normalized_package, normalized_component)
+    info, normalized_component = _component_package_info(
+        normalized_package, normalized_component
+    )
     if enabled:
         plan = component_dependency_plan(normalized_package, normalized_component)
         return _activate_component_plan(plan)
@@ -1060,7 +1137,7 @@ def set_adapter_enabled(
     package = _package_name(package_name)
     component = _component_name(component_name)
     adapter = _component_name(adapter_name)
-    info, _adapter = _adapter_package_info(package, component, adapter)
+    info, component, _adapter = _adapter_package_info(package, component, adapter)
     if enabled:
         return _activate_component_plan(adapter_dependency_plan(package, component, adapter))
     return _set_single_adapter(info, component, adapter, False)
@@ -1074,14 +1151,16 @@ def reset_component(
     """Remove a local activation override and restore the manifest default."""
     package = _package_name(package_name)
     component = _component_name(component_name)
-    info = _component_package_info(package, component)
+    info, component = _component_package_info(package, component)
     adapter = _component_name(adapter_name) if adapter_name else ""
     if adapter:
         _adapter_package_info(package, component, adapter)
-        state_key = _adapter_state_key(component, adapter)
+        state_keys = _component_state_keys(
+            component, info.components[component], adapter
+        )
         default_enabled = bool(info.components[component]["adapters"][adapter]["default"])
     else:
-        state_key = component
+        state_keys = _component_state_keys(component, info.components[component])
         default_enabled = bool(info.components[component]["default"])
 
     if not default_enabled:
@@ -1098,63 +1177,74 @@ def reset_component(
     overrides, state_error = _read_component_overrides(pkg_path, info.name)
     if state_error:
         raise ValueError(state_error)
-    if state_key not in overrides:
+    previous = {
+        key: overrides[key]
+        for key in state_keys
+        if key in overrides
+    }
+    if not previous:
         return info
-    previous = overrides[state_key]
-    _write_component_override(pkg_path, info.name, state_key, None)
+    for key in previous:
+        _write_component_override(pkg_path, info.name, key, None)
     updated = load_package(pkg_path)
     if updated.ok:
         write_package_lock(pkg_path.parent)
         return updated
-    _write_component_override(pkg_path, info.name, state_key, previous)
+    for key, enabled in previous.items():
+        _write_component_override(pkg_path, info.name, key, enabled)
     load_package(pkg_path)
     detail = updated.error.strip().splitlines()[-1] if updated.error.strip() else "package reload failed"
     raise RuntimeError(f"Could not reset {package}/{component}: {detail}")
 
 
-def _component_package_info(package_name: str, component_name: str) -> PackageInfo:
+def _component_package_info(
+    package_name: str,
+    component_name: str,
+) -> tuple[PackageInfo, str]:
     info = _PACKAGE_REGISTRY.get(package_name)
     if info is None:
         raise ValueError(f"No package named '{package_name}' is installed")
     if info.source != "folder" or not info.path:
         raise ValueError("Selective components currently require a folder package")
-    if component_name not in info.components:
+    canonical_name = _canonical_component_name(info.components, component_name)
+    if canonical_name not in info.components:
         raise ValueError(f"Package '{package_name}' has no component '{component_name}'")
     if not info.component_mode:
         raise ValueError(
             f"Package '{package_name}' only publishes component labels; its manifest has not enabled selective loading"
         )
-    return info
+    return info, canonical_name
 
 
 def _adapter_package_info(
     package_name: str, component_name: str, adapter_name: str
-) -> tuple[PackageInfo, dict[str, Any]]:
-    info = _component_package_info(package_name, component_name)
+) -> tuple[PackageInfo, str, dict[str, Any]]:
+    info, component_name = _component_package_info(package_name, component_name)
     adapters = info.components[component_name].get("adapters", {})
     if adapter_name not in adapters:
         raise ValueError(
             f"Component '{package_name}/{component_name}' has no adapter '{adapter_name}'"
         )
-    return info, adapters[adapter_name]
+    return info, component_name, adapters[adapter_name]
 
 
 def _activate_component_plan(resolution: Mapping[str, Any]) -> PackageInfo:
     changes = list(resolution.get("changes") or [])
     target = resolution["target"]
     if not changes:
-        return _component_package_info(target["package"], target["component"])
+        return _component_package_info(target["package"], target["component"])[0]
 
     snapshots: list[tuple[Path, str, str, bool, bool | None]] = []
     package_order: list[str] = []
     try:
         for item in changes:
-            info = _component_package_info(item["package"], item["component"])
+            info, component_name = _component_package_info(
+                item["package"], item["component"]
+            )
             pkg_path = Path(info.path).resolve()
             overrides, state_error = _read_component_overrides(pkg_path, info.name)
             if state_error:
                 raise ValueError(state_error)
-            component_name = item["component"]
             adapter_name = item.get("adapter") or ""
             if adapter_name:
                 _adapter_package_info(info.name, component_name, adapter_name)
@@ -1191,7 +1281,9 @@ def _activate_component_plan(resolution: Mapping[str, Any]) -> PackageInfo:
             if registered and registered.path:
                 load_package(Path(registered.path))
         raise
-    updated = _component_package_info(target["package"], target["component"])
+    updated, _component = _component_package_info(
+        target["package"], target["component"]
+    )
     write_package_lock(Path(updated.path).parent)
     return updated
 
@@ -1248,6 +1340,7 @@ def _set_single_adapter(
 
 def _enabled_component_dependents(package_name: str, component_name: str) -> list[str]:
     dependents: list[str] = []
+    owner = _PACKAGE_REGISTRY.get(package_name)
     for info in _PACKAGE_REGISTRY.values():
         for candidate_name in info.enabled_components:
             if info.name == package_name and candidate_name == component_name:
@@ -1255,16 +1348,25 @@ def _enabled_component_dependents(package_name: str, component_name: str) -> lis
             candidate = info.components.get(candidate_name, {})
             for requirement in candidate.get("requirements", []):
                 dependency_package = requirement.get("package") or info.name
-                if dependency_package == package_name and requirement.get("component") == component_name:
+                dependency_component = requirement.get("component") or ""
+                if owner is not None:
+                    dependency_component = _canonical_component_name(
+                        owner.components, dependency_component
+                    )
+                if dependency_package == package_name and dependency_component == component_name:
                     dependents.append(f"{info.name}/{candidate_name}")
             for adapter_name, adapter in candidate.get("adapters", {}).items():
                 if not adapter.get("enabled"):
                     continue
                 for requirement in adapter.get("requirements", []):
                     dependency_package = requirement.get("package") or info.name
-                    if dependency_package == package_name and requirement.get("component") == component_name:
+                    dependency_component = requirement.get("component") or ""
+                    if owner is not None:
+                        dependency_component = _canonical_component_name(
+                            owner.components, dependency_component
+                        )
+                    if dependency_package == package_name and dependency_component == component_name:
                         dependents.append(f"{info.name}/{candidate_name} adapter {adapter_name}")
-    owner = _PACKAGE_REGISTRY.get(package_name)
     if owner is not None:
         for adapter_name, adapter in owner.components.get(component_name, {}).get("adapters", {}).items():
             if adapter.get("enabled"):
@@ -1548,6 +1650,26 @@ def _prepare_component_package(snake_name: str, pkg_path: Path) -> types.ModuleT
     sys.modules[module_name] = module
     setattr(root, snake_name, module)
     return module
+
+
+def _register_component_module_aliases(
+    snake_name: str,
+    component_name: str,
+    aliases: list[str],
+) -> None:
+    """Expose legacy stable import paths for a renamed component."""
+    canonical_suffix = _safe_module_name(component_name)
+    canonical_prefix = f"{_PKG_MODULE_ROOT}.{snake_name}.{canonical_suffix}"
+    package_module = sys.modules.get(f"{_PKG_MODULE_ROOT}.{snake_name}")
+    for alias in aliases:
+        alias_suffix = _safe_module_name(alias)
+        alias_prefix = f"{_PKG_MODULE_ROOT}.{snake_name}.{alias_suffix}"
+        for module_name, module in list(sys.modules.items()):
+            if module_name == canonical_prefix or module_name.startswith(canonical_prefix + "."):
+                sys.modules[alias_prefix + module_name[len(canonical_prefix):]] = module
+        root_module = sys.modules.get(canonical_prefix)
+        if package_module is not None and root_module is not None:
+            setattr(package_module, alias_suffix, root_module)
 
 
 def _ensure_namespace_module(module_name: str, path: Path) -> types.ModuleType:

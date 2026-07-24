@@ -28,8 +28,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "default": False,
                     "node_types": []
                 },
-                "follow-person": {
-                    "name": "follow-person",
+                "follow": {
+                    "name": "follow",
+                    "aliases": ["follow-person"],
                     "default": False,
                     "node_types": [],
                     "adapters": {
@@ -1020,6 +1021,23 @@ def resolve_workflow_dependencies(
     component_plans: list[dict[str, Any]] = []
     unresolved_node_types: list[str] = []
 
+    def installed_component(
+        components: Any,
+        requested_name: str,
+    ) -> tuple[str, Mapping[str, Any] | None]:
+        if not isinstance(components, Mapping):
+            return requested_name, None
+        exact = components.get(requested_name)
+        if isinstance(exact, Mapping):
+            return requested_name, exact
+        for name, candidate in components.items():
+            if (
+                isinstance(candidate, Mapping)
+                and requested_name in candidate.get("aliases", [])
+            ):
+                return str(name), candidate
+        return requested_name, None
+
     def add_package(requirement: Mapping[str, Any], node_type: str | None = None) -> None:
         name = str(requirement["name"])
         state = installed.get(name, {})
@@ -1052,7 +1070,7 @@ def resolve_workflow_dependencies(
             missing_components.append({**requirement, "reason": "package is not installed"})
             continue
         components = state.get("components", {})
-        component = components.get(component_name) if isinstance(components, Mapping) else None
+        _canonical_name, component = installed_component(components, component_name)
         if not isinstance(component, Mapping):
             missing_components.append({**requirement, "reason": "component is not published by the installed package"})
             continue
@@ -1103,7 +1121,7 @@ def resolve_workflow_dependencies(
                 })
                 continue
         components = state.get("components", {})
-        component = components.get(component_name) if isinstance(components, Mapping) else None
+        _canonical_name, component = installed_component(components, component_name)
         adapters = component.get("adapters", {}) if isinstance(component, Mapping) else {}
         adapter = adapters.get(adapter_name) if isinstance(adapters, Mapping) else None
         if not isinstance(adapter, Mapping):

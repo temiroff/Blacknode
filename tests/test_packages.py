@@ -184,6 +184,54 @@ def test_component_package_loads_only_enabled_nodes_and_dependencies(tmp_path):
     assert "_PkgComponentCore" in _NODE_REGISTRY
 
 
+def test_component_alias_preserves_saved_state_cli_and_import_paths(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-component-alias",
+        node_name="_PkgAliasRootIgnored",
+        package_metadata='layer = "Skills"',
+        component_metadata='''
+        [components.follow]
+        aliases = ["follow-person"]
+        default = false
+        nodes = ["components/follow/nodes"]
+        ''',
+    )
+    _write_component_node(pkg, "follow", "_PkgFollowAlias")
+    (tmp_path / ".blacknode-components.json").write_text(json.dumps({
+        "schema_version": 1,
+        "packages": {
+            "bn-component-alias": {
+                "follow-person": True,
+            },
+        },
+    }), encoding="utf-8")
+
+    info = load_package(pkg)
+
+    assert info.ok
+    assert info.components["follow"]["aliases"] == ["follow-person"]
+    assert info.enabled_components == ["follow"]
+    assert "_PkgFollowAlias" in _NODE_REGISTRY
+    assert "blacknode.pkg.bn_component_alias.follow" in sys.modules
+    assert (
+        sys.modules["blacknode.pkg.bn_component_alias.follow_person"]
+        is sys.modules["blacknode.pkg.bn_component_alias.follow"]
+    )
+    assert component_dependency_plan(
+        "bn-component-alias", "follow-person"
+    )["target"]["component"] == "follow"
+
+    disabled = set_component_enabled(
+        "bn-component-alias", "follow-person", False
+    )
+    assert disabled.enabled_components == []
+    state = json.loads(
+        (tmp_path / ".blacknode-components.json").read_text(encoding="utf-8")
+    )
+    assert state["packages"]["bn-component-alias"]["follow"] is False
+
+
 def test_component_reset_restores_manifest_default(tmp_path):
     pkg = _write_package(
         tmp_path,

@@ -451,7 +451,18 @@ function DeviceRow({
             <div className="bn-run-error-line bn-device-error" role="alert">{state.error}</div>
           )}
           {status?.error && (
-            <div className="bn-run-error-line bn-device-error" role="alert">{status.error}</div>
+            <div className="bn-device-error-action" role="alert">
+              <div className="bn-run-error-line bn-device-error">{status.error}</div>
+              {deploymentLease?.id && (
+                <button
+                  onClick={() => onStopDeployment(deploymentLease.id)}
+                  disabled={busy || state?.loading}
+                  style={dangerButton}
+                >
+                  Stop “{deploymentLease.name}” and check again
+                </button>
+              )}
+            </div>
           )}
           {runtime && !runtime.ok && (
             <>
@@ -499,15 +510,6 @@ function DeviceRow({
           <DeviceFact label="Last check" value={formatCheckedAt(state?.checkedAt)} />
         </div>
         <div className="bn-run-detail-actions">
-          {deploymentLease?.id && (
-            <button
-              onClick={() => onStopDeployment(deploymentLease.id)}
-              disabled={busy || state?.loading}
-              style={dangerButton}
-            >
-              Stop deployment
-            </button>
-          )}
           <button onClick={onRefresh} disabled={busy || state?.loading} style={miniButton}>Check</button>
           <button onClick={onRename} disabled={busy} style={miniButton}>Rename</button>
           <button onClick={onRepair} disabled={busy} style={miniButton}>Re-pair</button>
