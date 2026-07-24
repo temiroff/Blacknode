@@ -581,6 +581,262 @@ body {
   overflow-y: auto;
 }
 
+.bn-device-form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--lift);
+}
+
+.bn-device-form-title {
+  color: var(--tx1);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bn-device-help {
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.bn-device-help code {
+  color: var(--tx2);
+  font-family: var(--font-mono);
+}
+
+.bn-device-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--tx3);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.bn-device-form input {
+  width: 100%;
+  padding: 7px 8px;
+  background: var(--panel);
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  color: var(--tx1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  outline: none;
+  text-transform: none;
+}
+
+.bn-device-form input:focus {
+  border-color: var(--ok);
+}
+
+.bn-device-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.bn-device-summary {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
+  padding: 9px 10px 9px 6px;
+  color: var(--tx2);
+}
+
+.bn-device-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.bn-device-fact {
+  min-width: 0;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.bn-device-fact span,
+.bn-device-fact strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bn-device-fact span {
+  color: var(--tx3);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.bn-device-fact strong {
+  margin-top: 3px;
+  color: var(--tx2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.bn-deploy-target {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--lift);
+}
+
+.bn-deploy-target-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bn-deploy-target-title {
+  color: var(--tx1);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.bn-deploy-device-select {
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 7px;
+  background: var(--panel);
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  color: var(--tx1);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  outline: none;
+}
+
+.bn-deploy-device-select:focus {
+  border-color: var(--ok);
+}
+
+.bn-preflight {
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.bn-preflight-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+}
+
+.bn-preflight-summary strong {
+  font-size: 11px;
+}
+
+.bn-preflight-summary span {
+  color: var(--tx3);
+  font-family: var(--font-mono);
+}
+
+.bn-preflight-summary.is-ready strong {
+  color: var(--ok);
+}
+
+.bn-preflight-summary.is-blocked strong {
+  color: var(--warn);
+}
+
+.bn-preflight-checks {
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.bn-preflight-check {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bn-preflight-check:last-child {
+  border-bottom: 0;
+}
+
+.bn-preflight-check strong,
+.bn-preflight-check div > span {
+  display: block;
+}
+
+.bn-preflight-check strong {
+  color: var(--tx2);
+  font-size: 10px;
+}
+
+.bn-preflight-check div > span {
+  margin-top: 2px;
+  color: var(--tx3);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.bn-preflight-pill {
+  padding: 2px 3px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.bn-preflight-pill.is-pass {
+  color: var(--ok);
+}
+
+.bn-preflight-pill.is-fail {
+  color: var(--err);
+}
+
+.bn-preflight-pill.is-warning,
+.bn-preflight-pill.is-pending {
+  color: var(--warn);
+}
+
+.bn-deployment-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.bn-deployment-section-head strong,
+.bn-deployment-section-head span {
+  display: block;
+}
+
+.bn-deployment-section-head strong {
+  color: var(--tx1);
+  font-size: 10px;
+}
+
+.bn-deployment-section-head span {
+  margin-top: 2px;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
 .bn-runs-empty {
   padding: 16px;
   color: var(--tx3);

@@ -48,7 +48,7 @@ looks for the local checkout, its `.venv` dependencies, and `BLACKNODE_HOME` if
 you need to point the script at a different Blacknode folder:
 
 ```bash
-BLACKNODE_HOME=/home/alex/PROJECTS/Blacknode python workflow.py
+BLACKNODE_HOME=/path/to/Blacknode python workflow.py
 ```
 
 If the graph starts live runtime helpers such as ROS 2 image streams, CV2

@@ -117,6 +117,7 @@ development:
 
 | Package | Role |
 |---|---|
+| `blacknode-runtime` | Authenticated remote deployment, target manifests, process supervision, logs, and rollback on Raspberry Pi, Jetson, and Linux targets. |
 | `blacknode-drivers` | Selectively enabled physical hardware drivers and firmware adapters; the first `feetech` component provides inert bus configuration, read-only probing, and torque-safe bus primitives. |
 | `blacknode-robot` | Generic USB robot discovery, serial permission help, driver descriptors, driver process launch, and the standard robot profile. |
 | `blacknode-controllers` | Joint-control, mobile-base, navigation, manipulation, policy, arbitration, and safety controllers with optional transport adapters. |

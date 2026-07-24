@@ -5,6 +5,20 @@ from typing import Any, Iterable, Mapping
 
 
 _CORE_PACKAGES: dict[str, dict[str, Any]] = {
+        "blacknode-runtime": {
+            "name": "blacknode-runtime",
+            "layer": "runtime",
+            "components": {
+                "service": {
+                    "name": "service",
+                    "default": True,
+                    "node_types": []
+                }
+            },
+            "git_url": "https://github.com/temiroff/blacknode-runtime.git",
+            "description": "Authenticated remote deployment, runtime inspection, supervision, logs, and rollback.",
+            "node_types": []
+        },
         "blacknode-skills": {
             "name": "blacknode-skills",
             "layer": "skills",

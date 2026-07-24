@@ -1,6 +1,6 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex
+import uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib
 import urllib.error, urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +17,7 @@ import blacknode.integrations  # noqa: F401  registers chat drivers (slack/teleg
 # frame-stream contract has to be filled here too.
 from blacknode import console as command_console
 from blacknode.node import fill_frame_stream as bn_fill_frame_stream
-from blacknode.deployments import DeploymentError, DeploymentStore
+from blacknode.deployments import DeploymentError, DeploymentStore, resolve_entrypoint
 from blacknode.discovery import discover_node_modules, load_node_file
 from blacknode.integrations import registry as driver_registry
 from blacknode.exporters import export_workflow as export_framework_workflow
@@ -26,7 +26,7 @@ from blacknode.learned import registry as learned_registry
 from blacknode.mcp import tools as mcp_tools
 from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
-from blacknode.package_index import package_index_payload, resolve_workflow_dependencies
+from blacknode.package_index import package_index_payload, resolve_workflow_dependencies, workflow_node_types
 from blacknode.packages import MANIFEST_NAME as BN_MANIFEST_NAME
 from blacknode.packages import component_dependency_plan as bn_component_dependency_plan
 from blacknode.packages import adapter_dependency_plan as bn_adapter_dependency_plan
@@ -43,9 +43,11 @@ from blacknode.packages import set_component_enabled as bn_set_component_enabled
 from blacknode.packages import set_adapter_enabled as bn_set_adapter_enabled
 from blacknode.packages import reset_component as bn_reset_component
 from blacknode.python_importer import import_workflow_python
+from blacknode.workflow import WorkflowRunError, export_workflow_python
 from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
 
+from device_registry import DeviceRegistry, DeviceRegistryError, HardwareDeviceClient
 from run_store import RunStore
 
 app = FastAPI(title="Blacknode Editor Server")
@@ -102,6 +104,8 @@ _run_store      = RunStore(_RUNS_DIR)
 # deployment outlives this server process and is not tied to it.
 _DEPLOYMENTS_DIR = Path(__file__).resolve().parents[1] / ".blacknode" / "deployments"
 _deployment_store = DeploymentStore(_DEPLOYMENTS_DIR)
+_DEVICES_PATH = Path(__file__).resolve().parents[1] / ".blacknode" / "devices.json"
+_device_registry = DeviceRegistry(_DEVICES_PATH)
 _save_timer: threading.Timer | None = None
 _SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool", "VisualAgentLoop"}
 _TOOLBOX_NODE_TYPES = {"ToolBox"}
@@ -337,6 +341,30 @@ class DeployReq(BaseModel):
     workflow: dict[str, Any] | None = None
     target: str = "local-process"
     autostart: bool = True
+
+class PairDeviceReq(BaseModel):
+    name: str = ""
+    base_url: str
+    token: str
+
+class DeploymentPreflightReq(BaseModel):
+    # Omit to validate the graph currently open in the editor.
+    workflow: dict[str, Any] | None = None
+
+class RemoteDeployReq(BaseModel):
+    name: str = ""
+    workflow_hash: str
+    start: bool = False
+    deployment_id: str | None = None
+
+class RemoteRollbackReq(BaseModel):
+    start: bool = False
+
+class DeviceRpcReq(BaseModel):
+    jsonrpc: str = "2.0"
+    id: Any = None
+    method: str
+    params: dict[str, Any] = {}
 
 class SyncRunReq(BaseModel):
     node_id: str
@@ -2706,6 +2734,833 @@ def stop_runtime():
     _stop_active_cook()
     _begin_fresh_cook()
     return _stop_runtime_services()
+
+
+# ── Paired hardware devices ──────────────────────────────────────────────────
+
+def _paired_device_client(device_id: str) -> HardwareDeviceClient:
+    try:
+        return _device_registry.client(device_id)
+    except KeyError as exc:
+        raise HTTPException(404, "Device not found") from exc
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+@app.get("/devices")
+def list_devices():
+    try:
+        return {"devices": _device_registry.list()}
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+@app.post("/devices")
+def pair_device(req: PairDeviceReq):
+    try:
+        client = HardwareDeviceClient(req.base_url, req.token)
+        status = client.validate_pairing()
+        device = _device_registry.pair(
+            name=req.name,
+            base_url=client.base_url,
+            token=req.token,
+            status=status,
+        )
+    except DeviceRegistryError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"device": device, "status": status}
+
+
+@app.get("/devices/{device_id}")
+def get_device(device_id: str):
+    try:
+        device = _device_registry.get_public(device_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if device is None:
+        raise HTTPException(404, "Device not found")
+    return device
+
+
+@app.get("/devices/{device_id}/status")
+def get_device_status(device_id: str):
+    try:
+        return _paired_device_client(device_id).status()
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.get("/devices/{device_id}/capabilities")
+def get_device_capabilities(device_id: str):
+    try:
+        return _paired_device_client(device_id).capabilities()
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+def _preflight_check(
+    check_id: str,
+    label: str,
+    status: str,
+    message: str,
+    *,
+    blocking: bool = False,
+) -> dict[str, Any]:
+    return {
+        "id": check_id,
+        "label": label,
+        "status": status,
+        "message": message,
+        "blocking": blocking,
+    }
+
+
+def _workflow_required_capabilities(workflow: dict[str, Any]) -> list[str]:
+    metadata = workflow.get("metadata")
+    if not isinstance(metadata, dict):
+        return []
+    raw = metadata.get("required_capabilities")
+    if not isinstance(raw, list):
+        return []
+    return sorted({
+        str(item).strip()
+        for item in raw
+        if isinstance(item, str) and str(item).strip()
+    })
+
+
+def _workflow_required_packages(workflow: dict[str, Any]) -> list[str]:
+    metadata = workflow.get("metadata")
+    raw = metadata.get("required_packages") if isinstance(metadata, dict) else None
+    if not isinstance(raw, list):
+        return []
+    names: set[str] = set()
+    for item in raw:
+        if isinstance(item, str):
+            name = item.strip()
+        elif isinstance(item, dict):
+            name = str(item.get("name") or "").strip()
+        else:
+            name = ""
+        if name:
+            names.add(name)
+    return sorted(names)
+
+
+def _workflow_target_packages(workflow: dict[str, Any]) -> list[str]:
+    """Return explicit and indexed extension packages needed on a target."""
+    return sorted({
+        item["name"]
+        for item in _workflow_target_package_specs(workflow)
+        if item.get("name")
+    })
+
+
+def _package_git_source(path: str) -> str:
+    package_path = Path(path)
+    if not package_path.is_dir():
+        return ""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(package_path), "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if result.returncode != 0:
+        return ""
+    source = result.stdout.strip()
+    match = re.fullmatch(r"git@([^:]+):(.+)", source)
+    if match:
+        return f"https://{match.group(1)}/{match.group(2)}"
+    return source
+
+
+def _workflow_target_package_specs(
+    workflow: dict[str, Any],
+) -> list[dict[str, str]]:
+    index = package_index_payload()
+    indexed_packages = index.get("packages") or {}
+    node_index = index.get("nodes") or {}
+    specs: dict[str, dict[str, str]] = {}
+    local_packages = {
+        info.name: info
+        for info in installed_packages()
+    }
+    local_node_packages = {
+        str(node_type): info
+        for info in local_packages.values()
+        for node_type in info.node_types
+    }
+
+    metadata = workflow.get("metadata")
+    raw_requirements = (
+        metadata.get("required_packages")
+        if isinstance(metadata, dict)
+        else None
+    )
+    if isinstance(raw_requirements, list):
+        for item in raw_requirements:
+            if isinstance(item, str):
+                name = item.strip()
+                git_url = ""
+                version = ""
+            elif isinstance(item, dict):
+                name = str(item.get("name") or "").strip()
+                git_url = str(item.get("git_url") or "").strip()
+                version = str(item.get("version") or "").strip()
+            else:
+                continue
+            indexed = indexed_packages.get(name)
+            if not git_url and isinstance(indexed, dict):
+                git_url = str(indexed.get("git_url") or "").strip()
+            local = local_packages.get(name)
+            if not version and local is not None:
+                version = str(local.version or "").strip()
+            if not version and isinstance(indexed, dict):
+                version = str(indexed.get("version") or "").strip()
+            if name:
+                specs[name] = {
+                    "name": name,
+                    "git_url": git_url,
+                    "version": version,
+                }
+
+    for node_type in workflow_node_types(workflow):
+        resolution = node_index.get(node_type)
+        local_owner = local_node_packages.get(node_type)
+        if isinstance(resolution, dict):
+            name = str(resolution.get("package") or "").strip()
+            git_url = str(resolution.get("git_url") or "").strip()
+        elif local_owner is not None:
+            name = str(local_owner.name or "").strip()
+            git_url = _package_git_source(str(local_owner.path or ""))
+        else:
+            continue
+        if name:
+            existing = specs.get(name)
+            local = local_packages.get(name)
+            indexed = indexed_packages.get(name)
+            version = (
+                str(existing.get("version") or "")
+                if existing
+                else str(local.version or "")
+                if local is not None
+                else str(indexed.get("version") or "")
+                if isinstance(indexed, dict)
+                else ""
+            )
+            specs[name] = {
+                "name": name,
+                "git_url": (
+                    str(existing.get("git_url") or "")
+                    if existing
+                    else git_url
+                ) or git_url,
+                "version": version,
+            }
+    return [specs[name] for name in sorted(specs)]
+
+
+def _device_deployment_workflow(
+    workflow: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if isinstance(workflow, dict):
+        data = json.loads(json.dumps(workflow))
+    else:
+        data = _workflow_payload(
+            "Current graph",
+            metadata={"source": "remote_deployment"},
+        )
+    if not isinstance(data.get("entrypoint"), dict):
+        entrypoint = _infer_export_entrypoint(data)
+        if entrypoint is not None:
+            data["entrypoint"] = entrypoint
+    return data
+
+
+def _device_deployment_hash(workflow: dict[str, Any]) -> str:
+    """Hash deployable graph content without volatile display timestamps."""
+    content = {
+        key: workflow[key]
+        for key in (
+            "kind",
+            "schema_version",
+            "node_meta",
+            "edges",
+            "entrypoint",
+            "metadata",
+        )
+        if key in workflow
+    }
+    canonical = json.dumps(
+        content,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+@app.post("/devices/{device_id}/deployment-preflight")
+def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
+    try:
+        device = _device_registry.get_public(device_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if device is None:
+        raise HTTPException(404, "Device not found")
+
+    workflow = _device_deployment_workflow(req.workflow)
+
+    checks: list[dict[str, Any]] = []
+    workflow_validation = validate_bn_workflow(workflow).to_dict()
+    if workflow_validation.get("ok"):
+        checks.append(_preflight_check(
+            "workflow",
+            "Workflow",
+            "pass",
+            f"{len(workflow.get('node_meta') or {})} nodes passed workflow validation.",
+        ))
+    else:
+        errors = workflow_validation.get("errors") or []
+        message = "; ".join(
+            str(item.get("message") or item.get("code") or "invalid workflow")
+            for item in errors[:3]
+            if isinstance(item, dict)
+        ) or "Workflow validation failed."
+        checks.append(_preflight_check(
+            "workflow", "Workflow", "fail", message, blocking=True,
+        ))
+
+    dependencies = _workflow_dependency_report(workflow)
+    if dependencies.get("ok"):
+        checks.append(_preflight_check(
+            "local_dependencies",
+            "Editor dependencies",
+            "pass",
+            "The editor can resolve every node and declared package requirement.",
+        ))
+    else:
+        checks.append(_preflight_check(
+            "local_dependencies",
+            "Editor dependencies",
+            "fail",
+            str(dependencies.get("message") or "Workflow dependencies are incomplete."),
+            blocking=True,
+        ))
+
+    try:
+        remote_status = _paired_device_client(device_id).status()
+    except DeviceRegistryError as exc:
+        checks.append(_preflight_check(
+            "service",
+            "Device service",
+            "fail",
+            str(exc),
+            blocking=True,
+        ))
+        checks.extend([
+            _preflight_check(
+                "hardware", "Hardware connection", "pending",
+                "Waiting for the device service.", blocking=True,
+            ),
+            _preflight_check(
+                "safety", "Safety state", "pending",
+                "Waiting for the device service.", blocking=True,
+            ),
+            _preflight_check(
+                "capabilities", "Capabilities", "pending",
+                "Waiting for the device service.", blocking=True,
+            ),
+            _preflight_check(
+                "target_runtime", "Target runtime", "pending",
+                "Waiting for the device service runtime manifest.", blocking=True,
+            ),
+        ])
+        return _deployment_preflight_payload(device, workflow, checks, None, None)
+
+    checks.append(_preflight_check(
+        "service",
+        "Device service",
+        "pass",
+        f"Authenticated with {remote_status.get('device_id') or device['remote_device_id']}.",
+    ))
+
+    connected = bool(remote_status.get("connected"))
+    checks.append(_preflight_check(
+        "hardware",
+        "Hardware connection",
+        "pass" if connected else "fail",
+        (
+            f"{len(remote_status.get('joint_names') or [])} joints are reporting state."
+            if connected
+            else str(remote_status.get("error") or "Hardware is not connected.")
+        ),
+        blocking=not connected,
+    ))
+
+    armed = bool(remote_status.get("armed"))
+    checks.append(_preflight_check(
+        "safety",
+        "Safety state",
+        "fail" if armed else "pass",
+        (
+            "Device is armed. Disarm it before staging a deployment."
+            if armed
+            else "Device is disarmed."
+        ),
+        blocking=armed,
+    ))
+
+    required_capabilities = _workflow_required_capabilities(workflow)
+    available_capabilities = sorted({
+        str(item)
+        for item in (remote_status.get("capabilities") or [])
+        if isinstance(item, str)
+    })
+    if required_capabilities:
+        missing_capabilities = sorted(set(required_capabilities) - set(available_capabilities))
+        checks.append(_preflight_check(
+            "capabilities",
+            "Capabilities",
+            "fail" if missing_capabilities else "pass",
+            (
+                "Missing: " + ", ".join(missing_capabilities)
+                if missing_capabilities
+                else "Available: " + ", ".join(required_capabilities)
+            ),
+            blocking=bool(missing_capabilities),
+        ))
+    else:
+        checks.append(_preflight_check(
+            "capabilities",
+            "Capabilities",
+            "warning",
+            (
+                "Workflow does not declare metadata.required_capabilities. "
+                f"Device reports: {', '.join(available_capabilities) or 'none'}."
+            ),
+        ))
+
+    requires_joint_motion = "joint_group" in required_capabilities
+    calibrated = remote_status.get("calibrated")
+    if requires_joint_motion:
+        checks.append(_preflight_check(
+            "calibration",
+            "Calibration",
+            "pass" if calibrated is True else "fail",
+            (
+                "A calibration profile is active for this device."
+                if calibrated is True
+                else "Joint motion requires the editor calibration profile to be deployed to this device."
+            ),
+            blocking=calibrated is not True,
+        ))
+    elif calibrated is False and "joint_group" in available_capabilities:
+        checks.append(_preflight_check(
+            "calibration",
+            "Calibration",
+            "warning",
+            "No calibration profile is active; any workflow that requires joint_group will be blocked.",
+        ))
+
+    runtime_manifest = None
+    try:
+        runtime_manifest = _device_registry.runtime_client(device_id).manifest()
+        if (
+            runtime_manifest.get("service") != "blacknode-runtime"
+            or runtime_manifest.get("protocol_version") != 1
+        ):
+            raise DeviceRegistryError("Runtime service identity or protocol is incompatible.")
+        features = set(runtime_manifest.get("features") or [])
+        required_features = {"manifest_v1", "deployment_bundle_v1", "process_supervision_v1", "rollback_v1"}
+        missing_features = sorted(required_features - features)
+        blacknode_info = runtime_manifest.get("blacknode") or {}
+        python_version = str((runtime_manifest.get("python") or {}).get("version") or "")
+        try:
+            python_parts = tuple(int(part) for part in python_version.split(".")[:2])
+        except ValueError:
+            python_parts = (0, 0)
+        runtime_package_versions = {
+            str(item.get("name")): str(item.get("version") or "")
+            for item in (runtime_manifest.get("packages") or [])
+            if isinstance(item, dict) and item.get("name")
+        }
+        runtime_packages = set(runtime_package_versions)
+        package_specs = _workflow_target_package_specs(workflow)
+        missing_packages = sorted(
+            set(_workflow_target_packages(workflow)) - runtime_packages
+        )
+        outdated_packages = sorted({
+            item["name"]
+            for item in package_specs
+            if (
+                item.get("version")
+                and item["name"] in runtime_package_versions
+                and runtime_package_versions[item["name"]] != item["version"]
+            )
+        })
+        packages_to_sync = sorted(set(missing_packages) | set(outdated_packages))
+        registered_node_types = runtime_manifest.get("node_types")
+        missing_node_types: list[str] = []
+        if isinstance(registered_node_types, list):
+            missing_node_types = sorted(
+                workflow_node_types(workflow) - {
+                    str(item)
+                    for item in registered_node_types
+                    if isinstance(item, str)
+                }
+            )
+        problems = []
+        if python_parts < (3, 11):
+            problems.append(f"Python {python_version or 'unknown'} is below 3.11")
+        if not blacknode_info.get("installed"):
+            problems.append("Blacknode core is not installed")
+        if missing_features:
+            problems.append("missing runtime features: " + ", ".join(missing_features))
+        package_sync_available = "package_sync_v1" in features
+        installable_packages = {
+            item["name"]
+            for item in package_specs
+            if item.get("git_url")
+        }
+        package_owned_nodes = {
+            str(node_type)
+            for node_type, resolution in (package_index_payload().get("nodes") or {}).items()
+            if (
+                isinstance(resolution, dict)
+                and str(resolution.get("package") or "") in set(packages_to_sync)
+            )
+        }
+        auto_installable = (
+            package_sync_available
+            and set(packages_to_sync) <= installable_packages
+        )
+        hard_missing_nodes = (
+            sorted(set(missing_node_types) - package_owned_nodes)
+            if auto_installable
+            else missing_node_types
+        )
+        if packages_to_sync and not auto_installable:
+            if missing_packages:
+                problems.append("missing target packages: " + ", ".join(missing_packages))
+            if outdated_packages:
+                problems.append("outdated target packages: " + ", ".join(outdated_packages))
+        if hard_missing_nodes:
+            problems.append("unregistered target nodes: " + ", ".join(hard_missing_nodes))
+        package_message = (
+            " · will synchronize " + ", ".join(packages_to_sync) + " when staged"
+            if packages_to_sync and auto_installable
+            else ""
+        )
+        checks.append(_preflight_check(
+            "target_runtime",
+            "Target runtime",
+            (
+                "fail"
+                if problems
+                else "warning"
+                if packages_to_sync and auto_installable
+                else "pass"
+            ),
+            (
+                "; ".join(problems)
+                if problems
+                else (
+                    f"Runtime {runtime_manifest.get('runtime_version')} · "
+                    f"Python {python_version} · "
+                    f"Blacknode {blacknode_info.get('version')}"
+                    f"{package_message}"
+                )
+            ),
+            blocking=bool(problems),
+        ))
+    except (DeviceRegistryError, KeyError) as exc:
+        checks.append(_preflight_check(
+            "target_runtime",
+            "Target runtime",
+            "pending",
+            (
+                f"{exc} Install and start blacknode-runtime on "
+                f"{device.get('runtime_url')}."
+            ),
+            blocking=True,
+        ))
+    return _deployment_preflight_payload(
+        device, workflow, checks, remote_status, runtime_manifest,
+    )
+
+
+def _deployment_preflight_payload(
+    device: dict[str, Any],
+    workflow: dict[str, Any],
+    checks: list[dict[str, Any]],
+    remote_status: dict[str, Any] | None,
+    runtime_manifest: dict[str, Any] | None,
+) -> dict[str, Any]:
+    blocking = [
+        check for check in checks
+        if check.get("blocking") and check.get("status") != "pass"
+    ]
+    return {
+        "ready": not blocking,
+        "summary": (
+            "Deployment preflight passed."
+            if not blocking
+            else f"{len(blocking)} blocking check{'s' if len(blocking) != 1 else ''} need attention."
+        ),
+        "device": device,
+        "workflow": {
+            "name": str(workflow.get("name") or "Current graph"),
+            "node_count": len(workflow.get("node_meta") or {}),
+            "required_capabilities": _workflow_required_capabilities(workflow),
+            "hash": _device_deployment_hash(workflow),
+        },
+        "status": remote_status,
+        "runtime": runtime_manifest,
+        "checks": checks,
+        "checked_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+
+
+def _runtime_client_or_404(device_id: str):
+    try:
+        return _device_registry.runtime_client(device_id)
+    except KeyError as exc:
+        raise HTTPException(404, "Device not found") from exc
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+def _require_device_safe_to_start(device_id: str) -> None:
+    try:
+        status = _paired_device_client(device_id).status()
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    if not status.get("connected"):
+        raise HTTPException(
+            409,
+            str(status.get("error") or "Hardware is not connected."),
+        )
+    if status.get("armed"):
+        raise HTTPException(
+            409,
+            "Device is armed. Disarm it before starting a deployment.",
+        )
+
+
+@app.get("/devices/{device_id}/deployments")
+def list_device_deployments(device_id: str):
+    try:
+        return _runtime_client_or_404(device_id).list_deployments()
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.post("/devices/{device_id}/deployments")
+def stage_device_deployment(device_id: str, req: RemoteDeployReq):
+    workflow = _device_deployment_workflow()
+    current_hash = _device_deployment_hash(workflow)
+    requested_hash = req.workflow_hash.strip().lower()
+    if not requested_hash or requested_hash != current_hash:
+        raise HTTPException(
+            409,
+            "The graph changed after validation. Validate deployment again before staging.",
+        )
+
+    preflight = validate_device_deployment(
+        device_id,
+        DeploymentPreflightReq(workflow=workflow),
+    )
+    if not preflight.get("ready"):
+        blocking = [
+            str(check.get("message") or check.get("label") or "deployment is not ready")
+            for check in preflight.get("checks", [])
+            if check.get("blocking") and check.get("status") != "pass"
+        ]
+        raise HTTPException(
+            409,
+            "Deployment preflight failed: " + "; ".join(blocking[:3]),
+        )
+
+    try:
+        workflow["entrypoint"] = resolve_entrypoint(workflow)
+        script = export_workflow_python(workflow)
+    except (WorkflowRunError, ValueError) as exc:
+        raise HTTPException(400, f"Could not export workflow: {exc}") from exc
+
+    name = req.name.strip() or str(workflow.get("name") or "Deployed graph")
+    runtime_manifest = preflight.get("runtime") or {}
+    payload: dict[str, Any] = {
+        "name": name,
+        "script": script,
+        "manifest": {
+            "schema_version": 1,
+            "workflow_hash": current_hash,
+            "workflow_name": str(workflow.get("name") or name),
+            "entrypoint": dict(workflow["entrypoint"]),
+            "node_count": len(workflow.get("node_meta") or {}),
+            "required_capabilities": _workflow_required_capabilities(workflow),
+            "required_packages": _workflow_target_packages(workflow),
+            "package_requirements": _workflow_target_package_specs(workflow),
+            "blacknode_version": str(getattr(bn, "__version__", "")),
+            "runtime_protocol_version": runtime_manifest.get("protocol_version"),
+            "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        },
+    }
+    if req.deployment_id:
+        payload["deployment_id"] = req.deployment_id
+    try:
+        client = _runtime_client_or_404(device_id)
+        package_specs = _workflow_target_package_specs(workflow)
+        if package_specs:
+            client.sync_packages(package_specs)
+            synced_manifest = client.manifest()
+            synced_packages = {
+                str(item.get("name")): str(item.get("version") or "")
+                for item in (synced_manifest.get("packages") or [])
+                if isinstance(item, dict) and item.get("name")
+            }
+            missing_after_sync = sorted(
+                set(_workflow_target_packages(workflow)) - set(synced_packages)
+            )
+            outdated_after_sync = sorted({
+                item["name"]
+                for item in package_specs
+                if (
+                    item.get("version")
+                    and synced_packages.get(item["name"]) != item["version"]
+                )
+            })
+            synced_node_types = {
+                str(item)
+                for item in (synced_manifest.get("node_types") or [])
+                if isinstance(item, str)
+            }
+            missing_nodes_after_sync = sorted(
+                workflow_node_types(workflow) - synced_node_types
+            )
+            if missing_after_sync or outdated_after_sync or missing_nodes_after_sync:
+                details = []
+                if missing_after_sync:
+                    details.append("packages: " + ", ".join(missing_after_sync))
+                if outdated_after_sync:
+                    details.append(
+                        "package versions: " + ", ".join(outdated_after_sync)
+                    )
+                if missing_nodes_after_sync:
+                    details.append("nodes: " + ", ".join(missing_nodes_after_sync))
+                raise HTTPException(
+                    409,
+                    "Target package synchronization did not provide " + "; ".join(details),
+                )
+        deployment = client.stage_deployment(payload)
+        if req.start:
+            _require_device_safe_to_start(device_id)
+            deployment = client.start_deployment(str(deployment["id"]))
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {
+        "deployment": deployment,
+        "workflow_hash": current_hash,
+        "started": bool(req.start),
+    }
+
+
+@app.get("/devices/{device_id}/deployments/{deployment_id}")
+def get_device_deployment(device_id: str, deployment_id: str):
+    try:
+        return _runtime_client_or_404(device_id).get_deployment(deployment_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.post("/devices/{device_id}/deployments/{deployment_id}/start")
+def start_device_deployment(device_id: str, deployment_id: str):
+    _require_device_safe_to_start(device_id)
+    try:
+        return _runtime_client_or_404(device_id).start_deployment(deployment_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.post("/devices/{device_id}/deployments/{deployment_id}/stop")
+def stop_device_deployment(device_id: str, deployment_id: str):
+    try:
+        return _runtime_client_or_404(device_id).stop_deployment(deployment_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.post("/devices/{device_id}/deployments/{deployment_id}/rollback")
+def rollback_device_deployment(
+    device_id: str,
+    deployment_id: str,
+    req: RemoteRollbackReq,
+):
+    if req.start:
+        _require_device_safe_to_start(device_id)
+    try:
+        return _runtime_client_or_404(device_id).rollback_deployment(
+            deployment_id,
+            start=req.start,
+        )
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.get("/devices/{device_id}/deployments/{deployment_id}/logs")
+def get_device_deployment_logs(
+    device_id: str,
+    deployment_id: str,
+    limit: int = 20000,
+):
+    try:
+        return _runtime_client_or_404(device_id).deployment_logs(
+            deployment_id,
+            limit=limit,
+        )
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.delete("/devices/{device_id}/deployments/{deployment_id}")
+def delete_device_deployment(device_id: str, deployment_id: str):
+    try:
+        return _runtime_client_or_404(device_id).delete_deployment(deployment_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.post("/devices/{device_id}/rpc")
+def call_device_rpc(device_id: str, req: DeviceRpcReq):
+    method = req.method.strip()
+    if not method:
+        raise HTTPException(400, "RPC method is required")
+    payload = {
+        "jsonrpc": "2.0",
+        "id": req.id,
+        "method": method,
+        "params": req.params,
+    }
+    try:
+        return _paired_device_client(device_id).rpc(payload)
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.delete("/devices/{device_id}")
+def delete_device(device_id: str):
+    try:
+        deleted = _device_registry.delete(device_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if not deleted:
+        raise HTTPException(404, "Device not found")
+    return {"ok": True, "id": device_id}
 
 
 @app.get("/deployments")
