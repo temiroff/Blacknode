@@ -20,12 +20,34 @@ goes through the Caddy `proxy` profile. See
 
 ### 1. Start everything
 
-On Windows, use the helper so Docker Desktop/engine problems get a clear
-actionable message:
+On Windows, use the helper. It starts Docker Desktop when needed, bounds every
+engine readiness check, and prevents two Blacknode Compose launchers from
+running at the same time:
 
 ```powershell
 .\docker-up.ps1
 ```
+
+If Docker Desktop's WSL engine remains stuck while another WSL distribution is
+running, save that distribution's work and request a full WSL repair:
+
+```powershell
+.\docker-up.ps1 -RepairWsl
+```
+
+Check Docker readiness without starting the Compose services:
+
+```powershell
+.\docker-up.ps1 -CheckOnly
+```
+
+Stop and remove the Blacknode Compose containers and network:
+
+```powershell
+.\docker-down.ps1
+```
+
+Add `-Volumes` only when the Compose volumes should also be removed.
 
 On Linux, macOS, or after confirming `docker info` works:
 

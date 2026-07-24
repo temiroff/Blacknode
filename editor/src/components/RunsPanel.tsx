@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { api, type RunRecord, type RunStatus, type RunSummary } from '../api'
+import { api, type RunRecord, type RunStatus, type RunSummary, type WorkflowMetadata } from '../api'
 import { useStore } from '../store'
 
 const REFRESH_INTERVAL_MS = 4000
@@ -349,6 +349,7 @@ function RunDetail({ runId, runStatus, onDelete }: { runId: string; runStatus: R
         {
           nodes: Object.values(record.workflow.node_meta ?? {}),
           edges: record.workflow.edges ?? [],
+          metadata: (record.workflow.metadata ?? {}) as WorkflowMetadata,
         },
       )
       clearReplay()

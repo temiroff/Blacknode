@@ -3,7 +3,7 @@ import {
   Node, Edge, addEdge, applyNodeChanges, applyEdgeChanges,
   NodeChange, EdgeChange, Connection,
 } from 'reactflow'
-import { api, type ApiKeyStatus, type CookEvent, type DriverInfo, type DriverStatus, type LearnedNodeSummary, type RunRecord, type RuntimeStopResult } from './api'
+import { api, type ApiKeyStatus, type CookEvent, type DriverInfo, type DriverStatus, type GraphSnapshot, type LearnedNodeSummary, type RunRecord, type RuntimeStopResult, type WorkflowMetadata } from './api'
 import { BnNodeDef, BnNodeMeta, BnPackage, ConnectionDraft, NodeCookState, SubnetFrame } from './types'
 import { VALUE_NODE_TYPES, registerDynamicColors } from './categories'
 import { portsCompatible, portColor } from './portColors'
@@ -35,11 +35,6 @@ export interface WorkflowTab {
   // as idle - and it has to hold for every node type, not the few whose
   // runtime happens to report which node owns its work.
   liveState?: Record<string, Record<string, unknown>>
-}
-
-interface GraphSnapshot {
-  nodes: any[]
-  edges: any[]
 }
 
 export interface NodeData extends BnNodeMeta, NodeCookState {}
@@ -104,6 +99,7 @@ interface Store {
   tabs: WorkflowTab[]
   activeTabId: string
   workflowRevision: number
+  workflowMetadata: WorkflowMetadata
   undoHistory: UndoSnapshot[]
   cookLog: CookLogEntry[]
   cookActive: boolean
@@ -145,6 +141,10 @@ interface Store {
   duplicateSavedWorkflow: (slug: string) => Promise<{ name: string; slug: string }>
   deleteWorkflow: (slug: string) => Promise<void>
   saveActiveTabSnapshot: () => Promise<GraphSnapshot | null>
+  setWorkflowRequirements: (
+    requiredCapabilities: string[],
+    deviceCalibration: { profile_id: string; hardware_id: string } | null,
+  ) => Promise<void>
 
   subnetStack: SubnetFrame[]
   diveIntoSubnet: (subnetId: string) => Promise<void>
@@ -944,6 +944,7 @@ function graphSnapshotFromState(s: Store): GraphSnapshot {
   return {
     nodes: Object.values(current.node_meta),
     edges: current.edges,
+    metadata: cloneDeep(s.workflowMetadata),
   }
 }
 
@@ -1252,7 +1253,7 @@ function cloneGraph(graph: GraphSnapshot): GraphSnapshot {
 }
 
 function blankGraph(): GraphSnapshot {
-  return { nodes: [], edges: [] }
+  return { nodes: [], edges: [], metadata: {} }
 }
 
 function cookStateFromTab(tab?: WorkflowTab): Pick<Store, 'cookLog' | 'cookActive' | 'cookStatusHidden'> {
@@ -1317,6 +1318,7 @@ export const useStore = create<Store>((set, get) => ({
   tabs: [{ id: 'default', name: 'Untitled', slug: null, dirty: false, graph: null, cookLog: [], cookActive: false, cookStatusHidden: false }],
   activeTabId: 'default',
   workflowRevision: 0,
+  workflowMetadata: {},
   undoHistory: [],
   cookLog: [],
   cookActive: false,
@@ -1604,9 +1606,14 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   loadGraph: async () => {
-    const { nodes: bnNodes, edges: bnEdges } = await api.getGraph()
-    const parsed = parseGraph(bnNodes, bnEdges)
-    set({ nodes: ensureConnectedToolBoxSlots(parsed.nodes, parsed.edges), edges: parsed.edges, selectedId: null })
+    const graph = await api.getGraph()
+    const parsed = parseGraph(graph.nodes, graph.edges)
+    set({
+      nodes: ensureConnectedToolBoxSlots(parsed.nodes, parsed.edges),
+      edges: parsed.edges,
+      workflowMetadata: graph.metadata ?? {},
+      selectedId: null,
+    })
     await get().reattachRuntimeState()
   },
 
@@ -1630,6 +1637,27 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
+  setWorkflowRequirements: async (requiredCapabilities, deviceCalibration) => {
+    const result = await api.updateWorkflowRequirements(
+      requiredCapabilities,
+      deviceCalibration,
+    )
+    set(s => ({
+      workflowMetadata: result.metadata,
+      tabs: s.tabs.map(tab => (
+        tab.id === s.activeTabId
+          ? {
+              ...tab,
+              dirty: true,
+              graph: tab.graph
+                ? { ...tab.graph, metadata: cloneDeep(result.metadata) }
+                : tab.graph,
+            }
+          : tab
+      )),
+    }))
+  },
+
   newTab: async (name) => {
     await get().saveActiveTabSnapshot()
     const id = makeTabId()
@@ -1643,7 +1671,7 @@ export const useStore = create<Store>((set, get) => ({
       cookStatusHidden: false,
     }))
     await api.reset()
-    set({ nodes: [], edges: [], selectedId: null })
+    set({ nodes: [], edges: [], workflowMetadata: {}, selectedId: null })
   },
 
   insertTab: async (tabId) => {
@@ -1664,7 +1692,7 @@ export const useStore = create<Store>((set, get) => ({
       cookStatusHidden: false,
     })
     await api.reset()
-    set({ nodes: [], edges: [] })
+    set({ nodes: [], edges: [], workflowMetadata: {} })
   },
 
   switchTab: async (tabId) => {
@@ -1678,7 +1706,7 @@ export const useStore = create<Store>((set, get) => ({
     set({ activeTabId: tabId, selectedId: null, undoHistory: [], ...cookStateFromTab(tab) })
     if (tab.graph) {
       const graph = cloneGraph(tab.graph)
-      await api.setGraph(graph.nodes, graph.edges)
+      await api.setGraph(graph.nodes, graph.edges, graph.metadata)
       await get().loadGraph()
       get().restoreTabLiveState(tabId)
     } else if (tab.slug) {
@@ -1688,7 +1716,7 @@ export const useStore = create<Store>((set, get) => ({
       get().restoreTabLiveState(tabId)
     } else {
       await api.reset()
-      set({ nodes: [], edges: [], selectedId: null })
+      set({ nodes: [], edges: [], workflowMetadata: {}, selectedId: null })
     }
   },
 
@@ -1704,6 +1732,7 @@ export const useStore = create<Store>((set, get) => ({
         activeTabId: tab.id,
         nodes: [],
         edges: [],
+        workflowMetadata: {},
         selectedId: null,
         subnetStack: [],
         undoHistory: [],
@@ -1720,7 +1749,7 @@ export const useStore = create<Store>((set, get) => ({
       set({ tabs: newTabs, activeTabId: next.id, selectedId: null, undoHistory: [], ...cookStateFromTab(next) })
       if (next.graph) {
         const graph = cloneGraph(next.graph)
-        await api.setGraph(graph.nodes, graph.edges)
+        await api.setGraph(graph.nodes, graph.edges, graph.metadata)
         await get().loadGraph()
       } else if (next.slug) {
         const graph = await api.loadWorkflow(next.slug)
@@ -1728,7 +1757,7 @@ export const useStore = create<Store>((set, get) => ({
         await get().loadGraph()
       } else {
         await api.reset()
-        set({ nodes: [], edges: [], selectedId: null })
+        set({ nodes: [], edges: [], workflowMetadata: {}, selectedId: null })
       }
     } else {
       set({ tabs: newTabs })
@@ -1769,7 +1798,7 @@ export const useStore = create<Store>((set, get) => ({
       cookActive: false,
       cookStatusHidden: false,
     })
-    await api.setGraph(graph.nodes, graph.edges)
+    await api.setGraph(graph.nodes, graph.edges, graph.metadata)
     await get().loadGraph()
   },
 
@@ -1808,7 +1837,7 @@ export const useStore = create<Store>((set, get) => ({
       cookActive: false,
       cookStatusHidden: false,
     }))
-    await api.setGraph(nextGraph.nodes, nextGraph.edges)
+    await api.setGraph(nextGraph.nodes, nextGraph.edges, nextGraph.metadata)
     await get().loadGraph()
   },
 
@@ -3377,11 +3406,12 @@ export const useStore = create<Store>((set, get) => ({
     if (idx < 0) return
 
     const snapshot = undoHistory[idx]
-    await api.setGraph(snapshot.graph.nodes, snapshot.graph.edges)
+    await api.setGraph(snapshot.graph.nodes, snapshot.graph.edges, snapshot.graph.metadata)
     dragUndoActive = false
     set(s => ({
       nodes: cloneDeep(snapshot.nodes),
       edges: cloneDeep(snapshot.edges),
+      workflowMetadata: cloneDeep(snapshot.graph.metadata),
       subnetStack: cloneDeep(snapshot.subnetStack),
       selectedId: snapshot.selectedId,
       undoHistory: undoHistory.slice(0, idx),
@@ -3395,6 +3425,7 @@ export const useStore = create<Store>((set, get) => ({
     set(s => ({
       nodes: [],
       edges: [],
+      workflowMetadata: {},
       selectedId: null,
       tabs: s.tabs.map(t =>
         t.id === s.activeTabId

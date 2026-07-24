@@ -21,7 +21,7 @@ import NodeSearch from './components/NodeSearch'
 import { portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
-import { api, type FrameworkExportTarget } from './api'
+import { api, type FrameworkExportTarget, type WorkflowMetadata } from './api'
 import { inferGraphRunTargets } from './graphRun'
 import { copyTextToClipboard } from './clipboard'
 
@@ -332,6 +332,11 @@ export default function App() {
             await openGraphAsTab(name, {
               nodes: Object.values(nodeMeta),
               edges,
+              metadata: (
+                record.metadata && typeof record.metadata === 'object'
+                  ? record.metadata
+                  : {}
+              ) as WorkflowMetadata,
             })
             if (action.payload?.organize !== false) {
               await organizeNodes()
@@ -534,6 +539,7 @@ export default function App() {
       let tabName = name
       let nodeMeta: Record<string, any> = {}
       let edges: any[] = []
+      let metadata: WorkflowMetadata = {}
       let sourceLabel = 'workflow'
 
       if (lowerName.endsWith('.py')) {
@@ -548,6 +554,11 @@ export default function App() {
           ? workflow.node_meta
           : {}
         edges = Array.isArray(workflow.edges) ? workflow.edges : []
+        metadata = (
+          workflow.metadata && typeof workflow.metadata === 'object'
+            ? workflow.metadata
+            : {}
+        ) as WorkflowMetadata
         sourceLabel = 'Python'
       } else {
         const parsed = JSON.parse(text)
@@ -558,6 +569,11 @@ export default function App() {
           tabName = typeof workflow.name === 'string' && workflow.name.trim() ? workflow.name : name
           nodeMeta = workflow.node_meta as Record<string, any>
           edges = Array.isArray(workflow.edges) ? workflow.edges : []
+          metadata = (
+            workflow.metadata && typeof workflow.metadata === 'object'
+              ? workflow.metadata
+              : {}
+          ) as WorkflowMetadata
         } else if (Array.isArray(workflow?.nodes)) {
           tabName = typeof workflow.name === 'string' && workflow.name.trim() ? workflow.name : name
           nodeMeta = Object.fromEntries(
@@ -566,6 +582,11 @@ export default function App() {
               .map((node: any) => [node.id, node])
           )
           edges = Array.isArray(workflow.edges) ? workflow.edges : []
+          metadata = (
+            workflow.metadata && typeof workflow.metadata === 'object'
+              ? workflow.metadata
+              : {}
+          ) as WorkflowMetadata
         } else {
           throw new Error('Drop a Blacknode workflow JSON file or a Blacknode-generated Python/LangGraph export.')
         }
@@ -579,6 +600,7 @@ export default function App() {
       await openGraphAsTab(tabName, {
         nodes: Object.values(nodeMeta),
         edges,
+        metadata,
       })
       await organizeNodes()
       fitCurrentCanvas(320)

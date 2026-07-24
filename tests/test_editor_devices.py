@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -78,6 +79,30 @@ class _HardwareService:
             raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, None)
         if path == "/status":
             return _JsonResponse(self.status_payload)
+        if path == "/calibration":
+            if request.method == "POST":
+                calibration = body["calibration"]
+                profile = body["profile"]
+                active = {
+                    "active": True,
+                    "profile_id": profile["id"],
+                    "hardware_id": calibration["hardware_id"],
+                    "target_device_id": self.status_payload["device_id"],
+                    "activated_at": "2026-07-24T00:00:00+00:00",
+                    "joint_count": len(calibration["joints"]),
+                    "digest": "0123456789abcdef",
+                }
+                self.status_payload["calibrated"] = True
+                self.status_payload["calibration"] = {
+                    key: value
+                    for key, value in active.items()
+                    if key not in {"active", "target_device_id"}
+                }
+                return _JsonResponse({"ok": True, "calibration": active})
+            return _JsonResponse({
+                "active": bool(self.status_payload.get("calibrated")),
+                **(self.status_payload.get("calibration") or {}),
+            })
         if path == "/manifest":
             return _JsonResponse({
                 "service": "blacknode-runtime",
@@ -200,6 +225,43 @@ class EditorDeviceApiTests(unittest.TestCase):
     def tearDown(self):
         server._device_registry = self._original_registry
         self._tmp.cleanup()
+
+    def test_workflow_requirements_are_normalized_and_exposed_by_graph(self):
+        original_metadata = dict(server._session.metadata)
+        try:
+            server._session.metadata = {"required_packages": ["blacknode-robot"]}
+            with patch.object(server, "_save"):
+                response = self.client.patch("/graph/requirements", json={
+                    "required_capabilities": [
+                        "servo_bus",
+                        "joint_group",
+                        "servo_bus",
+                        "position_feedback",
+                    ],
+                    "device_calibration": {
+                        "profile_id": "so_arm101_v002",
+                        "hardware_id": "USB-SERIAL-42",
+                    },
+                })
+            graph = self.client.get("/graph").json()
+        finally:
+            server._session.metadata = original_metadata
+
+        self.assertEqual(response.status_code, 200)
+        metadata = response.json()["metadata"]
+        self.assertEqual(
+            metadata["required_capabilities"],
+            ["joint_group", "position_feedback", "servo_bus"],
+        )
+        self.assertEqual(
+            metadata["device_calibration"],
+            {
+                "profile_id": "so_arm101_v002",
+                "hardware_id": "USB-SERIAL-42",
+            },
+        )
+        self.assertEqual(metadata["required_packages"], ["blacknode-robot"])
+        self.assertEqual(graph["metadata"], metadata)
 
     def test_pairing_validates_and_keeps_token_out_of_api_responses(self):
         hardware = _HardwareService()
@@ -346,6 +408,143 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertFalse(checks["target_runtime"]["blocking"])
         self.assertFalse(report["ready"])
         self.assertNotIn(hardware.token, response.text)
+
+    def test_selected_calibration_can_be_activated_and_satisfies_preflight(self):
+        hardware = _HardwareService()
+        robots_root = Path(self._tmp.name) / "robots"
+        profile_dir = robots_root / "arm_profile"
+        calibration_dir = profile_dir / "calibrations"
+        calibration_dir.mkdir(parents=True)
+        profile = {
+            "schema_version": 1,
+            "id": "arm_profile",
+            "display_name": "Arm profile",
+            "joints": [
+                {"id": f"servo_{index}", "servo_id": index}
+                for index in range(1, 7)
+            ],
+        }
+        calibration = {
+            "schema_version": 1,
+            "name": "Workshop left arm",
+            "profile_id": "arm_profile",
+            "hardware_id": "USB-SERIAL-42",
+            "recorded_at": "2026-07-24T00:00:00Z",
+            "joints": {
+                f"servo_{index}": {
+                    "home_ticks": 2048,
+                    "safe_min_deg": -80.0,
+                    "safe_max_deg": 80.0,
+                }
+                for index in range(1, 7)
+            },
+        }
+        (profile_dir / "profile.json").write_text(json.dumps(profile), encoding="utf-8")
+        (calibration_dir / "usb_serial_42.json").write_text(
+            json.dumps(calibration),
+            encoding="utf-8",
+        )
+        original_metadata = dict(server._session.metadata)
+        original_node_meta = dict(server._session.node_meta)
+        workflow = _workflow(["joint_group"])
+        robot_fn = server._NODE_REGISTRY["Output"]
+        workflow["node_meta"]["robot"] = {
+            "id": "robot",
+            "type": "Robot",
+            "params": {"profile_id": "arm_profile"},
+            "pos": [200, 0],
+            "inputs": list(getattr(robot_fn, "_bn_inputs", [])),
+            "outputs": list(getattr(robot_fn, "_bn_outputs", [])),
+            "input_types": dict(getattr(robot_fn, "_bn_input_types", {})),
+            "output_types": dict(getattr(robot_fn, "_bn_output_types", {})),
+            "input_defaults": dict(getattr(robot_fn, "_bn_input_defaults", {})),
+        }
+        workflow["metadata"]["device_calibration"] = {
+            "profile_id": "arm_profile",
+            "hardware_id": "USB-SERIAL-42",
+        }
+        try:
+            server._session.metadata = dict(workflow["metadata"])
+            server._session.node_meta = {
+                "robot": {
+                    "id": "robot",
+                    "type": "Robot",
+                    "params": {"profile_id": "arm_profile"},
+                },
+            }
+            with (
+                patch.dict(server._NODE_REGISTRY, {"Robot": robot_fn}),
+                patch.dict("os.environ", {"BLACKNODE_ROBOTS_DIR": str(robots_root)}),
+                patch("device_registry.urllib.request.urlopen", side_effect=hardware),
+            ):
+                device_id = self.client.post("/devices", json={
+                    "name": "Workshop arm",
+                    "base_url": "http://192.168.1.87:8765",
+                    "token": hardware.token,
+                }).json()["device"]["id"]
+                candidates = self.client.get("/graph/calibrations")
+                activated = self.client.post(f"/devices/{device_id}/calibration")
+                preflight = self.client.post(
+                    f"/devices/{device_id}/deployment-preflight",
+                    json={"workflow": workflow},
+                )
+        finally:
+            server._session.metadata = original_metadata
+            server._session.node_meta = original_node_meta
+
+        self.assertEqual(candidates.status_code, 200)
+        listed_profile = next(
+            item
+            for item in candidates.json()["profiles"]
+            if item["id"] == "arm_profile"
+        )
+        self.assertEqual(listed_profile["name"], "Arm profile")
+        self.assertTrue(listed_profile["saved"])
+        self.assertEqual(listed_profile["calibration_count"], 1)
+        self.assertEqual(
+            candidates.json()["calibrations"][0]["hardware_id"],
+            "USB-SERIAL-42",
+        )
+        self.assertEqual(
+            candidates.json()["calibrations"][0]["name"],
+            "Workshop left arm",
+        )
+        self.assertEqual(activated.status_code, 200)
+        self.assertTrue(activated.json()["status"]["calibrated"])
+        checks = {item["id"]: item for item in preflight.json()["checks"]}
+        self.assertEqual(checks["calibration"]["status"], "pass")
+        self.assertFalse(checks["calibration"]["blocking"])
+        calibration_requests = [
+            item for item in hardware.requests if item[1] == "/calibration"
+        ]
+        self.assertEqual(len(calibration_requests), 1)
+        self.assertEqual(
+            calibration_requests[0][3]["calibration"]["hardware_id"],
+            "USB-SERIAL-42",
+        )
+
+    def test_old_device_service_reports_calibration_upgrade_action(self):
+        response = io.BytesIO(b'{"ok": false, "error": "not found"}')
+        error = urllib.error.HTTPError(
+            "http://192.168.1.87:8765/calibration",
+            404,
+            "Not Found",
+            {},
+            response,
+        )
+        client = device_registry.HardwareDeviceClient(
+            "http://192.168.1.87:8765",
+            "pairing-token",
+        )
+
+        with (
+            patch("device_registry.urllib.request.urlopen", side_effect=error),
+            self.assertRaisesRegex(
+                device_registry.DeviceRegistryError,
+                r"Update blacknode-hardware.*service\.sh restart",
+            ),
+        ):
+            client.activate_calibration({}, {})
 
     def test_deployment_preflight_keeps_runtime_unavailable_as_a_blocker(self):
         hardware = _HardwareService()

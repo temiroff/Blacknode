@@ -113,6 +113,44 @@ export interface HardwareDeviceStatus {
   raw_positions?: Record<string, number>
   error?: string
   updated_at?: number
+  calibration?: {
+    name?: string
+    profile_id?: string
+    hardware_id?: string
+    activated_at?: string
+    joint_count?: number
+    digest?: string
+  }
+}
+
+export interface WorkflowMetadata extends Record<string, unknown> {
+  required_capabilities?: string[]
+  device_calibration?: {
+    profile_id: string
+    hardware_id: string
+  }
+}
+
+export interface GraphSnapshot {
+  nodes: any[]
+  edges: any[]
+  metadata: WorkflowMetadata
+}
+
+export interface DeviceCalibrationCandidate {
+  profile_id: string
+  profile_name: string
+  name: string
+  hardware_id: string
+  recorded_at: string
+  joint_count: number
+}
+
+export interface DeviceRobotProfile {
+  id: string
+  name: string
+  saved: boolean
+  calibration_count: number
 }
 
 export type DeploymentPreflightStatus = 'pass' | 'fail' | 'warning' | 'pending'
@@ -500,13 +538,27 @@ export const api = {
       changes: Array<{ package: string; component: string; version: string; enabled: boolean }>
     }>('GET', `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/dependencies`),
   deletePackage: (name: string)              => req<{ ok: boolean }>('DELETE', `/packages/${encodeURIComponent(name)}`),
-  getGraph:  ()                              => req<{ nodes: any[]; edges: any[] }>('GET', '/graph'),
-  setGraph:  (nodes: any[], edges: any[])    => req<{ nodes: any[]; edges: any[] }>('POST', '/graph', { nodes, edges }),
+  getGraph:  ()                              => req<GraphSnapshot>('GET', '/graph'),
+  setGraph:  (nodes: any[], edges: any[], metadata: WorkflowMetadata = {}) =>
+    req<GraphSnapshot>('POST', '/graph', { nodes, edges, metadata }),
+  updateWorkflowRequirements: (
+    requiredCapabilities: string[],
+    deviceCalibration: { profile_id: string; hardware_id: string } | null,
+  ) => req<{ metadata: WorkflowMetadata }>('PATCH', '/graph/requirements', {
+    required_capabilities: requiredCapabilities,
+    device_calibration: deviceCalibration,
+  }, 10000),
+  listGraphCalibrations: () =>
+    req<{
+      profiles: DeviceRobotProfile[]
+      calibrations: DeviceCalibrationCandidate[]
+      selected: { profile_id: string; hardware_id: string } | null
+    }>('GET', '/graph/calibrations', undefined, 10000),
   addNode:   (type_name: string, pos: [number,number], params = {}) =>
     req<BnNodeMeta>('POST', '/nodes', { type_name, pos, params }),
   removeNode: (id: string)                  => req('DELETE', `/nodes/${id}`),
   updateParam:(id: string, key: string, value: unknown) =>
-    req('PATCH', `/nodes/${id}/params`, { key, value }),
+    req('PATCH', `/nodes/${id}/params`, { key, value }, 10000),
   controlNode:(id: string, action: string) =>
     req<{ ok: boolean; node_id: string; outputs: Record<string, unknown> }>('POST', `/nodes/${id}/control`, { action }),
   pickDirectory:(initialPath = '') =>
@@ -583,6 +635,13 @@ export const api = {
       `/devices/${encodeURIComponent(id)}/capabilities`,
       undefined,
       7000,
+    ),
+  activateDeviceCalibration: (id: string) =>
+    req<{ ok: boolean; activation: Record<string, unknown>; status: HardwareDeviceStatus }>(
+      'POST',
+      `/devices/${encodeURIComponent(id)}/calibration`,
+      {},
+      10000,
     ),
   validateDeviceDeployment: (id: string) =>
     req<DeploymentPreflight>(
@@ -672,9 +731,9 @@ export const api = {
   saveWorkflow: (name: string, previousSlug?: string | null) =>
     req<{ ok: boolean; slug: string }>('POST', '/workflows', { name, previous_slug: previousSlug ?? null }),
   loadWorkflow: (slug: string) =>
-    req<{ nodes: any[]; edges: any[] }>('POST', `/workflows/${encodeURIComponent(slug)}/load`),
+    req<GraphSnapshot>('POST', `/workflows/${encodeURIComponent(slug)}/load`),
   insertWorkflow: (slug: string) =>
-    req<{ nodes: any[]; edges: any[] }>('POST', `/workflows/${encodeURIComponent(slug)}/insert`),
+    req<GraphSnapshot>('POST', `/workflows/${encodeURIComponent(slug)}/insert`),
   renameWorkflow: (slug: string, name: string) =>
     req<{ slug: string; name: string; saved_at: string }>('PATCH', `/workflows/${encodeURIComponent(slug)}`, { name }),
   duplicateWorkflow: (slug: string) =>
@@ -685,7 +744,7 @@ export const api = {
   listTemplates: () =>
     req<TemplateMeta[]>('GET', '/templates'),
   loadTemplate: (slug: string) =>
-    req<{ nodes: any[]; edges: any[] }>('POST', `/templates/${encodeURIComponent(slug)}/load`),
+    req<GraphSnapshot>('POST', `/templates/${encodeURIComponent(slug)}/load`),
 
   listFrameworkExportTargets: () =>
     req<{ targets: FrameworkExportTarget[] }>('GET', '/export/frameworks'),

@@ -62,6 +62,53 @@ Large artifacts do not have to travel through the command transport. An MQTT
 or Zenoh command can carry a content-addressed HTTPS or object-store reference,
 while the same artifact manifest and hashes remain authoritative.
 
+The editor persists deployment requirements in workflow metadata. A remote
+robot deployment currently targets one physical robot. Additional robots use
+separate workflows and are deployed one at a time to the computer connected to
+each robot. The Deployments panel guides robot setup in three steps:
+
+1. choose the profile for the workflow's `Robot` node;
+2. choose and activate the matching physical robot calibration, or open the
+   guided calibration workflow to create one; and
+3. check the setup before sending the workflow to the device.
+
+Several calibrations may be saved for the same profile because each calibration
+has a human-readable name and is bound to a stable physical hardware identity.
+The deployment selector shows both values, selects exactly one calibration, and
+records its stable identity in workflow metadata.
+
+Blacknode derives `metadata.required_capabilities` from the workflow. Robot
+motion workflows receive `joint_group`, `position_feedback`, and `servo_bus`.
+Guided calibration workflows receive the feedback and bus capabilities they
+need while calibration is being created.
+
+Hardware-bound calibration is declared separately as
+`metadata.device_calibration`:
+
+```json
+{
+  "metadata": {
+    "required_capabilities": [
+      "joint_group",
+      "position_feedback",
+      "servo_bus"
+    ],
+    "device_calibration": {
+      "profile_id": "so_arm101_v002",
+      "hardware_id": "5B41531481"
+    }
+  }
+}
+```
+
+Selecting a calibration records the intended profile and physical hardware in
+the workflow. **Use this calibration** uploads it to the paired, connected,
+disarmed device. Preflight accepts `joint_group` only when the
+workflow selection, Robot profile, device hardware identity, and device's
+active calibration all match. The staged workflow embeds the same profile and
+calibration so the robot driver applies the reviewed home positions and safe
+joint ranges.
+
 ### Deployment transport
 
 A transport adapter exposes these semantic operations regardless of protocol:
