@@ -1639,6 +1639,35 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           border: `1px solid ${calibrationActive ? 'var(--warn)' : calibrationPaused ? 'var(--accent)' : calibrationSaved ? 'var(--ok)' : 'var(--line)'}`,
           background: calibrationActive ? 'rgba(245,158,11,.08)' : 'rgba(255,255,255,.02)',
         }}>
+          <label style={{
+            display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8,
+            color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9,
+            fontWeight: 700, textTransform: 'uppercase',
+          }}>
+            Calibration name
+            <input
+              key={String(data.params?.calibration_name ?? '')}
+              defaultValue={String(data.params?.calibration_name ?? '')}
+              placeholder="Workshop arm"
+              onClick={e => e.stopPropagation()}
+              onKeyDown={e => {
+                e.stopPropagation()
+                if (e.key === 'Enter') e.currentTarget.blur()
+              }}
+              onBlur={e => {
+                const name = e.currentTarget.value.trim()
+                if (name !== String(data.params?.calibration_name ?? '')) {
+                  void updateParam(id, 'calibration_name', name)
+                }
+              }}
+              style={{
+                width: '100%', boxSizing: 'border-box', padding: '6px 7px',
+                border: '1px solid var(--line2)', borderRadius: 5,
+                background: 'var(--lift)', color: 'var(--tx1)',
+                fontFamily: 'var(--font-ui)', fontSize: 11,
+              }}
+            />
+          </label>
           <div style={{
             marginBottom: 7, color: calibrationActive ? 'var(--warn)' : calibrationPaused ? 'var(--accent)' : calibrationSaved ? 'var(--ok)' : 'var(--tx2)',
             fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
@@ -1863,7 +1892,14 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         {visibleInputs.map(inp => {
           const type = effectivePortType(inp, 'input')
           const connected = edges.some(e => e.target === id && e.targetHandle === inp)
-          if ((isManualMove || isRobotCalibration || isEpisodeRecorder) && inp === 'action' && !connected) return null
+          if (
+            (
+              (isManualMove || isRobotCalibration || isEpisodeRecorder)
+              && inp === 'action'
+              && !connected
+            )
+            || (isRobotCalibration && inp === 'calibration_name' && !connected)
+          ) return null
           const showImageInput = type === 'Image'
             && !connected
             && !isWireOnlyInput(data.type, inp, type)

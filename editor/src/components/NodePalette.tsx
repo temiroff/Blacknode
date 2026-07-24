@@ -31,7 +31,9 @@ const TOP_BAR_H = 44
 const RAIL_W = 78
 const PANEL_DEFAULT_W = 240
 const PANEL_MIN_W = 188
-const PANEL_MAX_W = 520
+const PANEL_DEPLOY_W = 460
+const PANEL_EXPANDED_W = 760
+const PANEL_MAX_W = 860
 const welcomeButtonStyle: React.CSSProperties = {
   border: '1px solid var(--line2)',
   borderRadius: 6,
@@ -147,16 +149,81 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 ]
 
 export default function NodePalette() {
-  const { nodeTypes, nodeDefs, packages, nodes, selectedId, addNode, loadNodeTypes, learnedNodeHighlight } = useStore()
+  const {
+    nodeTypes,
+    nodeDefs,
+    packages,
+    nodes,
+    selectedId,
+    addNode,
+    loadNodeTypes,
+    learnedNodeHighlight,
+  } = useStore()
   const [activeTab, setActiveTab] = useState<Tab | null>('templates')
   const [showPackageWelcome, setShowPackageWelcome] = useState(false)
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
+  const [panelExpanded, setPanelExpanded] = useState(false)
+  const [templateSearch, setTemplateSearch] = useState('')
+  const [templateOpenInNewTab, setTemplateOpenInNewTab] = useState(false)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
+  const compactWidthRef = useRef(PANEL_DEPLOY_W)
+
+  const clampPanelWidth = (width: number) => {
+    const viewportMax = Math.max(PANEL_MIN_W, window.innerWidth - RAIL_W - 220)
+    return Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, viewportMax, width))
+  }
+
+  const selectTab = (tab: Tab) => {
+    if (activeTab === tab) {
+      setActiveTab(null)
+      return
+    }
+    setActiveTab(tab)
+    if (tab === 'templates') {
+      setTemplateSearch('')
+      setTemplateOpenInNewTab(false)
+    }
+    if (tab === 'deployments' && panelWidth < PANEL_DEPLOY_W) {
+      setPanelWidth(clampPanelWidth(PANEL_DEPLOY_W))
+    } else if (tab !== 'deployments' && panelExpanded) {
+      setPanelWidth(clampPanelWidth(compactWidthRef.current))
+      setPanelExpanded(false)
+    }
+  }
+
+  const togglePanelExpanded = () => {
+    if (panelExpanded) {
+      setPanelWidth(clampPanelWidth(compactWidthRef.current))
+      setPanelExpanded(false)
+      return
+    }
+    compactWidthRef.current = panelWidth
+    setPanelWidth(clampPanelWidth(PANEL_EXPANDED_W))
+    setPanelExpanded(true)
+  }
+
+  const openTemplateGuide = (query: string) => {
+    setTemplateSearch(query)
+    setTemplateOpenInNewTab(true)
+    setActiveTab('templates')
+    if (panelExpanded) {
+      setPanelWidth(clampPanelWidth(compactWidthRef.current))
+      setPanelExpanded(false)
+    }
+  }
 
   useEffect(() => {
     if (activeTab === 'nodes') loadNodeTypes()
   }, [activeTab, loadNodeTypes])
+
+  useEffect(() => {
+    const handleViewportResize = () => {
+      setPanelWidth(width => clampPanelWidth(width))
+    }
+    window.addEventListener('resize', handleViewportResize)
+    return () => window.removeEventListener('resize', handleViewportResize)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -187,7 +254,10 @@ export default function NodePalette() {
     dragRef.current = { startX: e.clientX, startW: panelWidth }
     const onMove = (ev: MouseEvent) => {
       if (!dragRef.current) return
-      setPanelWidth(Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, dragRef.current.startW + ev.clientX - dragRef.current.startX)))
+      setPanelWidth(clampPanelWidth(
+        dragRef.current.startW + ev.clientX - dragRef.current.startX,
+      ))
+      setPanelExpanded(false)
     }
     const onUp = () => {
       dragRef.current = null
@@ -533,7 +603,7 @@ export default function NodePalette() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(active ? null : tab.id)}
+                onClick={() => selectTab(tab.id)}
                 title={tab.label}
                 style={{
                   width: '100%',
@@ -619,6 +689,8 @@ export default function NodePalette() {
             borderBottom: '1px solid var(--line)',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
             flexShrink: 0,
           }}>
             <span style={{
@@ -631,6 +703,27 @@ export default function NodePalette() {
             }}>
               {TABS.find(t => t.id === activeTab)?.label}
             </span>
+            {activeTab === 'deployments' && (
+              <button
+                type="button"
+                onClick={togglePanelExpanded}
+                title={panelExpanded ? 'Return the deployment panel to its previous width' : 'Expand the deployment panel'}
+                aria-label={panelExpanded ? 'Compact deployment panel' : 'Expand deployment panel'}
+                style={{
+                  padding: '4px 7px',
+                  border: '1px solid var(--line2)',
+                  borderRadius: 4,
+                  background: 'transparent',
+                  color: 'var(--tx2)',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-ui)',
+                  fontSize: 9,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {panelExpanded ? 'Compact' : 'Expand'}
+              </button>
+            )}
           </div>
 
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -666,7 +759,10 @@ export default function NodePalette() {
             {/* ── TEMPLATES ── */}
             {activeTab === 'templates' && (
               <div style={{ flex: 1, overflowY: 'auto' }}>
-                <TemplateGallery />
+                <TemplateGallery
+                  initialQuery={templateSearch}
+                  openInNewTab={templateOpenInNewTab}
+                />
               </div>
             )}
 
@@ -683,7 +779,9 @@ export default function NodePalette() {
             {/* ── RUNS ── */}
             {activeTab === 'runs' && <RunsPanel />}
 
-            {activeTab === 'deployments' && <DeploymentsPanel />}
+            {activeTab === 'deployments' && (
+              <DeploymentsPanel onOpenTemplates={openTemplateGuide} />
+            )}
 
             {activeTab === 'devices' && <DevicesPanel />}
 

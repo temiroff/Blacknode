@@ -84,6 +84,23 @@ class HardwareDeviceClient:
     def capabilities(self) -> dict[str, Any]:
         return self._request("GET", "/capabilities")
 
+    def calibration(self) -> dict[str, Any]:
+        return self._request("GET", "/calibration")
+
+    def activate_calibration(
+        self,
+        profile: dict[str, Any],
+        calibration: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/calibration",
+            payload={"profile": profile, "calibration": calibration},
+        )
+
+    def deactivate_calibration(self) -> dict[str, Any]:
+        return self._request("DELETE", "/calibration")
+
     def rpc(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/rpc", payload=payload)
 
@@ -136,6 +153,12 @@ class HardwareDeviceClient:
                 raise DeviceRegistryError(
                     "Pairing token was rejected. Run ./pair.sh --show on the device "
                     "and paste the current token."
+                ) from exc
+            if exc.code == 404 and endpoint == "/calibration":
+                raise DeviceRegistryError(
+                    "This device service does not support calibration activation yet. "
+                    "Update blacknode-hardware on the device, run "
+                    "'./service.sh restart', then refresh the device in Blacknode."
                 ) from exc
             detail = ""
             try:

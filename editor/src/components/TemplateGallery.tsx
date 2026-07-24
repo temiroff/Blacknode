@@ -10,8 +10,16 @@ import {
 } from '../api'
 import { useStore } from '../store'
 
-export default function TemplateGallery() {
-  const { loadGraph, loadNodeTypes, organizeNodes } = useStore()
+interface TemplateGalleryProps {
+  initialQuery?: string
+  openInNewTab?: boolean
+}
+
+export default function TemplateGallery({
+  initialQuery = '',
+  openInNewTab = false,
+}: TemplateGalleryProps) {
+  const { loadGraph, loadNodeTypes, openGraphAsTab, organizeNodes } = useStore()
   const [templates, setTemplates] = useState<TemplateMeta[]>([])
   const [loading, setLoading] = useState<string | null>(null)
   const [loaded, setLoaded] = useState<string | null>(null)
@@ -20,7 +28,11 @@ export default function TemplateGallery() {
   const [missing, setMissing] = useState<Record<string, TemplateDependencyError>>({})
   const [error, setError] = useState<string | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery)
+
+  useEffect(() => {
+    setQuery(initialQuery)
+  }, [initialQuery])
 
   const templateGroups = useMemo(() => {
     const groups = new Map<string, { name: string; color: string; templates: TemplateMeta[] }>()
@@ -77,9 +89,18 @@ export default function TemplateGallery() {
     setLoading(template.slug)
     setLoaded(null)
     const previousGraph = await api.getGraph().catch(() => null)
+    let openedNewTab = false
     try {
       await api.loadTemplate(template.slug)
-      await loadGraph()
+      if (openInNewTab && previousGraph) {
+        const templateGraph = await api.getGraph()
+        await api.setGraph(previousGraph.nodes, previousGraph.edges, previousGraph.metadata)
+        await loadGraph()
+        await openGraphAsTab(template.name, templateGraph)
+        openedNewTab = true
+      } else {
+        await loadGraph()
+      }
       await loadNodeTypes()
       await organizeNodes()
       window.dispatchEvent(new Event('blacknode:fit-view'))
@@ -89,6 +110,15 @@ export default function TemplateGallery() {
         delete next[template.slug]
         return next
       })
+      if (openedNewTab) {
+        window.dispatchEvent(new CustomEvent('blacknode:notice', {
+          detail: {
+            kind: 'info',
+            title: `${template.name} opened`,
+            message: 'The deployment workflow remains available in its original tab.',
+          },
+        }))
+      }
     } catch (err) {
       console.error(err)
       const dependencyError = templateDependencyError(err)
@@ -96,8 +126,8 @@ export default function TemplateGallery() {
         setMissing(current => ({ ...current, [template.slug]: dependencyError }))
         return
       }
-      if (previousGraph) {
-        await api.setGraph(previousGraph.nodes, previousGraph.edges).catch(console.error)
+      if (previousGraph && !openedNewTab) {
+        await api.setGraph(previousGraph.nodes, previousGraph.edges, previousGraph.metadata).catch(console.error)
         await loadGraph().catch(console.error)
       }
       window.dispatchEvent(new CustomEvent('blacknode:notice', {
@@ -182,7 +212,9 @@ export default function TemplateGallery() {
         padding: '2px 4px 8px',
         lineHeight: 1.5,
       }}>
-        One-click starter graphs. Loads into the canvas.
+        {openInNewTab
+          ? 'Choose a setup guide. It opens in a new workflow tab and keeps your deployment workflow unchanged.'
+          : 'One-click starter graphs. Loads into the canvas.'}
       </div>
 
       <input

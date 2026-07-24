@@ -143,7 +143,8 @@ def _save_now() -> None:
     try:
         with open(_SAVE_PATH, "w") as f:
             json.dump({"node_meta": _session.node_meta,
-                       "edges":     _session.graph._edges}, f, indent=2)
+                       "edges":     _session.graph._edges,
+                       "metadata":  _session.metadata}, f, indent=2)
     except Exception as e:
         print(f"[blacknode] save error: {e}")
 
@@ -169,6 +170,8 @@ def _load() -> None:
             data = json.load(f)
         meta_map: dict = data.get("node_meta", {})
         edges:    list = data.get("edges",     [])
+        metadata = data.get("metadata")
+        _session.metadata = dict(metadata) if isinstance(metadata, dict) else {}
         # only restore nodes whose type is still registered
         migrated = False
         for node_id, meta in meta_map.items():
@@ -206,6 +209,7 @@ class Session:
     def __init__(self):
         self.graph = bn.Graph()
         self.node_meta: dict[str, dict] = {}
+        self.metadata: dict[str, Any] = {}
 
 _session = Session()
 
@@ -271,6 +275,11 @@ class CookGraphReq(BaseModel):
 class SetGraphReq(BaseModel):
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
+    metadata: dict[str, Any] = {}
+
+class UpdateWorkflowRequirementsReq(BaseModel):
+    required_capabilities: list[str] = []
+    device_calibration: dict[str, str] | None = None
 
 class ExecNodeReq(BaseModel):
     code: str
@@ -1245,14 +1254,58 @@ def get_graph():
                 "input_defaults": getattr(fn, "_bn_input_defaults", meta.get("input_defaults", {})),
                 "live_capable":   bool(getattr(fn, "_bn_live_capable", False)),
             })
-    return {"nodes": nodes, "edges": _session.graph._edges}
+    return {
+        "nodes": nodes,
+        "edges": _session.graph._edges,
+        "metadata": dict(_session.metadata),
+    }
 
 
 @app.post("/graph")
 def set_graph(req: SetGraphReq):
-    _restore_session_from_nodes(req.nodes, req.edges)
+    _restore_session_from_nodes(req.nodes, req.edges, metadata=req.metadata)
     _save()
     return get_graph()
+
+
+def _normalized_required_capabilities(values: list[Any]) -> list[str]:
+    capabilities: set[str] = set()
+    for value in values:
+        name = str(value or "").strip()
+        if not re.fullmatch(r"[a-z][a-z0-9_.-]{0,63}", name):
+            raise HTTPException(400, f"Invalid capability name: {name or '(empty)'}")
+        capabilities.add(name)
+    if len(capabilities) > 32:
+        raise HTTPException(400, "A workflow may declare at most 32 capabilities.")
+    return sorted(capabilities)
+
+
+def _normalized_calibration_selection(value: dict[str, str] | None) -> dict[str, str] | None:
+    if value is None:
+        return None
+    profile_id = str(value.get("profile_id") or "").strip()
+    hardware_id = str(value.get("hardware_id") or "").strip()
+    if not profile_id or not hardware_id:
+        raise HTTPException(400, "Calibration selection requires profile_id and hardware_id.")
+    if len(profile_id) > 128 or len(hardware_id) > 256:
+        raise HTTPException(400, "Calibration selection is too long.")
+    return {"profile_id": profile_id, "hardware_id": hardware_id}
+
+
+@app.patch("/graph/requirements")
+def update_workflow_requirements(req: UpdateWorkflowRequirementsReq):
+    metadata = dict(_session.metadata)
+    metadata["required_capabilities"] = _normalized_required_capabilities(
+        req.required_capabilities
+    )
+    calibration = _normalized_calibration_selection(req.device_calibration)
+    if calibration is None:
+        metadata.pop("device_calibration", None)
+    else:
+        metadata["device_calibration"] = calibration
+    _session.metadata = metadata
+    _save()
+    return {"metadata": dict(metadata)}
 
 
 @app.post("/nodes")
@@ -2798,6 +2851,29 @@ def get_device_capabilities(device_id: str):
         raise HTTPException(502, str(exc)) from exc
 
 
+@app.post("/devices/{device_id}/calibration")
+def activate_device_calibration(device_id: str):
+    workflow = _device_deployment_workflow()
+    try:
+        profile, calibration = _selected_local_calibration(workflow)
+        client = _paired_device_client(device_id)
+        status = client.status()
+        if not status.get("connected"):
+            raise HTTPException(
+                409,
+                str(status.get("error") or "Hardware must be connected first."),
+            )
+        if status.get("armed"):
+            raise HTTPException(409, "Disarm the device before activating calibration.")
+        result = client.activate_calibration(profile, calibration)
+        refreshed = client.status()
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"ok": True, "activation": result, "status": refreshed}
+
+
 def _preflight_check(
     check_id: str,
     label: str,
@@ -2827,6 +2903,214 @@ def _workflow_required_capabilities(workflow: dict[str, Any]) -> list[str]:
         for item in raw
         if isinstance(item, str) and str(item).strip()
     })
+
+
+def _workflow_calibration_selection(
+    workflow: dict[str, Any],
+) -> dict[str, str] | None:
+    metadata = workflow.get("metadata")
+    raw = metadata.get("device_calibration") if isinstance(metadata, dict) else None
+    if not isinstance(raw, dict):
+        return None
+    profile_id = str(raw.get("profile_id") or "").strip()
+    hardware_id = str(raw.get("hardware_id") or "").strip()
+    if not profile_id or not hardware_id:
+        return None
+    return {"profile_id": profile_id, "hardware_id": hardware_id}
+
+
+def _robot_profiles_root() -> Path:
+    configured = str(os.environ.get("BLACKNODE_ROBOTS_DIR") or "").strip()
+    return (
+        Path(configured).expanduser().resolve()
+        if configured
+        else (Path.cwd() / "robots").resolve()
+    )
+
+
+def _workflow_robot_profile_ids(workflow: dict[str, Any]) -> set[str]:
+    profile_ids: set[str] = set()
+    for meta in (workflow.get("node_meta") or {}).values():
+        if not isinstance(meta, dict) or meta.get("type") not in {"Robot", "RobotProfileLoad"}:
+            continue
+        params = meta.get("params") if isinstance(meta.get("params"), dict) else {}
+        profile_id = str(params.get("profile_id") or "").strip()
+        if profile_id:
+            profile_ids.add(profile_id)
+    return profile_ids
+
+
+def _workflow_robot_nodes(workflow: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        meta
+        for meta in (workflow.get("node_meta") or {}).values()
+        if isinstance(meta, dict) and meta.get("type") in {"Robot", "RobotProfileLoad"}
+    ]
+
+
+def _local_calibration_candidates(
+    workflow: dict[str, Any],
+) -> list[dict[str, Any]]:
+    profile_ids = _workflow_robot_profile_ids(workflow)
+    if not profile_ids:
+        return []
+    root = _robot_profiles_root()
+    if not root.is_dir():
+        return []
+    candidates: list[dict[str, Any]] = []
+    for profile_path in sorted(root.glob("*/profile.json")):
+        try:
+            profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(profile, dict):
+            continue
+        profile_id = str(profile.get("id") or "").strip()
+        if profile_id not in profile_ids:
+            continue
+        calibration_dir = profile_path.parent / "calibrations"
+        for calibration_path in sorted(calibration_dir.glob("*.json")):
+            try:
+                calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(calibration, dict):
+                continue
+            hardware_id = str(calibration.get("hardware_id") or "").strip()
+            if (
+                not hardware_id
+                or str(calibration.get("profile_id") or "").strip() != profile_id
+            ):
+                continue
+            candidates.append({
+                "profile_id": profile_id,
+                "profile_name": str(profile.get("display_name") or profile_id),
+                "name": str(calibration.get("name") or hardware_id),
+                "hardware_id": hardware_id,
+                "recorded_at": str(calibration.get("recorded_at") or ""),
+                "joint_count": len(calibration.get("joints") or {}),
+            })
+    return candidates
+
+
+def _available_robot_profiles(workflow: dict[str, Any]) -> list[dict[str, Any]]:
+    profile_ids = set(_workflow_robot_profile_ids(workflow))
+    robot_fn = _NODE_REGISTRY.get("Robot")
+    choices = getattr(robot_fn, "_bn_input_choices", {}) if robot_fn else {}
+    raw_choices = choices.get("profile_id") if isinstance(choices, dict) else []
+    if isinstance(raw_choices, list):
+        profile_ids.update(str(value).strip() for value in raw_choices if str(value).strip())
+
+    profiles: dict[str, dict[str, Any]] = {
+        profile_id: {
+            "id": profile_id,
+            "name": profile_id,
+            "saved": False,
+            "calibration_count": 0,
+        }
+        for profile_id in profile_ids
+    }
+    root = _robot_profiles_root()
+    if root.is_dir():
+        for profile_path in sorted(root.glob("*/profile.json")):
+            try:
+                profile = json.loads(profile_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(profile, dict):
+                continue
+            profile_id = str(profile.get("id") or "").strip()
+            if not profile_id:
+                continue
+            calibration_dir = profile_path.parent / "calibrations"
+            profiles[profile_id] = {
+                "id": profile_id,
+                "name": str(profile.get("display_name") or profile_id),
+                "saved": True,
+                "calibration_count": sum(1 for _ in calibration_dir.glob("*.json")),
+            }
+    return sorted(profiles.values(), key=lambda item: (item["name"].lower(), item["id"]))
+
+
+def _selected_local_calibration(
+    workflow: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    selection = _workflow_calibration_selection(workflow)
+    if selection is None:
+        raise ValueError("Select a device calibration for this workflow.")
+    root = _robot_profiles_root()
+    for profile_path in sorted(root.glob("*/profile.json")):
+        try:
+            profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            not isinstance(profile, dict)
+            or str(profile.get("id") or "").strip() != selection["profile_id"]
+        ):
+            continue
+        calibration_dir = profile_path.parent / "calibrations"
+        for calibration_path in sorted(calibration_dir.glob("*.json")):
+            try:
+                calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if (
+                isinstance(calibration, dict)
+                and str(calibration.get("profile_id") or "").strip()
+                == selection["profile_id"]
+                and str(calibration.get("hardware_id") or "").strip()
+                == selection["hardware_id"]
+            ):
+                return profile, calibration
+    raise ValueError(
+        "The selected calibration file is unavailable for "
+        f"{selection['profile_id']} / {selection['hardware_id']}."
+    )
+
+
+def _embed_selected_calibration(workflow: dict[str, Any]) -> None:
+    selection = _workflow_calibration_selection(workflow)
+    if selection is None:
+        return
+    profile, calibration = _selected_local_calibration(workflow)
+    robot_nodes = _workflow_robot_nodes(workflow)
+    matching_nodes = [
+        meta
+        for meta in robot_nodes
+        if str((meta.get("params") or {}).get("profile_id") or "").strip()
+        == selection["profile_id"]
+    ]
+    if len(robot_nodes) != 1 or len(matching_nodes) != 1:
+        raise ValueError(
+            "Remote device calibration currently requires exactly one Robot node "
+            "using the selected profile."
+        )
+    meta = matching_nodes[0]
+    params = meta.setdefault("params", {})
+    params["profile"] = profile
+    params["calibration"] = calibration
+    inputs = list(meta.get("inputs") or [])
+    for port in ("profile", "calibration"):
+        if port not in inputs:
+            inputs.append(port)
+    meta["inputs"] = inputs
+    input_types = dict(meta.get("input_types") or {})
+    input_types.update({"profile": "Dict", "calibration": "Dict"})
+    meta["input_types"] = input_types
+    defaults = dict(meta.get("input_defaults") or {})
+    defaults.update({"profile": {}, "calibration": {}})
+    meta["input_defaults"] = defaults
+
+
+@app.get("/graph/calibrations")
+def list_graph_calibrations():
+    workflow = _device_deployment_workflow()
+    return {
+        "profiles": _available_robot_profiles(workflow),
+        "calibrations": _local_calibration_candidates(workflow),
+        "selected": _workflow_calibration_selection(workflow),
+    }
 
 
 def _workflow_required_packages(workflow: dict[str, Any]) -> list[str]:
@@ -2978,6 +3262,12 @@ def _device_deployment_workflow(
         entrypoint = _infer_export_entrypoint(data)
         if entrypoint is not None:
             data["entrypoint"] = entrypoint
+    try:
+        _embed_selected_calibration(data)
+    except ValueError:
+        # Preflight reports a focused calibration error. Keeping the graph
+        # intact here lets workflow validation and dependency checks still run.
+        pass
     return data
 
 
@@ -3148,16 +3438,58 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
     requires_joint_motion = "joint_group" in required_capabilities
     calibrated = remote_status.get("calibrated")
     if requires_joint_motion:
+        selection = _workflow_calibration_selection(workflow)
+        active_calibration = (
+            remote_status.get("calibration")
+            if isinstance(remote_status.get("calibration"), dict)
+            else {}
+        )
+        calibration_matches = bool(
+            selection
+            and calibrated is True
+            and str(active_calibration.get("profile_id") or "") == selection["profile_id"]
+            and str(active_calibration.get("hardware_id") or "") == selection["hardware_id"]
+        )
+        selection_error = ""
+        if selection is not None:
+            try:
+                _selected_local_calibration(workflow)
+                robot_nodes = _workflow_robot_nodes(workflow)
+                matching_nodes = [
+                    meta
+                    for meta in robot_nodes
+                    if str((meta.get("params") or {}).get("profile_id") or "").strip()
+                    == selection["profile_id"]
+                ]
+                if len(robot_nodes) != 1 or len(matching_nodes) != 1:
+                    selection_error = (
+                        "Remote device calibration currently requires exactly one "
+                        "Robot node using the selected profile."
+                    )
+            except ValueError as exc:
+                selection_error = str(exc)
         checks.append(_preflight_check(
             "calibration",
             "Calibration",
-            "pass" if calibrated is True else "fail",
+            "pass" if calibration_matches and not selection_error else "fail",
             (
-                "A calibration profile is active for this device."
-                if calibrated is True
-                else "Joint motion requires the editor calibration profile to be deployed to this device."
+                (
+                    f"Active: {selection['profile_id']} / {selection['hardware_id']}."
+                    if selection
+                    else ""
+                )
+                if calibration_matches and not selection_error
+                else selection_error
+                or (
+                    "Select a saved device calibration, then activate it on this device."
+                    if selection is None
+                    else (
+                        f"Activate {selection['profile_id']} / {selection['hardware_id']} "
+                        "on this device before staging."
+                    )
+                )
             ),
-            blocking=calibrated is not True,
+            blocking=not calibration_matches or bool(selection_error),
         ))
     elif calibrated is False and "joint_group" in available_capabilities:
         checks.append(_preflight_check(
@@ -4829,6 +5161,7 @@ def _safe_custom_node_filename(filename: str) -> str:
 def reset():
     _session.graph = bn.Graph()
     _session.node_meta.clear()
+    _session.metadata.clear()
     _save()
     return {"ok": True}
 
@@ -4872,8 +5205,11 @@ def _workflow_payload(
     }
     if entrypoint is not None:
         payload["entrypoint"] = dict(entrypoint)
+    combined_metadata = dict(_session.metadata)
     if metadata is not None:
-        payload["metadata"] = dict(metadata)
+        combined_metadata.update(metadata)
+    if combined_metadata:
+        payload["metadata"] = combined_metadata
     return payload
 
 
@@ -5100,10 +5436,16 @@ def _save_workflow(name: str, previous_slug: str | None = None):
             os.remove(old_path)
     return {"ok": True, "slug": slug}
 
-def _restore_session(node_meta: dict, edges: list):
+def _restore_session(
+    node_meta: dict,
+    edges: list,
+    *,
+    metadata: dict[str, Any] | None = None,
+):
     """Replace current session with the given node_meta + edges."""
     _session.graph = bn.Graph()
     _session.node_meta.clear()
+    _session.metadata = dict(metadata) if isinstance(metadata, dict) else {}
     for node_id, meta in node_meta.items():
         if meta["type"] not in _NODE_REGISTRY and meta["type"] not in _SUBGRAPH_NODE_TYPES:
             continue
@@ -5127,8 +5469,17 @@ def _restore_session(node_meta: dict, edges: list):
     ]
 
 
-def _restore_session_from_nodes(nodes: list[dict], edges: list):
-    _restore_session({node["id"]: node for node in nodes if "id" in node}, edges)
+def _restore_session_from_nodes(
+    nodes: list[dict],
+    edges: list,
+    *,
+    metadata: dict[str, Any] | None = None,
+):
+    _restore_session(
+        {node["id"]: node for node in nodes if "id" in node},
+        edges,
+        metadata=metadata,
+    )
 
 
 def _node_pos(meta: dict) -> tuple[float, float]:
@@ -5270,7 +5621,11 @@ def load_template(slug: str):
     report = validate_bn_workflow(data)
     if not report.ok:
         raise HTTPException(400, report.to_dict())
-    _restore_session(data.get("node_meta", {}), data.get("edges", []))
+    _restore_session(
+        data.get("node_meta", {}),
+        data.get("edges", []),
+        metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+    )
     _save()
     return get_graph()
 
@@ -5444,7 +5799,11 @@ def load_workflow(slug: str):
         raise HTTPException(404, f"Workflow '{slug}' not found")
     with open(path) as f:
         data = json.load(f)
-    _restore_session(data.get("node_meta", {}), data.get("edges", []))
+    _restore_session(
+        data.get("node_meta", {}),
+        data.get("edges", []),
+        metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+    )
     _save()
     return get_graph()
 

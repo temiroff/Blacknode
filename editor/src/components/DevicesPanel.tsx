@@ -5,6 +5,7 @@ type DeviceState = {
   status?: HardwareDeviceStatus
   error?: string
   loading?: boolean
+  checkedAt?: number
 }
 
 export default function DevicesPanel() {
@@ -21,13 +22,17 @@ export default function DevicesPanel() {
     setStates(prev => ({ ...prev, [device.id]: { ...prev[device.id], loading: true } }))
     try {
       const status = await api.deviceStatus(device.id)
-      setStates(prev => ({ ...prev, [device.id]: { status, loading: false } }))
+      setStates(prev => ({
+        ...prev,
+        [device.id]: { status, loading: false, checkedAt: Date.now() },
+      }))
     } catch (err) {
       setStates(prev => ({
         ...prev,
         [device.id]: {
           error: err instanceof Error ? err.message : String(err),
           loading: false,
+          checkedAt: Date.now(),
         },
       }))
     }
@@ -65,7 +70,7 @@ export default function DevicesPanel() {
       await refresh()
       setStates(prev => ({
         ...prev,
-        [result.device.id]: { status: result.status, loading: false },
+        [result.device.id]: { status: result.status, loading: false, checkedAt: Date.now() },
       }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -193,6 +198,7 @@ function DeviceRow({ device, state, busy, onRefresh, onRepair, onRemove }: {
   const connected = Boolean(status?.connected)
   const color = online ? (connected ? 'var(--ok)' : 'var(--warn)') : 'var(--err)'
   const label = state?.loading ? 'CHECK' : online ? (connected ? 'READY' : 'ONLINE') : 'OFF'
+  const recoveryHint = hardwareRecoveryHint(status?.error)
 
   return (
     <div className="bn-run-row is-expanded" style={{ '--run-status': color } as CSSProperties}>
@@ -209,8 +215,13 @@ function DeviceRow({ device, state, busy, onRefresh, onRepair, onRemove }: {
             <span>token {device.token_fingerprint}</span>
             {status?.joint_names && <span>{status.joint_names.length} joints</span>}
           </div>
-          {state?.error && <div className="bn-run-error-line">{state.error}</div>}
-          {status?.error && <div className="bn-run-error-line">{status.error}</div>}
+          {state?.error && (
+            <div className="bn-run-error-line bn-device-error" role="alert">{state.error}</div>
+          )}
+          {status?.error && (
+            <div className="bn-run-error-line bn-device-error" role="alert">{status.error}</div>
+          )}
+          {recoveryHint && <div className="bn-device-recovery-hint">{recoveryHint}</div>}
         </div>
         <div className="bn-run-status">
           <span className="bn-run-status-pill">{label}</span>
@@ -222,6 +233,7 @@ function DeviceRow({ device, state, busy, onRefresh, onRepair, onRemove }: {
           <DeviceFact label="Armed" value={status ? (status.armed ? 'Yes' : 'No') : '—'} warn={Boolean(status?.armed)} />
           <DeviceFact label="Calibrated" value={status?.calibrated == null ? '—' : status.calibrated ? 'Yes' : 'No'} />
           <DeviceFact label="Capabilities" value={status?.capabilities?.join(', ') || '—'} />
+          <DeviceFact label="Last check" value={formatCheckedAt(state?.checkedAt)} />
         </div>
         <div className="bn-run-detail-actions">
           <button onClick={onRefresh} disabled={busy || state?.loading} style={miniButton}>Check</button>
@@ -231,6 +243,19 @@ function DeviceRow({ device, state, busy, onRefresh, onRepair, onRemove }: {
       </div>
     </div>
   )
+}
+
+function hardwareRecoveryHint(error?: string): string | null {
+  if (!error) return null
+  const normalized = error.toLowerCase()
+  if (normalized.includes('no response from servo') || normalized.includes('no position response from servo')) {
+    return 'The latest check reached the device service, but the servo bus did not answer. Check servo power, bus wiring, the configured serial port, baud rate, and servo IDs. On the device, run ./probe.sh --servos 6.'
+  }
+  return null
+}
+
+function formatCheckedAt(checkedAt?: number): string {
+  return checkedAt ? new Date(checkedAt).toLocaleTimeString() : '—'
 }
 
 function DeviceFact({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {

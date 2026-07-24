@@ -1,17 +1,27 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   api,
+  type DeviceCalibrationCandidate,
+  type DeviceRobotProfile,
   type Deployment,
   type DeploymentPreflight,
   type DeploymentPreflightStatus,
   type DeploymentState,
   type HardwareDevice,
+  type HardwareDeviceStatus,
   type RemoteDeployment,
   type RemoteDeploymentState,
 } from '../api'
 import { useStore } from '../store'
 
 const REFRESH_INTERVAL_MS = 3000
+const ROBOT_NODE_TYPES = new Set(['Robot', 'RobotProfileLoad'])
+const JOINT_MOTION_NODE_TYPES = new Set([
+  'ROS2SetJoint',
+  'ROS2ManualMove',
+  'ROS2JointSliders',
+  'PolicyRuntime',
+])
 
 const STATE_COLOR: Record<DeploymentState, string> = {
   running: 'var(--ok)',
@@ -43,7 +53,11 @@ const REMOTE_STATE_LABEL: Record<RemoteDeploymentState, string> = {
   failed: 'FAIL',
 }
 
-export default function DeploymentsPanel() {
+interface DeploymentsPanelProps {
+  onOpenTemplates: (query: string) => void
+}
+
+export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelProps) {
   const [deployments, setDeployments] = useState<Deployment[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -56,6 +70,73 @@ export default function DeploymentsPanel() {
   const [remoteOpenId, setRemoteOpenId] = useState<string | null>(null)
   const [remoteLogs, setRemoteLogs] = useState<Record<string, string>>({})
   const stopRuntimeServices = useStore(s => s.stopRuntimeServices)
+  const tabs = useStore(s => s.tabs)
+  const activeTabId = useStore(s => s.activeTabId)
+  const switchTab = useStore(s => s.switchTab)
+  const workflowRevision = useStore(s => s.workflowRevision)
+  const workflowMetadata = useStore(s => s.workflowMetadata)
+  const setWorkflowRequirements = useStore(s => s.setWorkflowRequirements)
+  const nodes = useStore(s => s.nodes)
+  const nodeDefs = useStore(s => s.nodeDefs)
+  const updateParam = useStore(s => s.updateParam)
+  const selectNode = useStore(s => s.selectNode)
+  const [robotProfiles, setRobotProfiles] = useState<DeviceRobotProfile[]>([])
+  const [calibrations, setCalibrations] = useState<DeviceCalibrationCandidate[]>([])
+  const [targetStatus, setTargetStatus] = useState<HardwareDeviceStatus | null>(null)
+  const [requirementsBusy, setRequirementsBusy] = useState(false)
+  const [profileBusyId, setProfileBusyId] = useState<string | null>(null)
+
+  const requiredCapabilities = Array.isArray(workflowMetadata.required_capabilities)
+    ? workflowMetadata.required_capabilities.map(String)
+    : []
+  const selectedCalibration = (
+    workflowMetadata.device_calibration
+    && typeof workflowMetadata.device_calibration === 'object'
+  )
+    ? workflowMetadata.device_calibration
+    : null
+  const robotNodes = useMemo(
+    () => nodes.filter(node => ROBOT_NODE_TYPES.has(node.data.type)),
+    [nodes],
+  )
+  const isCalibrationWorkflow = nodes.some(
+    node => node.data.type === 'RobotCalibrationRecorder',
+  )
+  const calibrationNode = nodes.find(
+    node => node.data.type === 'RobotCalibrationRecorder',
+  )
+  const deploymentWorkflowTab = tabs.find(tab => {
+    if (tab.id === activeTabId || !tab.graph) return false
+    const graphNodes = Array.isArray(tab.graph.nodes) ? tab.graph.nodes : []
+    const nodeTypes = graphNodes.map(node => String(node?.type ?? node?.data?.type ?? ''))
+    return (
+      nodeTypes.some(type => ROBOT_NODE_TYPES.has(type))
+      && !nodeTypes.includes('RobotCalibrationRecorder')
+    )
+  })
+  const hasJointMotion = nodes.some(
+    node => JOINT_MOTION_NODE_TYPES.has(node.data.type),
+  )
+  const inferredCapabilities = robotNodes.length > 0
+    ? [
+        ...(hasJointMotion && !isCalibrationWorkflow ? ['joint_group'] : []),
+        'position_feedback',
+        'servo_bus',
+      ].sort()
+    : requiredCapabilities
+  const activeCalibration = targetStatus?.calibration
+  const selectedCalibrationCandidate = calibrations.find(
+    calibration => (
+      calibration.profile_id === selectedCalibration?.profile_id
+      && calibration.hardware_id === selectedCalibration?.hardware_id
+    ),
+  )
+  const calibrationIsActive = Boolean(
+    selectedCalibration
+    && targetStatus?.calibrated
+    && activeCalibration?.profile_id === selectedCalibration.profile_id
+    && activeCalibration?.hardware_id === selectedCalibration.hardware_id
+  )
 
   const refresh = async () => {
     try {
@@ -71,6 +152,119 @@ export default function DeploymentsPanel() {
     const id = window.setInterval(refresh, REFRESH_INTERVAL_MS)
     return () => window.clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadRequirements = async () => {
+      try {
+        const calibrationResult = await api.listGraphCalibrations()
+        if (cancelled) return
+        setRobotProfiles(calibrationResult.profiles ?? [])
+        setCalibrations(calibrationResult.calibrations)
+        if (!selectedDeviceId) {
+          setTargetStatus(null)
+          return
+        }
+        try {
+          const status = await api.deviceStatus(selectedDeviceId)
+          if (!cancelled) setTargetStatus(status)
+        } catch {
+          if (!cancelled) setTargetStatus(null)
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+      }
+    }
+    void loadRequirements()
+    return () => { cancelled = true }
+  }, [activeTabId, selectedDeviceId, workflowRevision])
+
+  const updateRequirements = async (
+    capabilities: string[],
+    calibration: { profile_id: string; hardware_id: string } | null,
+  ) => {
+    setRequirementsBusy(true)
+    setError(null)
+    try {
+      await setWorkflowRequirements(capabilities, calibration)
+      setPreflight(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRequirementsBusy(false)
+    }
+  }
+
+  const selectCalibration = (value: string) => {
+    const calibration = calibrations.find(
+      item => `${item.profile_id}\u0000${item.hardware_id}` === value,
+    )
+    void updateRequirements(
+      inferredCapabilities,
+      calibration
+        ? { profile_id: calibration.profile_id, hardware_id: calibration.hardware_id }
+        : null,
+    )
+  }
+
+  const changeRobotProfile = async (nodeId: string, profileId: string) => {
+    setProfileBusyId(nodeId)
+    setError(null)
+    try {
+      await updateParam(nodeId, 'profile_id', profileId)
+      await setWorkflowRequirements(inferredCapabilities, null)
+      const calibrationResult = await api.listGraphCalibrations()
+      setRobotProfiles(calibrationResult.profiles ?? [])
+      setCalibrations(calibrationResult.calibrations)
+      setPreflight(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setProfileBusyId(null)
+    }
+  }
+
+  useEffect(() => {
+    if (
+      robotNodes.length !== 1
+      || calibrations.length !== 1
+      || selectedCalibration
+      || requirementsBusy
+      || profileBusyId
+      || !hasJointMotion
+      || isCalibrationWorkflow
+    ) return
+    const calibration = calibrations[0]
+    void updateRequirements(inferredCapabilities, {
+      profile_id: calibration.profile_id,
+      hardware_id: calibration.hardware_id,
+    })
+  }, [
+    calibrations,
+    inferredCapabilities.join('|'),
+    hasJointMotion,
+    isCalibrationWorkflow,
+    profileBusyId,
+    requirementsBusy,
+    robotNodes.length,
+    selectedCalibration,
+  ])
+
+  const activateCalibration = async () => {
+    if (!selectedDeviceId || !selectedCalibration) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.activateDeviceCalibration(selectedDeviceId)
+      const status = await api.deviceStatus(selectedDeviceId)
+      setTargetStatus(status)
+      setPreflight(await api.validateDeviceDeployment(selectedDeviceId))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   useEffect(() => {
     if (!selectedDeviceId) {
@@ -193,6 +387,7 @@ export default function DeploymentsPanel() {
     setError(null)
     setPreflight(null)
     try {
+      await setWorkflowRequirements(inferredCapabilities, selectedCalibration)
       setPreflight(await api.validateDeviceDeployment(selectedDeviceId))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -254,7 +449,7 @@ export default function DeploymentsPanel() {
   const remoteRunning = remoteDeployments.filter(d => d.state === 'running').length
 
   return (
-    <div className="bn-runs-panel">
+    <div className="bn-runs-panel bn-deploy-panel">
       <div className="bn-runs-toolbar">
         <div>
           <div className="bn-runs-title">Deployments</div>
@@ -269,30 +464,16 @@ export default function DeploymentsPanel() {
         </div>
       </div>
 
+      {error && <div className="bn-runs-error">{error}</div>}
+
       <div className="bn-deploy-target">
         <div className="bn-deploy-target-head">
           <div>
-            <div className="bn-deploy-target-title">Remote target</div>
-            <div className="bn-runs-subtitle">Validate, stage, and control the selected device</div>
-          </div>
-          <div className="bn-runs-actions">
-            <button
-              onClick={validateRemoteDeployment}
-              disabled={busy || !selectedDeviceId}
-              style={preflight?.ready ? miniButton : primaryButton}
-            >
-              Validate
-            </button>
-            {preflight?.ready && (
-              <>
-                <button onClick={() => stageRemote(false)} disabled={busy} style={miniButton}>
-                  Stage
-                </button>
-                <button onClick={() => stageRemote(true)} disabled={busy} style={primaryButton}>
-                  Stage & run
-                </button>
-              </>
-            )}
+            <div className="bn-deploy-target-title">Deploy one robot</div>
+            <div className="bn-runs-subtitle">
+              Choose the computer physically connected to this robot. Use a separate
+              deployment workflow for each additional robot.
+            </div>
           </div>
         </div>
         {devices.length > 0 ? (
@@ -313,11 +494,302 @@ export default function DeploymentsPanel() {
         ) : (
           <div className="bn-device-help">Pair a Raspberry Pi in the Devices tab first.</div>
         )}
+
+        <div className="bn-robot-deploy-steps">
+          <section className={`bn-robot-deploy-step${robotNodes.length > 0 ? ' is-complete' : ' is-needed'}`}>
+            <div className="bn-robot-step-number">1</div>
+            <div className="bn-robot-step-content">
+              <div className="bn-robot-step-title">Choose one robot profile</div>
+              <div className="bn-robot-step-help">
+                The profile describes this robot’s model, joints, servo IDs, and driver.
+              </div>
+
+              {robotNodes.length === 0 ? (
+                <div className="bn-robot-step-empty">
+                  <strong>No Robot node is in this workflow.</strong>
+                  <span>Start with a robot workflow, then return here to deploy it.</span>
+                  <button
+                    type="button"
+                    onClick={() => onOpenTemplates('SO-ARM101 Motion Test')}
+                    style={primaryButton}
+                  >
+                    Open robot starter
+                  </button>
+                </div>
+              ) : (
+                <div className="bn-robot-profile-list">
+                  {robotNodes.length > 1 && (
+                    <div className="bn-robot-step-status is-warning">
+                      This workflow contains {robotNodes.length} robot connections. Keep one
+                      Robot node in each deployable workflow, then deploy the robots one at a time.
+                    </div>
+                  )}
+                  {robotNodes.map((node, index) => {
+                    const definition = nodeDefs[node.data.type]
+                    const currentProfile = String(
+                      node.data.params?.profile_id
+                      ?? definition?.input_defaults?.profile_id
+                      ?? 'so_arm101',
+                    )
+                    const choices = Array.from(new Set([
+                      currentProfile,
+                      ...robotProfiles.map(profile => profile.id),
+                      ...(definition?.input_choices?.profile_id ?? []),
+                    ])).filter(Boolean)
+                    const fallbackName = node.data.type === 'RobotProfileLoad'
+                      ? 'Legacy Robot'
+                      : 'Robot'
+                    const nodeName = String(
+                      node.data.params?.label
+                      || (robotNodes.length === 1 ? fallbackName : `${fallbackName} ${index + 1}`),
+                    )
+                    return (
+                      <div className="bn-robot-profile-row" key={node.id}>
+                        <label>
+                          <span>{nodeName}</span>
+                          <select
+                            className="bn-deploy-device-select"
+                            value={currentProfile}
+                            disabled={profileBusyId === node.id}
+                            onChange={event => {
+                              void changeRobotProfile(node.id, event.target.value)
+                            }}
+                          >
+                            {choices.map(profileId => {
+                              const profile = robotProfiles.find(item => item.id === profileId)
+                              const calibrationLabel = profile?.calibration_count
+                                ? ` · ${profile.calibration_count} calibration${profile.calibration_count === 1 ? '' : 's'}`
+                                : ''
+                              return (
+                                <option value={profileId} key={profileId}>
+                                  {profile?.name || profileId}{calibrationLabel}
+                                </option>
+                              )
+                            })}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => selectNode(node.id)}
+                          style={miniButton}
+                        >
+                          Show node
+                        </button>
+                      </div>
+                    )
+                  })}
+                  <button
+                    type="button"
+                    className="bn-robot-setup-action"
+                    onClick={() => onOpenTemplates('Editable SO-ARM101 Robot Profile')}
+                    style={miniButton}
+                  >
+                    Create or edit robot profile
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className={`bn-robot-deploy-step${
+            isCalibrationWorkflow || !hasJointMotion || calibrationIsActive
+              ? ' is-complete'
+              : calibrations.length > 0
+              ? ' is-pending'
+              : ' is-needed'
+          }`}>
+            <div className="bn-robot-step-number">2</div>
+            <div className="bn-robot-step-content">
+              <div className="bn-robot-step-title">Prepare the safety calibration</div>
+              <div className="bn-robot-step-help">
+                Calibration saves this physical robot’s neutral Home position and safe joint ranges.
+              </div>
+
+              {isCalibrationWorkflow ? (
+                <>
+                  <div className="bn-robot-step-status is-info">
+                    <strong>This tab creates calibrations; it does not choose one for deployment.</strong>
+                    {' '}
+                    Name and record the calibration here, then return to the robot workflow.
+                    Its Step 2 contains the calibration picker.
+                  </div>
+                  {calibrationNode && (
+                    <button
+                      type="button"
+                      className="bn-robot-setup-action"
+                      onClick={() => selectNode(calibrationNode.id)}
+                      style={primaryButton}
+                    >
+                      Open calibration controls
+                    </button>
+                  )}
+                  {deploymentWorkflowTab ? (
+                    <button
+                      type="button"
+                      className="bn-robot-setup-action"
+                      onClick={() => void switchTab(deploymentWorkflowTab.id)}
+                      style={primaryButton}
+                    >
+                      Return to {deploymentWorkflowTab.name} and choose calibration
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="bn-robot-setup-action"
+                      onClick={() => onOpenTemplates('SO-ARM101 Motion Test')}
+                      style={miniButton}
+                    >
+                      Open robot deployment workflow
+                    </button>
+                  )}
+                  {calibrations.length > 0 && (
+                    <div className="bn-robot-step-status">
+                      {calibrations.length} saved calibration{calibrations.length === 1 ? '' : 's'}
+                      {' '}
+                      match this profile. You will choose one after returning to the deployment
+                      workflow.
+                    </div>
+                  )}
+                </>
+              ) : robotNodes.length === 0 ? (
+                <div className="bn-robot-step-status">
+                  A robot calibration will appear here after the workflow has a Robot node.
+                </div>
+              ) : !hasJointMotion ? (
+                <div className="bn-robot-step-status is-info">
+                  This workflow only reads robot state, so a safety calibration is optional.
+                  Blacknode will require one automatically when motion controls are added.
+                </div>
+              ) : robotNodes.length > 1 ? (
+                <div className="bn-robot-step-status is-warning">
+                  Calibration is selected per deployment. Split this graph so it contains one
+                  Robot node, then choose that physical robot’s calibration below.
+                </div>
+              ) : calibrations.length === 0 ? (
+                <div className="bn-robot-step-empty">
+                  <strong>No saved calibration matches this profile.</strong>
+                  <span>
+                    Open the guided workflow, calibrate this connected robot locally, then return
+                    here and select the saved calibration.
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <label className="bn-robot-calibration-choice">
+                    <span>Calibration for this robot</span>
+                    <select
+                      className="bn-deploy-device-select"
+                      value={selectedCalibration
+                        ? `${selectedCalibration.profile_id}\u0000${selectedCalibration.hardware_id}`
+                        : ''}
+                      disabled={requirementsBusy}
+                      onChange={event => selectCalibration(event.target.value)}
+                    >
+                      {calibrations.length > 1 && (
+                        <option value="">
+                          Choose one of {calibrations.length} saved calibrations…
+                        </option>
+                      )}
+                      {calibrations.map(calibration => (
+                        <option
+                          key={`${calibration.profile_id}\u0000${calibration.hardware_id}`}
+                          value={`${calibration.profile_id}\u0000${calibration.hardware_id}`}
+                        >
+                          {calibration.name} · {calibration.profile_name}
+                          {' · '}
+                          {calibration.hardware_id}
+                          {' · '}
+                          {formatCalibrationTime(calibration.recorded_at)}
+                          {' · '}
+                          {calibration.joint_count} joints
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {calibrationIsActive ? (
+                    <div className="bn-robot-step-status is-success">
+                      Ready: {activeCalibration?.name
+                        || selectedCalibrationCandidate?.name
+                        || 'this calibration'} is active on
+                      {' '}
+                      {targetStatus?.device_id || 'the device'}.
+                    </div>
+                  ) : (
+                    <div className="bn-robot-calibration-activate">
+                      <div className="bn-robot-step-status is-warning">
+                        {selectedCalibration
+                          ? 'Saved calibration found. Activate it on the connected, disarmed device.'
+                          : 'Choose which physical robot is connected to this device.'}
+                      </div>
+                      <button
+                        onClick={() => void activateCalibration()}
+                        disabled={busy || requirementsBusy || !selectedDeviceId || !selectedCalibration}
+                        style={primaryButton}
+                      >
+                        Use this calibration
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+              {!isCalibrationWorkflow && robotNodes.length === 1 && (
+                <button
+                  type="button"
+                  className="bn-robot-setup-action"
+                  onClick={() => onOpenTemplates('Guided Calibration')}
+                  style={calibrations.length === 0 ? primaryButton : miniButton}
+                >
+                  {calibrations.length === 0
+                    ? 'Create calibration'
+                    : 'Create another calibration'}
+                </button>
+              )}
+            </div>
+          </section>
+
+          <section className={`bn-robot-deploy-step${preflight?.ready ? ' is-complete' : ''}`}>
+            <div className="bn-robot-step-number">3</div>
+            <div className="bn-robot-step-content">
+              <div className="bn-robot-step-title">Check and deploy</div>
+              <div className="bn-robot-step-help">
+                Blacknode selected the workflow requirements automatically:
+                {' '}
+                {inferredCapabilities.length > 0
+                  ? inferredCapabilities.join(', ')
+                  : 'no device-specific capabilities'}.
+              </div>
+              <div className="bn-robot-step-actions">
+                <button
+                  onClick={validateRemoteDeployment}
+                  disabled={
+                    busy
+                    || requirementsBusy
+                    || Boolean(profileBusyId)
+                    || !selectedDeviceId
+                    || robotNodes.length > 1
+                  }
+                  style={preflight?.ready ? miniButton : primaryButton}
+                >
+                  Check setup
+                </button>
+                {preflight?.ready && (
+                  <>
+                    <button onClick={() => stageRemote(false)} disabled={busy} style={miniButton}>
+                      Send to device
+                    </button>
+                    <button onClick={() => stageRemote(true)} disabled={busy} style={primaryButton}>
+                      Send &amp; run
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
 
       {preflight && <PreflightResult result={preflight} />}
-
-      {error && <div className="bn-runs-error">{error}</div>}
 
       <div className="bn-deployment-section-head">
         <div>
@@ -619,6 +1091,12 @@ function formatTime(value: string | null): string {
   if (!value) return '--'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString()
+}
+
+function formatCalibrationTime(value: string): string {
+  if (!value) return 'date unknown'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
 const miniButton: CSSProperties = {

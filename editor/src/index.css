@@ -651,7 +651,7 @@ body {
 
 .bn-device-facts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   margin-bottom: 10px;
 }
@@ -706,6 +706,8 @@ body {
 
 .bn-deploy-device-select {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin-top: 8px;
   padding: 6px 7px;
   background: var(--panel);
@@ -729,6 +731,7 @@ body {
 .bn-preflight-summary {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 7px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
@@ -740,8 +743,10 @@ body {
 }
 
 .bn-preflight-summary span {
+  min-width: 0;
   color: var(--tx3);
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
 }
 
 .bn-preflight-summary.is-ready strong {
@@ -785,6 +790,7 @@ body {
   color: var(--tx3);
   font-size: 10px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .bn-preflight-pill {
@@ -982,6 +988,279 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.bn-robot-deploy-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.bn-robot-deploy-step {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 9px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.bn-robot-deploy-step.is-complete {
+  border-color: color-mix(in srgb, var(--ok) 48%, var(--line));
+}
+
+.bn-robot-deploy-step.is-needed {
+  border-color: color-mix(in srgb, var(--warn) 52%, var(--line));
+}
+
+.bn-robot-step-number {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line2);
+  border-radius: 50%;
+  color: var(--tx2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.bn-robot-deploy-step.is-complete .bn-robot-step-number {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.bn-robot-deploy-step.is-needed .bn-robot-step-number {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.bn-robot-step-content {
+  min-width: 0;
+}
+
+.bn-robot-step-title {
+  color: var(--tx1);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bn-robot-step-help {
+  margin-top: 3px;
+  color: var(--tx3);
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.bn-robot-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.bn-robot-profile-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 6px;
+}
+
+.bn-robot-profile-row label,
+.bn-robot-calibration-choice {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bn-robot-profile-row label > span,
+.bn-robot-calibration-choice > span {
+  color: var(--tx3);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.bn-robot-profile-row .bn-deploy-device-select,
+.bn-robot-calibration-choice .bn-deploy-device-select {
+  margin-top: 0;
+}
+
+.bn-robot-step-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 9px;
+  padding: 8px;
+  background: var(--lift);
+  border-radius: 5px;
+  color: var(--tx3);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.bn-robot-step-empty strong {
+  color: var(--tx2);
+}
+
+.bn-robot-guide-link {
+  align-self: flex-start;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  text-align: left;
+}
+
+.bn-robot-setup-action {
+  align-self: flex-start;
+  margin-top: 9px;
+}
+
+.bn-robot-calibration-choice {
+  margin-top: 9px;
+}
+
+.bn-robot-calibration-choice + .bn-robot-step-status,
+.bn-robot-calibration-choice + .bn-robot-calibration-activate {
+  margin-bottom: 7px;
+}
+
+.bn-robot-step-status {
+  margin-top: 8px;
+  padding: 7px 8px;
+  background: var(--lift);
+  border-left: 2px solid var(--line2);
+  border-radius: 3px;
+  color: var(--tx3);
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.bn-robot-step-status.is-success {
+  color: var(--ok);
+  border-left-color: var(--ok);
+}
+
+.bn-robot-step-status.is-warning {
+  color: var(--warn);
+  border-left-color: var(--warn);
+}
+
+.bn-robot-step-status.is-info {
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+.bn-robot-calibration-activate,
+.bn-robot-step-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.bn-robot-calibration-activate .bn-robot-step-status {
+  flex: 1 1 240px;
+  margin-top: 0;
+}
+
+.bn-deploy-panel {
+  container-name: deployment-panel;
+  container-type: inline-size;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.bn-deploy-panel > .bn-runs-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  flex: 0 0 auto;
+  background: var(--panel);
+}
+
+.bn-deploy-panel > .bn-runs-list {
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow: visible;
+}
+
+.bn-deploy-panel .bn-preflight-checks {
+  max-height: none;
+  overflow: visible;
+}
+
+.bn-deploy-panel .bn-run-error-line,
+.bn-deploy-panel .bn-run-node,
+.bn-deploy-panel .bn-run-badges span {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+@container deployment-panel (max-width: 620px) {
+  .bn-deploy-target-head,
+  .bn-deploy-panel > .bn-runs-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bn-deploy-target-head .bn-runs-actions,
+  .bn-deploy-panel > .bn-runs-toolbar .bn-runs-actions {
+    justify-content: flex-start;
+  }
+
+  .bn-robot-calibration-activate {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@container deployment-panel (max-width: 330px) {
+  .bn-robot-profile-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .bn-deploy-panel .bn-run-summary {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+
+  .bn-deploy-panel .bn-run-status {
+    grid-column: 2;
+    align-items: flex-start;
+    white-space: normal;
+  }
+}
+
+.bn-run-error-line.bn-device-error {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.bn-device-recovery-hint {
+  margin-top: 6px;
+  color: var(--warn);
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .bn-run-status {
