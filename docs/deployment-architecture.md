@@ -112,7 +112,9 @@ disarmed device. Preflight accepts `joint_group` only when the
 workflow selection, Robot profile, device hardware identity, and device's
 active calibration all match. The staged workflow embeds the same profile and
 calibration so the robot driver applies the reviewed home positions and safe
-joint ranges.
+joint ranges. When the selected calibration belongs to another USB identity,
+preflight identifies both the selected and connected hardware and blocks
+activation instead of offering to upload another robot's calibration.
 
 ### Deployment transport
 

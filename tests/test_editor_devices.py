@@ -461,7 +461,12 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertNotIn(hardware.token, response.text)
 
     def test_selected_calibration_can_be_activated_and_satisfies_preflight(self):
-        hardware = _HardwareService()
+        hardware = _HardwareService(status_overrides={
+            "connection": {
+                "transport": "serial",
+                "port": "/dev/serial/by-id/usb-USB-SERIAL-42-if00",
+            },
+        })
         robots_root = Path(self._tmp.name) / "robots"
         profile_dir = robots_root / "arm_profile"
         calibration_dir = profile_dir / "calibrations"
@@ -573,6 +578,133 @@ class EditorDeviceApiTests(unittest.TestCase):
             calibration_requests[0][3]["calibration"]["hardware_id"],
             "USB-SERIAL-42",
         )
+
+    def test_wrong_robot_calibration_is_rejected_before_activation(self):
+        activated: list[dict] = []
+        hardware = SimpleNamespace(
+            status=lambda: {
+                "device_id": (
+                    "alex-desktop-usb-1a86-usb-single-serial-"
+                    "5b41531741-if-03dc3457"
+                ),
+                "connected": True,
+                "armed": False,
+                "calibrated": False,
+                "connection": {
+                    "transport": "serial",
+                    "port": (
+                        "/dev/serial/by-id/"
+                        "usb-1a86_USB_Single_Serial_5B41531741-if00"
+                    ),
+                },
+            },
+            activate_calibration=lambda profile, calibration: activated.append({
+                "profile": profile,
+                "calibration": calibration,
+            }),
+        )
+        profile = {"id": "so_arm101_v002", "joints": []}
+        calibration = {
+            "profile_id": "so_arm101_v002",
+            "hardware_id": "5B41531481",
+            "joints": {},
+        }
+
+        with (
+            patch.object(
+                server,
+                "_selected_local_calibration",
+                return_value=(profile, calibration),
+            ),
+            patch.object(server, "_paired_device_client", return_value=hardware),
+        ):
+            response = self.client.post("/devices/paired/calibration")
+
+        self.assertEqual(response.status_code, 409)
+        message = response.json()["detail"]
+        self.assertIn("different physical robot", message)
+        self.assertIn("5B41531481", message)
+        self.assertIn("5B41531741", message)
+        self.assertIn("Do not activate", message)
+        self.assertEqual(activated, [])
+        self.assertFalse(
+            server._remote_hardware_identity_match(
+                hardware.status(),
+                "5B41531481",
+            ),
+        )
+        self.assertTrue(
+            server._remote_hardware_identity_match(
+                hardware.status(),
+                "5B41531741",
+            ),
+        )
+
+        workflow = _workflow(["joint_group"])
+        workflow["metadata"]["device_calibration"] = {
+            "profile_id": "so_arm101_v002",
+            "hardware_id": "5B41531481",
+        }
+        robot_fn = server._NODE_REGISTRY["Output"]
+        workflow["node_meta"]["robot"] = {
+            "id": "robot",
+            "type": "Robot",
+            "params": {"profile_id": "so_arm101_v002"},
+            "pos": [200, 0],
+            "inputs": list(getattr(robot_fn, "_bn_inputs", [])),
+            "outputs": list(getattr(robot_fn, "_bn_outputs", [])),
+            "input_types": dict(getattr(robot_fn, "_bn_input_types", {})),
+            "output_types": dict(getattr(robot_fn, "_bn_output_types", {})),
+            "input_defaults": dict(getattr(robot_fn, "_bn_input_defaults", {})),
+        }
+        runtime = SimpleNamespace(manifest=lambda: {
+            "service": "blacknode-runtime",
+            "protocol_version": 1,
+            "runtime_version": "0.2.0",
+            "features": [
+                "manifest_v1",
+                "deployment_bundle_v1",
+                "process_supervision_v1",
+                "rollback_v1",
+                "package_sync_v1",
+            ],
+            "python": {"version": "3.12.3"},
+            "blacknode": {"installed": True, "version": "0.3.0"},
+            "packages": [],
+            "node_types": ["Output", "Robot"],
+        })
+        paired_device = {
+            "id": "paired",
+            "name": "Wrong arm",
+            "base_url": "http://192.168.1.87:8765",
+            "runtime_url": "http://192.168.1.87:8766",
+            "remote_device_id": hardware.status()["device_id"],
+        }
+        with (
+            patch.dict(server._NODE_REGISTRY, {"Robot": robot_fn}),
+            patch.object(server._device_registry, "get_public", return_value=paired_device),
+            patch.object(server._device_registry, "runtime_client", return_value=runtime),
+            patch.object(server, "_paired_device_client", return_value=hardware),
+            patch.object(
+                server,
+                "_selected_local_calibration",
+                return_value=(profile, calibration),
+            ),
+        ):
+            preflight = self.client.post(
+                "/devices/paired/deployment-preflight",
+                json={"workflow": workflow},
+            )
+
+        self.assertEqual(preflight.status_code, 200)
+        checks = {item["id"]: item for item in preflight.json()["checks"]}
+        self.assertEqual(checks["calibration"]["status"], "fail")
+        self.assertTrue(checks["calibration"]["blocking"])
+        self.assertIn(
+            "different physical robot",
+            checks["calibration"]["message"],
+        )
+        self.assertIn("Do not activate", checks["calibration"]["message"])
 
     def test_old_device_service_reports_calibration_upgrade_action(self):
         response = io.BytesIO(b'{"ok": false, "error": "not found"}')

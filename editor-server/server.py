@@ -2863,6 +2863,15 @@ def activate_device_calibration(device_id: str):
                 409,
                 str(status.get("error") or "Hardware must be connected first."),
             )
+        selection = {
+            "profile_id": str(calibration.get("profile_id") or profile.get("id") or ""),
+            "hardware_id": str(calibration.get("hardware_id") or ""),
+        }
+        if _remote_hardware_identity_match(status, selection["hardware_id"]) is False:
+            raise HTTPException(
+                409,
+                _calibration_hardware_mismatch_message(selection, status),
+            )
         if status.get("armed"):
             raise HTTPException(409, "Disarm the device before activating calibration.")
         result = client.activate_calibration(profile, calibration)
@@ -2917,6 +2926,84 @@ def _workflow_calibration_selection(
     if not profile_id or not hardware_id:
         return None
     return {"profile_id": profile_id, "hardware_id": hardware_id}
+
+
+def _normalized_hardware_identity(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").casefold())
+
+
+def _identity_value_matches(candidate: Any, hardware_id: str) -> bool:
+    candidate_token = _normalized_hardware_identity(candidate)
+    hardware_token = _normalized_hardware_identity(hardware_id)
+    if not candidate_token or not hardware_token:
+        return False
+    if candidate_token == hardware_token:
+        return True
+    # USB serials are commonly embedded in a stable by-id path or an
+    # auto-generated service ID. Avoid substring matching tiny identifiers.
+    return len(hardware_token) >= 6 and hardware_token in candidate_token
+
+
+def _remote_hardware_identity_match(
+    remote_status: dict[str, Any],
+    hardware_id: str,
+) -> bool | None:
+    """Compare a calibration identity with authoritative hardware status.
+
+    Older hardware services expose the stable USB identity only inside their
+    /dev/serial/by-id path or generated device ID. None means the service did
+    not expose enough identity information to make a safe comparison.
+    """
+    connection = (
+        remote_status.get("connection")
+        if isinstance(remote_status.get("connection"), dict)
+        else {}
+    )
+    explicit = [
+        connection.get("hardware_id"),
+        connection.get("serial"),
+        connection.get("serial_number"),
+        remote_status.get("hardware_id"),
+    ]
+    explicit = [value for value in explicit if str(value or "").strip()]
+    if explicit:
+        return any(_identity_value_matches(value, hardware_id) for value in explicit)
+
+    port = str(connection.get("port") or "").strip()
+    device_id = str(remote_status.get("device_id") or "").strip()
+    if _identity_value_matches(port, hardware_id) or _identity_value_matches(
+        device_id,
+        hardware_id,
+    ):
+        return True
+
+    normalized_port = port.replace("\\", "/").casefold()
+    normalized_device_id = device_id.casefold()
+    if "/dev/serial/by-id/" in normalized_port:
+        return False
+    if "usb" in normalized_device_id and "serial" in normalized_device_id:
+        return False
+    return None
+
+
+def _calibration_hardware_mismatch_message(
+    selection: dict[str, str],
+    remote_status: dict[str, Any],
+) -> str:
+    connection = (
+        remote_status.get("connection")
+        if isinstance(remote_status.get("connection"), dict)
+        else {}
+    )
+    device_id = str(remote_status.get("device_id") or "unknown device")
+    port = str(connection.get("port") or "unknown serial port")
+    return (
+        f"Selected calibration {selection['profile_id']} / "
+        f"{selection['hardware_id']} belongs to a different physical robot. "
+        f"Connected device: {device_id} on {port}. Choose a calibration whose "
+        "hardware ID matches this device, or select the paired device that owns "
+        f"{selection['hardware_id']}. Do not activate this calibration here."
+    )
 
 
 def _robot_profiles_root() -> Path:
@@ -3542,6 +3629,15 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
     calibrated = remote_status.get("calibrated")
     if requires_joint_motion:
         selection = _workflow_calibration_selection(workflow)
+        hardware_identity_match = (
+            _remote_hardware_identity_match(
+                remote_status,
+                selection["hardware_id"],
+            )
+            if selection
+            else None
+        )
+        hardware_mismatch = hardware_identity_match is False
         active_calibration = (
             remote_status.get("calibration")
             if isinstance(remote_status.get("calibration"), dict)
@@ -3552,6 +3648,7 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
             and calibrated is True
             and str(active_calibration.get("profile_id") or "") == selection["profile_id"]
             and str(active_calibration.get("hardware_id") or "") == selection["hardware_id"]
+            and not hardware_mismatch
         )
         selection_error = ""
         if selection is not None:
@@ -3583,6 +3680,11 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
                 )
                 if calibration_matches and not selection_error
                 else selection_error
+                or (
+                    _calibration_hardware_mismatch_message(selection, remote_status)
+                    if selection and hardware_mismatch
+                    else ""
+                )
                 or (
                     "Select a saved device calibration, then activate it on this device."
                     if selection is None
