@@ -74,8 +74,11 @@ each robot. The Deployments panel guides robot setup in three steps:
 
 Several calibrations may be saved for the same profile because each calibration
 has a human-readable name and is bound to a stable physical hardware identity.
-The deployment selector shows both values, selects exactly one calibration, and
-records its stable identity in workflow metadata.
+The `Robot` node and Deployment Step 2 show the same selector with both values,
+select exactly one calibration, and record its stable identity in workflow
+metadata. Changing the selection in either place updates the other; the Robot
+node always states the calibration name and hardware identity that deployment
+will use.
 
 Blacknode derives `metadata.required_capabilities` from the workflow. Robot
 motion workflows receive `joint_group`, `position_feedback`, and `servo_bus`.

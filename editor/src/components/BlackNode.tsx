@@ -3,7 +3,7 @@ import { Handle, Position, NodeProps, useReactFlow, useUpdateNodeInternals } fro
 import { NodeResizer } from '@reactflow/node-resizer'
 import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
-import { api } from '../api'
+import { api, type DeviceCalibrationCandidate } from '../api'
 import { portColor } from '../portColors'
 import { headerColor } from '../categories'
 import { isWireOnlyInput } from '../inputControls'
@@ -450,6 +450,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const startDriver = useStore(s => s.startDriver)
   const stopDriver  = useStore(s => s.stopDriver)
   const loadDriverStatus = useStore(s => s.loadDriverStatus)
+  const workflowMetadata = useStore(s => s.workflowMetadata)
+  const setWorkflowRequirements = useStore(s => s.setWorkflowRequirements)
   const qualifiedType = useQualifiedTypeLabel(data.type)
   const driverName  = TRIGGER_DRIVER[data.type]
   const driverLive  = driverName ? Boolean(driverStatus[driverName]?.live) : false
@@ -533,6 +535,87 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const isVariadic = Boolean(variadicInput)
   const isManualMove = data.type === 'ROS2ManualMove'
   const isRobot = data.type === 'Robot'
+  const robotProfileId = String(data.params?.profile_id ?? '').trim()
+  const requiredCapabilities = Array.isArray(workflowMetadata.required_capabilities)
+    ? workflowMetadata.required_capabilities.map(String)
+    : []
+  const selectedRobotCalibration = (
+    workflowMetadata.device_calibration
+    && typeof workflowMetadata.device_calibration === 'object'
+  )
+    ? workflowMetadata.device_calibration
+    : null
+  const [robotCalibrations, setRobotCalibrations] = useState<DeviceCalibrationCandidate[]>([])
+  const [robotCalibrationsLoading, setRobotCalibrationsLoading] = useState(false)
+  const [robotCalibrationPending, setRobotCalibrationPending] = useState(false)
+  const [robotCalibrationError, setRobotCalibrationError] = useState('')
+  const matchingRobotCalibrations = robotCalibrations.filter(
+    calibration => !robotProfileId || calibration.profile_id === robotProfileId,
+  )
+  const selectedRobotCalibrationKey = selectedRobotCalibration
+    ? `${selectedRobotCalibration.profile_id}\u0000${selectedRobotCalibration.hardware_id}`
+    : ''
+  const selectedRobotCalibrationCandidate = robotCalibrations.find(
+    calibration => (
+      calibration.profile_id === selectedRobotCalibration?.profile_id
+      && calibration.hardware_id === selectedRobotCalibration?.hardware_id
+    ),
+  )
+  const loadRobotCalibrations = async () => {
+    if (!isRobot) return
+    setRobotCalibrationsLoading(true)
+    setRobotCalibrationError('')
+    try {
+      const result = await api.listGraphCalibrations()
+      setRobotCalibrations(result.calibrations ?? [])
+    } catch (err) {
+      setRobotCalibrationError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRobotCalibrationsLoading(false)
+    }
+  }
+  useEffect(() => {
+    if (!isRobot) return
+    let cancelled = false
+    setRobotCalibrationsLoading(true)
+    setRobotCalibrationError('')
+    void api.listGraphCalibrations()
+      .then(result => {
+        if (!cancelled) setRobotCalibrations(result.calibrations ?? [])
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setRobotCalibrationError(err instanceof Error ? err.message : String(err))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRobotCalibrationsLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [isRobot, robotProfileId])
+  const selectRobotCalibration = async (value: string) => {
+    const calibration = robotCalibrations.find(
+      item => `${item.profile_id}\u0000${item.hardware_id}` === value,
+    )
+    setRobotCalibrationPending(true)
+    setRobotCalibrationError('')
+    try {
+      await setWorkflowRequirements(
+        requiredCapabilities,
+        calibration
+          ? { profile_id: calibration.profile_id, hardware_id: calibration.hardware_id }
+          : null,
+      )
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setRobotCalibrationError(message)
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: { kind: 'error', title: 'Calibration selection failed', message },
+      }))
+    } finally {
+      setRobotCalibrationPending(false)
+    }
+  }
   const isRobotCalibration = data.type === 'RobotCalibrationRecorder'
   const isEpisodeRecorder = data.type === 'EpisodeRecorder'
   const isDatasetCreate = data.type === 'DatasetCreate'
@@ -1262,28 +1345,120 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       </div>
 
       {isRobot && (
-        <div className="nodrag" onMouseDown={e => e.stopPropagation()}
-          style={{ display: 'flex', alignItems: 'center', gap: 7, margin: '6px 8px 0' }}>
-          <button
-            disabled={pingPending}
-            title="Wiggle a joint a few degrees and back so you can see which physical robot this node controls (needs the driver running and armed)."
-            onClick={e => { e.stopPropagation(); void pingRobot() }}
-            style={{
-              padding: '4px 10px', borderRadius: 5, border: '1px solid var(--accent)',
-              background: 'rgba(99,102,241,.18)',
-              color: pingPending ? 'var(--tx3)' : 'var(--tx1)',
-              cursor: pingPending ? 'default' : 'pointer',
-              fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700, flexShrink: 0,
-            }}
-          >
-            {pingPending ? 'Pinging…' : '📍 Ping'}
-          </button>
-          <span style={{
-            color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9,
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
+        <div className="nodrag" onMouseDown={e => e.stopPropagation()}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, margin: '6px 8px 0' }}>
+            <button
+              disabled={pingPending}
+              title="Wiggle a joint a few degrees and back so you can see which physical robot this node controls (needs the driver running and armed)."
+              onClick={e => { e.stopPropagation(); void pingRobot() }}
+              style={{
+                padding: '4px 10px', borderRadius: 5, border: '1px solid var(--accent)',
+                background: 'rgba(99,102,241,.18)',
+                color: pingPending ? 'var(--tx3)' : 'var(--tx1)',
+                cursor: pingPending ? 'default' : 'pointer',
+                fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700, flexShrink: 0,
+              }}
+            >
+              {pingPending ? 'Pinging…' : '📍 Ping'}
+            </button>
+            <span style={{
+              color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
+            }}>
+              identify this robot
+            </span>
+          </div>
+          <div style={{
+            margin: '6px 8px 0', padding: '6px 7px', borderRadius: 6,
+            border: '1px solid var(--line)', background: 'rgba(0,0,0,.12)',
+            fontFamily: 'var(--font-ui)',
           }}>
-            identify this robot
-          </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <span style={{ color: 'var(--tx2)', fontSize: 10, fontWeight: 700, flex: 1 }}>
+                Calibration used for deployment
+              </span>
+              <button
+                disabled={robotCalibrationsLoading}
+                title="Refresh saved calibrations"
+                onClick={e => { e.stopPropagation(); void loadRobotCalibrations() }}
+                style={{
+                  padding: '1px 5px', borderRadius: 4, border: '1px solid var(--line)',
+                  background: 'var(--lift)', color: 'var(--tx2)',
+                  cursor: robotCalibrationsLoading ? 'default' : 'pointer', fontSize: 10,
+                }}
+              >
+                {robotCalibrationsLoading ? '…' : '⟳'}
+              </button>
+            </div>
+            <select
+              aria-label="Calibration used for deployment"
+              value={selectedRobotCalibrationKey}
+              disabled={robotCalibrationPending || robotCalibrationsLoading}
+              onFocus={() => {
+                if (!robotCalibrations.length && !robotCalibrationsLoading) {
+                  void loadRobotCalibrations()
+                }
+              }}
+              onChange={e => { void selectRobotCalibration(e.target.value) }}
+              style={{
+                boxSizing: 'border-box', width: '100%', minWidth: 0,
+                background: 'var(--lift)', color: 'var(--tx1)',
+                border: '1px solid var(--line)', borderRadius: 5, padding: '3px 5px',
+                fontFamily: 'var(--font-ui)', fontSize: 10,
+              }}
+            >
+              <option value="">
+                {robotCalibrationsLoading
+                  ? 'Loading calibrations…'
+                  : matchingRobotCalibrations.length
+                    ? 'Choose a calibration…'
+                    : robotProfileId
+                      ? `No calibrations saved for ${robotProfileId}`
+                      : 'Choose a robot profile first'}
+              </option>
+              {selectedRobotCalibration && !selectedRobotCalibrationCandidate && (
+                <option value={selectedRobotCalibrationKey}>
+                  {robotCalibrationsLoading
+                    ? `Loading ${selectedRobotCalibration.hardware_id}…`
+                    : `Selected: ${selectedRobotCalibration.hardware_id} (not found)`}
+                </option>
+              )}
+              {matchingRobotCalibrations.map(calibration => (
+                <option
+                  key={`${calibration.profile_id}\u0000${calibration.hardware_id}`}
+                  value={`${calibration.profile_id}\u0000${calibration.hardware_id}`}
+                >
+                  {calibration.name} · {calibration.hardware_id} · {calibration.joint_count} joints
+                </option>
+              ))}
+            </select>
+            <div
+              title={selectedRobotCalibrationCandidate
+                ? `${selectedRobotCalibrationCandidate.name} — ${selectedRobotCalibrationCandidate.profile_name} — ${selectedRobotCalibrationCandidate.hardware_id}`
+                : undefined}
+              style={{
+                marginTop: 4, fontSize: 9, lineHeight: 1.35,
+                color: robotCalibrationError
+                  ? 'var(--err)'
+                  : selectedRobotCalibrationCandidate
+                    ? 'var(--ok)'
+                    : 'var(--warn)',
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {robotCalibrationPending
+                ? 'Saving selection…'
+                : robotCalibrationError
+                  ? robotCalibrationError
+                  : robotCalibrationsLoading
+                    ? 'Loading saved calibration details…'
+                  : selectedRobotCalibrationCandidate
+                    ? `Using “${selectedRobotCalibrationCandidate.name}” on ${selectedRobotCalibrationCandidate.hardware_id}. Deployment Step 2 uses this same selection.`
+                    : selectedRobotCalibration
+                      ? `Selected hardware ${selectedRobotCalibration.hardware_id} is not available for profile ${robotProfileId || selectedRobotCalibration.profile_id}.`
+                      : 'No calibration selected. Pick the named physical robot before deployment.'}
+            </div>
+          </div>
         </div>
       )}
 
