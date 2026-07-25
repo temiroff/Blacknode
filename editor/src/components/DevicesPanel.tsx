@@ -550,7 +550,7 @@ const miniButton: CSSProperties = {
   border: '1px solid var(--line2)',
   color: 'var(--tx2)',
   padding: '3px 8px',
-  fontSize: 10,
+  fontSize: 12,
   fontFamily: 'var(--font-ui)',
   borderRadius: 4,
   cursor: 'pointer',

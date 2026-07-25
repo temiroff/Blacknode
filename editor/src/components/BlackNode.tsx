@@ -51,7 +51,7 @@ function driverBtn(color: string, disabled = false): React.CSSProperties {
     border: `1px solid ${color}`,
     background: 'transparent',
     color,
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: 600,
     fontFamily: 'var(--font-ui)',
     cursor: disabled ? 'default' : 'pointer',
@@ -181,7 +181,7 @@ function PortRow({
             border: 'none',
             color: 'var(--tx3)',
             cursor: 'pointer',
-            fontSize: 12,
+            fontSize: 14,
             lineHeight: 1,
             padding: '0 2px',
             opacity: hovering ? 1 : 0.55,
@@ -192,7 +192,7 @@ function PortRow({
       )}
       <span style={{
         color: 'var(--tx2)',
-        fontSize: 12,
+        fontSize: 14,
         fontFamily: 'var(--font-ui)',
       }}>
         {displayName}
@@ -224,7 +224,7 @@ function PortRow({
             <div style={{
               minWidth: 0,
               flex: 1,
-              fontSize: 11,
+              fontSize: 13,
               color,
               fontFamily: 'var(--font-ui)',
               fontWeight: 700,
@@ -246,7 +246,7 @@ function PortRow({
                   background: 'var(--panel2)',
                   color: copyState === 'error' ? 'var(--err)' : copyState === 'copied' ? 'var(--ok)' : 'var(--tx1)',
                   cursor: 'pointer',
-                  fontSize: 11,
+                  fontSize: 13,
                   fontFamily: 'var(--font-ui)',
                 }}
               >
@@ -254,13 +254,13 @@ function PortRow({
               </button>
             )}
           </div>
-          <div style={{ color: 'var(--tx3)', fontSize: 9, marginBottom: resultText ? 6 : 0 }}>
+          <div style={{ color: 'var(--tx3)', fontSize: 11, marginBottom: resultText ? 6 : 0 }}>
             {portDisplayHint(name, dir)}
           </div>
           {resultText && (
             <div
               style={{
-                fontSize: 12,
+                fontSize: 14,
                 color: 'var(--tx1)',
                 fontFamily: 'var(--font-mono)',
                 whiteSpace: 'pre-wrap',
@@ -304,7 +304,7 @@ function PortRow({
                   color: 'var(--tx1)',
                   cursor: 'pointer',
                   textAlign: 'left',
-                  fontSize: 12,
+                  fontSize: 14,
                   fontFamily: 'var(--font-ui)',
                 }}
               >
@@ -332,7 +332,7 @@ const normalizedImageSrc = (v: unknown): string | null => {
 
 const imgBtn: React.CSSProperties = {
   background: 'var(--lift)', border: '1px solid var(--line)', borderRadius: 5,
-  color: 'var(--tx1)', fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 600,
+  color: 'var(--tx1)', fontFamily: 'var(--font-ui)', fontSize: 13, fontWeight: 600,
   padding: '3px 9px', cursor: 'pointer',
 }
 
@@ -1227,12 +1227,12 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               background: 'rgba(34,197,94,.18)',
               color: streamStartPending ? 'var(--tx3)' : 'var(--tx1)',
               cursor: streamStartPending ? 'default' : 'pointer',
-              fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700, letterSpacing: 0,
+              fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700, letterSpacing: 0,
             }}
           >
             {streamStartPending ? 'Starting…' : 'Go live'}
           </button>
-          <span style={{ color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9 }}>
+          <span style={{ color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 11 }}>
             starts the WebSocket stream (action=start)
           </span>
         </div>
@@ -1250,10 +1250,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               background: trainingRunning ? 'var(--ok)' : trainingPhase === 'failed' ? 'var(--err)' : 'var(--tx3)',
               boxShadow: trainingRunning ? '0 0 8px var(--ok)' : 'none',
             }} />
-            <strong style={{ color: trainingRunning ? 'var(--ok)' : trainingPhase === 'failed' ? 'var(--err)' : 'var(--tx2)', fontSize: 10 }}>
+            <strong style={{ color: trainingRunning ? 'var(--ok)' : trainingPhase === 'failed' ? 'var(--err)' : 'var(--tx2)', fontSize: 12 }}>
               {trainingStopping ? 'STOPPING' : trainingRunning ? 'TRAINING' : trainingPhase.toUpperCase()}
             </strong>
-            <span style={{ marginLeft: 'auto', color: 'var(--tx2)', fontFamily: 'var(--font-mono)', fontSize: 9 }}>
+            <span style={{ marginLeft: 'auto', color: 'var(--tx2)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
               {trainingStep}/{trainingSteps || '—'} · {Math.round(trainingProgress * 100)}%
             </span>
             <button
@@ -1261,7 +1261,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               onClick={e => { e.stopPropagation(); void runTrainingAction(trainingRunning ? 'stop' : 'start') }}
               style={{
                 ...driverBtn(trainingRunning ? 'var(--err)' : 'var(--ok)', Boolean(trainingPending) || trainingStopping),
-                padding: '3px 8px', fontSize: 9,
+                padding: '3px 8px', fontSize: 11,
               }}
             >
               {trainingPending === 'stop' || trainingStopping ? 'Stopping…' : trainingPending === 'start' ? 'Starting…' : trainingRunning ? '■ Stop' : '▶ Start / resume'}
@@ -1270,7 +1270,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           <div style={{ height: 5, marginTop: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--line2)' }}>
             <div style={{ width: `${trainingProgress * 100}%`, height: '100%', background: trainingPhase === 'failed' ? 'var(--err)' : 'var(--ok)', transition: 'width .25s ease' }} />
           </div>
-          <div style={{ marginTop: 5, color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 8, lineHeight: 1.35 }}>
+          <div style={{ marginTop: 5, color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.35 }}>
             {String(data.portResults?.report ?? (trainingRunning ? 'Training status refreshes every second.' : 'Ready to start training.'))}
           </div>
         </div>
@@ -1302,7 +1302,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               onMouseDown={e => e.stopPropagation()}
               style={{
                 background: 'rgba(0,0,0,.25)', border: 'none', outline: 'none',
-                color: '#fff', fontWeight: 600, fontSize: 13,
+                color: '#fff', fontWeight: 600, fontSize: 15,
                 fontFamily: 'var(--font-ui)', width: '100%', borderRadius: 3,
                 padding: '1px 4px',
               }}
@@ -1311,7 +1311,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             <span
               title="Double-click to rename"
               onDoubleClick={startRename}
-              style={{ fontWeight: 600, fontSize: 13, fontFamily: 'var(--font-ui)', display: 'block', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              style={{ fontWeight: 600, fontSize: 15, fontFamily: 'var(--font-ui)', display: 'block', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {label ?? data.type}
             </span>
@@ -1319,7 +1319,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           {!editingLabel && (
             <span
               title={`Node type ${data.type}`}
-              style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              style={{ fontSize: 11, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {qualifiedType}
             </span>
@@ -1334,7 +1334,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             borderRadius: 4,
             color: '#fff',
             cursor: 'pointer',
-            fontSize: 10,
+            fontSize: 12,
             padding: '2px 7px',
             fontFamily: 'var(--font-ui)',
             flexShrink: 0,
@@ -1356,13 +1356,13 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 background: 'rgba(99,102,241,.18)',
                 color: pingPending ? 'var(--tx3)' : 'var(--tx1)',
                 cursor: pingPending ? 'default' : 'pointer',
-                fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700, flexShrink: 0,
+                fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700, flexShrink: 0,
               }}
             >
               {pingPending ? 'Pinging…' : '📍 Ping'}
             </button>
             <span style={{
-              color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9,
+              color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 11,
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
             }}>
               identify this robot
@@ -1374,7 +1374,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             fontFamily: 'var(--font-ui)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-              <span style={{ color: 'var(--tx2)', fontSize: 10, fontWeight: 700, flex: 1 }}>
+              <span style={{ color: 'var(--tx2)', fontSize: 12, fontWeight: 700, flex: 1 }}>
                 Calibration used for deployment
               </span>
               <button
@@ -1384,7 +1384,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 style={{
                   padding: '1px 5px', borderRadius: 4, border: '1px solid var(--line)',
                   background: 'var(--lift)', color: 'var(--tx2)',
-                  cursor: robotCalibrationsLoading ? 'default' : 'pointer', fontSize: 10,
+                  cursor: robotCalibrationsLoading ? 'default' : 'pointer', fontSize: 12,
                 }}
               >
                 {robotCalibrationsLoading ? '…' : '⟳'}
@@ -1404,7 +1404,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 boxSizing: 'border-box', width: '100%', minWidth: 0,
                 background: 'var(--lift)', color: 'var(--tx1)',
                 border: '1px solid var(--line)', borderRadius: 5, padding: '3px 5px',
-                fontFamily: 'var(--font-ui)', fontSize: 10,
+                fontFamily: 'var(--font-ui)', fontSize: 12,
               }}
             >
               <option value="">
@@ -1437,7 +1437,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 ? `${selectedRobotCalibrationCandidate.name} — ${selectedRobotCalibrationCandidate.profile_name} — ${selectedRobotCalibrationCandidate.hardware_id}`
                 : undefined}
               style={{
-                marginTop: 4, fontSize: 9, lineHeight: 1.35,
+                marginTop: 4, fontSize: 11, lineHeight: 1.35,
                 color: robotCalibrationError
                   ? 'var(--err)'
                   : selectedRobotCalibrationCandidate
@@ -1468,7 +1468,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           onMouseDown={e => e.stopPropagation()}
           style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '6px 8px 0' }}
         >
-          <span style={{ fontSize: 10, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Camera</span>
+          <span style={{ fontSize: 12, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Camera</span>
           <select
             value={String(data.params?.selection ?? 0)}
             onFocus={() => { if (!cameraList.length && !cameraScanning) void loadCameras() }}
@@ -1476,7 +1476,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             style={{
               flex: 1, minWidth: 0, background: 'var(--lift)', color: 'var(--tx1)',
               border: '1px solid var(--line)', borderRadius: 5, padding: '2px 5px',
-              fontFamily: 'var(--font-ui)', fontSize: 11,
+              fontFamily: 'var(--font-ui)', fontSize: 13,
             }}
           >
             {/* Always offer the current value; discovery fills real names on focus. */}
@@ -1494,7 +1494,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             onClick={e => { e.stopPropagation(); void loadCameras() }}
             style={{
               flexShrink: 0, background: 'var(--lift)', border: '1px solid var(--line)',
-              borderRadius: 5, color: 'var(--tx2)', cursor: 'pointer', fontSize: 11, padding: '2px 6px',
+              borderRadius: 5, color: 'var(--tx2)', cursor: 'pointer', fontSize: 13, padding: '2px 6px',
             }}
           >
             ⟳
@@ -1508,7 +1508,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           onMouseDown={e => e.stopPropagation()}
           style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '6px 8px 0' }}
         >
-          <span style={{ fontSize: 10, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Model</span>
+          <span style={{ fontSize: 12, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Model</span>
           <select
             value={String(data.params?.model ?? 'yolov8n.pt')}
             onFocus={() => { if (!modelList.builtin.length) void loadModels() }}
@@ -1525,7 +1525,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             style={{
               flex: 1, minWidth: 0, background: 'var(--lift)', color: 'var(--tx1)',
               border: '1px solid var(--line)', borderRadius: 5, padding: '2px 5px',
-              fontFamily: 'var(--font-ui)', fontSize: 11,
+              fontFamily: 'var(--font-ui)', fontSize: 13,
             }}
           >
             {/* Keep the current value selectable even before a scan. */}
@@ -1551,7 +1551,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             onMouseDown={e => e.stopPropagation()}
             style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '6px 8px 0' }}
           >
-            <span style={{ fontSize: 10, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Classes</span>
+            <span style={{ fontSize: 12, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Classes</span>
             {/* Controlled + commit on every keystroke: a blur-only commit lost the
                 text when Go Live was clicked before the field lost focus, so the
                 model ran with no prompt and found nothing. */}
@@ -1563,7 +1563,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               style={{
                 flex: 1, minWidth: 0, background: 'var(--lift)', color: 'var(--tx1)',
                 border: '1px solid var(--line)', borderRadius: 5, padding: '2px 5px',
-                fontFamily: 'var(--font-ui)', fontSize: 11,
+                fontFamily: 'var(--font-ui)', fontSize: 13,
               }}
             />
           </div>
@@ -1572,7 +1572,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             onMouseDown={e => e.stopPropagation()}
             style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '4px 8px 0' }}
           >
-            <span style={{ fontSize: 10, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Confidence</span>
+            <span style={{ fontSize: 12, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', flexShrink: 0 }}>Confidence</span>
             {/* Open-vocab scores are low (often 0.1–0.3); the 0.35 default hides
                 them, so surface conf here with a world-appropriate default. */}
             <input
@@ -1583,10 +1583,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               style={{
                 width: 64, background: 'var(--lift)', color: 'var(--tx1)',
                 border: '1px solid var(--line)', borderRadius: 5, padding: '2px 5px',
-                fontFamily: 'var(--font-ui)', fontSize: 11,
+                fontFamily: 'var(--font-ui)', fontSize: 13,
               }}
             />
-            <span style={{ fontSize: 9, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>lower = more boxes</span>
+            <span style={{ fontSize: 11, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>lower = more boxes</span>
           </div>
         </>
       )}
@@ -1604,19 +1604,19 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             const val = Number(data.params?.[s.key] ?? s.def)
             return (
               <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 9, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', width: 54, flexShrink: 0 }}>{s.label}</span>
+                <span style={{ fontSize: 11, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', width: 54, flexShrink: 0 }}>{s.label}</span>
                 <input
                   type="range" min={s.min} max={s.max} step={s.step} value={val}
                   onChange={e => { void updateParam(id, s.key, Number(e.target.value)) }}
                   style={{ flex: 1, minWidth: 0, accentColor: 'var(--accent)', height: 3 }}
                 />
-                <span style={{ fontSize: 9, color: 'var(--tx2)', fontFamily: 'var(--font-mono)', width: 32, textAlign: 'right', flexShrink: 0 }}>
+                <span style={{ fontSize: 11, color: 'var(--tx2)', fontFamily: 'var(--font-mono)', width: 32, textAlign: 'right', flexShrink: 0 }}>
                   {s.step < 1 ? val.toFixed(2) : val}
                 </span>
               </div>
             )
           })}
-          <span style={{ fontSize: 8, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>adjusts live while streaming — no recook</span>
+          <span style={{ fontSize: 11, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>adjusts live while streaming — no recook</span>
         </div>
       )}
 
@@ -1632,12 +1632,12 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 onChange={e => { void updateParam(id, 'armed', e.target.checked) }}
                 style={{ accentColor: armed ? 'var(--err)' : 'var(--tx3)' }}
               />
-              <span style={{ fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-ui)', color: armed ? 'var(--err)' : 'var(--tx3)' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-ui)', color: armed ? 'var(--err)' : 'var(--tx3)' }}>
                 {armed ? 'ARMED — sliders move the robot' : 'Arm to move'}
               </span>
             </label>
             {joints.length === 0 && (
-              <span style={{ fontSize: 9, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>
+              <span style={{ fontSize: 11, color: 'var(--tx3)', fontFamily: 'var(--font-ui)' }}>
                 Go Live to read the robot's joints
               </span>
             )}
@@ -1645,14 +1645,14 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               const val = typeof targets[j.name] === 'number' ? targets[j.name] : j.value
               return (
                 <div key={j.name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span title={j.name} style={{ fontSize: 9, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', width: 68, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.name}</span>
+                  <span title={j.name} style={{ fontSize: 11, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', width: 68, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.name}</span>
                   <input
                     type="range" min={j.min} max={j.max} step={0.5} value={val}
                     disabled={!armed}
                     onChange={e => { void updateParam(id, 'targets', { ...targets, [j.name]: Number(e.target.value) }) }}
                     style={{ flex: 1, minWidth: 0, accentColor: 'var(--accent)', height: 3, opacity: armed ? 1 : 0.45 }}
                   />
-                  <span style={{ fontSize: 9, color: 'var(--tx2)', fontFamily: 'var(--font-mono)', width: 38, textAlign: 'right', flexShrink: 0 }}>{Number(val).toFixed(1)}</span>
+                  <span style={{ fontSize: 11, color: 'var(--tx2)', fontFamily: 'var(--font-mono)', width: 38, textAlign: 'right', flexShrink: 0 }}>{Number(val).toFixed(1)}</span>
                 </div>
               )
             })}
@@ -1670,7 +1670,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             margin: '6px 8px 0', padding: '5px 8px', borderRadius: 6,
             border: `1px solid ${BADGE_TONE[statusBadge.tone]}`,
             background: 'var(--lift)', color: BADGE_TONE[statusBadge.tone],
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
+            fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 800,
             letterSpacing: '0.03em', lineHeight: 1,
           }}
         >
@@ -1695,7 +1695,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 border: '1px solid var(--err)', background: 'transparent',
                 color: statusBadge.action.pending ? 'var(--tx3)' : 'var(--err)',
                 cursor: statusBadge.action.pending ? 'default' : 'pointer',
-                fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700,
+                fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700,
                 letterSpacing: 0,
               }}
             >
@@ -1740,7 +1740,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         >
           <div style={{
             marginBottom: 7, color: data.portResults?.torque_enabled === false ? 'var(--warn)' : 'var(--tx2)',
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 750,
+            fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 750,
           }}>
             {`SELECTED: ${releaseSelected ? 'RELEASE + LIVE POSE' : holdSelected ? 'HOLD POSITION' : 'MONITOR ONLY'} · `}
             {data.portResults?.torque_enabled === false
@@ -1753,7 +1753,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             <div style={{
               marginBottom: 7, padding: '5px 7px', borderRadius: 5,
               border: '1px solid var(--err)', background: 'rgba(239,68,68,.12)', color: 'var(--err)',
-              fontFamily: 'var(--font-ui)', fontSize: 9, fontWeight: 800, lineHeight: 1.35,
+              fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 800, lineHeight: 1.35,
             }}>
               RELEASE NOT APPLIED · TORQUE IS STILL ON
             </div>
@@ -1762,7 +1762,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             <div style={{
               marginBottom: 7, padding: '5px 7px', borderRadius: 5,
               border: '1px solid var(--err)', background: 'rgba(239,68,68,.12)', color: 'var(--err)',
-              fontFamily: 'var(--font-ui)', fontSize: 9, fontWeight: 800, lineHeight: 1.35,
+              fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 800, lineHeight: 1.35,
             }}>
               HOLD NOT APPLIED · TORQUE IS STILL OFF
             </div>
@@ -1802,7 +1802,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               {manualMovePending === 'hold' ? 'Holding…' : `${holdSelected ? '✓ ' : ''}Hold position`}
             </button>
           </div>
-          <div style={{ marginTop: 6, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9, lineHeight: 1.35 }}>
+          <div style={{ marginTop: 6, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 11, lineHeight: 1.35 }}>
             Go live never changes torque by itself; it only keeps supported outputs updating.
           </div>
         </div>
@@ -1816,7 +1816,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         }}>
           <label style={{
             display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8,
-            color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9,
+            color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 11,
             fontWeight: 700, textTransform: 'uppercase',
           }}>
             Calibration name
@@ -1839,18 +1839,18 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 width: '100%', boxSizing: 'border-box', padding: '6px 7px',
                 border: '1px solid var(--line2)', borderRadius: 5,
                 background: 'var(--lift)', color: 'var(--tx1)',
-                fontFamily: 'var(--font-ui)', fontSize: 11,
+                fontFamily: 'var(--font-ui)', fontSize: 13,
               }}
             />
           </label>
           <div style={{
             marginBottom: 7, color: calibrationActive ? 'var(--warn)' : calibrationPaused ? 'var(--accent)' : calibrationSaved ? 'var(--ok)' : 'var(--tx2)',
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
+            fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 800,
           }}>
             {calibrationActive ? `● RECORDING LIVE · ${calibrationSamples} samples` : calibrationPaused ? `Ⅱ RECORDING PAUSED · ${calibrationSamples} samples` : calibrationSaved ? '✓ CALIBRATION SAVED' : '○ CALIBRATION IDLE'}
           </div>
           {calibrationActive && (calibrationCapturingJoint || latestCalibrationRangeUpdate) && (
-            <div style={{ margin: '-3px 0 7px', color: 'var(--accent)', fontFamily: 'var(--font-ui)', fontSize: 9, fontWeight: 700 }}>
+            <div style={{ margin: '-3px 0 7px', color: 'var(--accent)', fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 700 }}>
               {calibrationCapturingJoint ? `CAPTURING ${calibrationCapturingJoint}` : ''}
               {latestCalibrationRangeUpdate
                 ? `${calibrationCapturingJoint ? ' · ' : ''}${latestCalibrationRangeUpdate[0]} ${String(latestCalibrationRangeUpdate[1]?.kind ?? 'range').toUpperCase()} UPDATED`
@@ -1899,7 +1899,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               Cancel
             </button>
           </div>
-          <div style={{ marginTop: 6, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9, lineHeight: 1.35 }}>
+          <div style={{ marginTop: 6, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 11, lineHeight: 1.35 }}>
             Move every released joint slowly through its intended usable range. Mechanical hard stops are not treated as safe limits.
           </div>
         </div>
@@ -1912,17 +1912,17 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           margin: '7px 9px 3px', padding: 8, borderRadius: 7,
           border: '1px solid var(--line)', background: 'rgba(255,255,255,.02)',
         }}>
-          <div style={{ color: 'var(--tx2)', fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800 }}>
+          <div style={{ color: 'var(--tx2)', fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 800 }}>
             DATASET STORAGE
           </div>
-          <div title={datasetRoot || '~/.blacknode/datasets'} style={{ marginTop: 5, color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 9, lineHeight: 1.35, wordBreak: 'break-all' }}>
+          <div title={datasetRoot || '~/.blacknode/datasets'} style={{ marginTop: 5, color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.35, wordBreak: 'break-all' }}>
             Root: {datasetRoot || '~/.blacknode/datasets (default)'}
           </div>
-          <div style={{ marginTop: 2, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9 }}>
+          <div style={{ marginTop: 2, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 11 }}>
             Blacknode stores this dataset in a “{datasetId}” subfolder.
           </div>
           {datasetResolvedPath && (
-            <div title={datasetResolvedPath} style={{ marginTop: 3, color: 'var(--ok)', fontFamily: 'var(--font-mono)', fontSize: 9, lineHeight: 1.35, wordBreak: 'break-all' }}>
+            <div title={datasetResolvedPath} style={{ marginTop: 3, color: 'var(--ok)', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.35, wordBreak: 'break-all' }}>
               Current: {datasetResolvedPath}
             </div>
           )}
@@ -1954,7 +1954,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           <div style={{
             marginBottom: 7,
             color: episodeRecording ? 'var(--err)' : episodePaused ? 'var(--warn)' : 'var(--tx2)',
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 800,
+            fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 800,
           }}>
             {episodeRecording
               ? `● RECORDING · ${episodeFrameCount} FRAMES · ${episodeDuration.toFixed(1)}s`
@@ -1966,12 +1966,12 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             {episodeDroppedFrames > 0 ? ` · ${episodeDroppedFrames} DROPPED` : ''}
           </div>
           {episodeLastError && (
-            <div style={{ margin: '-3px 0 7px', color: 'var(--warn)', fontFamily: 'var(--font-ui)', fontSize: 9, lineHeight: 1.35 }}>
+            <div style={{ margin: '-3px 0 7px', color: 'var(--warn)', fontFamily: 'var(--font-ui)', fontSize: 11, lineHeight: 1.35 }}>
               {episodeLastError}
             </div>
           )}
           {episodeStoragePath && (
-            <div title={episodeStoragePath} style={{ margin: '-2px 0 7px', color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 9, lineHeight: 1.35, wordBreak: 'break-all' }}>
+            <div title={episodeStoragePath} style={{ margin: '-2px 0 7px', color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.35, wordBreak: 'break-all' }}>
               Saving to: {episodeStoragePath}
             </div>
           )}
@@ -2025,7 +2025,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               {episodePending === 'discard' ? 'Discarding…' : 'Discard'}
             </button>
           </div>
-          <div style={{ marginTop: 6, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 9, lineHeight: 1.35 }}>
+          <div style={{ marginTop: 6, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 11, lineHeight: 1.35 }}>
             Record starts a new episode. Save finalizes it. Stop keeps an incomplete episode recoverable.
           </div>
         </div>
@@ -2059,7 +2059,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 borderRadius: '50%',
               }}
             />
-            <span style={{ fontSize: 9, color: isVariadic ? portColor(variadicInput?.type || 'Any') : isRobotJointList ? portColor('Dict') : TOOLBOX_NEW_HANDLE_COLOR, fontFamily: 'var(--font-ui)', userSelect: 'none' }}>
+            <span style={{ fontSize: 11, color: isVariadic ? portColor(variadicInput?.type || 'Any') : isRobotJointList ? portColor('Dict') : TOOLBOX_NEW_HANDLE_COLOR, fontFamily: 'var(--font-ui)', userSelect: 'none' }}>
               {isVariadic ? `${variadicPrefix}_${nextVariadicNumber} · connect to add` : isRobotJointList ? `joint_${nextJointNumber} · connect to add` : '← drag to create'}
             </span>
           </div>
@@ -2143,7 +2143,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             and the live URL to open directly in a browser as a cross-check. */}
         {LIVE_STREAM_NODE_TYPES.has(data.type) && typeof data.portResults?.report === 'string' && data.portResults.report.trim() && (
           <div style={{
-            padding: '4px 8px 6px', fontFamily: 'var(--font-ui)', fontSize: 10,
+            padding: '4px 8px 6px', fontFamily: 'var(--font-ui)', fontSize: 12,
             color: data.portResults?.streaming === true ? 'var(--ok)' : 'var(--tx3)',
             display: 'flex', alignItems: 'center', gap: 6,
           }}>

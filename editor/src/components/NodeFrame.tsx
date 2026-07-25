@@ -74,7 +74,7 @@ export default function NodeFrame({
         background: 'var(--node)',
         border: `1px solid ${data.replayFocused ? replayColor : selected ? color : replayActive ? `${replayColor}88` : 'var(--line2)'}`,
         borderRadius: 9,
-        fontSize: 12,
+        fontSize: 14,
         color: 'var(--tx1)',
         boxShadow: data.replayFocused
           ? `0 0 0 3px ${replayColor}55, 0 0 22px ${replayColor}44, 0 5px 18px rgba(0,0,0,.4)`
@@ -111,7 +111,7 @@ export default function NodeFrame({
               padding: '3px 7px', background: 'var(--panel)',
               border: `1px solid ${color}`, borderRadius: 5, color,
               boxShadow: '0 4px 12px rgba(0,0,0,.24)',
-              fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+              fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
               lineHeight: 1.2, whiteSpace: 'nowrap',
             }}
           >
@@ -135,7 +135,7 @@ export default function NodeFrame({
             border: `1px solid ${credentialConfigured ? 'var(--ok)' : 'var(--warn)'}`,
             borderRadius: 5, color: credentialConfigured ? 'var(--ok)' : 'var(--warn)',
             boxShadow: '0 4px 12px rgba(0,0,0,.24)',
-            fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+            fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
             lineHeight: 1.2, whiteSpace: 'nowrap',
           }}
         >
@@ -162,7 +162,7 @@ export default function NodeFrame({
             color: replayColor,
             boxShadow: data.replayFocused ? `0 0 12px ${replayColor}55` : '0 4px 12px rgba(0,0,0,.24)',
             fontFamily: 'var(--font-mono)',
-            fontSize: 10,
+            fontSize: 12,
             fontWeight: 700,
             lineHeight: 1.2,
             pointerEvents: 'none',

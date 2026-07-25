@@ -137,7 +137,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
               onMouseDown={e => e.stopPropagation()}
               style={{
                 background: 'rgba(0,0,0,.25)', border: 'none', outline: 'none',
-                color: '#fff', fontWeight: 700, fontSize: 12,
+                color: '#fff', fontWeight: 700, fontSize: 14,
                 fontFamily: 'var(--font-ui)', width: '100%', borderRadius: 3,
                 padding: '1px 4px', letterSpacing: '0.08em',
               }}
@@ -146,7 +146,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
             <span
               title="Double-click to rename"
               onDoubleClick={startRename}
-              style={{ fontWeight: 700, fontSize: 12, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em', display: 'block', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              style={{ fontWeight: 700, fontSize: 14, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em', display: 'block', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {label}
             </span>
@@ -154,7 +154,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
           {!editingLabel && (
             <span
               title={`Node type ${data.type}`}
-              style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              style={{ fontSize: 11, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {qualifiedType}
             </span>
@@ -163,7 +163,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
         {liveInput && (
           <span
             title="This output is receiving values from a live upstream node"
-            style={{ marginLeft: 'auto', marginRight: 8, color: '#dcfce7', fontSize: 10, fontWeight: 800, fontFamily: 'var(--font-ui)' }}
+            style={{ marginLeft: 'auto', marginRight: 8, color: '#dcfce7', fontSize: 12, fontWeight: 800, fontFamily: 'var(--font-ui)' }}
           >
             ● LIVE
           </span>
@@ -176,7 +176,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
             borderRadius: 5,
             color: '#fff',
             cursor: cooking ? 'default' : 'pointer',
-            fontSize: 11,
+            fontSize: 13,
             fontFamily: 'var(--font-ui)',
             fontWeight: 600,
             padding: '3px 10px',
@@ -208,7 +208,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
             borderRadius: 3,
           }}
         />
-        <span style={{ color: 'var(--tx2)', fontSize: 12, fontFamily: 'var(--font-ui)' }}>
+        <span style={{ color: 'var(--tx2)', fontSize: 14, fontFamily: 'var(--font-ui)' }}>
           value{sourceType !== 'Any' ? ` · ${sourceType}` : ''}
         </span>
       </div>
@@ -236,7 +236,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
             alignItems: 'center',
             gap: 8,
             color: 'var(--warn)',
-            fontSize: 13,
+            fontSize: 15,
           }}>
             <span style={{ animation: 'spin 1s linear infinite' }}>◌</span>
             Running…
@@ -244,7 +244,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
         )}
 
         {!cooking && !hasResult && (
-          <div style={{ color: 'var(--tx3)', fontSize: 12, fontStyle: 'italic' }}>
+          <div style={{ color: 'var(--tx3)', fontSize: 14, fontStyle: 'italic' }}>
             Wire a node in, then click Cook
           </div>
         )}
@@ -260,7 +260,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
                 background: 'rgba(0,0,0,.65)',
                 color: 'var(--tx2)',
                 fontFamily: 'var(--font-mono)',
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 zIndex: 1,
@@ -296,7 +296,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
                 marginBottom: 7,
                 color: replayError ? 'var(--err)' : replayStatus === 'done' ? 'var(--ok)' : 'var(--tx3)',
                 fontFamily: 'var(--font-mono)',
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: 700,
                 textTransform: 'uppercase',
               }}>
@@ -308,7 +308,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
               minWidth: '100%',
               color: cookError || replayError ? 'var(--err)' : 'var(--tx1)',
               fontFamily: 'var(--font-mono)',
-              fontSize: 12,
+              fontSize: 14,
               lineHeight: 1.65,
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',

@@ -63,9 +63,18 @@ body {
   background: var(--bg);
   color: var(--tx1);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: 16px;
+  line-height: 1.4;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select,
+textarea {
+  line-height: 1.35;
 }
 
 .bn-brand {
@@ -74,7 +83,7 @@ body {
   display: inline-flex;
   flex-shrink: 0;
   font-family: var(--font-ui);
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   gap: 8px;
 }
@@ -139,7 +148,7 @@ body {
   color: var(--tx2);
   cursor: pointer;
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   padding: 5px 12px;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 70ms ease;
@@ -164,7 +173,7 @@ body {
   color: var(--tx2);
   cursor: pointer;
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   min-width: 122px;
   padding: 5px 10px;
@@ -304,7 +313,7 @@ body {
 .bn-learned-error {
   padding: 14px 12px;
   color: var(--tx3);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -335,7 +344,7 @@ body {
   min-width: 0;
   flex: 1;
   color: var(--tx1);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -348,7 +357,7 @@ body {
   border-radius: 4px;
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   padding: 2px 5px;
 }
 
@@ -360,7 +369,7 @@ body {
 .bn-learned-desc {
   margin-top: 5px;
   color: var(--tx2);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
@@ -372,7 +381,7 @@ body {
   margin-top: 7px;
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .bn-learned-actions {
@@ -412,7 +421,7 @@ body {
   gap: 8px;
   border-bottom: 1px solid var(--line);
   color: var(--tx1);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
 }
 
@@ -422,7 +431,7 @@ body {
   overflow: auto;
   color: var(--tx2);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.55;
   white-space: pre;
 }
@@ -447,7 +456,7 @@ body {
 
 .bn-runs-title {
   color: var(--tx1);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 650;
   line-height: 1.2;
 }
@@ -456,7 +465,7 @@ body {
   margin-top: 2px;
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.3;
 }
 
@@ -505,14 +514,14 @@ body {
 .bn-runs-metric span {
   color: var(--tx1);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
 }
 
 .bn-runs-metric small {
   margin-top: 2px;
   color: var(--tx3);
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -536,7 +545,7 @@ body {
   color: var(--tx3);
   cursor: pointer;
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.1;
 }
 
@@ -565,7 +574,7 @@ body {
   color: var(--err);
   border-bottom: 1px solid var(--line);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -592,13 +601,13 @@ body {
 
 .bn-device-form-title {
   color: var(--tx1);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 650;
 }
 
 .bn-device-help {
   color: var(--tx3);
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -612,7 +621,7 @@ body {
   flex-direction: column;
   gap: 4px;
   color: var(--tx3);
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
 }
 
@@ -624,7 +633,7 @@ body {
   border-radius: 4px;
   color: var(--tx1);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 13px;
   outline: none;
   text-transform: none;
 }
@@ -708,7 +717,7 @@ body {
 
 .bn-device-fact span {
   color: var(--tx3);
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -716,7 +725,7 @@ body {
   margin-top: 3px;
   color: var(--tx2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -801,7 +810,7 @@ body {
 
 .bn-deploy-target-title {
   color: var(--tx1);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 650;
 }
 
@@ -816,7 +825,7 @@ body {
   border-radius: 4px;
   color: var(--tx1);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   outline: none;
 }
 
@@ -836,11 +845,11 @@ body {
   gap: 7px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .bn-preflight-summary strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .bn-preflight-summary span {
@@ -883,13 +892,13 @@ body {
 
 .bn-preflight-check strong {
   color: var(--tx2);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .bn-preflight-check div > span {
   margin-top: 2px;
   color: var(--tx3);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
@@ -899,7 +908,7 @@ body {
   border: 1px solid currentColor;
   border-radius: 3px;
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 800;
   text-align: center;
 }
@@ -934,20 +943,20 @@ body {
 
 .bn-deployment-section-head strong {
   color: var(--tx1);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .bn-deployment-section-head span {
   margin-top: 2px;
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .bn-runs-empty {
   padding: 16px;
   color: var(--tx3);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -1021,14 +1030,14 @@ body {
 .bn-run-index {
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   flex: 0 0 auto;
 }
 
 .bn-run-title {
   min-width: 0;
   color: var(--tx1);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1039,7 +1048,7 @@ body {
   margin-left: auto;
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   flex: 0 0 auto;
 }
 
@@ -1047,7 +1056,7 @@ body {
   margin-top: 2px;
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1073,7 +1082,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1084,7 +1093,7 @@ body {
   margin-top: 6px;
   color: var(--err);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1126,7 +1135,7 @@ body {
   border-radius: 50%;
   color: var(--tx2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -1146,14 +1155,14 @@ body {
 
 .bn-robot-step-title {
   color: var(--tx1);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 
 .bn-robot-step-help {
   margin-top: 3px;
   color: var(--tx3);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -1183,7 +1192,7 @@ body {
 .bn-robot-profile-row label > span,
 .bn-robot-calibration-choice > span {
   color: var(--tx3);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -1203,7 +1212,7 @@ body {
   background: var(--lift);
   border-radius: 5px;
   color: var(--tx3);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -1219,7 +1228,7 @@ body {
   color: var(--accent);
   cursor: pointer;
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   text-align: left;
 }
 
@@ -1239,7 +1248,7 @@ body {
   border-left: 2px solid var(--line2);
   border-radius: 3px;
   color: var(--tx3);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -1277,7 +1286,7 @@ body {
 
 .bn-robot-deployment-name > span {
   color: var(--tx3);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -1291,7 +1300,7 @@ body {
   border-radius: 4px;
   color: var(--tx);
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   outline: none;
 }
 
@@ -1302,7 +1311,7 @@ body {
 .bn-robot-calibration-summary {
   margin-top: 5px;
   color: var(--tx3);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -1426,12 +1435,12 @@ body {
 
 .bn-device-runtime-reuse strong {
   color: var(--ok);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .bn-device-runtime-reuse span {
   color: var(--tx3);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
@@ -1439,7 +1448,7 @@ body {
 .bn-device-recovery-hint {
   margin-top: 6px;
   color: var(--warn);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
@@ -1451,7 +1460,7 @@ body {
   gap: 5px;
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -1461,7 +1470,7 @@ body {
   color: var(--run-status);
   border: 1px solid var(--run-status);
   border-radius: 4px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   text-align: center;
 }
@@ -1482,7 +1491,7 @@ body {
 
 .bn-run-detail-title {
   color: var(--tx1);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 650;
 }
 
@@ -1490,7 +1499,7 @@ body {
 .bn-run-loading {
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -1527,7 +1536,7 @@ body {
 
 .bn-run-fact span {
   color: var(--tx3);
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -1535,7 +1544,7 @@ body {
   margin-top: 2px;
   color: var(--tx2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -1552,7 +1561,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .bn-replay-panel {
@@ -1572,7 +1581,7 @@ body {
 
 .bn-replay-title {
   color: var(--tx1);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1.2;
 }
@@ -1581,7 +1590,7 @@ body {
 .bn-replay-count {
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1622,7 +1631,7 @@ body {
   color: var(--tx2);
   cursor: pointer;
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: 12px;
   padding: 3px 7px;
 }
 
@@ -1681,7 +1690,7 @@ body {
   padding-top: 4px;
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.2;
   text-align: right;
 }
@@ -1737,7 +1746,7 @@ body {
 .bn-event-label {
   color: var(--event-color);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
   flex: 0 0 auto;
@@ -1747,7 +1756,7 @@ body {
   min-width: 0;
   color: var(--tx2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1757,7 +1766,7 @@ body {
   margin-top: 2px;
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1795,7 +1804,7 @@ body {
   padding: 5px 7px;
   color: var(--tx2);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   list-style-position: inside;
 }
@@ -1803,7 +1812,7 @@ body {
 .bn-payload summary small {
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 400;
   white-space: nowrap;
 }
@@ -1815,7 +1824,7 @@ body {
   border-top: 1px solid var(--line);
   color: var(--tx2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

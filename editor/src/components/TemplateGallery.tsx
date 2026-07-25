@@ -208,7 +208,7 @@ export default function TemplateGallery({
     <div style={{ padding: '10px 10px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto' }}>
       <div style={{
         color: 'var(--tx2)',
-        fontSize: 12,
+        fontSize: 14,
         padding: '2px 4px 8px',
         lineHeight: 1.5,
       }}>
@@ -233,7 +233,7 @@ export default function TemplateGallery({
           borderRadius: 8,
           outline: 'none',
           fontFamily: 'var(--font-ui)',
-          fontSize: 12,
+          fontSize: 14,
         }}
       />
 
@@ -243,7 +243,7 @@ export default function TemplateGallery({
           border: '1px solid var(--danger)',
           borderRadius: 8,
           padding: '10px 12px',
-          fontSize: 12,
+          fontSize: 14,
           lineHeight: 1.4,
         }}>
           {error}
@@ -251,13 +251,13 @@ export default function TemplateGallery({
       )}
 
       {!error && templates.length === 0 && (
-        <div style={{ color: 'var(--tx3)', fontSize: 12, padding: '8px 4px' }}>
+        <div style={{ color: 'var(--tx3)', fontSize: 14, padding: '8px 4px' }}>
           No templates found.
         </div>
       )}
 
       {!error && templates.length > 0 && query.trim() && filteredTemplateGroups.length === 0 && (
-        <div style={{ color: 'var(--tx3)', fontSize: 12, padding: '8px 4px' }}>
+        <div style={{ color: 'var(--tx3)', fontSize: 14, padding: '8px 4px' }}>
           No templates match “{query.trim()}”.
         </div>
       )}
@@ -286,11 +286,11 @@ export default function TemplateGallery({
                 textAlign: 'left',
               }}
             >
-              <span style={{ color: group.color, fontSize: 12, width: 12 }}>
+              <span style={{ color: group.color, fontSize: 14, width: 12 }}>
                 {isExpanded ? '▾' : '▸'}
               </span>
-              <span style={{ flex: 1, fontSize: 12, fontWeight: 650 }}>{group.name}</span>
-              <span style={{ color: 'var(--tx3)', fontSize: 11 }}>{group.templates.length}</span>
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 650 }}>{group.name}</span>
+              <span style={{ color: 'var(--tx3)', fontSize: 13 }}>{group.templates.length}</span>
             </button>
             {isExpanded && group.templates.map(template => {
         const isLoading = loading === template.slug
@@ -323,7 +323,7 @@ export default function TemplateGallery({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
               <span style={{
                 color: group.color,
-                fontSize: 13,
+                fontSize: 15,
                 fontWeight: 600,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -333,7 +333,7 @@ export default function TemplateGallery({
               </span>
               <span style={{
                 flex: '0 0 auto',
-                fontSize: 11,
+                fontSize: 13,
                 color: dependencyError ? 'var(--warn)' : wasLoaded ? group.color : 'var(--tx3)',
                 fontFamily: 'var(--font-ui)',
               }}>
@@ -350,7 +350,7 @@ export default function TemplateGallery({
                           : `${template.node_count} nodes`}
               </span>
             </div>
-            <div style={{ color: 'var(--tx2)', fontSize: 12, lineHeight: 1.4 }}>
+            <div style={{ color: 'var(--tx2)', fontSize: 14, lineHeight: 1.4 }}>
               {template.description}
             </div>
             {dependencyError && (
@@ -369,23 +369,23 @@ export default function TemplateGallery({
                   const packageInstalling = installing?.packageName === pkg.name
                   return (
                     <div key={pkg.name} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ flex: 1, minWidth: 0, color: 'var(--warn)', fontSize: 11, lineHeight: 1.35 }}>
+                      <div style={{ flex: 1, minWidth: 0, color: 'var(--warn)', fontSize: 13, lineHeight: 1.35 }}>
                         {pkg.installed
                           ? pkg.load_error ? 'Package failed to load: ' : 'Installed package is missing nodes: '
                           : 'Missing package: '}
                         <strong>{pkg.name}</strong>
                         {pkg.node_types.length > 0 && (
-                          <div style={{ color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+                          <div style={{ color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
                             {pkg.node_types.join(', ')}
                           </div>
                         )}
                         {pkg.load_error && (
-                          <div style={{ color: 'var(--err)', fontSize: 10 }}>
+                          <div style={{ color: 'var(--err)', fontSize: 12 }}>
                             {pkg.load_error.trim().split('\n').slice(-1)[0]}
                           </div>
                         )}
                         {!pkg.installed && !pkg.git_url && (
-                          <div style={{ color: 'var(--err)', fontSize: 10 }}>
+                          <div style={{ color: 'var(--err)', fontSize: 12 }}>
                             No install URL was provided.
                           </div>
                         )}
@@ -401,7 +401,7 @@ export default function TemplateGallery({
                             color: 'var(--warn)',
                             cursor: installing ? 'wait' : 'pointer',
                             fontFamily: 'var(--font-ui)',
-                            fontSize: 11,
+                            fontSize: 13,
                             padding: '3px 9px',
                           }}
                         >
@@ -413,9 +413,9 @@ export default function TemplateGallery({
                 })}
                 {dependencyError.missing_components.map((comp: MissingTemplateComponent) => (
                   <div key={`${comp.package}/${comp.component}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ flex: 1, minWidth: 0, color: 'var(--warn)', fontSize: 11, lineHeight: 1.35 }}>
+                    <div style={{ flex: 1, minWidth: 0, color: 'var(--warn)', fontSize: 13, lineHeight: 1.35 }}>
                       Component <strong>{comp.package}/{comp.component}</strong>
-                      <div style={{ color: 'var(--tx3)', fontSize: 10 }}>{comp.reason}</div>
+                      <div style={{ color: 'var(--tx3)', fontSize: 12 }}>{comp.reason}</div>
                     </div>
                     <button
                       onClick={event => enableTarget(event, template, comp)}
@@ -423,7 +423,7 @@ export default function TemplateGallery({
                       style={{
                         background: 'transparent', border: '1px solid var(--warn)', borderRadius: 5,
                         color: 'var(--warn)', cursor: installing || enabling ? 'wait' : 'pointer',
-                        fontFamily: 'var(--font-ui)', fontSize: 11, padding: '3px 9px',
+                        fontFamily: 'var(--font-ui)', fontSize: 13, padding: '3px 9px',
                       }}
                     >
                       {enabling?.label === `${comp.package}/${comp.component}` ? 'Enabling...' : 'Enable'}
@@ -435,12 +435,12 @@ export default function TemplateGallery({
                   const notInstalled = /not installed/i.test(ad.reason)
                   return (
                     <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ flex: 1, minWidth: 0, color: 'var(--warn)', fontSize: 11, lineHeight: 1.35 }}>
+                      <div style={{ flex: 1, minWidth: 0, color: 'var(--warn)', fontSize: 13, lineHeight: 1.35 }}>
                         Adapter <strong>{label}</strong>
-                        <div style={{ color: 'var(--tx3)', fontSize: 10 }}>{ad.reason}</div>
+                        <div style={{ color: 'var(--tx3)', fontSize: 12 }}>{ad.reason}</div>
                       </div>
                       {notInstalled ? (
-                        <span style={{ color: 'var(--tx3)', fontSize: 10 }}>install package first</span>
+                        <span style={{ color: 'var(--tx3)', fontSize: 12 }}>install package first</span>
                       ) : (
                         <button
                           onClick={event => enableTarget(event, template, ad)}
@@ -448,7 +448,7 @@ export default function TemplateGallery({
                           style={{
                             background: 'transparent', border: '1px solid var(--warn)', borderRadius: 5,
                             color: 'var(--warn)', cursor: installing || enabling ? 'wait' : 'pointer',
-                            fontFamily: 'var(--font-ui)', fontSize: 11, padding: '3px 9px',
+                            fontFamily: 'var(--font-ui)', fontSize: 13, padding: '3px 9px',
                           }}
                         >
                           {enabling?.label === label ? 'Enabling...' : 'Enable'}
@@ -458,7 +458,7 @@ export default function TemplateGallery({
                   )
                 })}
                 {dependencyError.unresolved_node_types.length > 0 && (
-                  <div style={{ color: 'var(--err)', fontSize: 10, fontFamily: 'var(--font-mono)' }}>
+                  <div style={{ color: 'var(--err)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
                     No package mapping: {dependencyError.unresolved_node_types.join(', ')}
                   </div>
                 )}

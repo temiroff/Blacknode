@@ -183,12 +183,12 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         gap: 8,
       }}>
         <div style={{ minWidth: 0 }}>
-          <span style={{ display: 'block', fontWeight: 700, fontSize: 11, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em' }}>
+          <span style={{ display: 'block', fontWeight: 700, fontSize: 13, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em' }}>
             MODEL
           </span>
           <span
             title={`Node type ${data.type}`}
-            style={{ fontSize: 9, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, whiteSpace: 'nowrap' }}
+            style={{ fontSize: 11, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, whiteSpace: 'nowrap' }}
           >
             {qualifiedType}
           </span>
@@ -198,7 +198,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
-          fontSize: 10,
+          fontSize: 12,
           background: 'rgba(0,0,0,.22)',
           padding: '1px 6px',
           borderRadius: 4,
@@ -225,7 +225,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
           <label style={{
             display: 'block',
             color: 'var(--tx3)',
-            fontSize: 10,
+            fontSize: 12,
             fontWeight: 700,
             textTransform: 'uppercase',
             marginBottom: 4,
@@ -244,7 +244,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                 borderRadius: 5,
                 color,
                 cursor: 'pointer',
-                fontSize: 11,
+                fontSize: 13,
                 fontFamily: 'var(--font-ui)',
                 fontWeight: 700,
                 outline: 'none',
@@ -288,7 +288,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                       color: p.color,
                       cursor: 'pointer',
                       fontFamily: 'var(--font-ui)',
-                      fontSize: 11,
+                      fontSize: 13,
                       fontWeight: 700,
                       padding: '6px 8px',
                       textAlign: 'left',
@@ -340,7 +340,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                 borderRadius: 5,
                 color: 'var(--tx1)',
                 fontFamily: 'var(--font-mono)',
-                fontSize: 11,
+                fontSize: 13,
                 outline: 'none',
                 padding: '5px 7px',
               }}
@@ -359,7 +359,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                 color: '#fff',
                 cursor: storedDraft ? 'pointer' : 'default',
                 fontFamily: 'var(--font-ui)',
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: 700,
                 padding: '6px 8px',
                 whiteSpace: 'nowrap',
@@ -383,7 +383,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
               borderRadius: 5,
               color: modelChoices.length ? 'var(--tx2)' : 'var(--tx3)',
               cursor: modelChoices.length ? 'pointer' : 'default',
-              fontSize: 11,
+              fontSize: 13,
               fontFamily: 'var(--font-ui)',
               fontWeight: 600,
               padding: '5px 7px',
@@ -420,7 +420,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                     <div style={{
                       padding: '6px 8px 3px',
                       color: group === 'Saved' ? color : 'var(--tx3)',
-                      fontSize: 10,
+                      fontSize: 12,
                       fontWeight: 700,
                       textTransform: 'uppercase',
                     }}>
@@ -449,7 +449,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                             color: choice.value === current ? color : 'var(--tx2)',
                             cursor: 'pointer',
                             fontFamily: 'var(--font-mono)',
-                            fontSize: 10,
+                            fontSize: 12,
                             textAlign: 'left',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
@@ -472,7 +472,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                               color: 'var(--err)',
                               cursor: 'pointer',
                               fontFamily: 'var(--font-ui)',
-                              fontSize: 10,
+                              fontSize: 12,
                               fontWeight: 700,
                               lineHeight: 1,
                               padding: '3px 6px',
@@ -516,7 +516,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                   borderBottom: `1px solid ${keyStatus?.configured ? color + '80' : 'var(--line2)'}`,
                   color: keyStatus?.configured ? 'var(--tx1)' : 'var(--tx3)',
                   fontFamily: 'var(--font-mono)',
-                  fontSize: 11,
+                  fontSize: 13,
                   outline: 'none',
                   padding: '3px 2px',
                 }}
@@ -531,7 +531,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
                   border: 'none',
                   color: showKey ? color : 'var(--tx3)',
                   cursor: 'pointer',
-                  fontSize: 10,
+                  fontSize: 12,
                   padding: '2px 3px',
                   flexShrink: 0,
                 }}
@@ -540,7 +540,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
               </button>
             </div>
             <div style={{
-              marginTop: 4, fontSize: 9, fontFamily: 'var(--font-mono)',
+              marginTop: 4, fontSize: 11, fontFamily: 'var(--font-mono)',
               color: keyStatus?.configured ? 'var(--ok)' : 'var(--warn)',
             }}>
               {keyStatus?.configured
@@ -549,7 +549,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
             </div>
           </div>
         ) : (
-          <div style={{ color: 'var(--tx3)', fontSize: 10 }}>
+          <div style={{ color: 'var(--tx3)', fontSize: 12 }}>
             Ollama uses the local server at localhost:11434.
           </div>
         )}

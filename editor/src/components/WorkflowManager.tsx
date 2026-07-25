@@ -188,7 +188,7 @@ export default function WorkflowManager() {
             borderRadius: 6,
             color: 'var(--tx1)',
             fontFamily: 'var(--font-ui)',
-            fontSize: 12,
+            fontSize: 14,
             padding: '5px 8px',
             outline: 'none',
             transition: 'border-color 0.2s',
@@ -204,7 +204,7 @@ export default function WorkflowManager() {
             color: '#fff',
             cursor: saveName.trim() && !saving ? 'pointer' : 'default',
             fontFamily: 'var(--font-ui)',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 600,
             padding: '5px 12px',
             opacity: saveName.trim() && !saving ? 1 : 0.45,
@@ -228,7 +228,7 @@ export default function WorkflowManager() {
             borderRadius: 6,
             color: 'var(--tx1)',
             fontFamily: 'var(--font-ui)',
-            fontSize: 12,
+            fontSize: 14,
             padding: '5px 8px',
             outline: 'none',
           }}
@@ -242,7 +242,7 @@ export default function WorkflowManager() {
         {workflows.length === 0 && (
           <div style={{
             color: 'var(--tx3)',
-            fontSize: 12,
+            fontSize: 14,
             fontStyle: 'italic',
             padding: '12px 6px',
           }}>
@@ -253,7 +253,7 @@ export default function WorkflowManager() {
         {workflows.length > 0 && filteredWorkflows.length === 0 && (
           <div style={{
             color: 'var(--tx3)',
-            fontSize: 12,
+            fontSize: 14,
             fontStyle: 'italic',
             padding: '12px 6px',
           }}>
@@ -319,7 +319,7 @@ export default function WorkflowManager() {
                       borderRadius: 5,
                       color: 'var(--tx1)',
                       fontFamily: 'var(--font-ui)',
-                      fontSize: 13,
+                      fontSize: 15,
                       fontWeight: 600,
                       outline: 'none',
                       padding: '3px 6px',
@@ -328,7 +328,7 @@ export default function WorkflowManager() {
                 ) : (
                   <span style={{
                     color: 'var(--tx1)',
-                    fontSize: 13,
+                    fontSize: 15,
                     fontWeight: 600,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -340,7 +340,7 @@ export default function WorkflowManager() {
                 {(isActive || isOpen) && (
                   <span style={{
                     color: isActive ? 'var(--ok)' : 'var(--tx3)',
-                    fontSize: 10,
+                    fontSize: 12,
                     fontWeight: 700,
                     letterSpacing: '0.06em',
                     textTransform: 'uppercase',
@@ -351,14 +351,14 @@ export default function WorkflowManager() {
                 )}
               </div>
               {(loading === w.slug || inserting === w.slug || deleting === w.slug || duplicating === w.slug) && (
-                <span style={{ color: 'var(--tx3)', fontSize: 11, flexShrink: 0 }}>
+                <span style={{ color: 'var(--tx3)', fontSize: 13, flexShrink: 0 }}>
                   {deleting === w.slug ? 'Deleting…' : duplicating === w.slug ? 'Duplicating…' : inserting === w.slug ? 'Inserting…' : 'Opening…'}
                 </span>
               )}
             </div>
 
             {w.saved_at && (
-              <span style={{ color: 'var(--tx3)', fontSize: 11 }}>
+              <span style={{ color: 'var(--tx3)', fontSize: 13 }}>
                 {fmtDate(w.saved_at)}
               </span>
             )}
@@ -431,7 +431,7 @@ function workflowMenuItemStyle(disabled = false, color = 'var(--tx2)'): React.CS
     cursor: disabled ? 'default' : 'pointer',
     display: 'block',
     fontFamily: 'var(--font-ui)',
-    fontSize: 12,
+    fontSize: 14,
     padding: '6px 9px',
     textAlign: 'left',
   }

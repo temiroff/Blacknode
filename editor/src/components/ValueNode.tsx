@@ -169,7 +169,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               onMouseDown={e => e.stopPropagation()}
               style={{
                 background: 'rgba(0,0,0,.25)', border: 'none', outline: 'none',
-                color: '#fff', fontWeight: 600, fontSize: 11,
+                color: '#fff', fontWeight: 600, fontSize: 13,
                 fontFamily: 'var(--font-ui)', width: '100%', borderRadius: 3,
                 padding: '1px 4px',
               }}
@@ -178,7 +178,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
             <span
               title="Double-click to rename"
               onDoubleClick={startRename}
-              style={{ fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-ui)', display: 'block', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              style={{ fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-ui)', display: 'block', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {label ?? data.type}
             </span>
@@ -186,7 +186,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
           {!editingLabel && (
             <span
               title={`Node type ${data.type}`}
-              style={{ fontSize: 8, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              style={{ fontSize: 11, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {qualifiedType}
             </span>
@@ -196,7 +196,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
           onClick={e => { e.stopPropagation(); cookNode(id, 'value') }}
           style={{
             background: 'rgba(0,0,0,.2)', border: 'none', borderRadius: 3,
-            color: '#fff', cursor: 'pointer', fontSize: 9, padding: '1px 5px',
+            color: '#fff', cursor: 'pointer', fontSize: 11, padding: '1px 5px',
           }}
         >
           {data.cooking ? '…' : '▶'}
@@ -206,17 +206,17 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
       {/* value input */}
       {isList && data.variadic_input && (
         <div style={{ padding: '4px 8px 0 16px', display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
-          <div style={{ position: 'relative', color: portColor(data.variadic_input.type), fontSize: 9, fontFamily: 'var(--font-ui)' }}>
+          <div style={{ position: 'relative', color: portColor(data.variadic_input.type), fontSize: 11, fontFamily: 'var(--font-ui)' }}>
             <Handle type="target" position={Position.Left} id="__new__" style={{ left: -21, width: 11, height: 11, background: 'var(--node)', border: `2px dashed ${portColor(data.variadic_input.type)}` }} />
             {nextVariadic} · connect to add
           </div>
           {variadicPorts.map(port => {
             const edge = edges.find(candidate => candidate.target === id && candidate.targetHandle === port)
             return (
-              <div key={port} style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', color: 'var(--tx2)', fontSize: 9, fontFamily: 'var(--font-mono)' }}>
+              <div key={port} style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', color: 'var(--tx2)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
                 <Handle type="target" position={Position.Left} id={port} style={{ left: -21, width: 9, height: 9, background: portColor(data.variadic_input?.type || 'Any') }} />
                 <span>{port}</span>
-                {edge && <button onClick={event => { event.stopPropagation(); void disconnectEdge(edge.id) }} style={{ border: 0, background: 'transparent', color: 'var(--tx3)', cursor: 'pointer', fontSize: 9 }}>×</button>}
+                {edge && <button onClick={event => { event.stopPropagation(); void disconnectEdge(edge.id) }} style={{ border: 0, background: 'transparent', color: 'var(--tx3)', cursor: 'pointer', fontSize: 11 }}>×</button>}
               </div>
             )
           })}
@@ -258,7 +258,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
             </div>
             <span style={{
               color: draft ? pColor : 'var(--tx2)',
-              fontSize: 12,
+              fontSize: 14,
               fontFamily: 'var(--font-mono)',
               fontWeight: 600,
             }}>
@@ -295,7 +295,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               borderTop: `1px solid ${jsonError ? 'var(--err)' : pColor + '40'}`,
               color: jsonError ? 'var(--err)' : 'var(--tx1)',
               fontFamily: 'var(--font-mono)',
-              fontSize: 12,
+              fontSize: 14,
               lineHeight: 1.6,
               outline: 'none',
               resize: 'none',
@@ -328,7 +328,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
               borderTop: `1px solid ${pColor}40`,
               color: 'var(--tx1)',
               fontFamily: 'var(--font-mono)',
-              fontSize: 13,
+              fontSize: 15,
               lineHeight: 1.6,
               outline: 'none',
               resize: 'none',
@@ -387,7 +387,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
                 borderBottom: `1.5px solid ${pColor}60`,
                 color: 'var(--tx1)',
                 fontFamily: 'var(--font-mono)',
-                fontSize: 14,
+                fontSize: 16,
                 fontWeight: 600,
                 outline: 'none',
                 padding: '2px 0',
@@ -410,7 +410,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
                     border: 'none',
                     color: 'var(--tx2)',
                     cursor: 'pointer',
-                    fontSize: 7,
+                    fontSize: 11,
                     lineHeight: 1.3,
                     padding: '0 3px',
                   }}
@@ -447,7 +447,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
                 borderBottom: `1.5px solid ${pColor}60`,
                 color: 'var(--tx1)',
                 fontFamily: 'var(--font-mono)',
-                fontSize: 14,
+                fontSize: 16,
                 fontWeight: 600,
                 outline: 'none',
                 padding: '2px 0',
@@ -470,7 +470,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
                     border: 'none',
                     color: 'var(--tx2)',
                     cursor: 'pointer',
-                    fontSize: 7,
+                    fontSize: 11,
                     lineHeight: 1.3,
                     padding: '0 3px',
                   }}

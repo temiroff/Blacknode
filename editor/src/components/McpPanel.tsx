@@ -110,8 +110,8 @@ export default function McpPanel() {
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px 24px' }}>
       <Section title="Status">
-        {error && <div style={{ color: 'var(--err)', fontSize: 11, marginBottom: 6 }}>{error}</div>}
-        {!status && !error && <div style={{ color: 'var(--tx3)', fontSize: 11 }}>Checking…</div>}
+        {error && <div style={{ color: 'var(--err)', fontSize: 13, marginBottom: 6 }}>{error}</div>}
+        {!status && !error && <div style={{ color: 'var(--tx3)', fontSize: 13 }}>Checking…</div>}
         {status && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <Indicator
@@ -125,7 +125,7 @@ export default function McpPanel() {
               hint={status.blacknode_cli ?? 'pip install -e .'}
             />
             {ready && (
-              <div style={{ marginTop: 6, color: 'var(--ok)', fontSize: 11 }}>
+              <div style={{ marginTop: 6, color: 'var(--ok)', fontSize: 13 }}>
                 Ready. Wire it into Claude Desktop below.
               </div>
             )}
@@ -134,7 +134,7 @@ export default function McpPanel() {
       </Section>
 
       <Section title="Claude Desktop config">
-        <div style={{ fontSize: 11, color: 'var(--tx3)', marginBottom: 6 }}>
+        <div style={{ fontSize: 13, color: 'var(--tx3)', marginBottom: 6 }}>
           Open <code style={inlineCode}>{CONFIG_PATHS[platform]}</code> (or Settings → Developer → Edit Config in Claude Desktop) and merge in:
         </div>
         <CodeBlock
@@ -142,7 +142,7 @@ export default function McpPanel() {
           copied={copied === 'config'}
           onCopy={() => copy('config', CONFIG_JSON)}
         />
-        <div style={{ fontSize: 11, color: 'var(--tx3)', marginTop: 6 }}>
+        <div style={{ fontSize: 13, color: 'var(--tx3)', marginTop: 6 }}>
           Restart Claude Desktop after saving. Cursor and other MCP clients use the same JSON shape.
         </div>
       </Section>
@@ -154,7 +154,7 @@ export default function McpPanel() {
               display: 'grid',
               gridTemplateColumns: '140px 1fr',
               gap: 8,
-              fontSize: 11,
+              fontSize: 13,
               lineHeight: 1.4,
             }}>
               <span style={{ color: 'var(--tx1)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
@@ -173,7 +173,7 @@ export default function McpPanel() {
               display: 'grid',
               gridTemplateColumns: '170px 1fr',
               gap: 8,
-              fontSize: 11,
+              fontSize: 13,
               lineHeight: 1.4,
             }}>
               <span style={{ color: 'var(--tx1)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
@@ -186,7 +186,7 @@ export default function McpPanel() {
       </Section>
 
       <Section title="Starter prompts">
-        <div style={{ fontSize: 11, color: 'var(--tx3)', marginBottom: 6 }}>
+        <div style={{ fontSize: 13, color: 'var(--tx3)', marginBottom: 6 }}>
           Paste any of these into a Claude Desktop chat after you've wired up the config.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -203,12 +203,12 @@ export default function McpPanel() {
                 alignItems: 'center',
                 marginBottom: 4,
               }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--tx2)' }}>{prompt.title}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--tx2)' }}>{prompt.title}</span>
                 <button onClick={() => copy(`prompt-${i}`, prompt.body)} style={miniButton}>
                   {copied === `prompt-${i}` ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--tx2)', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+              <div style={{ fontSize: 13, color: 'var(--tx2)', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
                 {prompt.body}
               </div>
             </div>
@@ -217,7 +217,7 @@ export default function McpPanel() {
       </Section>
 
       <Section title="Test without Claude Desktop">
-        <div style={{ fontSize: 11, color: 'var(--tx3)', marginBottom: 6 }}>
+        <div style={{ fontSize: 13, color: 'var(--tx3)', marginBottom: 6 }}>
           The official MCP Inspector gives you a browser UI to hand-call every tool.
         </div>
         <CodeBlock
@@ -234,7 +234,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <div style={{ marginBottom: 18 }}>
       <div style={{
-        fontSize: 10,
+        fontSize: 12,
         fontWeight: 700,
         letterSpacing: '0.08em',
         textTransform: 'uppercase',
@@ -251,7 +251,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Indicator({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
       <span style={{
         width: 8,
         height: 8,
@@ -264,7 +264,7 @@ function Indicator({ ok, label, hint }: { ok: boolean; label: string; hint?: str
         <span style={{
           color: 'var(--tx3)',
           fontFamily: 'var(--font-mono)',
-          fontSize: 10,
+          fontSize: 12,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
@@ -286,7 +286,7 @@ function CodeBlock({ text, copied, onCopy }: { text: string; copied: boolean; on
         border: '1px solid var(--line)',
         borderRadius: 6,
         fontFamily: 'var(--font-mono)',
-        fontSize: 11,
+        fontSize: 13,
         color: 'var(--tx1)',
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-all',
@@ -310,7 +310,7 @@ const miniButton: React.CSSProperties = {
   border: '1px solid var(--line2)',
   color: 'var(--tx2)',
   padding: '2px 8px',
-  fontSize: 10,
+  fontSize: 12,
   fontFamily: 'var(--font-ui)',
   borderRadius: 4,
   cursor: 'pointer',
@@ -318,7 +318,7 @@ const miniButton: React.CSSProperties = {
 
 const inlineCode: React.CSSProperties = {
   fontFamily: 'var(--font-mono)',
-  fontSize: 10,
+  fontSize: 12,
   padding: '1px 4px',
   background: 'var(--bg)',
   border: '1px solid var(--line)',

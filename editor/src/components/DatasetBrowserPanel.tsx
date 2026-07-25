@@ -18,12 +18,12 @@ const button = (disabled = false): React.CSSProperties => ({
   border: '1px solid var(--line)', borderRadius: 5, padding: '4px 9px',
   background: disabled ? 'rgba(255,255,255,.03)' : 'rgba(139,92,246,.18)',
   color: disabled ? 'var(--tx3)' : 'var(--tx1)', cursor: disabled ? 'default' : 'pointer',
-  fontSize: 10, fontWeight: 700,
+  fontSize: 12, fontWeight: 700,
 })
 
 const selectStyle: React.CSSProperties = {
   minWidth: 150, maxWidth: 260, padding: '4px 6px', borderRadius: 5,
-  border: '1px solid var(--line)', background: 'var(--bg2)', color: 'var(--tx1)', fontSize: 10,
+  border: '1px solid var(--line)', background: 'var(--bg2)', color: 'var(--tx1)', fontSize: 12,
   colorScheme: 'dark',
 }
 
@@ -200,20 +200,20 @@ export default function DatasetBrowserPanel({ id, data }: {
   return (
     <div className="nodrag" style={panel}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-        <strong style={{ color: 'var(--tx1)', fontSize: 11 }}>DATASET BROWSER</strong>
+        <strong style={{ color: 'var(--tx1)', fontSize: 13 }}>DATASET BROWSER</strong>
         <button disabled={pending} style={button(pending)} onClick={() => void chooseRoot()}>
           Choose root…
         </button>
         <button disabled={pending} style={button(pending)} onClick={() => void refresh()}>
           {pending ? 'Loading…' : 'Refresh'}
         </button>
-        <span style={{ color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 9, wordBreak: 'break-all' }}>
+        <span style={{ color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11, wordBreak: 'break-all' }}>
           {String(catalog.root ?? data.params?.root ?? '~/.blacknode/datasets')}
         </span>
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginTop: 9, flexWrap: 'wrap' }}>
-        <label style={{ color: 'var(--tx3)', fontSize: 9 }}>
+        <label style={{ color: 'var(--tx3)', fontSize: 11 }}>
           Dataset<br />
           <select value={String(selectedDataset.dataset_id ?? '')} style={selectStyle}
             onChange={event => void refresh({ dataset_id: event.target.value, episode_index: 0, camera: '' })}>
@@ -221,7 +221,7 @@ export default function DatasetBrowserPanel({ id, data }: {
             {datasets.map(item => <option style={optionStyle} key={String(item.path)} value={String(item.dataset_id)}>{String(item.dataset_id)}</option>)}
           </select>
         </label>
-        <label style={{ color: 'var(--tx3)', fontSize: 9 }}>
+        <label style={{ color: 'var(--tx3)', fontSize: 11 }}>
           Episode<br />
           <select value={String(episode.episode_index ?? 0)} style={selectStyle}
             onChange={event => void refresh({ episode_index: Number(event.target.value), camera: '' })}>
@@ -231,7 +231,7 @@ export default function DatasetBrowserPanel({ id, data }: {
             </option>)}
           </select>
         </label>
-        <label style={{ color: 'var(--tx3)', fontSize: 9 }}>
+        <label style={{ color: 'var(--tx3)', fontSize: 11 }}>
           Camera<br />
           <select value={String(episode.camera ?? '')} style={selectStyle}
             onChange={event => void refresh({ camera: event.target.value })}>
@@ -250,7 +250,7 @@ export default function DatasetBrowserPanel({ id, data }: {
           <button style={button(false)} onClick={() => void restartReplay()}>↺ Restart</button>
           <button style={button(false)} onClick={() => void stepFrame(-1)}>‹ Frame</button>
           <button style={button(false)} onClick={() => void stepFrame(1)}>Frame ›</button>
-          <label style={{ color: 'var(--tx3)', fontSize: 9 }}>
+          <label style={{ color: 'var(--tx3)', fontSize: 11 }}>
             Speed&nbsp;
             <select value={playbackRate} style={{ ...selectStyle, minWidth: 66, width: 66 }} onChange={event => {
               const rate = Number(event.target.value)
@@ -260,7 +260,7 @@ export default function DatasetBrowserPanel({ id, data }: {
               {[0.25, 0.5, 1, 1.5, 2].map(rate => <option style={optionStyle} key={rate} value={rate}>{rate}×</option>)}
             </select>
           </label>
-          <label style={{ color: 'var(--tx2)', fontSize: 9, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <label style={{ color: 'var(--tx2)', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
             <input type="checkbox" checked={loop} onChange={event => setLoop(event.target.checked)} /> Loop
           </label>
           <span style={{ display: 'flex', gap: 2, padding: 2, border: '1px solid var(--line)', borderRadius: 5 }}>
@@ -281,9 +281,9 @@ export default function DatasetBrowserPanel({ id, data }: {
               {trimPending === 'after' ? 'Cutting…' : '✂ Cut after'}
             </button>
           </span>
-          <span style={{ marginLeft: 'auto', color: 'var(--tx3)', fontSize: 9 }}>Read-only replay · robot commands disabled</span>
+          <span style={{ marginLeft: 'auto', color: 'var(--tx3)', fontSize: 11 }}>Read-only replay · robot commands disabled</span>
         </div>
-        {trimMessage && <div style={{ marginTop: 6, color: trimMessage.startsWith('Trimmed') ? 'var(--ok)' : 'var(--warn)', fontSize: 9, fontFamily: 'var(--font-mono)' }}>
+        {trimMessage && <div style={{ marginTop: 6, color: trimMessage.startsWith('Trimmed') ? 'var(--ok)' : 'var(--warn)', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
           {trimMessage}
         </div>}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(360px, 1.4fr) minmax(330px, 1fr)', gap: 10, marginTop: 8 }}>
@@ -301,7 +301,7 @@ export default function DatasetBrowserPanel({ id, data }: {
             }}
             style={{ width: '100%', maxHeight: 470, background: '#020617', borderRadius: 7, objectFit: 'contain' }} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ color: 'var(--tx2)', fontFamily: 'var(--font-mono)', fontSize: 10, lineHeight: 1.55 }}>
+            <div style={{ color: 'var(--tx2)', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: 1.55 }}>
               <div>episode {episode.episode_index ?? 0} · frame {frame?.frame_index ?? 0}/{Math.max(0, totalFrames - 1)}</div>
               <div>{Number(frame?.timestamp ?? 0).toFixed(3)}s · {fps} fps · displaying {angleUnit}</div>
               <div>sample #{frame?.sample_sequence ?? 0} · camera #{frame?.cameras?.[episode.camera]?.sequence ?? 0}</div>
@@ -310,7 +310,7 @@ export default function DatasetBrowserPanel({ id, data }: {
               <div>recorded {frame?.recorded_at_ns ?? 0}</div>
             </div>
             <div style={{ maxHeight: 355, overflow: 'auto', marginTop: 7, border: '1px solid var(--line)', borderRadius: 6 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 9 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                 <thead><tr style={{ color: 'var(--tx3)', position: 'sticky', top: 0, background: 'var(--bg2)' }}>
                   <th style={{ padding: 5, textAlign: 'left' }}>joint</th><th>leader</th><th>observed</th><th>action</th>
                 </tr></thead>
@@ -326,20 +326,20 @@ export default function DatasetBrowserPanel({ id, data }: {
         </div>
         </>
       ) : (
-        <div style={{ marginTop: 12, padding: 24, borderRadius: 7, background: '#020617', color: 'var(--tx3)', textAlign: 'center', fontSize: 11 }}>
+        <div style={{ marginTop: 12, padding: 24, borderRadius: 7, background: '#020617', color: 'var(--tx3)', textAlign: 'center', fontSize: 13 }}>
           {datasets.length ? 'Select a dataset containing a saved episode.' : 'Choose a dataset root, then press Refresh.'}
         </div>
       )}
 
-      {episode.episode_path && <div style={{ marginTop: 8, color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 8.5, lineHeight: 1.45, wordBreak: 'break-all' }}>
+      {episode.episode_path && <div style={{ marginTop: 8, color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.45, wordBreak: 'break-all' }}>
         <div>Episode: {episode.episode_path}</div>
         <div>Video: {episode.video_path}</div>
         <div>Robot data: {episode.data_path}</div>
         <div>Task: {episode.task || '—'} · saved {episode.saved_at || '—'}</div>
       </div>}
-      {episode.episode_path && <details style={{ marginTop: 7, color: 'var(--tx3)', fontSize: 9 }}>
+      {episode.episode_path && <details style={{ marginTop: 7, color: 'var(--tx3)', fontSize: 11 }}>
         <summary style={{ cursor: 'pointer', color: 'var(--tx2)', fontWeight: 700 }}>All episode and current-frame metadata</summary>
-        <pre style={{ maxHeight: 260, overflow: 'auto', margin: '6px 0 0', padding: 7, borderRadius: 5, background: '#020617', color: 'var(--tx2)', fontFamily: 'var(--font-mono)', fontSize: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+        <pre style={{ maxHeight: 260, overflow: 'auto', margin: '6px 0 0', padding: 7, borderRadius: 5, background: '#020617', color: 'var(--tx2)', fontFamily: 'var(--font-mono)', fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
           {JSON.stringify({ episode, frame }, null, 2)}
         </pre>
       </details>}

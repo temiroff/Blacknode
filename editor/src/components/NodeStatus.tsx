@@ -99,7 +99,7 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
         border: persistentLabel ? `1px solid ${toneColor}` : 'none',
         color: toneColor,
         fontFamily: 'var(--font-ui)',
-        fontSize: 8,
+        fontSize: 11,
         fontWeight: 800,
         whiteSpace: 'nowrap',
       }}
@@ -138,7 +138,7 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
           <div style={{
             color: toneColor,
             fontFamily: 'var(--font-ui)',
-            fontSize: 11,
+            fontSize: 13,
             fontWeight: 700,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
@@ -157,7 +157,7 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
               <div style={{
                 color: isError ? 'var(--err)' : 'var(--tx1)',
                 fontFamily: 'var(--font-mono)',
-                fontSize: 12,
+                fontSize: 14,
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word',
                 maxHeight: 240,

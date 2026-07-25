@@ -63,7 +63,7 @@ export default function RuntimePanel() {
           background: total ? 'var(--ok)' : 'var(--tx3)',
           boxShadow: total ? '0 0 8px var(--ok)' : 'none',
         }} />
-        <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: 'var(--tx1)' }}>
+        <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: 'var(--tx1)' }}>
           {total ? `${total} running` : 'Nothing running'}
         </span>
         <button
@@ -74,7 +74,7 @@ export default function RuntimePanel() {
             border: `1px solid ${total ? 'var(--err)' : 'var(--line2)'}`,
             background: 'transparent', color: total ? 'var(--err)' : 'var(--tx3)',
             cursor: total && !stopping ? 'pointer' : 'default',
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700,
+            fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700,
           }}
         >
           {stopping ? 'Stopping…' : 'Stop all'}
@@ -82,13 +82,13 @@ export default function RuntimePanel() {
       </div>
 
       {error && (
-        <div style={{ color: 'var(--err)', fontSize: 11, marginBottom: 8 }}>{error}</div>
+        <div style={{ color: 'var(--err)', fontSize: 13, marginBottom: 8 }}>{error}</div>
       )}
 
       {detached > 0 && (
         <div style={{
           marginBottom: 10, padding: '6px 8px', borderRadius: 6,
-          border: '1px solid var(--warn)', color: 'var(--warn)', fontSize: 11,
+          border: '1px solid var(--warn)', color: 'var(--warn)', fontSize: 13,
         }}>
           {detached} detached process{detached === 1 ? '' : 'es'} — started by an earlier session and
           no longer owned by a node. Stop all clears them.
@@ -98,7 +98,7 @@ export default function RuntimePanel() {
       {rows.filter(r => r.items.length).map(row => (
         <section key={String(row.key)} style={{ marginBottom: 12 }}>
           <div style={{
-            fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
+            fontSize: 12, fontWeight: 700, letterSpacing: '0.06em',
             textTransform: 'uppercase', color: 'var(--tx3)', marginBottom: 5,
           }}>
             {row.label} · {row.items.length}
@@ -118,21 +118,21 @@ export default function RuntimePanel() {
                 }}
               >
                 <span style={{
-                  flex: 1, minWidth: 0, fontSize: 11, color: 'var(--tx1)',
+                  flex: 1, minWidth: 0, fontSize: 13, color: 'var(--tx1)',
                   fontFamily: 'var(--font-mono)', overflow: 'hidden',
                   textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
                   {id}
                 </span>
                 {str(item.runtime) && (
-                  <span style={{ fontSize: 9, color: 'var(--tx3)' }}>{str(item.runtime)}</span>
+                  <span style={{ fontSize: 11, color: 'var(--tx3)' }}>{str(item.runtime)}</span>
                 )}
                 {/* The useful signal: work with no node in this tab is what you
                     cannot otherwise find or stop. */}
                 <span
                   title={here ? 'A node in this tab owns it' : 'No node in this tab owns it'}
                   style={{
-                    fontSize: 9, fontWeight: 700, flexShrink: 0,
+                    fontSize: 11, fontWeight: 700, flexShrink: 0,
                     color: here ? 'var(--ok)' : 'var(--warn)',
                   }}
                 >
@@ -145,7 +145,7 @@ export default function RuntimePanel() {
       ))}
 
       {!total && !error && (
-        <div style={{ color: 'var(--tx3)', fontSize: 11, lineHeight: 1.6 }}>
+        <div style={{ color: 'var(--tx3)', fontSize: 13, lineHeight: 1.6 }}>
           Streams, camera captures and managed processes appear here while they run,
           including ones started from another tab.
         </div>

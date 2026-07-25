@@ -1079,7 +1079,7 @@ export default function App() {
 
           <div style={{ flex: 1 }} />
 
-          <span style={{ color: 'var(--tx3)', fontSize: 12 }}>right-click to add</span>
+          <span style={{ color: 'var(--tx3)', fontSize: 14 }}>right-click to add</span>
 
           <select
             className="bn-top-select"
@@ -1182,7 +1182,7 @@ export default function App() {
             borderRadius: 20,
             background: serverOk ? (isDark ? '#0d2a1a' : '#dcfce7') : (isDark ? '#2a0d0d' : '#fee2e2'),
             color: serverOk ? 'var(--ok)' : 'var(--err)',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 500,
             marginLeft: 2,
             maxWidth: 260,
@@ -1232,7 +1232,7 @@ export default function App() {
                   background: active ? 'var(--menu-active)' : 'transparent',
                   color: active ? 'var(--tx1)' : 'var(--tx3)',
                   border: `1px solid ${active ? 'var(--accent)' : 'transparent'}`,
-                  fontSize: 12,
+                  fontSize: 14,
                   fontFamily: 'var(--font-ui)',
                   whiteSpace: 'nowrap',
                   userSelect: 'none',
@@ -1268,7 +1268,7 @@ export default function App() {
                       borderRadius: 4,
                       color: 'var(--tx1)',
                       fontFamily: 'var(--font-ui)',
-                      fontSize: 12,
+                      fontSize: 14,
                       outline: 'none',
                       padding: '2px 5px',
                     }}
@@ -1281,7 +1281,7 @@ export default function App() {
                     title={tab.dirty || !tab.slug ? 'Unsaved changes' : 'Saved'}
                     style={{
                       color: tab.dirty || !tab.slug ? '#b86b68' : '#6f9b78',
-                      fontSize: 14,
+                      fontSize: 16,
                       lineHeight: 1,
                     }}
                   >
@@ -1295,7 +1295,7 @@ export default function App() {
                     border: 'none',
                     color: 'inherit',
                     cursor: 'pointer',
-                    fontSize: 13,
+                    fontSize: 15,
                     lineHeight: 1,
                     padding: '0 2px',
                     opacity: 0.5,
@@ -1317,7 +1317,7 @@ export default function App() {
               border: 'none',
               color: 'var(--tx3)',
               cursor: 'pointer',
-              fontSize: 20,
+              fontSize: 22,
               lineHeight: 1,
               padding: '0 6px',
               flexShrink: 0,
@@ -1342,7 +1342,7 @@ export default function App() {
               color: '#fff',
               cursor: activeTab && !savingWorkflow ? 'pointer' : 'default',
               fontFamily: 'var(--font-ui)',
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: 600,
               padding: '5px 12px',
               opacity: activeTab && !savingWorkflow ? 1 : 0.5,
@@ -1474,15 +1474,15 @@ export default function App() {
                 color: 'var(--tx1)',
               }}
             >
-              <div id="close-workflow-title" style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>
+              <div id="close-workflow-title" style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>
                 Save changes to "{pendingClose.draftName}"?
               </div>
-              <div style={{ color: 'var(--tx2)', fontSize: 13, lineHeight: 1.45, marginBottom: 10 }}>
+              <div style={{ color: 'var(--tx2)', fontSize: 15, lineHeight: 1.45, marginBottom: 10 }}>
                 Name it before saving, or close without saving.
               </div>
               <label
                 htmlFor="close-workflow-name"
-                style={{ display: 'block', color: 'var(--tx3)', fontSize: 11, marginBottom: 6 }}
+                style={{ display: 'block', color: 'var(--tx3)', fontSize: 13, marginBottom: 6 }}
               >
                 Workflow name
               </label>
@@ -1507,7 +1507,7 @@ export default function App() {
                   borderRadius: 6,
                   color: 'var(--tx1)',
                   fontFamily: 'var(--font-ui)',
-                  fontSize: 13,
+                  fontSize: 15,
                   padding: '8px 10px',
                   marginBottom: 18,
                   outline: 'none',
@@ -1586,9 +1586,9 @@ export default function App() {
                 background: notice.kind === 'error' ? 'var(--err)' : notice.kind === 'warning' ? 'var(--warn)' : 'var(--accent)',
               }} />
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 3 }}>{notice.title}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 3 }}>{notice.title}</div>
                 {notice.message && (
-                  <div style={{ fontSize: 12, color: 'var(--tx2)', lineHeight: 1.45, overflowWrap: 'anywhere' }}>
+                  <div style={{ fontSize: 14, color: 'var(--tx2)', lineHeight: 1.45, overflowWrap: 'anywhere' }}>
                     {notice.message}
                   </div>
                 )}
@@ -1600,7 +1600,7 @@ export default function App() {
                   border: 'none',
                   color: 'var(--tx3)',
                   cursor: 'pointer',
-                  fontSize: 16,
+                  fontSize: 18,
                   lineHeight: 1,
                   padding: 0,
                 }}
@@ -1636,7 +1636,7 @@ export default function App() {
                   color: '#fff',
                   cursor: 'pointer',
                   fontFamily: 'var(--font-ui)',
-                  fontSize: 13,
+                  fontSize: 15,
                   fontWeight: 600,
                   padding: '8px 18px',
                   boxShadow: '0 4px 16px rgba(99,102,241,0.4)',
@@ -1645,7 +1645,7 @@ export default function App() {
                   gap: 7,
                 }}
               >
-                <span style={{ fontSize: 15 }}>⬡</span>
+                <span style={{ fontSize: 17 }}>⬡</span>
                 Group {selected.length} nodes into Subnet
               </button>
             </div>
@@ -1836,7 +1836,7 @@ function CookStatusPanel({
             flex: 1,
             minWidth: 0,
             fontFamily: 'var(--font-ui)',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 700,
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -1846,7 +1846,7 @@ function CookStatusPanel({
           </div>
           <div style={{
             color: active ? 'var(--warn)' : 'var(--tx3)',
-            fontSize: 11,
+            fontSize: 13,
             fontFamily: 'var(--font-ui)',
             flexShrink: 0,
           }}>
@@ -1858,14 +1858,14 @@ function CookStatusPanel({
             title="Show full system output (stdout/stderr, node results, tracebacks)"
             onClick={() => setDebug(d => !d)}
             style={{
-              height: 20,
+              minHeight: 26,
               padding: '0 8px',
               border: `1px solid ${debug ? 'var(--accent)' : 'var(--line2)'}`,
               borderRadius: 6,
               background: debug ? 'var(--accent)' : 'transparent',
               color: debug ? '#fff' : 'var(--tx3)',
               cursor: 'pointer',
-              fontSize: 10,
+              fontSize: 12,
               fontWeight: 700,
               fontFamily: 'var(--font-ui)',
               letterSpacing: '0.04em',
@@ -1881,8 +1881,8 @@ function CookStatusPanel({
             title="Hide run status"
             onClick={onDismiss}
             style={{
-              width: 20,
-              height: 20,
+              width: 26,
+              height: 26,
               border: '1px solid var(--line2)',
               borderRadius: 6,
               background: 'transparent',
@@ -1890,7 +1890,7 @@ function CookStatusPanel({
               cursor: 'pointer',
               display: 'grid',
               placeItems: 'center',
-              fontSize: 14,
+              fontSize: 16,
               lineHeight: 1,
               padding: 0,
               flexShrink: 0,
@@ -1911,7 +1911,7 @@ function CookStatusPanel({
                 >
                   <div style={{
                     display: 'flex', gap: 8, alignItems: 'baseline',
-                    fontSize: 11, fontFamily: 'var(--font-ui)',
+                    fontSize: 13, fontFamily: 'var(--font-ui)',
                   }}>
                     <span style={{ color, fontWeight: 700, textTransform: 'uppercase', flexShrink: 0 }}>
                       {entry.stream ?? entry.kind}
@@ -1929,7 +1929,7 @@ function CookStatusPanel({
                       borderRadius: 5,
                       color: entry.kind === 'error' ? 'var(--err)' : entry.stream === 'stderr' ? 'var(--warn)' : 'var(--tx2)',
                       fontFamily: 'var(--font-mono)',
-                      fontSize: 11,
+                      fontSize: 13,
                       lineHeight: 1.4,
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-word',
@@ -1955,7 +1955,7 @@ function CookStatusPanel({
                     gridTemplateColumns: '70px 1fr',
                     gap: 8,
                     padding: '4px 10px',
-                    fontSize: 11,
+                    fontSize: 13,
                     lineHeight: 1.35,
                     fontFamily: 'var(--font-ui)',
                   }}
@@ -2044,7 +2044,7 @@ function menuItemStyle(disabled = false, color = 'var(--tx2)'): React.CSSPropert
     cursor: disabled ? 'default' : 'pointer',
     display: 'block',
     fontFamily: 'var(--font-ui)',
-    fontSize: 12,
+    fontSize: 14,
     padding: '6px 9px',
     textAlign: 'left',
   }

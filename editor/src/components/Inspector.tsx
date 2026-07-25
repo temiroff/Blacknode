@@ -451,7 +451,7 @@ export default function Inspector() {
       return (
         <div style={{
           flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'var(--tx3)', fontSize: 13,
+          color: 'var(--tx3)', fontSize: 15,
         }}>
           Select a node
         </div>
@@ -495,10 +495,10 @@ export default function Inspector() {
       <>
         {/* header */}
         <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-          <div style={{ color: 'var(--tx1)', fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
+          <div style={{ color: 'var(--tx1)', fontWeight: 600, fontSize: 17, marginBottom: 4 }}>
             {data.type}
           </div>
-          <div style={{ color: 'var(--tx2)', fontSize: 12, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em' }}>
+          <div style={{ color: 'var(--tx2)', fontSize: 14, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em' }}>
             {data.id.slice(0, 14)}…
           </div>
         </div>
@@ -562,7 +562,7 @@ export default function Inspector() {
           {visibleInputs.length > 0 ? (
             <>
               <div style={{
-                color: 'var(--tx2)', fontSize: 12, fontWeight: 700,
+                color: 'var(--tx2)', fontSize: 14, fontWeight: 700,
                 letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10,
               }}>
                 Parameters
@@ -662,14 +662,14 @@ export default function Inspector() {
               })}
             </>
           ) : (
-            <div style={{ color: 'var(--tx2)', fontSize: 13 }}>
+            <div style={{ color: 'var(--tx2)', fontSize: 15 }}>
               {data.type === 'ToolBox' ? 'No tools connected' : 'No inputs'}
             </div>
           )}
           {data.outputs.length > 0 && (
             <div style={{ marginTop: 18 }}>
               <div style={{
-                color: 'var(--tx2)', fontSize: 12, fontWeight: 700,
+                color: 'var(--tx2)', fontSize: 14, fontWeight: 700,
                 letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8,
               }}>
                 Outputs
@@ -694,7 +694,7 @@ export default function Inspector() {
         {(data.cookResult !== undefined || data.cookError) && (
           <div style={{ padding: '12px 16px', borderTop: '1px solid var(--line)', flexShrink: 0 }}>
             <div style={{
-              color: 'var(--tx3)', fontSize: 11, fontWeight: 600,
+              color: 'var(--tx3)', fontSize: 13, fontWeight: 600,
               letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8,
             }}>
               Result
@@ -715,7 +715,7 @@ export default function Inspector() {
                 border: `1px solid ${data.cookError ? 'var(--err)' : 'var(--line2)'}`,
                 borderRadius: 6, padding: '8px 10px',
                 color: data.cookError ? 'var(--err)' : 'var(--ok)',
-                fontSize: 12, fontFamily: 'var(--font-mono)',
+                fontSize: 14, fontFamily: 'var(--font-mono)',
                 whiteSpace: 'pre-wrap', wordBreak: 'break-all',
                 maxHeight: 200, overflowY: 'auto', margin: 0,
               }}>
@@ -786,7 +786,7 @@ export default function Inspector() {
             display: 'flex', alignItems: 'center', flexShrink: 0,
           }}>
             <span style={{
-              fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-ui)',
+              fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-ui)',
               letterSpacing: 0, textTransform: 'uppercase', color: 'var(--tx2)',
             }}>
               Properties
@@ -843,7 +843,7 @@ export default function Inspector() {
         >
           {ICON_PARAMS}
           <span style={{
-            fontSize: 9, fontFamily: 'var(--font-ui)',
+            fontSize: 11, fontFamily: 'var(--font-ui)',
             fontWeight: open ? 700 : 500, userSelect: 'none', lineHeight: 1.1,
           }}>
             Properties
@@ -889,7 +889,7 @@ function SharedCredential({
   return (
     <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
       <div style={{
-        color: 'var(--tx2)', fontSize: 12, fontWeight: 700,
+        color: 'var(--tx2)', fontSize: 14, fontWeight: 700,
         letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10,
       }}>
         Shared Credential · {label}
@@ -900,12 +900,12 @@ function SharedCredential({
         background: configured ? 'var(--ok)12' : 'var(--warn)12',
         border: `1px solid ${configured ? 'var(--ok)' : 'var(--warn)'}`,
         color: configured ? 'var(--ok)' : 'var(--warn)',
-        fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700,
+        fontSize: 13, fontFamily: 'var(--font-mono)', fontWeight: 700,
       }}>
         <span>{configured ? '✓' : '!'}</span>
         <span>{configured ? `Credential found: ${source}` : `${label} credential missing`}</span>
       </div>
-      <div style={{ fontSize: 10, color: 'var(--tx3)', marginTop: 7, lineHeight: 1.45 }}>
+      <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 7, lineHeight: 1.45 }}>
         Blacknode checks <code>{envVar}</code> first, then the shared local key store. The credential stays outside the workflow and node outputs.
       </div>
       {(!configured || editing) && (
@@ -927,7 +927,7 @@ function SharedCredential({
           style={{
             marginTop: 9, background: 'transparent', border: '1px solid var(--line2)',
             borderRadius: 5, color: 'var(--tx2)', cursor: 'pointer',
-            fontSize: 10, fontFamily: 'var(--font-ui)', padding: '4px 7px',
+            fontSize: 12, fontFamily: 'var(--font-ui)', padding: '4px 7px',
           }}
         >
           Replace shared key
@@ -969,7 +969,7 @@ function DriverConnection({ driver }: { driver: keyof typeof DRIVER_TOKENS }) {
   return (
     <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
       <div style={{
-        color: 'var(--tx2)', fontSize: 12, fontWeight: 700,
+        color: 'var(--tx2)', fontSize: 14, fontWeight: 700,
         letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10,
       }}>
         Connection · {driver}
@@ -980,7 +980,7 @@ function DriverConnection({ driver }: { driver: keyof typeof DRIVER_TOKENS }) {
           background: 'var(--lift)', border: '1px solid var(--warn)', borderRadius: 6,
           padding: '8px 10px', marginBottom: 10,
         }}>
-          <div style={{ fontSize: 11, color: 'var(--tx1)', lineHeight: 1.45, marginBottom: 7 }}>
+          <div style={{ fontSize: 13, color: 'var(--tx1)', lineHeight: 1.45, marginBottom: 7 }}>
             ⚠ <b>{info.extra}</b> isn’t installed — the bot can’t run yet.
           </div>
           <button
@@ -991,27 +991,27 @@ function DriverConnection({ driver }: { driver: keyof typeof DRIVER_TOKENS }) {
               border: '1px solid var(--warn)',
               background: installing ? 'transparent' : 'var(--warn)',
               color: installing ? 'var(--warn)' : '#1a1a1a',
-              fontWeight: 600, fontSize: 12, fontFamily: 'var(--font-ui)',
+              fontWeight: 600, fontSize: 14, fontFamily: 'var(--font-ui)',
               cursor: installing ? 'default' : 'pointer',
             }}
           >
             {installing ? 'Installing…' : `Install ${info.extra}`}
           </button>
           {installError && (
-            <div style={{ fontSize: 10, color: 'var(--err)', marginTop: 6, lineHeight: 1.4 }}>
+            <div style={{ fontSize: 12, color: 'var(--err)', marginTop: 6, lineHeight: 1.4 }}>
               {installError}
             </div>
           )}
         </div>
       )}
       {info && installed && (
-        <div style={{ fontSize: 10, color: 'var(--ok)', marginBottom: 10, fontFamily: 'var(--font-mono)' }}>
+        <div style={{ fontSize: 12, color: 'var(--ok)', marginBottom: 10, fontFamily: 'var(--font-mono)' }}>
           ✓ {info.extra} installed
         </div>
       )}
       {status?.live && (
         <div style={{
-          fontSize: 11, marginBottom: 10, fontFamily: 'var(--font-mono)',
+          fontSize: 13, marginBottom: 10, fontFamily: 'var(--font-mono)',
           color: 'var(--ok)', display: 'flex', alignItems: 'center', gap: 6,
         }}>
           <span className="bn-hook-dot" />
@@ -1028,7 +1028,7 @@ function DriverConnection({ driver }: { driver: keyof typeof DRIVER_TOKENS }) {
           onCommit={v => { void setApiKey(t.name, v) }}
         />
       ))}
-      <div style={{ fontSize: 10, color: 'var(--tx3)', marginTop: 2, lineHeight: 1.45 }}>
+      <div style={{ fontSize: 12, color: 'var(--tx3)', marginTop: 2, lineHeight: 1.45 }}>
         Saved to the local key store (api_keys.json), never in the graph. Environment variables override.
       </div>
 
@@ -1068,10 +1068,10 @@ function DriverLog({ name }: { name: string }) {
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5,
       }}>
-        <span style={{ color: 'var(--tx2)', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+        <span style={{ color: 'var(--tx2)', fontSize: 13, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
           Bot log
         </span>
-        <span style={{ fontSize: 10, color: running ? 'var(--ok)' : 'var(--tx3)', fontFamily: 'var(--font-mono)' }}>
+        <span style={{ fontSize: 12, color: running ? 'var(--ok)' : 'var(--tx3)', fontFamily: 'var(--font-mono)' }}>
           {running ? '● running' : 'stopped'}
         </span>
       </div>
@@ -1079,7 +1079,7 @@ function DriverLog({ name }: { name: string }) {
         ref={boxRef}
         style={{
           background: 'var(--lift)', border: '1px solid var(--line2)', borderRadius: 6,
-          padding: '6px 8px', margin: 0, fontSize: 10, lineHeight: 1.5,
+          padding: '6px 8px', margin: 0, fontSize: 12, lineHeight: 1.5,
           fontFamily: 'var(--font-mono)', color: 'var(--tx2)',
           maxHeight: 160, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
         }}
@@ -1103,14 +1103,14 @@ function SecretField({ label, placeholder, value, onCommit }: {
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-        <span style={{ color: 'var(--tx1)', fontSize: 12, fontWeight: 500 }}>
+        <span style={{ color: 'var(--tx1)', fontSize: 14, fontWeight: 500 }}>
           {label}{value ? ' ✓' : ''}
         </span>
         <button
           onClick={() => setShow(s => !s)}
           style={{
             background: 'transparent', border: 'none', color: 'var(--tx3)',
-            cursor: 'pointer', fontSize: 10, fontFamily: 'var(--font-mono)', padding: 0,
+            cursor: 'pointer', fontSize: 12, fontFamily: 'var(--font-mono)', padding: 0,
           }}
         >
           {show ? 'hide' : 'show'}
@@ -1126,7 +1126,7 @@ function SecretField({ label, placeholder, value, onCommit }: {
         style={{
           width: '100%', background: 'var(--lift)', border: '1px solid var(--line)',
           borderRadius: 6, color: 'var(--tx1)', fontFamily: 'var(--font-mono)',
-          fontSize: 12, padding: '5px 8px', outline: 'none', boxSizing: 'border-box',
+          fontSize: 14, padding: '5px 8px', outline: 'none', boxSizing: 'border-box',
         }}
       />
     </div>
@@ -1140,7 +1140,7 @@ const portModeButtonStyle: React.CSSProperties = {
   background: 'var(--lift)',
   color: 'var(--tx2)',
   padding: '5px 7px',
-  fontSize: 10,
+  fontSize: 12,
   fontFamily: 'var(--font-ui)',
   cursor: 'pointer',
 }
@@ -1170,9 +1170,9 @@ function PortVisibilityRow({ label, displayLabel, hint, type, promoted, connecte
       >
         {promoted ? '◆' : '◇'}
       </button>
-      <span style={{ flex: 1, color: 'var(--tx1)', fontSize: 12 }}>{displayLabel}</span>
-      <span style={{ color, fontSize: 10, fontFamily: 'var(--font-mono)' }}>{type}</span>
-      {connected && <span style={{ color: 'var(--tx3)', fontSize: 9 }}>connected</span>}
+      <span style={{ flex: 1, color: 'var(--tx1)', fontSize: 14 }}>{displayLabel}</span>
+      <span style={{ color, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{type}</span>
+      {connected && <span style={{ color: 'var(--tx3)', fontSize: 11 }}>connected</span>}
     </div>
   )
 }
@@ -1215,14 +1215,14 @@ function ParamRow({ nodeType, label, displayLabel, hint, type, value, defaultVal
           >
             {promoted ? '◆' : '◇'}
           </button>
-          <span style={{ color: 'var(--tx1)', fontSize: 12, fontWeight: 500, textTransform: 'capitalize' }}>
+          <span style={{ color: 'var(--tx1)', fontSize: 14, fontWeight: 500, textTransform: 'capitalize' }}>
             {displayLabel}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-          {connected && <span style={{ color: 'var(--tx3)', fontSize: 9 }}>connected</span>}
+          {connected && <span style={{ color: 'var(--tx3)', fontSize: 11 }}>connected</span>}
           <span style={{
-            fontSize: 10,
+            fontSize: 12,
             fontWeight: 600,
             fontFamily: 'var(--font-mono)',
             color,
@@ -1242,7 +1242,7 @@ function ParamRow({ nodeType, label, displayLabel, hint, type, value, defaultVal
           border: `1px solid ${color}44`,
           borderRadius: 6,
           padding: '5px 8px',
-          fontSize: 12,
+          fontSize: 14,
           fontFamily: 'var(--font-mono)',
           color: 'var(--tx3)',
           display: 'flex',
@@ -1251,7 +1251,7 @@ function ParamRow({ nodeType, label, displayLabel, hint, type, value, defaultVal
           minHeight: 28,
           opacity: 0.7,
         }}>
-          <span style={{ color, fontSize: 8 }}>●</span>
+          <span style={{ color, fontSize: 11 }}>●</span>
           connected
         </div>
       ) : wireOnly ? (
@@ -1260,7 +1260,7 @@ function ParamRow({ nodeType, label, displayLabel, hint, type, value, defaultVal
           border: '1px dashed var(--line2)',
           borderRadius: 6,
           padding: '5px 8px',
-          fontSize: 12,
+          fontSize: 14,
           fontFamily: 'var(--font-mono)',
           color: 'var(--tx3)',
           minHeight: 28,
@@ -1433,7 +1433,7 @@ function ImageControl({ value, onChange }: { value: unknown; onChange: (v: unkno
 
   const btn: React.CSSProperties = {
     background: 'var(--lift)', border: '1px solid var(--line)', borderRadius: 6,
-    color: 'var(--tx1)', fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600,
+    color: 'var(--tx1)', fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 600,
     padding: '5px 10px', cursor: 'pointer',
   }
 
@@ -1461,7 +1461,7 @@ function ImageControl({ value, onChange }: { value: unknown; onChange: (v: unkno
           onBlur={() => onChange(draft)}
           style={{
             background: 'var(--lift)', border: '1px solid var(--line)', borderRadius: 6,
-            color: 'var(--tx1)', fontFamily: 'var(--font-mono)', fontSize: 12,
+            color: 'var(--tx1)', fontFamily: 'var(--font-mono)', fontSize: 14,
             padding: '5px 8px', outline: 'none', minHeight: 28,
           }}
         />
@@ -1589,7 +1589,7 @@ function EnumControl({ value, defaultValue, choices, onChange }: {
         minHeight: 28,
         color: 'var(--tx1)',
         fontFamily: 'var(--font-mono)',
-        fontSize: 12,
+        fontSize: 14,
         fontWeight: 600,
         outline: 'none',
         cursor: 'pointer',
@@ -1641,7 +1641,7 @@ function OllamaModelControl({ value, defaultValue, endpointUrl, onChange }: {
       <div>
         <TextControl value={value} defaultValue={defaultValue} onChange={onChange} multiline={false} />
         {error && (
-          <div style={{ color: 'var(--tx3)', fontSize: 11, marginTop: 4 }}>
+          <div style={{ color: 'var(--tx3)', fontSize: 13, marginTop: 4 }}>
             couldn't list Ollama models at {endpointUrl} ({error})
           </div>
         )}
@@ -1662,7 +1662,7 @@ function OllamaModelControl({ value, defaultValue, endpointUrl, onChange }: {
         minHeight: 28,
         color: 'var(--tx1)',
         fontFamily: 'var(--font-mono)',
-        fontSize: 12,
+        fontSize: 14,
         fontWeight: 600,
         outline: 'none',
         cursor: 'pointer',
@@ -1712,7 +1712,7 @@ function BoolControl({ value, onChange }: { value: unknown; onChange: (v: unknow
         }} />
       </div>
       <span style={{
-        fontSize: 12,
+        fontSize: 14,
         fontFamily: 'var(--font-mono)',
         fontWeight: 600,
         color: on ? color : 'var(--tx2)',
@@ -1775,7 +1775,7 @@ function IntControl({ value, defaultValue, onChange }: { value: unknown; default
         style={{
           flex: 1, background: 'transparent', border: 'none',
           color: 'var(--tx1)', fontFamily: 'var(--font-mono)',
-          fontSize: 12, fontWeight: 600, outline: 'none', minWidth: 0,
+          fontSize: 14, fontWeight: 600, outline: 'none', minWidth: 0,
         }}
       />
       <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
@@ -1789,7 +1789,7 @@ function IntControl({ value, defaultValue, onChange }: { value: unknown; default
             }}
             style={{
               background: 'transparent', border: 'none', color: 'var(--tx2)',
-              cursor: 'pointer', fontSize: 7, lineHeight: 1.3, padding: '0 2px',
+              cursor: 'pointer', fontSize: 11, lineHeight: 1.3, padding: '0 2px',
             }}
           >
             {label}
@@ -1850,7 +1850,7 @@ function FloatControl({ value, defaultValue, onChange }: { value: unknown; defau
         style={{
           flex: 1, background: 'transparent', border: 'none',
           color: 'var(--tx1)', fontFamily: 'var(--font-mono)',
-          fontSize: 12, fontWeight: 600, outline: 'none', minWidth: 0,
+          fontSize: 14, fontWeight: 600, outline: 'none', minWidth: 0,
         }}
       />
       <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
@@ -1864,7 +1864,7 @@ function FloatControl({ value, defaultValue, onChange }: { value: unknown; defau
             }}
             style={{
               background: 'transparent', border: 'none', color: 'var(--tx2)',
-              cursor: 'pointer', fontSize: 7, lineHeight: 1.3, padding: '0 2px',
+              cursor: 'pointer', fontSize: 11, lineHeight: 1.3, padding: '0 2px',
             }}
           >
             {label}
@@ -1898,7 +1898,7 @@ function TextControl({ value, defaultValue, onChange, multiline }: {
     borderRadius: 6,
     color: 'var(--tx1)',
     fontFamily: 'var(--font-mono)',
-    fontSize: 12,
+    fontSize: 14,
     padding: '5px 8px',
     outline: 'none',
     boxSizing: 'border-box',
@@ -1976,7 +1976,7 @@ function CodeControl({ value, defaultValue, onChange }: {
         borderRadius: 6,
         color: 'var(--tx1)',
         fontFamily: 'var(--font-mono)',
-        fontSize: 11,
+        fontSize: 13,
         lineHeight: 1.65,
         padding: '6px 8px',
         outline: 'none',
@@ -1997,7 +1997,7 @@ function btnStyle(color: string, primary: boolean): React.CSSProperties {
     background: primary ? color : 'transparent',
     color: primary ? '#fff' : color,
     cursor: 'pointer',
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: 500,
     fontFamily: 'var(--font-ui)',
     transition: 'opacity 0.15s',

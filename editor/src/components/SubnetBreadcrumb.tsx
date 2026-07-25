@@ -13,7 +13,7 @@ export default function SubnetBreadcrumb() {
       padding: '0 14px',
       background: '#3730a3',
       borderBottom: '1px solid #4338ca',
-      fontSize: 12,
+      fontSize: 14,
       color: '#c7d2fe',
       flexShrink: 0,
       height: 32,
@@ -30,7 +30,7 @@ export default function SubnetBreadcrumb() {
           borderRadius: 5,
           color: '#e0e7ff',
           cursor: 'pointer',
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: 600,
           padding: '2px 10px',
           fontFamily: 'var(--font-ui)',
@@ -50,7 +50,7 @@ export default function SubnetBreadcrumb() {
         onClick={() => void exitToRoot()}
         style={{
           background: 'none', border: 'none', color: '#a5b4fc',
-          cursor: 'pointer', fontSize: 12, padding: '0 2px',
+          cursor: 'pointer', fontSize: 14, padding: '0 2px',
           fontFamily: 'var(--font-ui)',
         }}
         onMouseEnter={e => (e.currentTarget.style.color = '#fff')}
@@ -76,7 +76,7 @@ export default function SubnetBreadcrumb() {
               background: 'none', border: 'none',
               color: i === subnetStack.length - 1 ? '#fff' : '#a5b4fc',
               cursor: i === subnetStack.length - 1 ? 'default' : 'pointer',
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: i === subnetStack.length - 1 ? 700 : 400,
               padding: '0 2px',
               fontFamily: 'var(--font-ui)',
@@ -89,7 +89,7 @@ export default function SubnetBreadcrumb() {
         </span>
       ))}
 
-      <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.5 }}>Esc to exit</span>
+      <span style={{ marginLeft: 'auto', fontSize: 12, opacity: 0.5 }}>Esc to exit</span>
     </div>
   )
 }

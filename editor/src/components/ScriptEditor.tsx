@@ -82,7 +82,7 @@ export default function ScriptEditor() {
       <div style={{
         padding: '10px 14px 8px',
         color: 'var(--tx2)',
-        fontSize: 12,
+        fontSize: 14,
         lineHeight: 1.5,
         borderBottom: '1px solid var(--line)',
         flexShrink: 0,
@@ -112,7 +112,7 @@ export default function ScriptEditor() {
             borderRadius: 6,
             color: 'var(--tx1)',
             fontFamily: 'var(--font-mono)',
-            fontSize: 12,
+            fontSize: 14,
             padding: '6px 8px',
             outline: 'none',
           }}
@@ -131,7 +131,7 @@ export default function ScriptEditor() {
           borderBottom: '1px solid var(--line)',
           color: 'var(--tx1)',
           fontFamily: 'var(--font-mono)',
-          fontSize: 12,
+          fontSize: 14,
           lineHeight: 1.7,
           padding: '12px 14px',
           resize: 'none',
@@ -163,7 +163,7 @@ export default function ScriptEditor() {
           background: status.ok ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)',
           borderBottom: '1px solid var(--line)',
           color: status.ok ? 'var(--ok)' : 'var(--err)',
-          fontSize: 11,
+          fontSize: 13,
           fontFamily: 'var(--font-mono)',
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-all',
@@ -188,7 +188,7 @@ export default function ScriptEditor() {
             borderRadius: 6,
             color: '#fff',
             fontFamily: 'var(--font-ui)',
-            fontSize: 13,
+            fontSize: 15,
             fontWeight: 600,
             cursor: running ? 'default' : 'pointer',
             opacity: running ? 0.6 : 1,
@@ -207,7 +207,7 @@ export default function ScriptEditor() {
             borderRadius: 6,
             color: '#fff',
             fontFamily: 'var(--font-ui)',
-            fontSize: 13,
+            fontSize: 15,
             fontWeight: 600,
             cursor: saving ? 'default' : 'pointer',
             opacity: saving ? 0.6 : 1,
@@ -225,7 +225,7 @@ export default function ScriptEditor() {
             borderRadius: 6,
             color: 'var(--tx2)',
             fontFamily: 'var(--font-ui)',
-            fontSize: 13,
+            fontSize: 15,
             cursor: running || saving ? 'default' : 'pointer',
           }}
         >
@@ -240,7 +240,7 @@ export default function ScriptEditor() {
             borderRadius: 6,
             color: 'var(--tx2)',
             fontFamily: 'var(--font-ui)',
-            fontSize: 13,
+            fontSize: 15,
             cursor: 'pointer',
           }}
         >

@@ -120,7 +120,7 @@ export default function ConsolePanel() {
           background: active ? 'var(--warn)' : 'var(--tx3)',
           boxShadow: active ? '0 0 8px var(--warn)' : 'none',
         }} />
-        <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: 'var(--tx1)' }}>
+        <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: 'var(--tx1)' }}>
           {active ? `${active} running` : `${shown.length} of ${entries.length} commands`}
         </span>
         <button
@@ -130,7 +130,7 @@ export default function ConsolePanel() {
             padding: '3px 8px', borderRadius: 5,
             border: `1px solid ${collapse ? 'var(--accent)' : 'var(--line2)'}`,
             background: 'transparent', color: collapse ? 'var(--accent)' : 'var(--tx3)',
-            cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700,
           }}
         >
           Collapse
@@ -140,7 +140,7 @@ export default function ConsolePanel() {
           style={{
             padding: '3px 8px', borderRadius: 5, border: '1px solid var(--line2)',
             background: 'transparent', color: 'var(--tx3)', cursor: 'pointer',
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700,
+            fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700,
           }}
         >
           Clear
@@ -159,7 +159,7 @@ export default function ConsolePanel() {
               border: '1px solid var(--line2)', background: 'var(--lift)',
               color: busy === d.id ? 'var(--tx3)' : 'var(--tx2)',
               cursor: busy === d.id ? 'default' : 'pointer',
-              fontFamily: 'var(--font-ui)', fontSize: 10,
+              fontFamily: 'var(--font-ui)', fontSize: 12,
             }}
           >
             {busy === d.id ? 'Running…' : d.label}
@@ -167,11 +167,11 @@ export default function ConsolePanel() {
         ))}
       </div>
 
-      {error && <div style={{ color: 'var(--err)', fontSize: 11, padding: '0 12px 6px' }}>{error}</div>}
+      {error && <div style={{ color: 'var(--err)', fontSize: 13, padding: '0 12px 6px' }}>{error}</div>}
 
       <div ref={feed} style={{ flex: 1, overflowY: 'auto', padding: '0 8px 10px', minHeight: 0 }}>
         {entries.length === 0 && !error && (
-          <div style={{ color: 'var(--tx3)', fontSize: 11, lineHeight: 1.6, padding: '0 4px' }}>
+          <div style={{ color: 'var(--tx3)', fontSize: 13, lineHeight: 1.6, padding: '0 4px' }}>
             Commands appear here as nodes run them. Press a diagnostic above to check
             the ROS 2 graph without building a workflow.
           </div>
@@ -184,7 +184,7 @@ export default function ConsolePanel() {
             <div key={entry.id} style={{ marginBottom: 4 }}>
               <div style={{
                 display: 'flex', alignItems: 'baseline', gap: 6,
-                fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.5,
+                fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.5,
               }}>
                 <span style={{ color: TONE[entry.status] ?? 'var(--tx3)', flexShrink: 0 }}>
                   {entry.status === 'running' ? '›' : entry.status === 'failed' ? '✗' : '$'}
@@ -193,12 +193,12 @@ export default function ConsolePanel() {
                   {entry.command}
                 </span>
                 {(entry as ConsoleEntry & { repeats?: number }).repeats! > 1 && (
-                  <span style={{ flexShrink: 0, fontSize: 10, color: 'var(--tx3)' }}>
+                  <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--tx3)' }}>
                     ×{(entry as ConsoleEntry & { repeats?: number }).repeats}
                   </span>
                 )}
                 <span style={{
-                  flexShrink: 0, fontSize: 10,
+                  flexShrink: 0, fontSize: 12,
                   color: entry.status === 'running' ? 'var(--warn)' : 'var(--tx3)',
                 }}>
                   {clock(entry, now)}
@@ -208,7 +208,7 @@ export default function ConsolePanel() {
                 <pre style={{
                   margin: '1px 0 0 14px', padding: 0, background: 'transparent', border: 'none',
                   color: entry.status === 'failed' ? 'var(--err)' : 'var(--tx2)',
-                  fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.5,
+                  fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.5,
                   whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 }}>
                   {output}
@@ -223,7 +223,7 @@ export default function ConsolePanel() {
         display: 'flex', alignItems: 'center', gap: 6,
         padding: '7px 10px', borderTop: '1px solid var(--line)', flexShrink: 0,
       }}>
-        <span style={{ color: 'var(--ok)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>$</span>
+        <span style={{ color: 'var(--ok)', fontFamily: 'var(--font-mono)', fontSize: 14 }}>$</span>
         <input
           value={input}
           onChange={e => setInput(e.target.value)}
@@ -233,7 +233,7 @@ export default function ConsolePanel() {
           title="Runs one command at a time. Arguments are passed directly, so pipes and redirects are not available."
           style={{
             flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none',
-            color: 'var(--tx1)', fontFamily: 'var(--font-mono)', fontSize: 12,
+            color: 'var(--tx1)', fontFamily: 'var(--font-mono)', fontSize: 14,
           }}
         />
         <button
@@ -245,7 +245,7 @@ export default function ConsolePanel() {
             background: 'transparent',
             color: input.trim() && busy !== 'exec' ? 'var(--ok)' : 'var(--tx3)',
             cursor: input.trim() && busy !== 'exec' ? 'pointer' : 'default',
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 700,
+            fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700,
           }}
         >
           {busy === 'exec' ? 'Running…' : 'Run'}

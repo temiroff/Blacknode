@@ -130,11 +130,11 @@ export default function NodeSearch({
           alignItems: 'center',
           gap: 8,
         }}>
-          <span style={{ color: 'var(--tx3)', fontSize: 14, flexShrink: 0 }}>⌕</span>
+          <span style={{ color: 'var(--tx3)', fontSize: 16, flexShrink: 0 }}>⌕</span>
           {title && (
             <span style={{
               color: 'var(--tx3)',
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 700,
               letterSpacing: 0,
               textTransform: 'uppercase',
@@ -155,7 +155,7 @@ export default function NodeSearch({
               border: 'none',
               outline: 'none',
               color: 'var(--tx1)',
-              fontSize: 14,
+              fontSize: 16,
               fontFamily: 'var(--font-ui)',
             }}
           />
@@ -167,7 +167,7 @@ export default function NodeSearch({
             <div style={{
               padding: '16px 14px',
               color: 'var(--tx3)',
-              fontSize: 13,
+              fontSize: 15,
               textAlign: 'center',
             }}>
               {query ? `No results for "${query}"` : emptyMessage ?? 'No nodes available'}
@@ -179,7 +179,7 @@ export default function NodeSearch({
               <div style={{
                 padding: '8px 14px 4px',
                 color,
-                fontSize: 12,
+                fontSize: 14,
                 fontWeight: 700,
                 letterSpacing: '0.06em',
                 textTransform: 'uppercase',
@@ -211,7 +211,7 @@ export default function NodeSearch({
                     }}
                   >
                     <span style={{
-                      fontSize: 14,
+                      fontSize: 16,
                       fontWeight: active ? 500 : 400,
                       color: active ? 'var(--tx1)' : 'var(--tx2)',
                     }}>
@@ -231,7 +231,7 @@ export default function NodeSearch({
           display: 'flex',
           gap: 14,
           color: 'var(--tx3)',
-          fontSize: 11,
+          fontSize: 13,
         }}>
           <span>↑↓ navigate</span>
           <span>↵ {actionLabel}</span>

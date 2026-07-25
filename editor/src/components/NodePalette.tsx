@@ -41,7 +41,7 @@ const welcomeButtonStyle: React.CSSProperties = {
   color: 'var(--tx2)',
   cursor: 'pointer',
   fontFamily: 'var(--font-ui)',
-  fontSize: 12,
+  fontSize: 14,
   padding: '7px 12px',
 }
 
@@ -406,12 +406,12 @@ export default function NodePalette() {
             border: `1px solid ${color}`, background: 'transparent',
           }} />
           <span style={{
-            flex: 1, fontSize: 10, fontWeight: 600,
+            flex: 1, fontSize: 12, fontWeight: 600,
             letterSpacing: '0.03em', textTransform: 'uppercase',
           }}>
             {label}
           </span>
-          <span style={{ fontSize: 10, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>0</span>
+          <span style={{ fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>0</span>
         </div>
       )
     }
@@ -435,7 +435,7 @@ export default function NodePalette() {
         onMouseEnter={e => { if (!open || nested) e.currentTarget.style.background = 'var(--hover)' }}
         onMouseLeave={e => { if (!open || nested) e.currentTarget.style.background = 'transparent' }}
       >
-        <span style={{ width: 10, color: 'var(--tx3)', fontSize: 12, lineHeight: 1 }}>
+        <span style={{ width: 10, color: 'var(--tx3)', fontSize: 14, lineHeight: 1 }}>
           {open ? '-' : '+'}
         </span>
         <span style={{
@@ -457,7 +457,7 @@ export default function NodePalette() {
         </span>
         <span style={{
           color: 'var(--tx3)',
-          fontSize: 10,
+          fontSize: 12,
           fontWeight: 600,
           fontFamily: 'var(--font-mono)',
         }}>
@@ -480,7 +480,7 @@ export default function NodePalette() {
       style={{
         padding: '5px 14px 5px 38px',
         color: 'var(--tx2)',
-        fontSize: 13,
+        fontSize: 15,
         cursor: 'grab',
         borderRadius: 6,
         margin: '1px 6px',
@@ -530,16 +530,16 @@ export default function NodePalette() {
             color: 'var(--tx1)',
             fontFamily: 'var(--font-ui)',
           }}>
-            <div style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            <div style={{ color: 'var(--accent)', fontSize: 13, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
               Welcome to Blacknode
             </div>
-            <h1 id="package-welcome-title" style={{ margin: '8px 0 10px', fontSize: 22, lineHeight: 1.2 }}>
+            <h1 id="package-welcome-title" style={{ margin: '8px 0 10px', fontSize: 24, lineHeight: 1.2 }}>
               Prepare your robotics workspace
             </h1>
-            <p style={{ margin: 0, color: 'var(--tx2)', fontSize: 13, lineHeight: 1.6 }}>
+            <p style={{ margin: 0, color: 'var(--tx2)', fontSize: 15, lineHeight: 1.6 }}>
               Start in Packages and install the official Blacknode capabilities for robot hardware, ROS 2, vision, CUDA, datasets, and training. Package-backed templates need their listed packages before they can run.
             </p>
-            <p style={{ margin: '10px 0 0', color: 'var(--tx3)', fontSize: 12, lineHeight: 1.5 }}>
+            <p style={{ margin: '10px 0 0', color: 'var(--tx3)', fontSize: 14, lineHeight: 1.5 }}>
               Core graph workflows are ready immediately. You can return to Packages at any time from the left sidebar.
             </p>
             <div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
@@ -590,7 +590,7 @@ export default function NodePalette() {
             alignItems: 'center',
             justifyContent: 'center',
             fontFamily: 'var(--font-ui)',
-            fontSize: 10,
+            fontSize: 12,
             fontWeight: 800,
           }}>
             BN
@@ -640,7 +640,7 @@ export default function NodePalette() {
                   width: '100%',
                   textAlign: 'center',
                   whiteSpace: 'nowrap',
-                  fontSize: 9,
+                  fontSize: 11,
                   fontFamily: 'var(--font-ui)',
                   letterSpacing: 0,
                   fontWeight: active ? 700 : 500,
@@ -694,7 +694,7 @@ export default function NodePalette() {
             flexShrink: 0,
           }}>
             <span style={{
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 700,
               fontFamily: 'var(--font-ui)',
               letterSpacing: 0,
@@ -717,7 +717,7 @@ export default function NodePalette() {
                   color: 'var(--tx2)',
                   cursor: 'pointer',
                   fontFamily: 'var(--font-ui)',
-                  fontSize: 9,
+                  fontSize: 11,
                   whiteSpace: 'nowrap',
                 }}
               >

@@ -89,7 +89,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
         justifyContent: 'space-between',
         gap: 6,
       }}>
-        <span style={{ fontSize: 10, opacity: 0.7, flexShrink: 0 }}>{isToolSubnet ? 'fn' : isVisualLoop ? 'loop' : '⬡'}</span>
+        <span style={{ fontSize: 12, opacity: 0.7, flexShrink: 0 }}>{isToolSubnet ? 'fn' : isVisualLoop ? 'loop' : '⬡'}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           {editingLabel ? (
             <input
@@ -105,7 +105,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
               onMouseDown={e => e.stopPropagation()}
               style={{
                 width: '100%', background: 'rgba(0,0,0,.25)', border: 'none', outline: 'none',
-                color: '#fff', fontWeight: 600, fontSize: 12,
+                color: '#fff', fontWeight: 600, fontSize: 14,
                 fontFamily: 'var(--font-ui)', borderRadius: 3, padding: '1px 4px',
               }}
             />
@@ -113,7 +113,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
             <span
               title={isToolSubnet ? 'Double-click to rename tool' : isVisualLoop ? 'Double-click to rename loop' : 'Double-click to rename'}
               onDoubleClick={startRename}
-              style={{ display: 'block', fontWeight: 600, fontSize: 12, fontFamily: 'var(--font-ui)', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              style={{ display: 'block', fontWeight: 600, fontSize: 14, fontFamily: 'var(--font-ui)', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {label}
             </span>
@@ -121,7 +121,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
           {!editingLabel && (
             <span
               title={`Node type ${data.type}`}
-              style={{ fontSize: 8, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              style={{ fontSize: 11, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
               {qualifiedType}
             </span>
@@ -132,7 +132,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
           onClick={e => { e.stopPropagation(); cookNode(id, data.outputs[0] ?? 'output') }}
           style={{
             background: 'rgba(0,0,0,.2)', border: 'none', borderRadius: 3,
-            color: '#fff', cursor: 'pointer', fontSize: 9, padding: '1px 5px',
+            color: '#fff', cursor: 'pointer', fontSize: 11, padding: '1px 5px',
           }}
         >
           {data.cooking ? '…' : '▶'}
@@ -142,7 +142,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
           onClick={e => { e.stopPropagation(); diveIntoSubnet(id) }}
           style={{
             background: 'rgba(255,255,255,.15)', border: 'none', borderRadius: 3,
-            color: '#fff', cursor: 'pointer', fontSize: 10, padding: '1px 5px',
+            color: '#fff', cursor: 'pointer', fontSize: 12, padding: '1px 5px',
           }}
         >
           ↓
@@ -152,7 +152,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
       {/* ports */}
       <div style={{ padding: '6px 0', minHeight: 28 }}>
         {data.inputs.map((inp, i) => (
-          <div key={inp} style={{ position: 'relative', padding: '2px 28px 2px 14px', fontSize: 11, color: 'var(--tx2)' }}>
+          <div key={inp} style={{ position: 'relative', padding: '2px 28px 2px 14px', fontSize: 13, color: 'var(--tx2)' }}>
             {inp}
             <Handle
               type="target"
@@ -169,7 +169,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
           </div>
         ))}
         {data.outputs.map((out) => (
-          <div key={out} style={{ position: 'relative', padding: '2px 14px 2px 28px', fontSize: 11, color: 'var(--tx2)', textAlign: 'right' }}>
+          <div key={out} style={{ position: 'relative', padding: '2px 14px 2px 28px', fontSize: 13, color: 'var(--tx2)', textAlign: 'right' }}>
             {out}
             <Handle
               type="source"
@@ -191,7 +191,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
         <div style={{
           position: 'absolute', bottom: -20, left: '50%', transform: 'translateX(-50%)',
           background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 4,
-          padding: '2px 6px', fontSize: 10, color: 'var(--tx2)', whiteSpace: 'nowrap', pointerEvents: 'none',
+          padding: '2px 6px', fontSize: 12, color: 'var(--tx2)', whiteSpace: 'nowrap', pointerEvents: 'none',
         }}>
           {isToolSubnet ? 'double-click to build tool' : isVisualLoop ? 'double-click to inspect loop' : 'double-click to dive in'}
         </div>

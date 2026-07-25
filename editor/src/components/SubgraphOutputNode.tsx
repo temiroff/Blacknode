@@ -88,7 +88,7 @@ function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
         borderRadius: '8px 8px 0 0',
         padding: '5px 10px',
         fontWeight: 700,
-        fontSize: 11,
+        fontSize: 13,
         color: '#fff',
         letterSpacing: '0.04em',
         display: 'flex',
@@ -115,7 +115,7 @@ function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
             borderRadius: '50%',
           }}
         />
-        <span style={{ fontSize: 9, color: NEW_HANDLE_COLOR, fontFamily: 'var(--font-ui)', userSelect: 'none' }}>
+        <span style={{ fontSize: 11, color: NEW_HANDLE_COLOR, fontFamily: 'var(--font-ui)', userSelect: 'none' }}>
           ← drag to create
         </span>
       </div>
@@ -148,7 +148,7 @@ function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
                 style={{
                   position: 'absolute', left: 6,
                   background: 'transparent', border: 'none',
-                  color: 'var(--tx3)', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: '0 2px',
+                  color: 'var(--tx3)', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: '0 2px',
                   opacity: 0.5,
                 }}
                 onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
@@ -172,14 +172,14 @@ function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
                   style={{
                     background: 'var(--lift)', border: `1px solid ${HEADER}`,
                     borderRadius: 4, color: 'var(--tx1)',
-                    fontFamily: 'var(--font-mono)', fontSize: 11,
+                    fontFamily: 'var(--font-mono)', fontSize: 13,
                     outline: 'none', padding: '1px 5px', width: 90,
                   }}
                 />
               ) : (
                 <span
                   onDoubleClick={e => { e.stopPropagation(); setEditingPort(port); setEditDraft(port) }}
-                  style={{ fontSize: 11, color: 'var(--tx1)', fontFamily: 'var(--font-mono)', textAlign: 'right', flex: 1, cursor: 'text' }}
+                  style={{ fontSize: 13, color: 'var(--tx1)', fontFamily: 'var(--font-mono)', textAlign: 'right', flex: 1, cursor: 'text' }}
                 >
                   {port}
                 </span>
@@ -205,7 +205,7 @@ function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
               style={{
                 background: 'var(--lift)', border: `1px solid ${HEADER}`,
                 borderRadius: 4, color: 'var(--tx1)',
-                fontFamily: 'var(--font-mono)', fontSize: 11,
+                fontFamily: 'var(--font-mono)', fontSize: 13,
                 outline: 'none', padding: '2px 6px', width: 100,
               }}
             />
@@ -215,7 +215,7 @@ function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
               style={{
                 background: 'transparent', border: `1px dashed ${HEADER}88`,
                 borderRadius: 4, color: HEADER, cursor: 'pointer',
-                fontSize: 10, fontWeight: 600, padding: '2px 8px',
+                fontSize: 12, fontWeight: 600, padding: '2px 8px',
                 fontFamily: 'var(--font-ui)', width: '100%', textAlign: 'center',
               }}
               onMouseEnter={e => (e.currentTarget.style.borderColor = HEADER)}
