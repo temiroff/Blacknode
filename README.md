@@ -106,21 +106,30 @@ physical bus, firmware, or device protocol used by the robot.
 
 ### Pair a deployed device
 
-Start and verify the hardware service on the Raspberry Pi, then generate its
-pairing token:
+On a new Raspberry Pi, Jetson, or Ubuntu device, install the complete hardware
+and deployment stack in one pass:
 
 ```bash
-./service.sh check --require-hardware
-./pair.sh
+git clone https://github.com/temiroff/blacknode-runtime.git
+cd blacknode-runtime
+./install-device.sh
 ```
 
+This discovers every connected robot, asks for friendly names, installs the
+hardware services and shared runtime, configures active UFW rules, verifies the
+complete device, and prints the pairing checklist. Rerunning it preserves
+existing robot identities, calibrations, names, and the runtime token.
+
 In the Blacknode editor, open **Devices**, select **Pair device**, and enter the
-Pi's service URL, such as `http://192.168.1.87:8765`. Paste the hardware token
-printed by `pair.sh`. Run `blacknode-runtime/service.sh pairing` and paste its
-shared runtime token as well. Blacknode checks both authenticated services
-before marking the device ready for deployment. The runtime token is entered
-once per computer and reused automatically when more robot hardware services
-from that computer are paired.
+device URL printed by the installer, such as `http://DEVICE_IP:8765`. Paste the hardware token
+printed by the installer, then paste its shared runtime token. Blacknode checks
+both authenticated services before marking the device ready for deployment.
+The runtime token is entered once per computer and reused automatically when
+more robot hardware services from that computer are paired.
+
+The installer detects each computer's current address; it does not hardcode a
+LAN IP. Use a router DHCP reservation or a resolvable hostname for robots that
+must keep a stable editor address.
 
 Device records are local to the editor installation at
 `.blacknode/devices.json`, which is excluded from Git. Pairing tokens remain in
