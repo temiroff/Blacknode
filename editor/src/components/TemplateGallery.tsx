@@ -99,7 +99,7 @@ export default function TemplateGallery({
         await openGraphAsTab(template.name, templateGraph)
         openedNewTab = true
       } else {
-        await loadGraph()
+        await loadGraph(template.name)
       }
       await loadNodeTypes()
       await organizeNodes()

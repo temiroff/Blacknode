@@ -25,3 +25,15 @@ def test_template_gallery_searches_and_uses_group_colors():
     assert "Boolean(query.trim()) || expandedGroups.has(group.name)" in source
     assert "border: `1px solid ${dependencyError ? 'var(--warn)' : group.color}`" in source
     assert "color: group.color" in source
+
+
+def test_loading_template_names_current_tab_and_detaches_saved_workflow():
+    gallery = (
+        ROOT / "editor" / "src" / "components" / "TemplateGallery.tsx"
+    ).read_text(encoding="utf-8")
+    store = (ROOT / "editor" / "src" / "store.ts").read_text(encoding="utf-8")
+
+    assert "await loadGraph(template.name)" in gallery
+    assert "name: cleanWorkflowName(workflowName)" in store
+    assert "slug: null" in store
+    assert "dirty: true" in store

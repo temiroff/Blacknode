@@ -108,7 +108,7 @@ interface Store {
 
   loadNodeTypes: () => Promise<void>
   loadPackages: () => Promise<void>
-  loadGraph: () => Promise<void>
+  loadGraph: (workflowName?: string) => Promise<void>
   loadApiKeys: () => Promise<void>
   loadApiKeyStatus: () => Promise<void>
   setApiKey: (provider: string, key: string) => Promise<void>
@@ -1605,15 +1605,31 @@ export const useStore = create<Store>((set, get) => ({
     set(s => ({ customModels: s.customModels.filter(m => m !== value) }))
   },
 
-  loadGraph: async () => {
+  loadGraph: async (workflowName) => {
     const graph = await api.getGraph()
     const parsed = parseGraph(graph.nodes, graph.edges)
-    set({
+    set(s => ({
       nodes: ensureConnectedToolBoxSlots(parsed.nodes, parsed.edges),
       edges: parsed.edges,
       workflowMetadata: graph.metadata ?? {},
       selectedId: null,
-    })
+      ...(workflowName
+        ? {
+            tabs: s.tabs.map(tab => (
+              tab.id === s.activeTabId
+                ? {
+                    ...tab,
+                    name: cleanWorkflowName(workflowName),
+                    slug: null,
+                    dirty: true,
+                    graph: cloneGraph(graph),
+                    liveState: {},
+                  }
+                : tab
+            )),
+          }
+        : {}),
+    }))
     await get().reattachRuntimeState()
   },
 
