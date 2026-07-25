@@ -106,6 +106,20 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
   const activeTabId = useStore(s => s.activeTabId)
   const activeTab = tabs.find(tab => tab.id === activeTabId)
   const activeDeploymentName = deploymentNameFromTab(activeTab?.name)
+  const activeProject = useStore(s => s.activeProject)
+  const deploymentProject = (
+    activeProject
+    && activeTab?.slug
+    && activeProject.workflowSlugs.includes(activeTab.slug)
+  )
+    ? {
+        id: activeProject.id,
+        name: activeProject.name,
+        workflowSlug: activeTab.slug,
+        workflowName: activeTab.name,
+        deviceIds: activeProject.deviceIds,
+      }
+    : null
   const switchTab = useStore(s => s.switchTab)
   const workflowRevision = useStore(s => s.workflowRevision)
   const workflowMetadata = useStore(s => s.workflowMetadata)
@@ -477,6 +491,31 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
     existing?: RemoteDeployment,
   ) => {
     if (!selectedDeviceId || !preflight?.ready) return
+    if (
+      existing?.project_id
+      && (
+        !deploymentProject
+        || deploymentProject.id !== existing.project_id
+        || deploymentProject.workflowSlug !== existing.workflow_slug
+      )
+    ) {
+      setError(
+        `Deployment "${existing.name}" belongs to project `
+        + `"${existing.project_id}" / "${existing.workflow_slug}". Open that `
+        + 'workflow from its Project before staging an update.',
+      )
+      return
+    }
+    if (
+      deploymentProject
+      && !deploymentProject.deviceIds.includes(selectedDeviceId)
+    ) {
+      setError(
+        `The selected device is not linked to project "${deploymentProject.name}". `
+        + 'Link it in Projects before staging this workflow.',
+      )
+      return
+    }
     const name = (
       existing?.name
       || remoteDeploymentName.trim()
@@ -495,6 +534,8 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
         preflight.workflow.hash,
         start,
         existing?.id,
+        deploymentProject?.id,
+        deploymentProject?.workflowSlug,
       )
       setRemoteOpenId(result.deployment.id)
       await refreshRemote()
@@ -568,6 +609,12 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
         ) : (
           <div className="bn-device-help">Pair a Raspberry Pi in the Devices tab first.</div>
         )}
+        <div className={`bn-robot-step-status ${deploymentProject ? 'is-success' : ''}`}>
+          <strong>Deployment ownership:</strong>{' '}
+          {deploymentProject
+            ? `${deploymentProject.name} / ${deploymentProject.workflowName}`
+            : 'Unassigned. Open this workflow from a Project to attach deployment history.'}
+        </div>
         {calibrationMatchedDevice && selectedDeviceId === calibrationMatchedDevice.id && (
           <div className="bn-robot-step-status is-success">
             <strong>Matched to the graph calibration:</strong>
@@ -1059,6 +1106,9 @@ function RemoteDeploymentRow({
   const isRunning = deployment.state === 'running'
   const canRollback = deployment.revisions.length > 1
   const badges = [
+    deployment.project_id
+      ? `project ${deployment.project_id} / ${deployment.workflow_slug || 'workflow'}`
+      : 'unassigned',
     `${deployment.revisions.length} revision${deployment.revisions.length === 1 ? '' : 's'}`,
     `staged ${deployment.staged_revision}`,
     deployment.active_revision ? `active ${deployment.active_revision}` : null,

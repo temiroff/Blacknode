@@ -112,7 +112,7 @@ function nodeIdAtScreenPoint(point: { x: number; y: number }): string | null {
 export default function App() {
   const {
     nodes, edges, nodeTypes, nodeDefs, serverOk, serverError, cookLog, cookActive, cookStatusHidden,
-    tabs, activeTabId,
+    tabs, activeTabId, activeProject,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadApiKeyStatus, loadCustomModels, loadLearnedNodes, loadDriverStatus, loadRuntimeNodeOutputs, loadDrivers,
     addNodeFromConnection, copySelection, pasteClipboard,
@@ -1213,6 +1213,31 @@ export default function App() {
           gap: 2,
           overflowX: 'auto',
         }}>
+          {activeProject && activeTab?.slug && activeProject.workflowSlugs.includes(activeTab.slug) && (
+            <div
+              title={`Active project: ${activeProject.name}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                height: 26,
+                padding: '0 9px',
+                marginRight: 4,
+                borderRadius: 6,
+                border: '1px solid color-mix(in srgb, var(--accent) 45%, var(--line))',
+                background: 'color-mix(in srgb, var(--accent) 10%, transparent)',
+                color: 'var(--tx2)',
+                fontFamily: 'var(--font-ui)',
+                fontSize: 13,
+                fontWeight: 650,
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              <span>{activeProject.name}</span>
+              <span style={{ color: 'var(--tx3)', fontWeight: 500 }}>/</span>
+            </div>
+          )}
           {tabs.map(tab => {
             const active = tab.id === activeTabId
             const editing = editingTabId === tab.id
