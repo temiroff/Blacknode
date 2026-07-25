@@ -548,7 +548,9 @@ class EditorDeviceApiTests(unittest.TestCase):
             "name": "Leader live",
             "state": "running",
         })
-        self.assertIn("Leader live", payload["error"])
+        self.assertNotIn("error", payload)
+        self.assertIn("Leader live", payload["notice"])
+        self.assertIn("Device checks are paused", payload["notice"])
         rpc_methods = [
             body["method"]
             for method, path, _auth, body in hardware.requests
@@ -1364,7 +1366,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         self.assertEqual(hardware_check["status"], "fail")
         self.assertIn("Leader live", hardware_check["message"])
-        self.assertIn("Stop that deployment", hardware_check["message"])
+        self.assertIn("Device checks are paused", hardware_check["message"])
 
     def test_staging_rejects_graph_changed_after_validation(self):
         hardware = _HardwareService()

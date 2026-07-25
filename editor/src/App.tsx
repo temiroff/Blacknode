@@ -1061,7 +1061,7 @@ export default function App() {
       <div style={{ flex: 1, position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver} onMouseMove={trackMouseFlowPos}>
 
         {/* ── top bar ── */}
-        <div style={{
+        <div className="bn-topbar" style={{
           position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
           background: 'var(--panel)',
           borderBottom: '1px solid var(--line)',
@@ -1077,9 +1077,9 @@ export default function App() {
             <span>BLACKNODE</span>
           </div>
 
-          <div style={{ flex: 1 }} />
+          <div className="bn-topbar-spacer" style={{ flex: 1 }} />
 
-          <span style={{ color: 'var(--tx3)', fontSize: 14 }}>right-click to add</span>
+          <span className="bn-top-hint" style={{ color: 'var(--tx3)', fontSize: 14 }}>right-click to add</span>
 
           <select
             className="bn-top-select"
@@ -1177,7 +1177,7 @@ export default function App() {
             Clear
           </button>
 
-          <span style={{
+          <span className="bn-backend-status" style={{
             padding: '3px 10px',
             borderRadius: 20,
             background: serverOk ? (isDark ? '#0d2a1a' : '#dcfce7') : (isDark ? '#2a0d0d' : '#fee2e2'),
@@ -1194,7 +1194,10 @@ export default function App() {
               ? 'Backend connected'
               : `Backend disconnected${serverError ? `: ${serverError}` : ''}`}
           >
-            {serverOk ? '● backend' : `○ backend offline${serverError ? ': ' + serverError : ''}`}
+            <span>{serverOk ? '●' : '○'}</span>
+            <span className="bn-backend-label">
+              {serverOk ? 'backend' : `backend offline${serverError ? ': ' + serverError : ''}`}
+            </span>
           </span>
         </div>
 

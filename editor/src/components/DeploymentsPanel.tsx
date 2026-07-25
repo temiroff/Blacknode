@@ -15,6 +15,7 @@ import {
 import { useStore } from '../store'
 
 const REFRESH_INTERVAL_MS = 3000
+const DEFAULT_DEPLOYMENT_NAME = 'Deployed graph'
 const ROBOT_NODE_TYPES = new Set(['Robot', 'RobotProfileLoad'])
 const JOINT_MOTION_NODE_TYPES = new Set([
   'ROS2SetJoint',
@@ -30,6 +31,13 @@ const JOINT_MOTION_NODE_TYPES = new Set([
 
 function normalizedHardwareIdentity(value: unknown): string {
   return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function deploymentNameFromTab(name: string | undefined): string {
+  const cleanName = name?.trim() ?? ''
+  return !cleanName || cleanName.toLocaleLowerCase() === 'untitled'
+    ? DEFAULT_DEPLOYMENT_NAME
+    : cleanName
 }
 
 function deviceForHardwareIdentity(
@@ -96,6 +104,8 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
   const stopRuntimeServices = useStore(s => s.stopRuntimeServices)
   const tabs = useStore(s => s.tabs)
   const activeTabId = useStore(s => s.activeTabId)
+  const activeTab = tabs.find(tab => tab.id === activeTabId)
+  const activeDeploymentName = deploymentNameFromTab(activeTab?.name)
   const switchTab = useStore(s => s.switchTab)
   const workflowRevision = useStore(s => s.workflowRevision)
   const workflowMetadata = useStore(s => s.workflowMetadata)
@@ -183,6 +193,15 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
     const id = window.setInterval(refresh, REFRESH_INTERVAL_MS)
     return () => window.clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    setRemoteDeploymentName(activeDeploymentName)
+  }, [activeDeploymentName, activeTabId])
+
+  useEffect(() => {
+    setPreflight(null)
+    setRemoteNotice(null)
+  }, [activeTabId])
 
   useEffect(() => {
     let cancelled = false
@@ -372,9 +391,9 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
   }
 
   const handleDeploy = async (autostart: boolean) => {
-    const name = window.prompt('Name this deployment', 'Deployed graph')
+    const name = window.prompt('Name this deployment', activeDeploymentName)
     if (name === null) return
-    const finalName = name.trim() || 'Deployed graph'
+    const finalName = name.trim() || activeDeploymentName
     await act(async () => {
       // Only a running deployment competes for the hardware, so stop the
       // editor's live graph first in that case. Save-only just writes the
@@ -426,7 +445,7 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
         setTargetStatus(result.status)
       }
       setPreflight(result)
-      setRemoteDeploymentName(current => current.trim() || result.workflow.name)
+      setRemoteDeploymentName(current => current.trim() || activeDeploymentName)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -461,8 +480,9 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
     const name = (
       existing?.name
       || remoteDeploymentName.trim()
+      || activeDeploymentName
       || preflight.workflow.name
-      || 'Deployed graph'
+      || DEFAULT_DEPLOYMENT_NAME
     )
     setBusy(true)
     setRemoteAction(start ? 'send-run' : 'send')
@@ -856,7 +876,7 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
                   <input
                     value={remoteDeploymentName}
                     onChange={event => setRemoteDeploymentName(event.target.value)}
-                    placeholder={preflight.workflow.name || 'Deployed graph'}
+                    placeholder={activeDeploymentName}
                     disabled={busy}
                   />
                 </label>
@@ -911,7 +931,7 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
           Refresh
         </button>
       </div>
-      <div className="bn-runs-list">
+      <div className="bn-runs-list bn-card-list bn-remote-deployment-list">
         {selectedDeviceId && remoteDeployments.length === 0 && (
           <div className="bn-runs-empty">
             No deployment has been sent to this device. Check the setup, then choose

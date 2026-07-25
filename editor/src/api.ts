@@ -133,6 +133,7 @@ export interface HardwareDeviceStatus {
   positions?: Record<string, number>
   raw_positions?: Record<string, number>
   error?: string
+  notice?: string
   updated_at?: number
   calibration?: {
     name?: string

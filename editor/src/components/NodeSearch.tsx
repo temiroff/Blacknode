@@ -97,8 +97,17 @@ export default function NodeSearch({
 
   const flatItems = grouped.flatMap(g => g.nodes)
 
-  const left = screenPos.x + 260 > window.innerWidth  ? screenPos.x - 260 : screenPos.x
-  const top  = screenPos.y + 420 > window.innerHeight ? screenPos.y - Math.min(420, screenPos.y) : screenPos.y
+  const viewportMargin = 8
+  const menuWidth = Math.min(260, Math.max(180, window.innerWidth - viewportMargin * 2))
+  const menuHeight = Math.min(420, Math.max(160, window.innerHeight - viewportMargin * 2))
+  const left = Math.max(
+    viewportMargin,
+    Math.min(screenPos.x, window.innerWidth - menuWidth - viewportMargin),
+  )
+  const top = Math.max(
+    viewportMargin,
+    Math.min(screenPos.y, window.innerHeight - menuHeight - viewportMargin),
+  )
 
   return (
     <>
@@ -112,7 +121,10 @@ export default function NodeSearch({
         style={{
           position: 'fixed',
           left, top,
-          width: 260,
+          width: menuWidth,
+          maxHeight: menuHeight,
+          display: 'flex',
+          flexDirection: 'column',
           background: 'var(--panel)',
           border: '1px solid var(--line2)',
           borderRadius: 10,
@@ -129,6 +141,7 @@ export default function NodeSearch({
           display: 'flex',
           alignItems: 'center',
           gap: 8,
+          flexShrink: 0,
         }}>
           <span style={{ color: 'var(--tx3)', fontSize: 16, flexShrink: 0 }}>⌕</span>
           {title && (
@@ -162,7 +175,7 @@ export default function NodeSearch({
         </div>
 
         {/* results */}
-        <div ref={listRef} style={{ maxHeight: 340, overflowY: 'auto' }}>
+        <div ref={listRef} style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
           {grouped.length === 0 && (
             <div style={{
               padding: '16px 14px',
@@ -229,9 +242,11 @@ export default function NodeSearch({
           padding: '7px 14px',
           borderTop: '1px solid var(--line)',
           display: 'flex',
+          flexWrap: 'wrap',
           gap: 14,
           color: 'var(--tx3)',
           fontSize: 13,
+          flexShrink: 0,
         }}>
           <span>↑↓ navigate</span>
           <span>↵ {actionLabel}</span>
