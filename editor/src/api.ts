@@ -95,17 +95,114 @@ export interface HardwareDevice {
   id: string
   name: string
   base_url: string
+  host_id?: string
   runtime_url: string
   remote_device_id: string
   token_fingerprint: string
   runtime_token_fingerprint?: string
   runtime_token_configured?: boolean
+  paused?: boolean
   created_at: string
   updated_at: string
 }
 
+export interface ComputeDevice {
+  id: string
+  name: string
+  runtime_url: string
+  runtime_token_fingerprint: string
+  remote_device_id?: string
+  paused?: boolean
+  created_at: string
+  updated_at: string
+  robots: HardwareDevice[]
+  managed_runtime?: {
+    ssh_host: string
+    ssh_port: number
+    ssh_username: string
+    host_fingerprint: string
+    instance_id: string
+    runtime_port: number
+    service_name: string
+    runtime_dir: string
+  }
+}
+
+export interface SshDeviceProbe {
+  ok: boolean
+  host_fingerprint: string
+  os: string
+  architecture: string
+  hostname: string
+}
+
+export interface SshRuntimeInstance {
+  instance_id: string
+  runtime_dir: string
+  service_name: string
+  port: number
+  repository: boolean
+  configured: boolean
+  service_installed: boolean
+  running: boolean
+  healthy: boolean
+  token_available: boolean
+  runtime_version: string
+  device_id: string
+  error: string
+}
+
+export interface SshHostEnvironment {
+  policy: 'preserve'
+  os: {
+    name: string
+    version: string
+    architecture: string
+  }
+  python: {
+    version: string
+    executable: string
+  }
+  nvidia: {
+    available: boolean
+    gpus: string[]
+    driver_version: string
+    driver_cuda_version: string
+    cuda_toolkit_version: string
+    nvidia_smi: boolean
+    nvcc: boolean
+    preserved: boolean
+  }
+  ros2: {
+    available: boolean
+    distributions: string[]
+    selected_distribution: string
+    ros2_on_path: boolean
+    preserved: boolean
+  }
+  docker: {
+    available: boolean
+    client_version: string
+    server_version: string
+    daemon_running: boolean
+    service_enabled: boolean
+    preserved: boolean
+  }
+  runtime_setup_packages: string[]
+}
+
+export interface SshRuntimeInspection {
+  ok: boolean
+  host_fingerprint: string
+  instances: SshRuntimeInstance[]
+  environment: SshHostEnvironment
+  suggested_port: number
+  suggested_instance_id: string
+}
+
 export interface DeviceRuntimeStatus {
   ok: boolean
+  paused?: boolean
   runtime_url: string
   manifest?: {
     service?: string
@@ -121,8 +218,10 @@ export interface HardwareDeviceStatus {
   device_id: string
   connected: boolean
   armed: boolean
+  torque_enabled?: boolean
   calibrated?: boolean
   leased_to_deployment?: boolean
+  paused?: boolean
   deployment_lease?: {
     id: string
     name: string
@@ -142,6 +241,51 @@ export interface HardwareDeviceStatus {
     activated_at?: string
     joint_count?: number
     digest?: string
+  }
+}
+
+export interface DeviceInstallProgress {
+  progress: number
+  message: string
+}
+
+export type DeviceActionProgress = DeviceInstallProgress
+
+export interface ComputeDeviceLifecycleResult {
+  ok: boolean
+  action: 'pause' | 'resume'
+  device: ComputeDevice
+  stopped_deployments: string[]
+  controlled_robots: string[]
+  warnings: string[]
+  summary: string
+}
+
+export interface RobotLifecycleResult {
+  ok: boolean
+  action: 'pause' | 'resume' | 'restart'
+  status: HardwareDeviceStatus
+  service?: {
+    service_name: string
+    hardware_port: number
+    state: string
+  }
+  warnings: string[]
+  summary: string
+}
+
+export interface InstallComputeDeviceResult {
+  device: ComputeDevice
+  runtime: DeviceRuntimeStatus
+  install: {
+    ok: boolean
+    host_fingerprint: string
+    elapsed_seconds: number
+    action: string
+    instance_id: string
+    runtime_port: number
+    service_name: string
+    runtime_dir: string
   }
 }
 
@@ -165,11 +309,37 @@ export interface ProjectWorkflow {
     profile_id?: string
     hardware_id?: string
   } | null
+  starter_kit?: 'robot_learning' | null
+  starter_stage?: 'collect' | 'train' | 'simulate' | null
+  source_template?: string | null
 }
 
 export interface ProjectDevice extends Partial<HardwareDevice> {
   id: string
   name: string
+  exists: boolean
+}
+
+export type ProjectArtifactType =
+  | 'dataset'
+  | 'training_run'
+  | 'checkpoint'
+  | 'policy'
+  | 'simulation_run'
+  | 'evaluation'
+
+export interface ProjectArtifact {
+  id: string
+  artifact_type: ProjectArtifactType
+  kind: string
+  provider: string
+  name: string
+  locator: string
+  status: 'available' | 'running' | 'completed' | 'failed'
+  workflow_slugs?: string[]
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
   exists: boolean
 }
 
@@ -179,11 +349,14 @@ export interface Project {
   description: string
   workflow_slugs: string[]
   device_ids: string[]
+  artifact_ids: string[]
+  starter_kit: 'robot_learning' | null
   active_workflow_slug: string | null
   created_at: string
   updated_at: string
   workflows: ProjectWorkflow[]
   devices: ProjectDevice[]
+  artifacts: ProjectArtifact[]
 }
 
 export interface GraphSnapshot {
@@ -559,6 +732,112 @@ async function streamCook(
   if (buffer.trim()) onEvent(parseCookEventLine(buffer, label))
 }
 
+async function streamDeviceInstall(
+  body: unknown,
+  onProgress: (progress: DeviceInstallProgress) => void,
+): Promise<InstallComputeDeviceResult> {
+  const path = '/device-hosts/install-stream'
+  const res = await fetchBackend(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) await responseJson<never>(res, path)
+  if (!res.body) throw new Error('The device installer returned no progress stream.')
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let result: InstallComputeDeviceResult | null = null
+
+  const consume = (line: string) => {
+    if (!line.trim()) return
+    const event = JSON.parse(line) as {
+      type: 'progress' | 'done' | 'error'
+      progress?: number
+      message?: string
+      error?: string
+      result?: InstallComputeDeviceResult
+    }
+    if (event.type === 'progress') {
+      onProgress({
+        progress: Math.max(0, Math.min(100, Number(event.progress) || 0)),
+        message: String(event.message || 'Installing Blacknode Runtime'),
+      })
+    } else if (event.type === 'error') {
+      throw new Error(event.error || 'Device installation failed.')
+    } else if (event.type === 'done' && event.result) {
+      result = event.result
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    lines.forEach(consume)
+  }
+  buffer += decoder.decode()
+  if (buffer.trim()) consume(buffer)
+  if (!result) throw new Error('The device installation ended before pairing completed.')
+  return result
+}
+
+async function streamDeviceAction<T>(
+  path: string,
+  body: unknown,
+  onProgress: (progress: DeviceActionProgress) => void,
+): Promise<T> {
+  const res = await fetchBackend(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) await responseJson<never>(res, path)
+  if (!res.body) throw new Error('The lifecycle action returned no progress stream.')
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let result: T | null = null
+
+  const consume = (line: string) => {
+    if (!line.trim()) return
+    const event = JSON.parse(line) as {
+      type: 'progress' | 'done' | 'error'
+      progress?: number
+      message?: string
+      error?: string
+      result?: T
+    }
+    if (event.type === 'progress') {
+      onProgress({
+        progress: Math.max(0, Math.min(100, Number(event.progress) || 0)),
+        message: String(event.message || 'Applying lifecycle action'),
+      })
+    } else if (event.type === 'error') {
+      throw new Error(event.error || 'Lifecycle action failed.')
+    } else if (event.type === 'done' && event.result) {
+      result = event.result
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    lines.forEach(consume)
+  }
+  buffer += decoder.decode()
+  if (buffer.trim()) consume(buffer)
+  if (!result) throw new Error('The lifecycle action ended before it completed.')
+  return result
+}
+
 export const api = {
   nodeTypes: ()                              => req<string[]>('GET', '/node-types'),
   nodeDefs:  ()                              => req<Record<string, BnNodeDef>>('GET', '/node-defs'),
@@ -678,6 +957,115 @@ export const api = {
   getApiKeyStatus:  () => req<Record<string, ApiKeyStatus>>('GET', '/settings/api-key-status'),
   setApiKey:        (provider: string, key: string) =>
     req<{ ok: boolean; restarted?: string | null; credential?: ApiKeyStatus }>('POST', '/settings/api-key', { provider, key }),
+  listComputeDevices: () =>
+    req<{ devices: ComputeDevice[] }>('GET', '/device-hosts'),
+  pairComputeDevice: (name: string, runtimeUrl: string, runtimeToken: string) =>
+    req<{ device: ComputeDevice; runtime: DeviceRuntimeStatus }>(
+      'POST',
+      '/device-hosts',
+      { name, runtime_url: runtimeUrl, runtime_token: runtimeToken },
+      10000,
+    ),
+  probeComputeDeviceSsh: (
+    host: string,
+    port: number,
+  ) =>
+    req<SshDeviceProbe>(
+      'POST',
+      '/device-hosts/ssh-probe',
+      { host, port },
+      20000,
+    ),
+  inspectComputeDeviceSsh: (
+    host: string,
+    port: number,
+    username: string,
+    password: string,
+    hostFingerprint: string,
+  ) =>
+    req<SshRuntimeInspection>(
+      'POST',
+      '/device-hosts/inspect',
+      {
+        host,
+        port,
+        username,
+        password,
+        host_fingerprint: hostFingerprint,
+      },
+      60000,
+    ),
+  installComputeDevice: (
+    name: string,
+    host: string,
+    port: number,
+    username: string,
+    password: string,
+    hostFingerprint: string,
+    action: 'install' | 'reuse' | 'replace' | 'side_by_side',
+    instanceId: string,
+    onProgress: (progress: DeviceInstallProgress) => void = () => {},
+  ) =>
+    streamDeviceInstall(
+      {
+        name,
+        host,
+        port,
+        username,
+        password,
+        host_fingerprint: hostFingerprint,
+        action,
+        instance_id: instanceId,
+      },
+      onProgress,
+    ),
+  computeDeviceRuntimeStatus: (id: string) =>
+    req<DeviceRuntimeStatus>(
+      'GET',
+      `/device-hosts/${encodeURIComponent(id)}/runtime-status`,
+      undefined,
+      7000,
+    ),
+  pairRobot: (hostId: string, name: string, baseUrl: string, token: string) =>
+    req<{
+      robot: HardwareDevice
+      status: HardwareDeviceStatus
+      runtime: DeviceRuntimeStatus
+    }>(
+      'POST',
+      `/device-hosts/${encodeURIComponent(hostId)}/robots`,
+      { name, base_url: baseUrl, token },
+      10000,
+    ),
+  renameComputeDevice: (id: string, name: string) =>
+    req<{ device: ComputeDevice }>(
+      'PATCH',
+      `/device-hosts/${encodeURIComponent(id)}`,
+      { name },
+    ),
+  deleteComputeDevice: (id: string) =>
+    req<{ ok: boolean; id: string }>(
+      'DELETE',
+      `/device-hosts/${encodeURIComponent(id)}`,
+    ),
+  uninstallComputeDevice: (id: string, password: string) =>
+    req<{ ok: boolean; id: string; uninstall: { instance_id: string; runtime_port: number } }>(
+      'POST',
+      `/device-hosts/${encodeURIComponent(id)}/uninstall`,
+      { password },
+      180000,
+    ),
+  controlComputeDevice: (
+    id: string,
+    action: 'pause' | 'resume',
+    password: string,
+    onProgress: (progress: DeviceActionProgress) => void,
+  ) =>
+    streamDeviceAction<ComputeDeviceLifecycleResult>(
+      `/device-hosts/${encodeURIComponent(id)}/lifecycle-stream`,
+      { action, password },
+      onProgress,
+    ),
   listDevices:      () => req<{ devices: HardwareDevice[] }>('GET', '/devices'),
   pairDevice:       (name: string, baseUrl: string, token: string, runtimeToken = '') =>
     req<{
@@ -698,6 +1086,17 @@ export const api = {
     ),
   deviceStatus:     (id: string) =>
     req<HardwareDeviceStatus>('GET', `/devices/${encodeURIComponent(id)}/status`, undefined, 7000),
+  controlRobot: (
+    id: string,
+    action: 'pause' | 'resume' | 'restart',
+    onProgress: (progress: DeviceActionProgress) => void,
+    password = '',
+  ) =>
+    streamDeviceAction<RobotLifecycleResult>(
+      `/devices/${encodeURIComponent(id)}/lifecycle-stream`,
+      { action, password },
+      onProgress,
+    ),
   deviceRuntimeStatus: (id: string) =>
     req<DeviceRuntimeStatus>(
       'GET',
@@ -830,6 +1229,8 @@ export const api = {
     description?: string
     workflow_slugs?: string[]
     device_ids?: string[]
+    artifact_ids?: string[]
+    starter_kit?: 'robot_learning' | null
     active_workflow_slug?: string | null
   }) =>
     req<Project>('POST', '/projects', payload),
@@ -837,12 +1238,46 @@ export const api = {
     projectId: string,
     payload: Partial<Pick<
       Project,
-      'name' | 'description' | 'workflow_slugs' | 'device_ids' | 'active_workflow_slug'
+      'name' | 'description' | 'workflow_slugs' | 'device_ids' | 'artifact_ids' | 'starter_kit' | 'active_workflow_slug'
     >>,
   ) =>
     req<Project>('PATCH', `/projects/${encodeURIComponent(projectId)}`, payload),
   deleteProject: (projectId: string) =>
     req<{ ok: boolean }>('DELETE', `/projects/${encodeURIComponent(projectId)}`),
+  importProjectArtifacts: (
+    projectId: string,
+    payload: {
+      workflow_slug?: string | null
+      node_type?: string
+      value: unknown
+    },
+  ) =>
+    req<{ artifacts: ProjectArtifact[]; project: Project }>(
+      'POST',
+      `/projects/${encodeURIComponent(projectId)}/artifacts/import`,
+      payload,
+    ),
+  inspectProjectArtifact: (
+    projectId: string,
+    payload: { path: string; workflow_slug?: string | null },
+  ) =>
+    req<{ artifacts: ProjectArtifact[]; project: Project }>(
+      'POST',
+      `/projects/${encodeURIComponent(projectId)}/artifacts/inspect`,
+      payload,
+    ),
+  createProjectStarterWorkflow: (
+    projectId: string,
+    stage: 'collect' | 'train' | 'simulate',
+  ) =>
+    req<{
+      created: boolean
+      workflow: ProjectWorkflow
+      project: Project
+    }>(
+      'POST',
+      `/projects/${encodeURIComponent(projectId)}/starter-workflows/${stage}`,
+    ),
 
   listTemplates: () =>
     req<TemplateMeta[]>('GET', '/templates'),

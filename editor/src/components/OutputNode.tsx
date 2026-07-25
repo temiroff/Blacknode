@@ -163,7 +163,7 @@ function OutputNode({ id, data, selected }: NodeProps<NodeData>) {
         {liveInput && (
           <span
             title="This output is receiving values from a live upstream node"
-            style={{ marginLeft: 'auto', marginRight: 8, color: '#dcfce7', fontSize: 12, fontWeight: 800, fontFamily: 'var(--font-ui)' }}
+            style={{ marginLeft: 'auto', marginRight: 8, color: 'var(--ok)', fontSize: 12, fontWeight: 800, fontFamily: 'var(--font-ui)' }}
           >
             ● LIVE
           </span>

@@ -10,24 +10,24 @@ type FrameCallbackVideo = HTMLVideoElement & {
 
 const panel: React.CSSProperties = {
   margin: '7px 9px 3px', padding: 10, borderRadius: 8,
-  border: '1px solid var(--line)', background: 'rgba(255,255,255,.02)',
+  border: '1px solid var(--line)', background: 'var(--lift)',
   fontFamily: 'var(--font-ui)',
 }
 
 const button = (disabled = false): React.CSSProperties => ({
   border: '1px solid var(--line)', borderRadius: 5, padding: '4px 9px',
-  background: disabled ? 'rgba(255,255,255,.03)' : 'rgba(139,92,246,.18)',
+  background: disabled ? 'var(--hover)' : 'var(--menu-active)',
   color: disabled ? 'var(--tx3)' : 'var(--tx1)', cursor: disabled ? 'default' : 'pointer',
   fontSize: 12, fontWeight: 700,
 })
 
 const selectStyle: React.CSSProperties = {
   minWidth: 150, maxWidth: 260, padding: '4px 6px', borderRadius: 5,
-  border: '1px solid var(--line)', background: 'var(--bg2)', color: 'var(--tx1)', fontSize: 12,
-  colorScheme: 'dark',
+  border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--tx1)', fontSize: 12,
+  colorScheme: 'normal',
 }
 
-const optionStyle: React.CSSProperties = { background: '#0f172a', color: '#e2e8f0' }
+const optionStyle: React.CSSProperties = { background: 'var(--panel)', color: 'var(--tx1)' }
 
 export default function DatasetBrowserPanel({ id, data }: {
   id: string
@@ -243,8 +243,8 @@ export default function DatasetBrowserPanel({ id, data }: {
 
       {video ? (
         <>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap', padding: 7, borderRadius: 6, background: 'rgba(139,92,246,.09)', border: '1px solid rgba(139,92,246,.3)' }}>
-          <button style={{ ...button(false), minWidth: 76, background: playing ? 'rgba(245,158,11,.2)' : 'rgba(34,197,94,.2)' }} onClick={() => void toggleReplay()}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap', padding: 7, borderRadius: 6, background: 'var(--panel)', border: '1px solid var(--line2)' }}>
+          <button style={{ ...button(false), minWidth: 76, background: playing ? 'var(--warn-soft)' : 'var(--ok-soft)' }} onClick={() => void toggleReplay()}>
             {playing ? 'Ⅱ Pause' : '▶ Replay'}
           </button>
           <button style={button(false)} onClick={() => void restartReplay()}>↺ Restart</button>
@@ -264,19 +264,19 @@ export default function DatasetBrowserPanel({ id, data }: {
             <input type="checkbox" checked={loop} onChange={event => setLoop(event.target.checked)} /> Loop
           </label>
           <span style={{ display: 'flex', gap: 2, padding: 2, border: '1px solid var(--line)', borderRadius: 5 }}>
-            <button style={{ ...button(angleUnit !== 'radians'), padding: '2px 7px', background: angleUnit === 'radians' ? 'rgba(139,92,246,.3)' : 'transparent' }} onClick={() => setAngleUnit('radians')}>rad</button>
-            <button style={{ ...button(angleUnit !== 'degrees'), padding: '2px 7px', background: angleUnit === 'degrees' ? 'rgba(139,92,246,.3)' : 'transparent' }} onClick={() => setAngleUnit('degrees')}>deg</button>
+            <button style={{ ...button(angleUnit !== 'radians'), padding: '2px 7px', background: angleUnit === 'radians' ? 'var(--menu-active)' : 'transparent' }} onClick={() => setAngleUnit('radians')}>rad</button>
+            <button style={{ ...button(angleUnit !== 'degrees'), padding: '2px 7px', background: angleUnit === 'degrees' ? 'var(--menu-active)' : 'transparent' }} onClick={() => setAngleUnit('degrees')}>deg</button>
           </span>
           <span style={{ display: 'flex', gap: 4, paddingLeft: 5, borderLeft: '1px solid var(--line)' }}>
             <button disabled={Boolean(trimPending) || Number(frame?.frame_index ?? 0) <= 0}
               title="Keep the selected frame and delete every earlier synchronized frame"
-              style={{ ...button(Boolean(trimPending) || Number(frame?.frame_index ?? 0) <= 0), borderColor: 'rgba(239,68,68,.45)' }}
+              style={{ ...button(Boolean(trimPending) || Number(frame?.frame_index ?? 0) <= 0), borderColor: 'color-mix(in srgb, var(--err) 45%, var(--line))' }}
               onClick={() => void trimEpisode('before')}>
               {trimPending === 'before' ? 'Cutting…' : '✂ Cut before'}
             </button>
             <button disabled={Boolean(trimPending) || Number(frame?.frame_index ?? 0) >= totalFrames - 1}
               title="Keep the selected frame and delete every later synchronized frame"
-              style={{ ...button(Boolean(trimPending) || Number(frame?.frame_index ?? 0) >= totalFrames - 1), borderColor: 'rgba(239,68,68,.45)' }}
+              style={{ ...button(Boolean(trimPending) || Number(frame?.frame_index ?? 0) >= totalFrames - 1), borderColor: 'color-mix(in srgb, var(--err) 45%, var(--line))' }}
               onClick={() => void trimEpisode('after')}>
               {trimPending === 'after' ? 'Cutting…' : '✂ Cut after'}
             </button>
@@ -311,7 +311,7 @@ export default function DatasetBrowserPanel({ id, data }: {
             </div>
             <div style={{ maxHeight: 355, overflow: 'auto', marginTop: 7, border: '1px solid var(--line)', borderRadius: 6 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                <thead><tr style={{ color: 'var(--tx3)', position: 'sticky', top: 0, background: 'var(--bg2)' }}>
+                <thead><tr style={{ color: 'var(--tx3)', position: 'sticky', top: 0, background: 'var(--panel)' }}>
                   <th style={{ padding: 5, textAlign: 'left' }}>joint</th><th>leader</th><th>observed</th><th>action</th>
                 </tr></thead>
                 <tbody>{jointNames.map(name => <tr key={name} style={{ borderTop: '1px solid var(--line)', color: 'var(--tx2)' }}>

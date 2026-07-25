@@ -1224,7 +1224,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             onClick={e => { e.stopPropagation(); void onStartStream() }}
             style={{
               padding: '4px 10px', borderRadius: 5, border: '1px solid var(--ok)',
-              background: 'rgba(34,197,94,.18)',
+              background: 'rgba(61,220,151,.18)',
               color: streamStartPending ? 'var(--tx3)' : 'var(--tx1)',
               cursor: streamStartPending ? 'default' : 'pointer',
               fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 700, letterSpacing: 0,
@@ -1796,7 +1796,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               onClick={e => { e.stopPropagation(); void runManualMoveAction('hold') }}
               style={{
                 ...driverBtn('var(--ok)', Boolean(manualMovePending)),
-                background: holdSelected ? 'rgba(34,197,94,.22)' : 'transparent',
+                background: holdSelected ? 'rgba(61,220,151,.22)' : 'transparent',
               }}
             >
               {manualMovePending === 'hold' ? 'Holding…' : `${holdSelected ? '✓ ' : ''}Hold position`}

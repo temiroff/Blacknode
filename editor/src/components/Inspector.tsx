@@ -33,7 +33,7 @@ function driverFor(type: string): keyof typeof DRIVER_TOKENS | null {
   if (type.startsWith('Telegram')) return 'Telegram'
   return null
 }
-const TOP_BAR_H = 44
+const TOP_BAR_H = 52
 const RAIL_W = 78
 const PANEL_DEFAULT_W = 260
 const PANEL_MIN_W = 200
@@ -451,9 +451,9 @@ export default function Inspector() {
       return (
         <div style={{
           flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'var(--tx3)', fontSize: 15,
+          color: 'var(--tx3)', fontSize: 15, padding: 20, textAlign: 'center',
         }}>
-          Select a node
+          Select a node on the canvas to view and edit its properties.
         </div>
       )
     }
@@ -764,6 +764,8 @@ export default function Inspector() {
       {open && (
         <div style={{
           width: panelWidth,
+          height: `calc(100% - ${TOP_BAR_H}px)`,
+          marginTop: TOP_BAR_H,
           background: 'var(--panel)',
           borderLeft: '1px solid var(--line)',
           display: 'flex',
@@ -1333,7 +1335,7 @@ const NAMED_COLOR_HEX: Record<string, string> = {
   black: '#111827',
   blue: '#2563eb',
   cyan: '#06b6d4',
-  green: '#22c55e',
+  green: '#3ddc97',
   orange: '#f97316',
   pink: '#ec4899',
   purple: '#a855f7',

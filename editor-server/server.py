@@ -1,10 +1,10 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
 import uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib
-import urllib.error, urllib.request
+import urllib.error, urllib.parse, urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -53,7 +53,22 @@ from blacknode.workflow import WorkflowRunError, export_workflow_python
 from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
 
-from device_registry import DeviceRegistry, DeviceRegistryError, HardwareDeviceClient
+from device_installer import (
+    control_runtime,
+    DeviceInstallError,
+    inspect_runtime,
+    install_runtime,
+    probe_device,
+    restart_hardware_service,
+    uninstall_runtime,
+)
+from device_registry import (
+    DeviceRegistry,
+    DeviceRegistryError,
+    HardwareDeviceClient,
+    RuntimeDeviceClient,
+)
+from artifact_store import ArtifactStore, ArtifactStoreError
 from project_store import ProjectStore, ProjectStoreError
 from run_store import RunStore
 
@@ -115,6 +130,8 @@ _DEVICES_PATH = Path(__file__).resolve().parents[1] / ".blacknode" / "devices.js
 _device_registry = DeviceRegistry(_DEVICES_PATH)
 _PROJECTS_PATH = Path(__file__).resolve().parents[1] / ".blacknode" / "projects.json"
 _project_store = ProjectStore(_PROJECTS_PATH)
+_ARTIFACTS_PATH = Path(__file__).resolve().parents[1] / ".blacknode" / "artifacts.json"
+_artifact_store = ArtifactStore(_ARTIFACTS_PATH)
 _save_timer: threading.Timer | None = None
 _SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool", "VisualAgentLoop"}
 _TOOLBOX_NODE_TYPES = {"ToolBox"}
@@ -316,6 +333,8 @@ class CreateProjectReq(BaseModel):
     description: str = ""
     workflow_slugs: list[str] = []
     device_ids: list[str] = []
+    artifact_ids: list[str] = []
+    starter_kit: str | None = None
     active_workflow_slug: str | None = None
 
 class UpdateProjectReq(BaseModel):
@@ -323,7 +342,18 @@ class UpdateProjectReq(BaseModel):
     description: str | None = None
     workflow_slugs: list[str] | None = None
     device_ids: list[str] | None = None
+    artifact_ids: list[str] | None = None
+    starter_kit: str | None = None
     active_workflow_slug: str | None = None
+
+class ImportProjectArtifactsReq(BaseModel):
+    workflow_slug: str | None = None
+    node_type: str = ""
+    value: Any = None
+
+class InspectProjectArtifactReq(BaseModel):
+    path: str
+    workflow_slug: str | None = None
 
 class NewWorkflowTabReq(BaseModel):
     name: str = "Untitled"
@@ -379,6 +409,43 @@ class PairDeviceReq(BaseModel):
     base_url: str
     token: str
     runtime_token: str | None = None
+
+class PairDeviceHostReq(BaseModel):
+    name: str = ""
+    runtime_url: str
+    runtime_token: str
+
+class PairHostRobotReq(BaseModel):
+    name: str = ""
+    base_url: str
+    token: str
+
+class SshProbeReq(BaseModel):
+    host: str
+    port: int = 22
+
+class SshDeviceReq(SshProbeReq):
+    username: str
+    password: str
+
+class InspectDeviceHostReq(SshDeviceReq):
+    host_fingerprint: str
+
+class InstallDeviceHostReq(InspectDeviceHostReq):
+    name: str = ""
+    action: str = "install"
+    instance_id: str = ""
+
+class UninstallDeviceHostReq(BaseModel):
+    password: str
+
+class RuntimeLifecycleReq(BaseModel):
+    action: str
+    password: str
+
+class RobotLifecycleReq(BaseModel):
+    action: str
+    password: str = ""
 
 class RenameDeviceReq(BaseModel):
     name: str
@@ -2829,6 +2896,647 @@ def _paired_device_client(device_id: str) -> HardwareDeviceClient:
         raise HTTPException(500, str(exc)) from exc
 
 
+def _device_host_runtime_status(host_id: str) -> dict[str, Any]:
+    try:
+        host = _device_registry.get_host_public(host_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if host is None:
+        raise HTTPException(404, "Device not found")
+    if host.get("paused"):
+        return {
+            "ok": False,
+            "paused": True,
+            "runtime_url": host["runtime_url"],
+            "error": "Runtime is paused.",
+        }
+    try:
+        manifest = _device_registry.host_client(host_id).manifest()
+        if (
+            manifest.get("service") != "blacknode-runtime"
+            or manifest.get("protocol_version") != 1
+        ):
+            raise DeviceRegistryError(
+                "Runtime service identity or protocol is incompatible."
+            )
+    except (DeviceRegistryError, KeyError) as exc:
+        return {
+            "ok": False,
+            "runtime_url": host["runtime_url"],
+            "error": str(exc),
+        }
+    return {
+        "ok": True,
+        "runtime_url": host["runtime_url"],
+        "manifest": manifest,
+    }
+
+
+@app.get("/device-hosts")
+def list_device_hosts():
+    try:
+        return {"devices": _device_registry.list_hosts()}
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+@app.post("/device-hosts")
+def pair_device_host(req: PairDeviceHostReq):
+    try:
+        client = RuntimeDeviceClient(req.runtime_url, req.runtime_token)
+        manifest = client.manifest()
+        host = _device_registry.pair_host(
+            name=req.name,
+            runtime_url=client.base_url,
+            runtime_token=req.runtime_token,
+            manifest=manifest,
+        )
+    except DeviceRegistryError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "device": host,
+        "runtime": _device_host_runtime_status(host["id"]),
+    }
+
+
+@app.post("/device-hosts/ssh-probe")
+def probe_device_host_ssh(req: SshProbeReq):
+    try:
+        return probe_device(
+            host=req.host,
+            port=req.port,
+        )
+    except DeviceInstallError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/device-hosts/inspect")
+def inspect_device_host(req: InspectDeviceHostReq):
+    try:
+        return inspect_runtime(
+            host=req.host,
+            port=req.port,
+            username=req.username,
+            password=req.password,
+            host_fingerprint=req.host_fingerprint,
+        )
+    except DeviceInstallError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def _install_device_host_payload(
+    req: InstallDeviceHostReq,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    installed = install_runtime(
+        host=req.host,
+        port=req.port,
+        username=req.username,
+        password=req.password,
+        host_fingerprint=req.host_fingerprint,
+        action=req.action,
+        instance_id=req.instance_id,
+        progress=progress,
+    )
+    host_name = str(req.host or "").strip()
+    runtime_host = f"[{host_name}]" if ":" in host_name else host_name
+    runtime_port = int(installed["runtime_port"])
+    runtime_url = f"http://{runtime_host}:{runtime_port}"
+    runtime_token = str(installed["runtime_token"])
+    if progress is not None:
+        progress({"progress": 98, "message": "Pairing the installed runtime"})
+    client = RuntimeDeviceClient(runtime_url, runtime_token)
+    manifest = client.manifest()
+    host = _device_registry.pair_host(
+        name=req.name,
+        runtime_url=runtime_url,
+        runtime_token=runtime_token,
+        manifest=manifest,
+        managed_runtime={
+            "ssh_host": host_name,
+            "ssh_port": req.port,
+            "ssh_username": req.username,
+            "host_fingerprint": installed["host_fingerprint"],
+            "instance_id": installed["instance_id"],
+            "runtime_port": runtime_port,
+            "service_name": installed["service_name"],
+            "runtime_dir": installed["runtime_dir"],
+        },
+    )
+    if progress is not None:
+        progress({"progress": 100, "message": "Device is ready"})
+    return {
+        "device": host,
+        "runtime": {
+            "ok": True,
+            "runtime_url": runtime_url,
+            "manifest": manifest,
+        },
+        "install": {
+            key: value
+            for key, value in installed.items()
+            if key != "runtime_token"
+        },
+    }
+
+
+@app.post("/device-hosts/install")
+def install_device_host(req: InstallDeviceHostReq):
+    try:
+        return _install_device_host_payload(req)
+    except (DeviceInstallError, DeviceRegistryError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/device-hosts/install-stream")
+def install_device_host_stream(req: InstallDeviceHostReq):
+    def event_stream():
+        events: queue.Queue[dict[str, Any]] = queue.Queue()
+
+        def worker() -> None:
+            try:
+                result = _install_device_host_payload(req, progress=events.put)
+                events.put({"type": "done", "result": result})
+            except (DeviceInstallError, DeviceRegistryError) as exc:
+                events.put({"type": "error", "error": str(exc)})
+            except Exception as exc:
+                events.put({
+                    "type": "error",
+                    "error": f"Device installation failed: {exc}",
+                })
+
+        threading.Thread(
+            target=worker,
+            name="blacknode-device-install",
+            daemon=True,
+        ).start()
+        while True:
+            event = events.get()
+            if "type" not in event:
+                event = {"type": "progress", **event}
+            yield json.dumps(event, separators=(",", ":")) + "\n"
+            if event.get("type") in {"done", "error"}:
+                break
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+
+
+@app.get("/device-hosts/{host_id}/runtime-status")
+def get_device_host_runtime_status(host_id: str):
+    return _device_host_runtime_status(host_id)
+
+
+def _raise_rpc_error(result: dict[str, Any], *, action: str) -> None:
+    error = result.get("error") if isinstance(result, dict) else None
+    if not error:
+        return
+    message = (
+        str(error.get("message") or error)
+        if isinstance(error, dict)
+        else str(error)
+    )
+    raise DeviceRegistryError(f"Could not {action} robot: {message}")
+
+
+@app.post("/device-hosts/{host_id}/lifecycle")
+def control_device_host_lifecycle(host_id: str, req: RuntimeLifecycleReq):
+    try:
+        return _control_device_host_lifecycle_payload(host_id, req)
+    except DeviceInstallError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except (DeviceRegistryError, KeyError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+def _control_device_host_lifecycle_payload(
+    host_id: str,
+    req: RuntimeLifecycleReq,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    def report(percent: int, message: str) -> None:
+        if progress is not None:
+            progress({
+                "progress": max(0, min(100, int(percent))),
+                "message": str(message),
+            })
+
+    action = str(req.action or "").strip().lower()
+    if action not in {"pause", "resume"}:
+        raise HTTPException(400, "Device action must be pause or resume.")
+    report(5, "Checking the managed device")
+    try:
+        host = _device_registry.get_host_public(host_id)
+    except DeviceRegistryError as exc:
+        raise DeviceRegistryError(str(exc)) from exc
+    if host is None:
+        raise HTTPException(404, "Device not found")
+    managed = host.get("managed_runtime")
+    if not isinstance(managed, dict):
+        raise HTTPException(
+            409,
+            "This runtime was paired manually. Pause or resume its service on the "
+            "device with ./service.sh stop or ./service.sh start.",
+        )
+
+    stopped_deployments: list[str] = []
+    controlled_robots: list[str] = []
+    warnings: list[str] = []
+    if action == "pause":
+        report(15, f"Stopping deployments through {host['runtime_url']}")
+        try:
+            deployments = _device_registry.host_client(host_id).list_deployments()
+            for deployment in deployments.get("deployments") or []:
+                if (
+                    isinstance(deployment, dict)
+                    and str(deployment.get("state") or "") == "running"
+                ):
+                    deployment_id = str(deployment.get("id") or "")
+                    if deployment_id:
+                        _device_registry.host_client(host_id).stop_deployment(
+                            deployment_id
+                        )
+                        stopped_deployments.append(deployment_id)
+        except (DeviceRegistryError, KeyError) as exc:
+            warnings.append(
+                f"Deployment runtime {host['runtime_url']} could not be reached: {exc}"
+            )
+        robots = list(host.get("robots") or [])
+        for index, robot in enumerate(robots):
+            robot_id = str(robot.get("id") or "")
+            if not robot_id:
+                continue
+            report(
+                30 + int(30 * (index + 1) / max(1, len(robots))),
+                f"Stopping and disarming {robot.get('name') or robot_id}",
+            )
+            try:
+                result = _paired_device_client(robot_id).rpc({
+                    "jsonrpc": "2.0",
+                    "id": f"device-pause-{robot_id}",
+                    "method": "stop",
+                    "params": {},
+                })
+                _raise_rpc_error(result, action="pause")
+                _device_registry.set_device_paused(robot_id, True)
+                controlled_robots.append(robot_id)
+            except (DeviceRegistryError, HTTPException, KeyError) as exc:
+                detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+                warnings.append(
+                    f"Robot {robot.get('name') or robot_id} could not be stopped: {detail}"
+                )
+
+    report(70, f"{'Stopping' if action == 'pause' else 'Starting'} the runtime service")
+    runtime = control_runtime(
+        host=str(managed.get("ssh_host") or ""),
+        port=int(managed.get("ssh_port") or 22),
+        username=str(managed.get("ssh_username") or ""),
+        password=req.password,
+        host_fingerprint=str(managed.get("host_fingerprint") or ""),
+        instance_id=str(managed.get("instance_id") or "default"),
+        action=action,
+    )
+
+    if action == "resume":
+        robots = list(host.get("robots") or [])
+        for index, robot in enumerate(robots):
+            robot_id = str(robot.get("id") or "")
+            if not robot_id:
+                continue
+            report(
+                78 + int(17 * (index + 1) / max(1, len(robots))),
+                f"Reconnecting {robot.get('name') or robot_id} in a disarmed state",
+            )
+            try:
+                result = _paired_device_client(robot_id).rpc({
+                    "jsonrpc": "2.0",
+                    "id": f"device-resume-{robot_id}",
+                    "method": "resume",
+                    "params": {},
+                })
+                _raise_rpc_error(result, action="resume")
+                _device_registry.set_device_paused(robot_id, False)
+                controlled_robots.append(robot_id)
+            except (DeviceRegistryError, HTTPException, KeyError) as exc:
+                detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+                warnings.append(
+                    f"Robot {robot.get('name') or robot_id} did not reconnect: {detail}"
+                )
+
+    device = _device_registry.set_host_paused(host_id, action == "pause")
+    summary = (
+        "Device paused; its runtime is stopped and reachable robot endpoints accepted the stop request."
+        if action == "pause"
+        else "Device resumed; its runtime and robot monitoring were restored. Robots remain disarmed."
+    )
+    if warnings:
+        summary += (
+            f" Completed with {len(warnings)} warning{'s' if len(warnings) != 1 else ''}; "
+            "verify the listed robot and physical torque state."
+        )
+    report(100, summary)
+    return {
+        "ok": True,
+        "action": action,
+        "runtime": runtime,
+        "device": device,
+        "stopped_deployments": stopped_deployments,
+        "controlled_robots": controlled_robots,
+        "warnings": warnings,
+        "summary": summary,
+    }
+
+
+def _lifecycle_stream(worker: Callable[[Callable[[dict[str, Any]], None]], dict[str, Any]]):
+    def event_stream():
+        events: queue.Queue[dict[str, Any]] = queue.Queue()
+
+        def run() -> None:
+            try:
+                events.put({"progress": 1, "message": "Starting lifecycle action"})
+                events.put({"type": "done", "result": worker(events.put)})
+            except HTTPException as exc:
+                events.put({"type": "error", "error": str(exc.detail)})
+            except (DeviceInstallError, DeviceRegistryError, KeyError) as exc:
+                events.put({"type": "error", "error": str(exc)})
+            except Exception as exc:
+                events.put({"type": "error", "error": f"Lifecycle action failed: {exc}"})
+
+        threading.Thread(
+            target=run,
+            name="blacknode-device-lifecycle",
+            daemon=True,
+        ).start()
+        while True:
+            event = events.get()
+            if "type" not in event:
+                event = {"type": "progress", **event}
+            yield json.dumps(event, separators=(",", ":")) + "\n"
+            if event.get("type") in {"done", "error"}:
+                break
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+
+
+@app.post("/device-hosts/{host_id}/lifecycle-stream")
+def stream_device_host_lifecycle(host_id: str, req: RuntimeLifecycleReq):
+    return _lifecycle_stream(
+        lambda progress: _control_device_host_lifecycle_payload(host_id, req, progress)
+    )
+
+
+def _control_robot_lifecycle_payload(
+    device_id: str,
+    req: RobotLifecycleReq,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    def report(percent: int, message: str) -> None:
+        if progress is not None:
+            progress({
+                "progress": max(0, min(100, int(percent))),
+                "message": str(message),
+            })
+
+    action = str(req.action or "").strip().lower()
+    if action not in {"pause", "resume", "restart"}:
+        raise HTTPException(400, "Robot action must be pause, resume, or restart.")
+    report(5, "Checking the robot")
+    saved_device = _device_registry.get_public(device_id)
+    if saved_device is None:
+        raise HTTPException(404, "Device not found")
+
+    warnings: list[str] = []
+    if action == "restart":
+        if not str(req.password or ""):
+            raise HTTPException(400, "Enter the SSH password to restart this robot service.")
+        status = _deployment_aware_device_status(device_id)
+        if status.get("deployment_lease") or status.get("leased_to_deployment"):
+            raise HTTPException(
+                409,
+                "Stop the robot's active deployment before restarting its hardware service.",
+            )
+        if status.get("armed"):
+            raise HTTPException(
+                409,
+                "Pause and disarm the robot before restarting its hardware service.",
+            )
+        host_id = str(saved_device.get("host_id") or "")
+        host = _device_registry.get_host_public(host_id) if host_id else None
+        managed = host.get("managed_runtime") if isinstance(host, dict) else None
+        if not isinstance(managed, dict):
+            raise HTTPException(
+                409,
+                "This robot's compute device was paired manually. Restart its "
+                "blacknode-hardware service on the device.",
+            )
+        try:
+            hardware_port = urllib.parse.urlsplit(
+                str(saved_device.get("base_url") or "")
+            ).port
+        except ValueError as exc:
+            raise HTTPException(409, "The saved robot hardware URL has an invalid port.") from exc
+        if not hardware_port:
+            raise HTTPException(409, "The saved robot hardware URL has no service port.")
+
+        report(35, f"Resolving the hardware service on port {hardware_port}")
+        service = restart_hardware_service(
+            host=str(managed.get("ssh_host") or ""),
+            port=int(managed.get("ssh_port") or 22),
+            username=str(managed.get("ssh_username") or ""),
+            password=req.password,
+            host_fingerprint=str(managed.get("host_fingerprint") or ""),
+            hardware_port=hardware_port,
+        )
+        report(75, "Verifying the authenticated robot after restart")
+        verified_status: dict[str, Any] | None = None
+        last_error = ""
+        for _attempt in range(30):
+            try:
+                candidate = _paired_device_client(device_id).status()
+                expected_id = str(saved_device.get("remote_device_id") or "")
+                actual_id = str(candidate.get("device_id") or "")
+                if expected_id and actual_id != expected_id:
+                    raise DeviceRegistryError(
+                        f"port {hardware_port} returned robot '{actual_id}', expected '{expected_id}'"
+                    )
+                verified_status = candidate
+                break
+            except (DeviceRegistryError, HTTPException) as exc:
+                last_error = exc.detail if isinstance(exc, HTTPException) else str(exc)
+                time.sleep(0.25)
+        if verified_status is None:
+            raise DeviceRegistryError(
+                f"{service['service_name']} restarted, but the robot did not return: {last_error}"
+            )
+        if verified_status.get("armed"):
+            result = _paired_device_client(device_id).rpc({
+                "jsonrpc": "2.0",
+                "id": f"robot-restart-stop-{device_id}",
+                "method": "stop",
+                "params": {},
+            })
+            _raise_rpc_error(result, action="disarm restarted")
+            verified_status = _paired_device_client(device_id).status()
+        if verified_status.get("armed"):
+            raise DeviceRegistryError(
+                "The restarted robot service did not return to a disarmed state."
+            )
+        if not verified_status.get("connected"):
+            warnings.append(
+                "The service restarted, but the hardware provider reports disconnected."
+            )
+        _device_registry.set_device_paused(device_id, False)
+        verified_status["paused"] = False
+        summary = (
+            f"Restarted {service['service_name']} for hardware port {hardware_port}; "
+            "robot monitoring is online and motion remains disarmed."
+        )
+        if warnings:
+            summary += f" Completed with {len(warnings)} warning."
+        report(100, summary)
+        return {
+            "ok": True,
+            "action": action,
+            "status": verified_status,
+            "service": service,
+            "warnings": warnings,
+            "summary": summary,
+        }
+
+    if action == "pause":
+        report(20, "Checking for an active deployment")
+        try:
+            status = _deployment_aware_device_status(device_id)
+            lease = status.get("deployment_lease")
+            if isinstance(lease, dict) and lease.get("id"):
+                _runtime_client_or_404(device_id).stop_deployment(str(lease["id"]))
+        except (DeviceRegistryError, HTTPException, KeyError) as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            warnings.append(
+                "The deployment runtime at "
+                f"{saved_device.get('runtime_url') or 'the saved runtime URL'} could not be reached: "
+                f"{detail}. Blacknode continued with the robot hardware stop request, "
+                "but physical torque cannot be verified through this status endpoint."
+            )
+        method = "stop"
+        report(60, "Stopping and disarming the robot directly")
+    else:
+        method = "resume"
+        report(60, "Reconnecting robot monitoring in a disarmed state")
+
+    result = _paired_device_client(device_id).rpc({
+        "jsonrpc": "2.0",
+        "id": f"robot-{action}-{device_id}",
+        "method": method,
+        "params": {},
+    })
+    _raise_rpc_error(result, action=action)
+    _device_registry.set_device_paused(device_id, action == "pause")
+    report(85, "Verifying robot status")
+    status = _paired_device_client(device_id).status()
+    status["paused"] = action == "pause"
+    summary = (
+        "Robot paused; Blacknode motion is disarmed."
+        if action == "pause"
+        else "Robot monitoring resumed; motion remains disarmed."
+    )
+    if warnings:
+        summary += (
+            f" Completed with {len(warnings)} warning{'s' if len(warnings) != 1 else ''}; "
+            "verify physical torque before handling the robot."
+        )
+    report(100, summary)
+    return {
+        "ok": True,
+        "action": action,
+        "status": status,
+        "warnings": warnings,
+        "summary": summary,
+    }
+
+
+@app.post("/device-hosts/{host_id}/uninstall")
+def uninstall_device_host(host_id: str, req: UninstallDeviceHostReq):
+    try:
+        host = _device_registry.get_host_public(host_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if host is None:
+        raise HTTPException(404, "Device not found")
+    managed = host.get("managed_runtime")
+    if not isinstance(managed, dict):
+        raise HTTPException(
+            409,
+            "This runtime was paired manually, so Blacknode does not have its SSH "
+            "installation identity. Remove it from the editor or uninstall it on the device.",
+        )
+    try:
+        result = uninstall_runtime(
+            host=str(managed.get("ssh_host") or ""),
+            port=int(managed.get("ssh_port") or 22),
+            username=str(managed.get("ssh_username") or ""),
+            password=req.password,
+            host_fingerprint=str(managed.get("host_fingerprint") or ""),
+            instance_id=str(managed.get("instance_id") or "default"),
+            runtime_port=int(managed.get("runtime_port") or 0),
+        )
+        _device_registry.delete_host(host_id, cascade=True)
+    except DeviceInstallError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except DeviceRegistryError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {
+        "ok": True,
+        "id": host_id,
+        "uninstall": result,
+    }
+
+
+@app.post("/device-hosts/{host_id}/robots")
+def pair_host_robot(host_id: str, req: PairHostRobotReq):
+    try:
+        if _device_registry.get_host_public(host_id) is None:
+            raise HTTPException(404, "Device not found")
+        client = HardwareDeviceClient(req.base_url, req.token)
+        status = client.validate_pairing()
+        device = _device_registry.pair(
+            name=req.name,
+            base_url=client.base_url,
+            token=req.token,
+            host_id=host_id,
+            status=status,
+        )
+    except DeviceRegistryError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "robot": device,
+        "status": status,
+        "runtime": _device_host_runtime_status(host_id),
+    }
+
+
+@app.patch("/device-hosts/{host_id}")
+def rename_device_host(host_id: str, req: RenameDeviceReq):
+    try:
+        return {"device": _device_registry.rename_host(host_id, req.name)}
+    except KeyError as exc:
+        raise HTTPException(404, "Device not found") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+@app.delete("/device-hosts/{host_id}")
+def delete_device_host(host_id: str):
+    try:
+        deleted = _device_registry.delete_host(host_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if not deleted:
+        raise HTTPException(404, "Device not found")
+    return {"ok": True, "id": host_id}
+
+
 @app.get("/devices")
 def list_devices():
     try:
@@ -2916,6 +3624,21 @@ def get_device_status(device_id: str):
         return _deployment_aware_device_status(device_id)
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
+
+
+@app.post("/devices/{device_id}/lifecycle")
+def control_robot_lifecycle(device_id: str, req: RobotLifecycleReq):
+    try:
+        return _control_robot_lifecycle_payload(device_id, req)
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.post("/devices/{device_id}/lifecycle-stream")
+def stream_robot_lifecycle(device_id: str, req: RobotLifecycleReq):
+    return _lifecycle_stream(
+        lambda progress: _control_robot_lifecycle_payload(device_id, req, progress)
+    )
 
 
 @app.get("/devices/{device_id}/runtime-status")
@@ -4137,6 +4860,14 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
     """Recover an orphaned hardware lease, or explain the active owner."""
     client = _paired_device_client(device_id)
     status = client.status()
+    saved_device = _device_registry.get_public(device_id)
+    if saved_device and saved_device.get("paused"):
+        result = dict(status)
+        result["paused"] = True
+        result["notice"] = (
+            "Robot is paused and disarmed. Resume it before starting a workflow."
+        )
+        return result
     error = str(status.get("error") or "")
     folded_error = error.casefold()
     if "leased" not in folded_error or "deployment" not in folded_error:
@@ -6138,6 +6869,23 @@ _PROJECT_SIMULATE_NODES = {
     "IsaacPolicyBridge",
     "IsaacPolicyRuntime",
 }
+_PROJECT_STARTER_KITS = {
+    "robot_learning": {
+        "collect": {
+            "template_slug": "teleoperation-episode-recording",
+            "name": "Collect demonstrations",
+        },
+        "train": {
+            "template_slug": "act-training",
+            "name": "Train ACT policy",
+        },
+        "simulate": {
+            "template_slug": "isaac-act-policy-deployment",
+            "name": "Evaluate policy in Isaac",
+        },
+    },
+}
+_PROJECT_STARTER_LOCK = threading.RLock()
 _PROJECT_ROBOT_NODE_MARKERS = (
     "robot",
     "servo",
@@ -6219,6 +6967,21 @@ def _project_workflow_reference(slug: str) -> dict[str, Any]:
         "stages": stages,
         "requires_calibration": requires_calibration,
         "calibration": calibration,
+        "starter_kit": (
+            str(metadata.get("starter_kit"))
+            if metadata.get("starter_kit")
+            else None
+        ),
+        "starter_stage": (
+            str(metadata.get("starter_stage"))
+            if metadata.get("starter_stage")
+            else None
+        ),
+        "source_template": (
+            str(metadata.get("source_template"))
+            if metadata.get("source_template")
+            else None
+        ),
     }
 
 
@@ -6239,6 +7002,7 @@ def _project_payload(record: dict[str, Any]) -> dict[str, Any]:
         **record,
         "workflows": workflows,
         "devices": devices,
+        "artifacts": _artifact_store.list(record.get("artifact_ids", [])),
     }
 
 
@@ -6262,6 +7026,8 @@ def create_project(req: CreateProjectReq):
             description=req.description,
             workflow_slugs=req.workflow_slugs,
             device_ids=req.device_ids,
+            artifact_ids=req.artifact_ids,
+            starter_kit=req.starter_kit,
             active_workflow_slug=req.active_workflow_slug,
         ))
     except ProjectStoreError as exc:
@@ -6293,8 +7059,11 @@ def update_project(project_id: str, req: UpdateProjectReq):
             description=req.description,
             workflow_slugs=req.workflow_slugs,
             device_ids=req.device_ids,
+            artifact_ids=req.artifact_ids,
+            starter_kit=req.starter_kit,
             active_workflow_slug=req.active_workflow_slug,
             update_active_workflow="active_workflow_slug" in fields_set,
+            update_starter_kit="starter_kit" in fields_set,
         ))
     except KeyError as exc:
         raise HTTPException(404, f"Project '{project_id}' not found") from exc
@@ -6311,6 +7080,277 @@ def delete_project(project_id: str):
     if not deleted:
         raise HTTPException(404, f"Project '{project_id}' not found")
     return {"ok": True}
+
+
+def _project_artifact_error(
+    exc: ProjectStoreError | ArtifactStoreError,
+) -> HTTPException:
+    return HTTPException(400, str(exc))
+
+
+def _require_project(project_id: str) -> dict[str, Any]:
+    record = _project_store.get(project_id)
+    if record is None:
+        raise HTTPException(404, f"Project '{project_id}' not found")
+    return record
+
+
+def _set_starter_node_defaults(
+    data: dict[str, Any],
+    node_id: str,
+    values: dict[str, Any],
+) -> None:
+    node_meta = data.get("node_meta")
+    node = node_meta.get(node_id) if isinstance(node_meta, dict) else None
+    if not isinstance(node, dict):
+        return
+    params = node.setdefault("params", {})
+    if isinstance(params, dict):
+        params.update(values)
+    defaults = node.get("input_defaults")
+    if isinstance(defaults, dict):
+        defaults.update({
+            key: value
+            for key, value in values.items()
+            if key in defaults
+        })
+
+
+def _configure_project_starter_workflow(
+    data: dict[str, Any],
+    stage: str,
+    project: dict[str, Any],
+) -> None:
+    """Prefill safe Project context while keeping all actions disarmed."""
+    project_id = str(project["id"])
+    if stage == "collect":
+        _set_starter_node_defaults(data, "rosbridge", {"transport": "auto"})
+        _set_starter_node_defaults(data, "follow", {
+            "transport": "auto",
+            "run_id": f"{project_id}-teleoperation",
+            "armed": False,
+        })
+        _set_starter_node_defaults(data, "dataset", {
+            "dataset_id": f"{project_id}-demonstrations"[:120],
+            "task": str(project.get("description") or project.get("name") or ""),
+            "metadata": {"project_id": project_id},
+        })
+        _set_starter_node_defaults(data, "recorder", {
+            "action": "status",
+            "run_id": f"{project_id}-episode",
+        })
+        return
+
+    artifacts = _artifact_store.list(project.get("artifact_ids", []))
+    if stage == "train":
+        dataset = next((
+            artifact
+            for artifact in reversed(artifacts)
+            if artifact.get("artifact_type") == "dataset"
+            and artifact.get("exists")
+            and int((artifact.get("metadata") or {}).get("episode_count") or 0) > 0
+        ), None)
+        if dataset is not None:
+            locator = str(dataset["locator"])
+            metadata = dict(dataset.get("metadata") or {})
+            descriptor = {
+                "kind": str(dataset.get("kind") or "blacknode.episode-dataset"),
+                "schema_version": 1,
+                "dataset_id": str(metadata.get("dataset_id") or dataset["name"]),
+                "path": locator,
+                "fps": int(metadata.get("fps") or 0),
+                "task": str(metadata.get("task") or ""),
+                "episode_count": int(metadata.get("episode_count") or 0),
+            }
+            _set_starter_node_defaults(data, "dataset_browser", {
+                "dataset": descriptor,
+                "root": str(Path(locator).parent),
+                "dataset_id": descriptor["dataset_id"],
+            })
+        _set_starter_node_defaults(data, "training", {
+            "action": "start",
+            "run_id": f"{project_id}-act",
+        })
+        _set_starter_node_defaults(data, "policy_stream", {
+            "run_id": f"{project_id}-policy-replay",
+        })
+        return
+
+    if stage == "simulate":
+        policy = next((
+            artifact
+            for artifact in reversed(artifacts)
+            if artifact.get("artifact_type") == "policy"
+            and artifact.get("exists")
+        ), None)
+        if policy is not None:
+            _set_starter_node_defaults(data, "artifact_path", {
+                "value": str(policy["locator"]),
+            })
+        _set_starter_node_defaults(data, "bridge", {
+            "action": "status",
+            "run_id": f"{project_id}-isaac-bridge",
+        })
+        _set_starter_node_defaults(data, "runtime", {
+            "action": "status",
+            "run_id": f"{project_id}-isaac-policy",
+        })
+
+
+@app.post("/projects/{project_id}/starter-workflows/{stage}")
+def create_project_starter_workflow(project_id: str, stage: str):
+    with _PROJECT_STARTER_LOCK:
+        return _materialize_project_starter_workflow(project_id, stage)
+
+
+def _materialize_project_starter_workflow(project_id: str, stage: str):
+    try:
+        project = _require_project(project_id)
+        starter_kit = str(project.get("starter_kit") or "")
+        kit = _PROJECT_STARTER_KITS.get(starter_kit)
+        if kit is None:
+            raise HTTPException(
+                409,
+                "Enable the Robot learning starter for this Project first.",
+            )
+        starter = kit.get(stage)
+        if starter is None:
+            raise HTTPException(404, f"Starter stage '{stage}' was not found.")
+
+        for workflow_slug in project.get("workflow_slugs", []):
+            reference = _project_workflow_reference(str(workflow_slug))
+            if (
+                reference.get("exists")
+                and reference.get("starter_kit") == starter_kit
+                and reference.get("starter_stage") == stage
+            ):
+                return {
+                    "created": False,
+                    "workflow": reference,
+                    "project": _project_payload(project),
+                }
+
+        template_slug = str(starter["template_slug"])
+        template_path = _template_path(template_slug)
+        if not os.path.exists(template_path):
+            raise HTTPException(
+                409,
+                f"The {starter['name']} template is unavailable. Install and "
+                "enable its Blacknode package, then try again.",
+            )
+        data = _read_workflow_file(template_path)
+        dependencies = _workflow_dependency_report(data)
+        if not dependencies["ok"]:
+            raise HTTPException(409, dependencies)
+        report = validate_bn_workflow(data)
+        if not report.ok:
+            raise HTTPException(400, report.to_dict())
+        _configure_project_starter_workflow(data, stage, project)
+
+        workflow_name = f"{project['name']} · {starter['name']}"
+        workflow_slug = _unique_workflow_slug(_slug(workflow_name))
+        metadata = (
+            dict(data.get("metadata"))
+            if isinstance(data.get("metadata"), dict)
+            else {}
+        )
+        metadata.pop("template", None)
+        metadata.update({
+            "starter_kit": starter_kit,
+            "starter_stage": stage,
+            "source_template": template_slug,
+            "project_id": project_id,
+        })
+        data["name"] = workflow_name
+        data["saved_at"] = datetime.now().isoformat(timespec="seconds")
+        data["metadata"] = metadata
+        os.makedirs(_WORKFLOWS_DIR, exist_ok=True)
+        with open(_workflow_path(workflow_slug), "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=2)
+        try:
+            project = _project_store.link_workflow_slug(
+                project_id,
+                workflow_slug,
+            )
+        except KeyError as exc:
+            os.remove(_workflow_path(workflow_slug))
+            raise HTTPException(
+                404,
+                f"Project '{project_id}' not found",
+            ) from exc
+        return {
+            "created": True,
+            "workflow": _project_workflow_reference(workflow_slug),
+            "project": _project_payload(project),
+        }
+    except ProjectStoreError as exc:
+        raise _project_error(exc) from exc
+
+
+def _link_project_artifacts(
+    project_id: str,
+    artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    _require_project(project_id)
+    artifact_ids = [
+        str(artifact.get("id") or "")
+        for artifact in artifacts
+        if artifact.get("id")
+    ]
+    try:
+        record = _project_store.link_artifact_ids(project_id, artifact_ids)
+    except KeyError as exc:
+        raise HTTPException(404, f"Project '{project_id}' not found") from exc
+    return _project_payload(record)
+
+
+@app.post("/projects/{project_id}/artifacts/import")
+def import_project_artifacts(project_id: str, req: ImportProjectArtifactsReq):
+    try:
+        project = _require_project(project_id)
+        if req.workflow_slug and req.workflow_slug not in project.get(
+            "workflow_slugs", []
+        ):
+            raise HTTPException(
+                400,
+                "workflow_slug must be linked to the project before its artifacts "
+                "can be captured.",
+            )
+        artifacts = _artifact_store.import_value(
+            req.value,
+            node_type=req.node_type,
+            workflow_slug=req.workflow_slug,
+        )
+        return {
+            "artifacts": artifacts,
+            "project": _link_project_artifacts(project_id, artifacts),
+        }
+    except (ProjectStoreError, ArtifactStoreError) as exc:
+        raise _project_artifact_error(exc) from exc
+
+
+@app.post("/projects/{project_id}/artifacts/inspect")
+def inspect_project_artifact(project_id: str, req: InspectProjectArtifactReq):
+    try:
+        project = _require_project(project_id)
+        if req.workflow_slug and req.workflow_slug not in project.get(
+            "workflow_slugs", []
+        ):
+            raise HTTPException(
+                400,
+                "workflow_slug must be linked to the project before its artifacts "
+                "can be added.",
+            )
+        artifacts = _artifact_store.inspect_path(
+            req.path,
+            workflow_slug=req.workflow_slug,
+        )
+        return {
+            "artifacts": artifacts,
+            "project": _link_project_artifacts(project_id, artifacts),
+        }
+    except (ProjectStoreError, ArtifactStoreError) as exc:
+        raise _project_artifact_error(exc) from exc
 
 
 @app.get("/workflows")

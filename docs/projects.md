@@ -17,12 +17,17 @@ Projects v1 provides:
 - restoration of linked workflows as editor tabs;
 - a project/workflow breadcrumb while a linked workflow is active;
 - lifecycle guidance based on evidence in linked workflows and devices; and
+- typed links to provider-owned dataset, training, policy, and simulation
+  artifacts; and
+- an optional robot-learning starter that prepares the next predefined
+  workflow; and
 - a view of deployments reported by linked devices.
 
 Project data is local editor state. It is stored in
 `.blacknode/projects.json`, is excluded from Git, and must not contain pairing
-tokens, calibration data, workflow graph copies, run logs, or deployment
-artifacts.
+tokens, calibration data, workflow graph copies, run logs, or artifact
+contents. Typed references are indexed separately in
+`.blacknode/artifacts.json`; see [Project Artifacts v1](project-artifacts.md).
 
 ## Ownership
 
@@ -35,7 +40,7 @@ A project stores references, not copies:
 | Robot profile and calibration selection | workflow metadata | discovered from the linked workflow |
 | Calibration record | hardware service | never copied into the project |
 | Deployment revision and process state | target runtime | project ID and workflow slug |
-| Dataset and training artifacts | their package or artifact store | future typed references |
+| Dataset, training, policy, and simulation artifacts | their extension package | typed artifact ID |
 
 This keeps credentials and physical-hardware calibration bound to their
 existing secure and hardware-aware owners.
@@ -60,6 +65,10 @@ The local project registry uses schema version 1:
         "alex-desktop-usb-...31481...",
         "alex-desktop-usb-...31741..."
       ],
+      "artifact_ids": [
+        "dataset-2bd193725faf064e5d7a"
+      ],
+      "starter_kit": "robot_learning",
       "active_workflow_slug": "so-arm101-leader-deploy",
       "created_at": "2026-07-24T20:00:00+00:00",
       "updated_at": "2026-07-24T20:00:00+00:00"
@@ -86,6 +95,9 @@ The editor server exposes:
 - `GET /projects/{project_id}`
 - `PATCH /projects/{project_id}`
 - `DELETE /projects/{project_id}`
+- `POST /projects/{project_id}/artifacts/import`
+- `POST /projects/{project_id}/artifacts/inspect`
+- `POST /projects/{project_id}/starter-workflows/{stage}`
 
 Create and update requests use the persisted fields above. Read responses also
 hydrate workflow and device references with their current names, availability,
@@ -127,27 +139,35 @@ The project overview uses evidence, not a manually advanced wizard:
 
 | Stage | Evidence shown in v1 |
 |---|---|
-| Build | One or more saved workflows are linked |
 | Connect | One or more paired devices are linked |
-| Calibrate | A linked workflow selects a robot calibration |
-| Collect | A linked workflow contains dataset recording nodes |
-| Train | A linked workflow contains policy-training nodes |
-| Simulate | A linked workflow contains simulation nodes |
+| Build | One or more saved workflows are linked |
+| Configure | A linked workflow selects a robot calibration when required |
+| Collect | A linked dataset contains at least one saved episode |
+| Train | A linked policy artifact exists |
+| Simulate | A linked simulation run or evaluation completed |
 | Deploy | The target runtime reports a staged or active deployment owned by the project |
 | Operate | The target runtime reports a running deployment owned by the project |
 
 Collect, Train, and Simulate are optional paths. Their absence does not block a
 project that deploys an already available policy or a deterministic controller.
-The overview calls them available or not configured rather than complete when
-artifact-level proof is not yet available.
+A corresponding workflow makes the stage available; an empty dataset, running
+job, checkpoint, or running simulation shows progress; only the artifact
+evidence above marks it complete.
 
 The next action is selected from the first actionable gap:
 
-1. link a saved workflow;
-2. link a paired device;
+1. install the device runtime, pair the robot, and link it;
+2. choose or link a saved workflow;
 3. select calibration when a robot workflow requires it;
-4. open the linked workflows;
-5. deploy or monitor a running deployment.
+4. record the first episode when collection is configured;
+5. train or monitor a policy when recorded data is ready;
+6. evaluate a ready policy when simulation is configured;
+7. deploy or monitor a running deployment.
+
+When `starter_kit` is `robot_learning`, Next can create, link, and open the
+predefined collection, ACT training, or Isaac evaluation workflow needed for
+the current gap. A custom linked workflow for that stage takes priority. See
+[Guided Projects](guided-projects.md).
 
 ## Editor behavior
 
@@ -164,11 +184,10 @@ The next action is selected from the first actionable gap:
 
 ## Future extensions
 
-The v1 schema is intentionally small. Later versions can add typed references
-for datasets, training runs, models, simulations, deployment IDs, dashboards,
-telemetry views, project members, and cloud synchronization. The deployment
-ownership fields provide the stable join for exact deployment history when a
-history index is added.
+Later versions can add artifact lineage, evaluation gates, deployment-to-policy
+links, dashboards, telemetry views, project members, and cloud
+synchronization. The deployment ownership fields provide the stable join for
+exact deployment history when a history index is added.
 
 Those additions should preserve the core boundary: applications and workflows
 depend on capabilities and stable resource identities, while providers retain

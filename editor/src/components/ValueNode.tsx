@@ -85,7 +85,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
     : isBool ? (typeof value === 'string'
       ? !['false', '0', ''].includes(value.trim().toLowerCase())
       : Boolean(value))
-    : isColor ? normalizeHexColor(value) ?? '#22c55e'
+    : isColor ? normalizeHexColor(value) ?? '#3ddc97'
     : isList ? (typeof value === 'string' ? value : JSON.stringify(value ?? [], null, 2))
     : isDict ? (typeof value === 'string' ? value : JSON.stringify(value ?? {}, null, 2))
     : typeof value === 'string' || typeof value === 'number' ? value
@@ -341,7 +341,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
         ) : isColor ? (
           <input
             type="color"
-            value={normalizeHexColor(draft) ?? '#22c55e'}
+            value={normalizeHexColor(draft) ?? '#3ddc97'}
             aria-label="Pick color"
             onClick={e => e.stopPropagation()}
             onMouseDown={e => e.stopPropagation()}

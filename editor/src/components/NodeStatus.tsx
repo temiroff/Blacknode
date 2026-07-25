@@ -37,7 +37,7 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
   const completedLabel = outputStatus === 'exists' ? 'EXISTS' : ''
   const isWarning = !isError && (Boolean(incompleteLabel) || result === false)
   const toneColor = isCooking ? 'var(--warn)' : isError ? 'var(--err)' : isWarning ? 'var(--warn)' : 'var(--ok)'
-  const toneHex = isCooking ? '#facc15' : isError ? '#ef4444' : isWarning ? '#facc15' : '#22c55e'
+  const toneHex = isCooking ? '#facc15' : isError ? '#ef4444' : isWarning ? '#facc15' : '#3ddc97'
 
   if (!isError && result === undefined && !isCooking) return null
 

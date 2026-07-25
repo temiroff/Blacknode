@@ -16,7 +16,7 @@ const inputStyle: React.CSSProperties = {
 }
 
 const buttonStyle = (busy: boolean): React.CSSProperties => ({
-  background: 'transparent',
+  background: 'var(--lift)',
   border: '1px solid var(--line2)',
   borderRadius: 5,
   color: 'var(--tx2)',
@@ -311,7 +311,7 @@ export default function PackagesPanel() {
             <button
               onClick={() => installUrl(pkg.git_url, pkg.name)}
               disabled={Boolean(installingName) || !pkg.git_url}
-              style={{ ...buttonStyle(Boolean(installingName)), color: 'var(--ok)', borderColor: 'var(--ok)' }}
+              style={{ ...buttonStyle(Boolean(installingName)), color: 'var(--action-ink)', background: 'var(--action)', borderColor: 'var(--action)', fontWeight: 700 }}
             >
               {installing ? 'Installing...' : 'Install'}
             </button>
@@ -373,7 +373,7 @@ export default function PackagesPanel() {
                 width: 7,
                 height: 7,
                 borderRadius: '50%',
-                background: !pkg.ok ? 'var(--err)' : (hasWarnings || hasMissingNodes ? '#e0a000' : 'var(--ok)'),
+                background: !pkg.ok ? 'var(--err)' : (hasWarnings || hasMissingNodes ? 'var(--warn)' : 'var(--ok)'),
                 flexShrink: 0,
               }} />
               <span style={{ flex: 1, fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -495,7 +495,7 @@ export default function PackagesPanel() {
                   </div>
                 )}
                 {hasMissingNodes && (
-                  <div style={{ marginTop: 4, color: '#e0a000', fontSize: 12, fontFamily: 'var(--font-mono)', wordBreak: 'break-word' }}>
+                  <div style={{ marginTop: 4, color: 'var(--warn)', fontSize: 12, fontFamily: 'var(--font-mono)', wordBreak: 'break-word' }}>
                     missing: {pkg.missing_node_types.join(', ')}
                   </div>
                 )}
@@ -527,7 +527,7 @@ export default function PackagesPanel() {
                     padding: 8,
                     background: 'var(--hover)',
                     borderRadius: 5,
-                    color: '#e0a000',
+                    color: 'var(--warn)',
                     fontSize: 12,
                     fontFamily: 'var(--font-mono)',
                     whiteSpace: 'pre-wrap',
@@ -545,7 +545,7 @@ export default function PackagesPanel() {
                       disabled={busy}
                       title={setupTitle}
                       style={hasWarnings
-                        ? { ...buttonStyle(busy), color: '#e0a000', borderColor: '#e0a000' }
+                        ? { ...buttonStyle(busy), color: 'var(--warn)', borderColor: 'var(--warn)' }
                         : prereqsMet
                           ? { ...buttonStyle(busy), color: 'var(--ok)', borderColor: 'var(--ok)' }
                           : buttonStyle(busy)}

@@ -1281,7 +1281,7 @@ function formatCalibrationTime(value: string): string {
 }
 
 const miniButton: CSSProperties = {
-  background: 'transparent',
+  background: 'var(--lift)',
   border: '1px solid var(--line2)',
   color: 'var(--tx2)',
   padding: '2px 8px',
@@ -1293,8 +1293,10 @@ const miniButton: CSSProperties = {
 
 const primaryButton: CSSProperties = {
   ...miniButton,
-  borderColor: 'var(--ok)',
-  color: 'var(--ok)',
+  background: 'var(--action)',
+  borderColor: 'var(--action)',
+  color: 'var(--action-ink)',
+  fontWeight: 700,
 }
 
 const logStyle: CSSProperties = {
@@ -1302,7 +1304,7 @@ const logStyle: CSSProperties = {
   padding: 8,
   maxHeight: 220,
   overflow: 'auto',
-  background: 'var(--bg2)',
+  background: 'var(--panel)',
   border: '1px solid var(--line)',
   borderRadius: 4,
   color: 'var(--tx2)',

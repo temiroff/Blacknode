@@ -80,7 +80,8 @@ cd Blacknode
 ```
 
 First run: [Beginner Walkthrough](docs/walkthrough.md) ·
-First robot: [SO-ARM101 Quickstart](docs/so-arm101-quickstart.md)
+First robot: [Project Lifecycle](docs/project-lifecycle.md) ·
+[SO-ARM101 Quickstart](docs/so-arm101-quickstart.md)
 
 ## Extension Packages
 
@@ -120,12 +121,41 @@ hardware services and shared runtime, configures active UFW rules, verifies the
 complete device, and prints the pairing checklist. Rerunning it preserves
 existing robot identities, calibrations, names, and the runtime token.
 
-In the Blacknode editor, open **Devices**, select **Pair device**, and enter the
-device URL printed by the installer, such as `http://DEVICE_IP:8765`. Paste the hardware token
-printed by the installer, then paste its shared runtime token. Blacknode checks
-both authenticated services before marking the device ready for deployment.
-The runtime token is entered once per computer and reused automatically when
-more robot hardware services from that computer are paired.
+In the Blacknode editor, open **Devices** and select **Add device**. Automatic
+SSH setup verifies the host key, authenticates only after confirmation, and
+inspects the computer before changing it. The review shows the host OS and
+Python, NVIDIA driver and CUDA toolkit, installed ROS 2 distributions, Docker
+CLI/daemon state, existing Blacknode runtimes, and occupied runtime ports.
+CUDA, ROS 2, and Docker system installations are preserved. Installation shows
+live stage progress through package checks, download, isolated Python setup,
+service installation, and pairing. If a Blacknode Runtime already exists,
+choose to pair the healthy runtime, reinstall that instance, or install an
+independent side-by-side instance. Side-by-side instances use separate
+directories, state, pairing tokens, systemd services, and the next available
+port from `8766` through `8865`. The SSH installer upgrades older downloaded
+service scripts in the new checkout when instance isolation support is needed
+and verifies that runtimes and robot services which were already active remain
+active after the side-by-side setup.
+
+Runtime instances installed through the editor retain only their non-secret SSH
+management identity. **Uninstall runtime** asks for the SSH password again,
+removes the selected instance and its UFW rule, and leaves other runtime
+instances on the computer untouched. **Remove from editor** deletes only the
+local registration. **Pause device** first stops active deployments, stops and
+disarms attached robots, then stops that runtime service. **Resume device**
+starts the service and reconnects robot monitoring while keeping motion
+disarmed; previous deployments stay stopped until explicitly started again.
+Each lifecycle action shows stage progress. Each robot also has its own
+**Pause robot** and **Resume robot** controls. Robot Pause still sends the
+direct hardware stop when its deployment runtime is unavailable and reports
+that runtime address as a warning. The robot detail reports physical torque
+only when the hardware provider exposes it; otherwise it shows **Not reported**
+instead of inferring torque state from the motion-armed flag.
+For robots on SSH-managed computers, **Restart robot service** asks for the SSH
+password, resolves the exact hardware systemd unit from that robot's saved
+hardware port, and restarts only that unit. Restart is blocked while a
+deployment is active or the robot is armed. Blacknode then verifies that the
+same authenticated robot returned and keeps motion disarmed.
 
 The installer detects each computer's current address; it does not hardcode a
 LAN IP. Use a router DHCP reservation or a resolvable hostname for robots that
