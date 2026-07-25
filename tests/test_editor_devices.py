@@ -45,6 +45,7 @@ class _HardwareService:
         token: str = "pairing-secret",
         *,
         status_overrides: dict | None = None,
+        runtime_features: list[str] | None = None,
     ) -> None:
         self.token = token
         self.requests: list[tuple[str, str, str | None, dict | None]] = []
@@ -66,6 +67,15 @@ class _HardwareService:
             {"name": "blacknode-runtime", "version": "0.2.0"},
         ]
         self.runtime_node_types = ["Output", "OutputImage"]
+        self.runtime_features = runtime_features or [
+            "manifest_v1",
+            "deployment_bundle_v1",
+            "process_supervision_v1",
+            "rollback_v1",
+            "package_sync_v1",
+            "component_sync_v1",
+            "deployment_ownership_v1",
+        ]
 
     def __call__(self, request, timeout=0):
         del timeout
@@ -113,14 +123,7 @@ class _HardwareService:
                 "protocol_version": 1,
                 "runtime_version": "0.1.0",
                 "device_id": "alex-desktop",
-                "features": [
-                    "manifest_v1",
-                    "deployment_bundle_v1",
-                    "process_supervision_v1",
-                    "rollback_v1",
-                    "package_sync_v1",
-                    "component_sync_v1",
-                ],
+                "features": self.runtime_features,
                 "python": {"version": "3.12.3"},
                 "blacknode": {"installed": True, "version": "0.3.0"},
                 "packages": self.runtime_packages,
@@ -169,6 +172,21 @@ class _HardwareService:
             record = {
                 "id": deployment_id,
                 "name": body.get("name") or "Deployment",
+                "target_device_id": (
+                    body.get("manifest", {}).get("target_device_id")
+                    or (existing or {}).get("target_device_id")
+                    or ""
+                ),
+                "project_id": (
+                    body.get("manifest", {}).get("project_id")
+                    or (existing or {}).get("project_id")
+                    or ""
+                ),
+                "workflow_slug": (
+                    body.get("manifest", {}).get("workflow_slug")
+                    or (existing or {}).get("workflow_slug")
+                    or ""
+                ),
                 "state": "staged",
                 "staged_revision": revision,
                 "active_revision": existing.get("active_revision") if existing else None,
@@ -236,10 +254,15 @@ class EditorDeviceApiTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.registry_path = Path(self._tmp.name) / ".blacknode" / "devices.json"
         self._original_registry = server._device_registry
+        self._original_project_store = server._project_store
         server._device_registry = device_registry.DeviceRegistry(self.registry_path)
+        server._project_store = server.ProjectStore(
+            Path(self._tmp.name) / ".blacknode" / "projects.json"
+        )
 
     def tearDown(self):
         server._device_registry = self._original_registry
+        server._project_store = self._original_project_store
         self._tmp.cleanup()
 
     def test_workflow_requirements_are_normalized_and_exposed_by_graph(self):
@@ -1303,6 +1326,128 @@ class EditorDeviceApiTests(unittest.TestCase):
             stage_request[3]["manifest"]["target_device_id"],
             device_id,
         )
+
+    def test_project_owned_deployment_requires_linked_workflow_and_device(self):
+        hardware = _HardwareService()
+        workflow = _workflow([])
+        workflow_slug = "camera-workflow"
+        workflows_dir = Path(self._tmp.name) / "workflows"
+        workflows_dir.mkdir()
+        (workflows_dir / f"{workflow_slug}.json").write_text(
+            json.dumps(workflow),
+            encoding="utf-8",
+        )
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            device_id = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]["id"]
+            project = server._project_store.create(
+                name="Camera Project",
+                workflow_slugs=[workflow_slug],
+            )
+            with (
+                patch.object(server, "_WORKFLOWS_DIR", str(workflows_dir)),
+                patch.object(server, "_workflow_payload", return_value=workflow),
+            ):
+                preflight = self.client.post(
+                    f"/devices/{device_id}/deployment-preflight",
+                    json={},
+                ).json()
+                unlinked = self.client.post(
+                    f"/devices/{device_id}/deployments",
+                    json={
+                        "name": "Camera workflow",
+                        "workflow_hash": preflight["workflow"]["hash"],
+                        "project_id": project["id"],
+                        "workflow_slug": workflow_slug,
+                    },
+                )
+                server._project_store.update(
+                    project["id"],
+                    device_ids=[device_id],
+                )
+                staged = self.client.post(
+                    f"/devices/{device_id}/deployments",
+                    json={
+                        "name": "Camera workflow",
+                        "workflow_hash": preflight["workflow"]["hash"],
+                        "project_id": project["id"],
+                        "workflow_slug": workflow_slug,
+                    },
+                )
+
+        self.assertEqual(unlinked.status_code, 409)
+        self.assertIn("not linked", unlinked.json()["detail"])
+        self.assertEqual(staged.status_code, 200)
+        deployment = staged.json()["deployment"]
+        self.assertEqual(deployment["project_id"], project["id"])
+        self.assertEqual(deployment["workflow_slug"], workflow_slug)
+        stage_request = next(
+            item for item in hardware.requests
+            if item[0] == "POST" and item[1] == "/deployments"
+        )
+        self.assertEqual(
+            stage_request[3]["manifest"]["project_id"],
+            project["id"],
+        )
+        self.assertEqual(
+            stage_request[3]["manifest"]["workflow_slug"],
+            workflow_slug,
+        )
+
+    def test_project_owned_deployment_requires_updated_target_runtime(self):
+        hardware = _HardwareService(runtime_features=[
+            "manifest_v1",
+            "deployment_bundle_v1",
+            "process_supervision_v1",
+            "rollback_v1",
+            "package_sync_v1",
+        ])
+        workflow = _workflow([])
+        workflow_slug = "camera-workflow"
+        workflows_dir = Path(self._tmp.name) / "workflows"
+        workflows_dir.mkdir()
+        (workflows_dir / f"{workflow_slug}.json").write_text(
+            json.dumps(workflow),
+            encoding="utf-8",
+        )
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            device_id = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]["id"]
+            project = server._project_store.create(
+                name="Camera Project",
+                workflow_slugs=[workflow_slug],
+                device_ids=[device_id],
+            )
+            with (
+                patch.object(server, "_WORKFLOWS_DIR", str(workflows_dir)),
+                patch.object(server, "_workflow_payload", return_value=workflow),
+            ):
+                preflight = self.client.post(
+                    f"/devices/{device_id}/deployment-preflight",
+                    json={},
+                ).json()
+                response = self.client.post(
+                    f"/devices/{device_id}/deployments",
+                    json={
+                        "name": "Camera workflow",
+                        "workflow_hash": preflight["workflow"]["hash"],
+                        "project_id": project["id"],
+                        "workflow_slug": workflow_slug,
+                    },
+                )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("0.3.8", response.json()["detail"])
+        self.assertFalse(any(
+            method == "POST" and path == "/deployments"
+            for method, path, _auth, _body in hardware.requests
+        ))
 
     def test_preflight_recovers_stale_hardware_deployment_lease(self):
         hardware = _HardwareService(status_overrides={

@@ -37,6 +37,13 @@ export interface WorkflowTab {
   liveState?: Record<string, Record<string, unknown>>
 }
 
+export interface ActiveProject {
+  id: string
+  name: string
+  workflowSlugs: string[]
+  deviceIds: string[]
+}
+
 export interface NodeData extends BnNodeMeta, NodeCookState {}
 
 export interface GraphClipboard {
@@ -98,6 +105,7 @@ interface Store {
   learnedNodeHighlight: string | null
   tabs: WorkflowTab[]
   activeTabId: string
+  activeProject: ActiveProject | null
   workflowRevision: number
   workflowMetadata: WorkflowMetadata
   undoHistory: UndoSnapshot[]
@@ -134,6 +142,7 @@ interface Store {
   duplicateTab: (tabId: string) => Promise<void>
   openWorkflowAsTab: (slug: string, name: string) => Promise<void>
   openGraphAsTab: (name: string, graph: GraphSnapshot) => Promise<void>
+  setActiveProject: (project: ActiveProject | null) => void
   renameTab: (tabId: string, name: string) => void
   saveActiveWorkflow: (name?: string) => Promise<{ name: string; slug: string }>
   insertSavedWorkflow: (slug: string) => Promise<void>
@@ -1317,6 +1326,7 @@ export const useStore = create<Store>((set, get) => ({
   learnedNodeHighlight: null,
   tabs: [{ id: 'default', name: 'Untitled', slug: null, dirty: false, graph: null, cookLog: [], cookActive: false, cookStatusHidden: false }],
   activeTabId: 'default',
+  activeProject: null,
   workflowRevision: 0,
   workflowMetadata: {},
   undoHistory: [],
@@ -1857,6 +1867,8 @@ export const useStore = create<Store>((set, get) => ({
     await get().loadGraph()
   },
 
+  setActiveProject: (project) => set({ activeProject: project }),
+
   renameTab: (tabId, name) => {
     const nextName = cleanWorkflowName(name)
     set(s => ({
@@ -1874,6 +1886,14 @@ export const useStore = create<Store>((set, get) => ({
       tabs: s.tabs.map(t =>
         t.id === activeTabId ? { ...t, name: nextName, slug: res.slug, dirty: false, graph: cloneGraph(graph) } : t
       ),
+      activeProject: s.activeProject && active?.slug && active.slug !== res.slug
+        ? {
+            ...s.activeProject,
+            workflowSlugs: s.activeProject.workflowSlugs.map(
+              slug => slug === active.slug ? res.slug : slug,
+            ),
+          }
+        : s.activeProject,
       workflowRevision: s.workflowRevision + 1,
     }))
     return { name: nextName, slug: res.slug }
@@ -1897,6 +1917,14 @@ export const useStore = create<Store>((set, get) => ({
       tabs: s.tabs.map(t =>
         t.slug === slug ? { ...t, name: res.name, slug: res.slug } : t
       ),
+      activeProject: s.activeProject
+        ? {
+            ...s.activeProject,
+            workflowSlugs: s.activeProject.workflowSlugs.map(
+              workflowSlug => workflowSlug === slug ? res.slug : workflowSlug,
+            ),
+          }
+        : null,
       workflowRevision: s.workflowRevision + 1,
     }))
     return { name: res.name, slug: res.slug }

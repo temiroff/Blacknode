@@ -153,6 +153,39 @@ export interface WorkflowMetadata extends Record<string, unknown> {
   }
 }
 
+export interface ProjectWorkflow {
+  slug: string
+  name: string
+  saved_at?: string
+  exists: boolean
+  node_types: string[]
+  stages: Array<'collect' | 'train' | 'simulate'>
+  requires_calibration: boolean
+  calibration: {
+    profile_id?: string
+    hardware_id?: string
+  } | null
+}
+
+export interface ProjectDevice extends Partial<HardwareDevice> {
+  id: string
+  name: string
+  exists: boolean
+}
+
+export interface Project {
+  id: string
+  name: string
+  description: string
+  workflow_slugs: string[]
+  device_ids: string[]
+  active_workflow_slug: string | null
+  created_at: string
+  updated_at: string
+  workflows: ProjectWorkflow[]
+  devices: ProjectDevice[]
+}
+
 export interface GraphSnapshot {
   nodes: any[]
   edges: any[]
@@ -247,6 +280,9 @@ export type RemoteDeploymentState = 'staged' | 'running' | 'stopped' | 'exited' 
 export interface RemoteDeployment {
   id: string
   name: string
+  target_device_id?: string
+  project_id?: string
+  workflow_slug?: string
   state: RemoteDeploymentState
   staged_revision: string
   active_revision: string | null
@@ -703,6 +739,8 @@ export const api = {
     workflowHash: string,
     start = false,
     deploymentId?: string,
+    projectId?: string,
+    workflowSlug?: string,
   ) =>
     req<{ deployment: RemoteDeployment; workflow_hash: string; started: boolean }>(
       'POST',
@@ -712,6 +750,8 @@ export const api = {
         workflow_hash: workflowHash,
         start,
         deployment_id: deploymentId ?? null,
+        project_id: projectId ?? null,
+        workflow_slug: workflowSlug ?? null,
       },
       600000,
     ),
@@ -780,6 +820,29 @@ export const api = {
     req<{ slug: string; name: string; saved_at: string }>('POST', `/workflows/${encodeURIComponent(slug)}/duplicate`),
   deleteWorkflow: (slug: string) =>
     req('DELETE', `/workflows/${encodeURIComponent(slug)}`),
+
+  listProjects: () =>
+    req<Project[]>('GET', '/projects'),
+  getProject: (projectId: string) =>
+    req<Project>('GET', `/projects/${encodeURIComponent(projectId)}`),
+  createProject: (payload: {
+    name: string
+    description?: string
+    workflow_slugs?: string[]
+    device_ids?: string[]
+    active_workflow_slug?: string | null
+  }) =>
+    req<Project>('POST', '/projects', payload),
+  updateProject: (
+    projectId: string,
+    payload: Partial<Pick<
+      Project,
+      'name' | 'description' | 'workflow_slugs' | 'device_ids' | 'active_workflow_slug'
+    >>,
+  ) =>
+    req<Project>('PATCH', `/projects/${encodeURIComponent(projectId)}`, payload),
+  deleteProject: (projectId: string) =>
+    req<{ ok: boolean }>('DELETE', `/projects/${encodeURIComponent(projectId)}`),
 
   listTemplates: () =>
     req<TemplateMeta[]>('GET', '/templates'),

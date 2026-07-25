@@ -16,6 +16,7 @@ import ConsolePanel from './ConsolePanel'
 import ScriptEditor from './ScriptEditor'
 import TemplateGallery from './TemplateGallery'
 import WorkflowManager from './WorkflowManager'
+import ProjectPanel from './ProjectPanel'
 
 // Curated ordering for the built-in categories; anything else sorts by name.
 const CATEGORY_ORDER = Object.keys(CATEGORIES)
@@ -25,12 +26,13 @@ const CATEGORY_ORDER = Object.keys(CATEGORIES)
 interface PaletteSubGroup { name: string; color: string; types: string[] }
 interface PaletteGroup { name: string; color: string; subgroups: PaletteSubGroup[]; count: number }
 
-type Tab = 'nodes' | 'templates' | 'workflows' | 'script' | 'runs' | 'runtime' | 'console' | 'deployments' | 'devices' | 'learned' | 'mcp' | 'packages'
+type Tab = 'nodes' | 'projects' | 'templates' | 'workflows' | 'script' | 'runs' | 'runtime' | 'console' | 'deployments' | 'devices' | 'learned' | 'mcp' | 'packages'
 
 const TOP_BAR_H = 44
 const RAIL_W = 78
 const PANEL_DEFAULT_W = 240
 const PANEL_MIN_W = 188
+const PANEL_PROJECT_W = 420
 const PANEL_DEPLOY_W = 460
 const PANEL_EXPANDED_W = 760
 const PANEL_MAX_W = 860
@@ -66,6 +68,12 @@ const ICON_WORKFLOWS = (
     <rect x="12" y="6" width="5" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
     <path d="M6 9h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
     <path d="M10 7l2 2-2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+)
+const ICON_PROJECTS = (
+  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <path d="M2.5 5.5h5l1.4 1.7h6.6v7.3a1.5 1.5 0 01-1.5 1.5H4a1.5 1.5 0 01-1.5-1.5v-9z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+    <path d="M3.5 5.5V4A1.5 1.5 0 015 2.5h3.2l1.3 1.6H14A1.5 1.5 0 0115.5 5.5" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
   </svg>
 )
 const ICON_SCRIPT = (
@@ -135,6 +143,7 @@ const ICON_CONSOLE = (
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'nodes',     label: 'Nodes',     icon: ICON_NODES     },
+  { id: 'projects',  label: 'Projects',  icon: ICON_PROJECTS  },
   { id: 'templates', label: 'Templates', icon: ICON_TEMPLATES },
   { id: 'workflows', label: 'Workflows', icon: ICON_WORKFLOWS },
   { id: 'script',    label: 'Script',    icon: ICON_SCRIPT    },
@@ -184,11 +193,16 @@ export default function NodePalette() {
       setTemplateSearch('')
       setTemplateOpenInNewTab(false)
     }
-    if (tab === 'deployments' && panelWidth < PANEL_DEPLOY_W) {
-      setPanelWidth(clampPanelWidth(PANEL_DEPLOY_W))
-    } else if (tab !== 'deployments' && panelExpanded) {
-      setPanelWidth(clampPanelWidth(compactWidthRef.current))
-      setPanelExpanded(false)
+    if (tab === 'deployments') {
+      if (panelWidth < PANEL_DEPLOY_W) {
+        setPanelWidth(clampPanelWidth(PANEL_DEPLOY_W))
+      }
+    } else {
+      const compactWidth = panelExpanded ? compactWidthRef.current : panelWidth
+      setPanelWidth(clampPanelWidth(
+        tab === 'projects' ? Math.max(compactWidth, PANEL_PROJECT_W) : compactWidth,
+      ))
+      if (panelExpanded) setPanelExpanded(false)
     }
   }
 
@@ -597,7 +611,15 @@ export default function NodePalette() {
           </span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', padding: '4px 0' }}>
+        <div style={{
+          display: 'flex',
+          flex: 1,
+          minHeight: 0,
+          flexDirection: 'column',
+          padding: '4px 0',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+        }}>
           {TABS.map(tab => {
             const active = activeTab === tab.id
             return (
@@ -768,6 +790,9 @@ export default function NodePalette() {
 
             {/* ── WORKFLOWS ── */}
             {activeTab === 'workflows' && <WorkflowManager />}
+
+            {/* ── PROJECTS ── */}
+            {activeTab === 'projects' && <ProjectPanel />}
 
             {/* ── SCRIPT ── */}
             {activeTab === 'script' && (

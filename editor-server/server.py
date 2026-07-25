@@ -54,6 +54,7 @@ from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
 
 from device_registry import DeviceRegistry, DeviceRegistryError, HardwareDeviceClient
+from project_store import ProjectStore, ProjectStoreError
 from run_store import RunStore
 
 app = FastAPI(title="Blacknode Editor Server")
@@ -112,6 +113,8 @@ _DEPLOYMENTS_DIR = Path(__file__).resolve().parents[1] / ".blacknode" / "deploym
 _deployment_store = DeploymentStore(_DEPLOYMENTS_DIR)
 _DEVICES_PATH = Path(__file__).resolve().parents[1] / ".blacknode" / "devices.json"
 _device_registry = DeviceRegistry(_DEVICES_PATH)
+_PROJECTS_PATH = Path(__file__).resolve().parents[1] / ".blacknode" / "projects.json"
+_project_store = ProjectStore(_PROJECTS_PATH)
 _save_timer: threading.Timer | None = None
 _SUBGRAPH_NODE_TYPES = {"Subnet", "SubnetAsTool", "VisualAgentLoop"}
 _TOOLBOX_NODE_TYPES = {"ToolBox"}
@@ -308,6 +311,20 @@ class SaveWorkflowReq(BaseModel):
 class RenameWorkflowReq(BaseModel):
     name: str
 
+class CreateProjectReq(BaseModel):
+    name: str
+    description: str = ""
+    workflow_slugs: list[str] = []
+    device_ids: list[str] = []
+    active_workflow_slug: str | None = None
+
+class UpdateProjectReq(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    workflow_slugs: list[str] | None = None
+    device_ids: list[str] | None = None
+    active_workflow_slug: str | None = None
+
 class NewWorkflowTabReq(BaseModel):
     name: str = "Untitled"
 
@@ -375,6 +392,8 @@ class RemoteDeployReq(BaseModel):
     workflow_hash: str
     start: bool = False
     deployment_id: str | None = None
+    project_id: str | None = None
+    workflow_slug: str | None = None
 
 class RemoteRollbackReq(BaseModel):
     start: bool = False
@@ -4171,8 +4190,51 @@ def list_device_deployments(device_id: str):
         raise HTTPException(502, str(exc)) from exc
 
 
+def _remote_deployment_owner(
+    device_id: str,
+    req: RemoteDeployReq,
+) -> dict[str, str]:
+    project_id = str(req.project_id or "").strip()
+    workflow_slug = str(req.workflow_slug or "").strip()
+    if not project_id and not workflow_slug:
+        return {}
+    if not project_id or not workflow_slug:
+        raise HTTPException(
+            400,
+            "Deployment ownership requires both project_id and workflow_slug.",
+        )
+    try:
+        project = _project_store.get(project_id)
+    except ProjectStoreError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if project is None:
+        raise HTTPException(404, f"Project '{project_id}' not found")
+    if workflow_slug not in project.get("workflow_slugs", []):
+        raise HTTPException(
+            409,
+            f"Workflow '{workflow_slug}' is not linked to project "
+            f"'{project.get('name') or project_id}'.",
+        )
+    if device_id not in project.get("device_ids", []):
+        raise HTTPException(
+            409,
+            f"Device '{device_id}' is not linked to project "
+            f"'{project.get('name') or project_id}'. Link it in Projects before staging.",
+        )
+    if not os.path.exists(_workflow_path(workflow_slug)):
+        raise HTTPException(
+            409,
+            f"Workflow '{workflow_slug}' is no longer saved. Save it again before staging.",
+        )
+    return {
+        "project_id": project_id,
+        "workflow_slug": workflow_slug,
+    }
+
+
 @app.post("/devices/{device_id}/deployments")
 def stage_device_deployment(device_id: str, req: RemoteDeployReq):
+    deployment_owner = _remote_deployment_owner(device_id, req)
     workflow = _device_deployment_workflow()
     current_hash = _device_deployment_hash(workflow)
     requested_hash = req.workflow_hash.strip().lower()
@@ -4206,6 +4268,15 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
 
     name = req.name.strip() or str(workflow.get("name") or "Deployed graph")
     runtime_manifest = preflight.get("runtime") or {}
+    if (
+        deployment_owner
+        and "deployment_ownership_v1" not in set(runtime_manifest.get("features") or [])
+    ):
+        raise HTTPException(
+            409,
+            "This target runtime cannot record Project ownership yet. Update "
+            "blacknode-runtime to 0.3.8 or newer, restart it, and check setup again.",
+        )
     payload: dict[str, Any] = {
         "name": name,
         "script": script,
@@ -4222,6 +4293,7 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
             "runtime_protocol_version": runtime_manifest.get("protocol_version"),
             "target_device_id": device_id,
             "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            **deployment_owner,
         },
     }
     if req.deployment_id:
@@ -5934,6 +6006,7 @@ def _save_workflow(name: str, previous_slug: str | None = None):
         old_path = _workflow_path(previous_slug)
         if os.path.exists(old_path):
             os.remove(old_path)
+        _project_store.replace_workflow_slug(previous_slug, slug)
     return {"ok": True, "slug": slug}
 
 def _restore_session(
@@ -6052,6 +6125,192 @@ def _insert_workflow(node_meta: dict, edges: list):
             "to": to_id,
             "to_port": edge.get("to_port", "input"),
         })
+
+
+_PROJECT_COLLECT_NODES = {
+    "EpisodeRecorder",
+}
+_PROJECT_TRAIN_NODES = {
+    "ACTTraining",
+}
+_PROJECT_SIMULATE_NODES = {
+    "IsaacPolicySafetyGate",
+    "IsaacPolicyBridge",
+    "IsaacPolicyRuntime",
+}
+_PROJECT_ROBOT_NODE_MARKERS = (
+    "robot",
+    "servo",
+    "joint",
+    "leaderfollower",
+    "policydeployment",
+)
+
+
+def _project_workflow_reference(slug: str) -> dict[str, Any]:
+    path = _workflow_path(slug)
+    if not os.path.exists(path):
+        return {
+            "slug": slug,
+            "name": slug,
+            "exists": False,
+            "node_types": [],
+            "stages": [],
+            "requires_calibration": False,
+            "calibration": None,
+        }
+    try:
+        data = _read_workflow_file(path)
+    except (OSError, json.JSONDecodeError, HTTPException):
+        return {
+            "slug": slug,
+            "name": slug,
+            "exists": False,
+            "node_types": [],
+            "stages": [],
+            "requires_calibration": False,
+            "calibration": None,
+        }
+    node_meta = data.get("node_meta")
+    node_types = sorted({
+        str(meta.get("type"))
+        for meta in (node_meta.values() if isinstance(node_meta, dict) else [])
+        if isinstance(meta, dict) and meta.get("type")
+    })
+    metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+    required_capabilities = [
+        str(value)
+        for value in metadata.get("required_capabilities", [])
+        if isinstance(value, str)
+    ]
+    raw_calibration = metadata.get("device_calibration")
+    calibration = (
+        {
+            key: str(raw_calibration[key])
+            for key in ("profile_id", "hardware_id")
+            if raw_calibration.get(key)
+        }
+        if isinstance(raw_calibration, dict)
+        else None
+    )
+    calibration = calibration or None
+    lowered_types = [node_type.lower() for node_type in node_types]
+    requires_calibration = (
+        "joint_group" in required_capabilities
+        or any(
+            marker in node_type
+            for node_type in lowered_types
+            for marker in _PROJECT_ROBOT_NODE_MARKERS
+        )
+    )
+    stages = []
+    if any(node_type in _PROJECT_COLLECT_NODES for node_type in node_types):
+        stages.append("collect")
+    if any(node_type in _PROJECT_TRAIN_NODES for node_type in node_types):
+        stages.append("train")
+    if any(node_type in _PROJECT_SIMULATE_NODES for node_type in node_types):
+        stages.append("simulate")
+    return {
+        "slug": slug,
+        "name": data.get("name", slug),
+        "saved_at": data.get("saved_at", ""),
+        "exists": True,
+        "node_types": node_types,
+        "stages": stages,
+        "requires_calibration": requires_calibration,
+        "calibration": calibration,
+    }
+
+
+def _project_payload(record: dict[str, Any]) -> dict[str, Any]:
+    workflows = [
+        _project_workflow_reference(str(slug))
+        for slug in record.get("workflow_slugs", [])
+    ]
+    devices = []
+    for device_id in record.get("device_ids", []):
+        device = _device_registry.get_public(str(device_id))
+        devices.append(
+            {**device, "exists": True}
+            if device is not None
+            else {"id": str(device_id), "name": str(device_id), "exists": False}
+        )
+    return {
+        **record,
+        "workflows": workflows,
+        "devices": devices,
+    }
+
+
+def _project_error(exc: ProjectStoreError) -> HTTPException:
+    return HTTPException(400, str(exc))
+
+
+@app.get("/projects")
+def list_projects():
+    try:
+        return [_project_payload(record) for record in _project_store.list()]
+    except ProjectStoreError as exc:
+        raise _project_error(exc) from exc
+
+
+@app.post("/projects")
+def create_project(req: CreateProjectReq):
+    try:
+        return _project_payload(_project_store.create(
+            name=req.name,
+            description=req.description,
+            workflow_slugs=req.workflow_slugs,
+            device_ids=req.device_ids,
+            active_workflow_slug=req.active_workflow_slug,
+        ))
+    except ProjectStoreError as exc:
+        raise _project_error(exc) from exc
+
+
+@app.get("/projects/{project_id}")
+def get_project(project_id: str):
+    try:
+        record = _project_store.get(project_id)
+    except ProjectStoreError as exc:
+        raise _project_error(exc) from exc
+    if record is None:
+        raise HTTPException(404, f"Project '{project_id}' not found")
+    return _project_payload(record)
+
+
+@app.patch("/projects/{project_id}")
+def update_project(project_id: str, req: UpdateProjectReq):
+    fields_set = (
+        req.model_fields_set
+        if hasattr(req, "model_fields_set")
+        else req.__fields_set__
+    )
+    try:
+        return _project_payload(_project_store.update(
+            project_id,
+            name=req.name,
+            description=req.description,
+            workflow_slugs=req.workflow_slugs,
+            device_ids=req.device_ids,
+            active_workflow_slug=req.active_workflow_slug,
+            update_active_workflow="active_workflow_slug" in fields_set,
+        ))
+    except KeyError as exc:
+        raise HTTPException(404, f"Project '{project_id}' not found") from exc
+    except ProjectStoreError as exc:
+        raise _project_error(exc) from exc
+
+
+@app.delete("/projects/{project_id}")
+def delete_project(project_id: str):
+    try:
+        deleted = _project_store.delete(project_id)
+    except ProjectStoreError as exc:
+        raise _project_error(exc) from exc
+    if not deleted:
+        raise HTTPException(404, f"Project '{project_id}' not found")
+    return {"ok": True}
 
 
 @app.get("/workflows")
@@ -6260,6 +6519,7 @@ def rename_workflow(slug: str, req: RenameWorkflowReq):
         json.dump(data, f, indent=2)
     if next_slug != slug:
         os.remove(path)
+        _project_store.replace_workflow_slug(slug, next_slug)
     return {"slug": next_slug, "name": clean_name, "saved_at": data["saved_at"]}
 
 

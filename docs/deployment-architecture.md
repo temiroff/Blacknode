@@ -50,6 +50,8 @@ Every transport carries the same logical artifact:
 |---|---|
 | `schema_version` | Selects the artifact contract |
 | `name` | Human-readable deployment name |
+| `project_id` | Stable owning Project ID when deployed from a Project |
+| `workflow_slug` | Saved workflow identity within the owning Project |
 | `workflow_hash` | Binds the artifact to the exact validated graph |
 | `artifact_hash` | Identifies the exported executable content |
 | `entrypoint` | Declares what the runtime executes |
@@ -61,6 +63,12 @@ Every transport carries the same logical artifact:
 Large artifacts do not have to travel through the command transport. An MQTT
 or Zenoh command can carry a content-addressed HTTPS or object-store reference,
 while the same artifact manifest and hashes remain authoritative.
+
+`project_id` and `workflow_slug` are an optional pair. The editor validates
+that the project links the workflow and target device before staging. The
+runtime preserves ownership across revisions and rejects an update that would
+move an existing owned deployment to another project or workflow. Deployment
+records created before ownership support remain valid and report empty fields.
 
 The editor persists deployment requirements in workflow metadata. A remote
 robot deployment currently targets one physical robot. Additional robots use
