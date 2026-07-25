@@ -4,3 +4,4 @@ uvicorn[standard]>=0.29
 anthropic>=0.25
 openai>=1.0
 mcp>=1.0
+paramiko>=3.4

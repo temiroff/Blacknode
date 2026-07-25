@@ -86,6 +86,116 @@ interface UndoSnapshot {
 const UNDO_LIMIT = 80
 let dragUndoActive = false
 let learnedHighlightTimer: ReturnType<typeof setTimeout> | null = null
+const artifactCaptureSignatures = new Map<string, string>()
+
+const ARTIFACT_KINDS = new Set([
+  'blacknode.episode-dataset',
+  'blacknode.training-job',
+  'blacknode.training-run',
+  'blacknode.action-chunking-checkpoint',
+  'blacknode.policy-artifact',
+  'blacknode.policy-replay-metrics',
+  'blacknode.policy-runtime',
+])
+
+const ARTIFACT_CAPTURE_FIELDS = new Set([
+  'kind',
+  'schema_version',
+  'dataset_id',
+  'path',
+  'task',
+  'fps',
+  'episode_count',
+  'total_frames',
+  'duration_seconds',
+  'robot_type',
+  'joint_names',
+  'cameras',
+  'run_id',
+  'output_dir',
+  'phase',
+  'running',
+  'step',
+  'steps',
+  'progress',
+  'train_loss',
+  'validation_loss',
+  'best_validation_loss',
+  'checkpoint',
+  'device',
+  'started_at',
+  'ended_at',
+  'error',
+  'name',
+  'policy_type',
+  'backend',
+  'created_at',
+  'source_checkpoint',
+  'action_mode',
+  'units',
+  'camera_names',
+  'state_dim',
+  'action_dim',
+  'metrics',
+  'episode_index',
+  'mean_absolute_error',
+  'root_mean_square_error',
+  'max_absolute_error',
+  'motion_commanded',
+  'log_path',
+  'inference_count',
+  'command_count',
+  'blocked_count',
+  'mean_inference_ms',
+  'last_error',
+  'armed',
+  'emergency_stop',
+  'human_takeover',
+])
+
+function artifactCandidates(value: unknown): {
+  payloads: Record<string, unknown>[]
+  signature: string
+} {
+  const stack: unknown[] = [value]
+  const matches: string[] = []
+  const payloads: Record<string, unknown>[] = []
+  let visited = 0
+  while (stack.length && visited < 160) {
+    const current = stack.pop()
+    visited += 1
+    if (Array.isArray(current)) {
+      stack.push(...current.slice(0, 40))
+      continue
+    }
+    if (!current || typeof current !== 'object') continue
+    const record = current as Record<string, unknown>
+    const kind = typeof record.kind === 'string' ? record.kind : ''
+    if (ARTIFACT_KINDS.has(kind)) {
+      payloads.push(Object.fromEntries(
+        Object.entries(record).filter(([key]) => ARTIFACT_CAPTURE_FIELDS.has(key)),
+      ))
+      matches.push([
+        kind,
+        record.path,
+        record.output_dir,
+        record.run_id,
+        record.phase,
+        record.running,
+        record.step,
+        record.episode_count,
+      ].map(item => String(item ?? '')).join(':'))
+    }
+    for (const [key, item] of Object.entries(record)) {
+      if (key === 'frames' || key === 'frames_data' || key === 'last_prediction') continue
+      stack.push(item)
+    }
+  }
+  return {
+    payloads,
+    signature: matches.sort().join('|'),
+  }
+}
 
 interface Store {
   nodes: Node<NodeData>[]
@@ -107,6 +217,7 @@ interface Store {
   activeTabId: string
   activeProject: ActiveProject | null
   workflowRevision: number
+  projectRevision: number
   workflowMetadata: WorkflowMetadata
   undoHistory: UndoSnapshot[]
   cookLog: CookLogEntry[]
@@ -1328,6 +1439,7 @@ export const useStore = create<Store>((set, get) => ({
   activeTabId: 'default',
   activeProject: null,
   workflowRevision: 0,
+  projectRevision: 0,
   workflowMetadata: {},
   undoHistory: [],
   cookLog: [],
@@ -3082,6 +3194,8 @@ export const useStore = create<Store>((set, get) => ({
 
   cookNode: async (id, port = 'output', graphTargets, runMode = 'once') => {
     const cookTabId = get().activeTabId
+    const cookTab = get().tabs.find(tab => tab.id === cookTabId)
+    const cookProject = get().activeProject
     const stack = get().subnetStack
     const activeSubnetId = stack.length > 0 ? stack[stack.length - 1].subnetId : null
     const cookNodes = get().nodes
@@ -3134,6 +3248,33 @@ export const useStore = create<Store>((set, get) => ({
     }
     const applyCookEvent = (event: CookEvent) => {
       queueLiveReplay(event)
+      if (
+        event.type === 'success'
+        && cookProject
+        && cookTab?.slug
+        && cookProject.workflowSlugs.includes(cookTab.slug)
+      ) {
+        const value = event.outputs ?? event.value
+        const candidates = artifactCandidates(value)
+        const signature = candidates.signature
+        const captureKey = `${cookProject.id}:${cookTab.slug}:${event.node_id}`
+        if (signature && artifactCaptureSignatures.get(captureKey) !== signature) {
+          artifactCaptureSignatures.set(captureKey, signature)
+          const nodeType = event.node_type
+            ?? cookNodes.find(node => node.id === event.node_id)?.data.type
+            ?? ''
+          void api.importProjectArtifacts(cookProject.id, {
+            workflow_slug: cookTab.slug,
+            node_type: nodeType,
+            value: candidates.payloads,
+          }).then(() => {
+            set(state => ({ projectRevision: state.projectRevision + 1 }))
+          }).catch(() => {
+            // Artifact capture is project evidence, not part of node execution.
+            // A capture failure must not turn a successful cook into a failure.
+          })
+        }
+      }
       if (event.type === 'done') {
         set(s => ({
           ...syncTabCookState(s, cookTabId, {

@@ -37,15 +37,15 @@
 }
 
 .bn-project-panel button.primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
+  border-color: var(--action);
+  background: var(--action);
+  color: var(--action-ink);
   font-weight: 700;
 }
 
 .bn-project-panel button.danger-text {
   background: transparent;
-  color: #c87b78;
+  color: var(--err);
 }
 
 .bn-project-panel input,
@@ -237,6 +237,37 @@
   line-height: 1.5;
 }
 
+.bn-project-onboarding-steps {
+  display: grid;
+  width: 100%;
+  max-width: 310px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 0 18px;
+}
+
+.bn-project-onboarding-steps span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-project-onboarding-steps b {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 9%, var(--lift));
+  color: var(--accent);
+  font-size: 11px;
+}
+
 .bn-project-link-button,
 .bn-project-refresh {
   border-color: transparent !important;
@@ -250,10 +281,10 @@
 .bn-project-error {
   margin: 10px 12px;
   padding: 9px 10px;
-  border: 1px solid color-mix(in srgb, #d16d6a 55%, var(--line));
+  border: 1px solid color-mix(in srgb, var(--err) 55%, var(--line));
   border-radius: 7px;
-  background: color-mix(in srgb, #d16d6a 10%, transparent);
-  color: #d98a87;
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+  color: var(--err);
   line-height: 1.4;
 }
 
@@ -327,6 +358,30 @@
   line-height: 1.4;
 }
 
+.bn-project-starter-note {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  color: var(--tx2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bn-project-create .bn-project-starter-note {
+  margin-top: 0;
+}
+
+.bn-project-next button {
+  align-self: flex-start;
+  margin-top: 5px;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line2));
+  background: color-mix(in srgb, var(--accent) 12%, var(--lift));
+  color: var(--tx1);
+  font-weight: 700;
+}
+
 .bn-project-section-title {
   align-items: baseline;
   margin-bottom: 10px;
@@ -350,12 +405,27 @@
 
 .bn-project-stage {
   display: flex;
+  width: 100%;
   min-width: 0;
+  min-height: 0;
+  align-items: flex-start;
   gap: 8px;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--bg);
+  color: var(--tx1);
+  text-align: left;
+}
+
+.bn-project-stage:hover {
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+}
+
+.bn-project-stage:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  outline-offset: 1px;
 }
 
 .bn-project-stage-marker {
@@ -382,8 +452,8 @@
 }
 
 .bn-project-stage.waiting .bn-project-stage-marker {
-  background: color-mix(in srgb, #d0a14d 16%, var(--lift));
-  color: #d0a14d;
+  background: color-mix(in srgb, var(--warn) 16%, var(--lift));
+  color: var(--warn);
 }
 
 .bn-project-stage strong,
@@ -476,6 +546,56 @@
   color: color-mix(in srgb, var(--accent) 70%, var(--tx2));
 }
 
+.bn-project-stage .bn-project-stage-open {
+  margin-left: auto;
+  color: var(--tx3);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.bn-project-stage:hover .bn-project-stage-open {
+  color: var(--accent);
+}
+
+.bn-project-resource-main strong .bn-project-artifact-kind {
+  display: inline-block;
+  margin: 0 7px 0 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--lift));
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+.bn-project-artifact-state {
+  align-self: center;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--lift);
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.bn-project-artifact-state.completed {
+  background: color-mix(in srgb, var(--ok) 14%, var(--lift));
+  color: var(--ok);
+}
+
+.bn-project-artifact-state.running {
+  background: color-mix(in srgb, var(--accent) 15%, var(--lift));
+  color: var(--accent);
+}
+
+.bn-project-artifact-state.failed {
+  background: color-mix(in srgb, var(--err) 15%, var(--lift));
+  color: var(--err);
+}
+
 .bn-project-resource-actions {
   display: flex;
   flex-shrink: 0;
@@ -514,8 +634,8 @@
 }
 
 .bn-project-deployment-state.failed {
-  background: color-mix(in srgb, #d16d6a 15%, var(--lift));
-  color: #d98a87;
+  background: color-mix(in srgb, var(--err) 15%, var(--lift));
+  color: var(--err);
 }
 
 .bn-project-empty {

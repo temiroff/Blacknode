@@ -77,12 +77,16 @@ class ProjectStore:
         description: str = "",
         workflow_slugs: list[str] | None = None,
         device_ids: list[str] | None = None,
+        artifact_ids: list[str] | None = None,
+        starter_kit: str | None = None,
         active_workflow_slug: str | None = None,
     ) -> dict[str, Any]:
         clean_name = self._clean_name(name)
         clean_description = self._clean_description(description)
         clean_workflows = _unique_strings(workflow_slugs, field="workflow_slugs")
         clean_devices = _unique_strings(device_ids, field="device_ids")
+        clean_artifacts = _unique_strings(artifact_ids, field="artifact_ids")
+        clean_starter = self._clean_starter_kit(starter_kit)
         clean_active = str(active_workflow_slug or "").strip() or None
         if clean_active and clean_active not in clean_workflows:
             raise ProjectStoreError(
@@ -103,6 +107,8 @@ class ProjectStore:
                 "description": clean_description,
                 "workflow_slugs": clean_workflows,
                 "device_ids": clean_devices,
+                "artifact_ids": clean_artifacts,
+                "starter_kit": clean_starter,
                 "active_workflow_slug": (
                     clean_active
                     or (clean_workflows[0] if clean_workflows else None)
@@ -122,8 +128,11 @@ class ProjectStore:
         description: str | None = None,
         workflow_slugs: list[str] | None = None,
         device_ids: list[str] | None = None,
+        artifact_ids: list[str] | None = None,
+        starter_kit: str | None = None,
         active_workflow_slug: str | None = None,
         update_active_workflow: bool = False,
+        update_starter_kit: bool = False,
     ) -> dict[str, Any]:
         with self._lock:
             records = self._load()
@@ -144,6 +153,13 @@ class ProjectStore:
                     device_ids,
                     field="device_ids",
                 )
+            if artifact_ids is not None:
+                record["artifact_ids"] = _unique_strings(
+                    artifact_ids,
+                    field="artifact_ids",
+                )
+            if update_starter_kit:
+                record["starter_kit"] = self._clean_starter_kit(starter_kit)
             workflows = list(record.get("workflow_slugs") or [])
             if update_active_workflow:
                 clean_active = str(active_workflow_slug or "").strip() or None
@@ -167,6 +183,57 @@ class ProjectStore:
             del records[project_id]
             self._save(records)
             return True
+
+    def link_artifact_ids(
+        self,
+        project_id: str,
+        artifact_ids: list[str],
+    ) -> dict[str, Any]:
+        """Atomically add artifact references captured by concurrent node runs."""
+        clean_ids = _unique_strings(artifact_ids, field="artifact_ids")
+        with self._lock:
+            records = self._load()
+            record = records.get(project_id)
+            if record is None:
+                raise KeyError(project_id)
+            linked = list(record.get("artifact_ids") or [])
+            changed = False
+            for artifact_id in clean_ids:
+                if artifact_id not in linked:
+                    linked.append(artifact_id)
+                    changed = True
+            if changed:
+                record["artifact_ids"] = linked
+                record["updated_at"] = _iso_now()
+                records[project_id] = record
+                self._save(records)
+            return dict(record)
+
+    def link_workflow_slug(
+        self,
+        project_id: str,
+        workflow_slug: str,
+    ) -> dict[str, Any]:
+        """Atomically link a generated starter workflow to its Project."""
+        clean_slug = _unique_strings(
+            [workflow_slug],
+            field="workflow_slugs",
+        )[0]
+        with self._lock:
+            records = self._load()
+            record = records.get(project_id)
+            if record is None:
+                raise KeyError(project_id)
+            workflows = list(record.get("workflow_slugs") or [])
+            if clean_slug not in workflows:
+                workflows.append(clean_slug)
+                record["workflow_slugs"] = workflows
+                if not record.get("active_workflow_slug"):
+                    record["active_workflow_slug"] = clean_slug
+                record["updated_at"] = _iso_now()
+                records[project_id] = record
+                self._save(records)
+            return dict(record)
 
     def replace_workflow_slug(self, previous_slug: str, next_slug: str) -> None:
         """Keep project links intact when a saved workflow is renamed."""
@@ -213,7 +280,10 @@ class ProjectStore:
                 continue
             project_id = str(item.get("id") or "").strip()
             if project_id:
-                records[project_id] = dict(item)
+                record = dict(item)
+                record.setdefault("artifact_ids", [])
+                record.setdefault("starter_kit", None)
+                records[project_id] = record
         return records
 
     def _save(self, records: dict[str, dict[str, Any]]) -> None:
@@ -249,4 +319,11 @@ class ProjectStore:
             raise ProjectStoreError(
                 "Project description must be 2,000 characters or fewer."
             )
+        return clean
+
+    @staticmethod
+    def _clean_starter_kit(value: str | None) -> str | None:
+        clean = str(value or "").strip() or None
+        if clean not in {None, "robot_learning"}:
+            raise ProjectStoreError(f"Unknown Project starter kit '{clean}'.")
         return clean

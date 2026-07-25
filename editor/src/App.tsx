@@ -35,7 +35,7 @@ const NODE_TYPES = {
   subnetoutput: SubgraphOutputNode,
 }
 
-const TAB_H = 36  // workflow tab bar height
+const TAB_H = 52  // workflow tab bar height
 
 const DEFAULT_FRAMEWORK_EXPORT_TARGETS: FrameworkExportTarget[] = [
   { id: 'python', label: 'Plain Python', description: 'Readable Blacknode Graph script.', extension: '.py' },
@@ -159,7 +159,6 @@ export default function App() {
   const suppressPaneClick = useRef(false)
   const lastBackendNotice = useRef<string | null>(null)
   const activeTab = tabs.find(tab => tab.id === activeTabId)
-  const needsSave = Boolean(activeTab && (activeTab.dirty || !activeTab.slug))
   const menuTab = tabMenu ? tabs.find(tab => tab.id === tabMenu.tabId) : null
   const pendingCloseTab = pendingClose ? tabs.find(tab => tab.id === pendingClose.tabId) : null
 
@@ -1026,7 +1025,8 @@ export default function App() {
     setTabMenu({ x: e.clientX, y: e.clientY, tabId })
   }, [])
 
-  const topbarH = 44
+  const topbarH = 52
+  const leftRailW = 78
   const canvasPad = topbarH + TAB_H
   const liveStreamCount = nodes.filter(n => (
     LIVE_STREAM_NODE_TYPES.has(n.data.type) &&
@@ -1062,25 +1062,26 @@ export default function App() {
 
         {/* ── top bar ── */}
         <div className="bn-topbar" style={{
-          position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
+          position: 'fixed', top: 0, left: leftRailW, right: 0, zIndex: 50,
           background: 'var(--panel)',
           borderBottom: '1px solid var(--line)',
-          display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px',
+          display: 'flex', alignItems: 'center',
           height: topbarH,
         }}>
-          <div className="bn-brand" aria-label="Blacknode">
+          <div
+            className="bn-brand"
+            aria-label="Blacknode"
+            style={{ width: 'var(--bn-palette-panel-width, 240px)', padding: '0 18px' }}
+          >
             <img
               className="bn-brand-logo"
-              src={isDark ? '/blacknode-logo-white.png' : '/blacknode-logo.png'}
+              src="/blacknode-logo.png"
               alt=""
             />
             <span>BLACKNODE</span>
           </div>
 
-          <div className="bn-topbar-spacer" style={{ flex: 1 }} />
-
-          <span className="bn-top-hint" style={{ color: 'var(--tx3)', fontSize: 14 }}>right-click to add</span>
-
+          <div className="bn-topbar-controls">
           <select
             className="bn-top-select"
             value={exportingTarget}
@@ -1180,7 +1181,7 @@ export default function App() {
           <span className="bn-backend-status" style={{
             padding: '3px 10px',
             borderRadius: 20,
-            background: serverOk ? (isDark ? '#0d2a1a' : '#dcfce7') : (isDark ? '#2a0d0d' : '#fee2e2'),
+            background: serverOk ? 'var(--ok-soft)' : 'var(--err-soft)',
             color: serverOk ? 'var(--ok)' : 'var(--err)',
             fontSize: 14,
             fontWeight: 500,
@@ -1199,13 +1200,14 @@ export default function App() {
               {serverOk ? 'backend' : `backend offline${serverError ? ': ' + serverError : ''}`}
             </span>
           </span>
+          </div>
         </div>
 
         {/* ── workflow tab bar ── */}
         <div style={{
           position: 'absolute', top: topbarH, left: 0, right: 0, zIndex: 10,
           height: TAB_H,
-          background: 'var(--bg)',
+          background: 'var(--tabbar)',
           borderBottom: '1px solid var(--line)',
           display: 'flex',
           alignItems: 'center',
@@ -1257,7 +1259,7 @@ export default function App() {
                   height: 26,
                   borderRadius: 6,
                   cursor: 'pointer',
-                  background: active ? 'var(--menu-active)' : 'transparent',
+                  background: active ? 'var(--tab-active)' : 'var(--tab)',
                   color: active ? 'var(--tx1)' : 'var(--tx3)',
                   border: `1px solid ${active ? 'var(--accent)' : 'transparent'}`,
                   fontSize: 14,
@@ -1308,7 +1310,7 @@ export default function App() {
                   <span
                     title={tab.dirty || !tab.slug ? 'Unsaved changes' : 'Saved'}
                     style={{
-                      color: tab.dirty || !tab.slug ? '#b86b68' : '#6f9b78',
+                      color: tab.dirty || !tab.slug ? 'var(--err)' : 'var(--ok)',
                       fontSize: 16,
                       lineHeight: 1,
                     }}
@@ -1364,10 +1366,10 @@ export default function App() {
               marginLeft: 'auto',
               position: 'sticky',
               right: 6,
-              background: saveOk ? 'var(--ok)' : needsSave ? 'var(--save-pending)' : 'var(--accent)',
+              background: 'var(--action)',
               border: 'none',
               borderRadius: 6,
-              color: '#fff',
+              color: 'var(--action-ink)',
               cursor: activeTab && !savingWorkflow ? 'pointer' : 'default',
               fontFamily: 'var(--font-ui)',
               fontSize: 14,
@@ -1562,9 +1564,9 @@ export default function App() {
                   disabled={closeSaving || !pendingClose.draftName.trim()}
                   onClick={() => void savePendingClose()}
                   style={{
-                    background: 'var(--accent)',
-                    borderColor: 'var(--accent)',
-                    color: '#fff',
+                    background: 'var(--action)',
+                    borderColor: 'var(--action)',
+                    color: 'var(--action-ink)',
                     opacity: closeSaving || !pendingClose.draftName.trim() ? 0.65 : 1,
                   }}
                 >
@@ -1658,16 +1660,16 @@ export default function App() {
                 onClick={() => void collapseToSubnet(selected.map(n => n.id), 'Subnet')}
                 style={{
                   pointerEvents: 'all',
-                  background: '#6366f1',
+                  background: 'var(--action)',
                   border: 'none',
                   borderRadius: 8,
-                  color: '#fff',
+                  color: 'var(--action-ink)',
                   cursor: 'pointer',
                   fontFamily: 'var(--font-ui)',
                   fontSize: 15,
                   fontWeight: 600,
                   padding: '8px 18px',
-                  boxShadow: '0 4px 16px rgba(99,102,241,0.4)',
+                  boxShadow: '0 4px 16px color-mix(in srgb, var(--accent) 35%, transparent)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 7,
@@ -1728,12 +1730,12 @@ export default function App() {
         >
           <Background
             variant={BackgroundVariant.Dots}
-            color={isDark ? '#3a3a3a' : '#d0d1e0'}
-            gap={24}
-            size={1.5}
+            color="var(--rf-dot)"
+            gap={72}
+            size={2}
           />
           <Controls />
-          <MiniMap nodeColor={() => isDark ? '#2e2e2e' : '#e0e0ec'} />
+          <MiniMap nodeColor={() => 'var(--lift)'} />
         </ReactFlow>
       </div>
 

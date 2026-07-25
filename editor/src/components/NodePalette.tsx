@@ -28,7 +28,7 @@ interface PaletteGroup { name: string; color: string; subgroups: PaletteSubGroup
 
 type Tab = 'nodes' | 'projects' | 'templates' | 'workflows' | 'script' | 'runs' | 'runtime' | 'console' | 'deployments' | 'devices' | 'learned' | 'mcp' | 'packages'
 
-const TOP_BAR_H = 44
+const TOP_BAR_H = 52
 const RAIL_W = 78
 const PANEL_DEFAULT_W = 240
 const PANEL_MIN_W = 188
@@ -183,11 +183,7 @@ export default function NodePalette() {
     return Math.max(PANEL_MIN_W, Math.min(PANEL_MAX_W, viewportMax, width))
   }
 
-  const selectTab = (tab: Tab) => {
-    if (activeTab === tab) {
-      setActiveTab(null)
-      return
-    }
+  const openPanel = (tab: Tab) => {
     setActiveTab(tab)
     if (tab === 'templates') {
       setTemplateSearch('')
@@ -204,6 +200,14 @@ export default function NodePalette() {
       ))
       if (panelExpanded) setPanelExpanded(false)
     }
+  }
+
+  const selectTab = (tab: Tab) => {
+    if (activeTab === tab) {
+      setActiveTab(null)
+      return
+    }
+    openPanel(tab)
   }
 
   const togglePanelExpanded = () => {
@@ -230,6 +234,23 @@ export default function NodePalette() {
   useEffect(() => {
     if (activeTab === 'nodes') loadNodeTypes()
   }, [activeTab, loadNodeTypes])
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--bn-palette-panel-width', `${panelWidth}px`)
+    return () => {
+      document.documentElement.style.removeProperty('--bn-palette-panel-width')
+    }
+  }, [panelWidth])
+
+  useEffect(() => {
+    const handleOpenPanel = (event: Event) => {
+      const tab = (event as CustomEvent<{ tab?: Tab }>).detail?.tab
+      if (!tab || !TABS.some(item => item.id === tab)) return
+      openPanel(tab)
+    }
+    window.addEventListener('blacknode:open-panel', handleOpenPanel)
+    return () => window.removeEventListener('blacknode:open-panel', handleOpenPanel)
+  })
 
   useEffect(() => {
     const handleViewportResize = () => {
@@ -567,7 +588,7 @@ export default function NodePalette() {
               <button
                 type="button"
                 onClick={() => finishPackageWelcome('packages')}
-                style={{ ...welcomeButtonStyle, padding: '7px 14px', color: '#fff', background: 'var(--accent)', borderColor: 'var(--accent)', fontWeight: 700 }}
+                style={{ ...welcomeButtonStyle, padding: '7px 14px', color: 'var(--action-ink)', background: 'var(--action)', borderColor: 'var(--action)', fontWeight: 700 }}
               >
                 Explore essential packages
               </button>
@@ -595,16 +616,16 @@ export default function NodePalette() {
           flexShrink: 0,
         }}>
           <span style={{
-            width: 28,
-            height: 24,
+            width: 34,
+            height: 30,
             border: '1px solid var(--line2)',
-            borderRadius: 6,
+            borderRadius: 7,
             color: 'var(--tx2)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontFamily: 'var(--font-ui)',
-            fontSize: 12,
+            fontSize: 14,
             fontWeight: 800,
           }}>
             BN
@@ -681,6 +702,8 @@ export default function NodePalette() {
       {activeTab && (
         <div style={{
           width: panelWidth,
+          height: `calc(100% - ${TOP_BAR_H}px)`,
+          marginTop: TOP_BAR_H,
           background: 'var(--panel)',
           borderRight: '1px solid var(--line)',
           display: 'flex',

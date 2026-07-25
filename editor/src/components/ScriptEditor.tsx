@@ -160,7 +160,7 @@ export default function ScriptEditor() {
       {status && (
         <div style={{
           padding: '8px 14px',
-          background: status.ok ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)',
+          background: status.ok ? 'rgba(61,220,151,.08)' : 'rgba(239,68,68,.08)',
           borderBottom: '1px solid var(--line)',
           color: status.ok ? 'var(--ok)' : 'var(--err)',
           fontSize: 13,
@@ -183,10 +183,10 @@ export default function ScriptEditor() {
           style={{
             flex: 1,
             padding: '7px 0',
-            background: 'var(--accent)',
+            background: 'var(--action)',
             border: 'none',
             borderRadius: 6,
-            color: '#fff',
+            color: 'var(--action-ink)',
             fontFamily: 'var(--font-ui)',
             fontSize: 15,
             fontWeight: 600,
@@ -202,10 +202,10 @@ export default function ScriptEditor() {
           style={{
             flex: 1,
             padding: '7px 0',
-            background: 'var(--ok)',
+            background: 'var(--action)',
             border: 'none',
             borderRadius: 6,
-            color: '#fff',
+            color: 'var(--action-ink)',
             fontFamily: 'var(--font-ui)',
             fontSize: 15,
             fontWeight: 600,
