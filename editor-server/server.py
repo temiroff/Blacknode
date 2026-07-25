@@ -3682,7 +3682,11 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
         (
             f"{len(remote_status.get('joint_names') or [])} joints are reporting state."
             if connected
-            else str(remote_status.get("error") or "Hardware is not connected.")
+            else str(
+                remote_status.get("error")
+                or remote_status.get("notice")
+                or "Hardware is not connected."
+            )
         ),
         blocking=not connected,
     ))
@@ -4106,7 +4110,7 @@ def _set_device_deployment_lease(device_id: str, *, leased: bool) -> None:
         )
         raise HTTPException(
             502,
-            f"Could not {method} the robot hardware monitor: {message}",
+            f"Could not {method} robot hardware access: {message}",
         )
 
 
@@ -4144,10 +4148,11 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
             "name": str(owner.get("name") or owner.get("id") or "Deployment"),
             "state": str(owner.get("state") or "running"),
         }
-        result["error"] = (
-            "Robot hardware is being used by running deployment "
-            f"'{owner.get('name') or owner.get('id')}'. Stop that deployment "
-            "here or in Deployments before using the hardware monitor."
+        result.pop("error", None)
+        result["notice"] = (
+            f"Running deployment '{owner.get('name') or owner.get('id')}' "
+            "controls this robot. Device checks are paused here to prevent "
+            "another process from opening the same hardware connection."
         )
         return result
 

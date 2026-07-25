@@ -590,6 +590,98 @@ textarea {
   overflow-y: auto;
 }
 
+.bn-topbar {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+
+.bn-topbar > *:not(.bn-topbar-spacer) {
+  flex-shrink: 0;
+}
+
+.bn-backend-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (max-width: 1180px) {
+  .bn-topbar {
+    gap: 6px !important;
+    padding-inline: 10px !important;
+  }
+
+  .bn-top-hint {
+    display: none;
+  }
+
+  .bn-top-button {
+    padding-inline: 9px;
+  }
+
+  .bn-top-select {
+    min-width: 96px;
+  }
+}
+
+@media (max-width: 860px) {
+  .bn-brand span {
+    display: none;
+  }
+
+  .bn-top-button,
+  .bn-top-select {
+    padding-inline: 7px;
+    font-size: 12px;
+  }
+
+  .bn-top-select {
+    min-width: 78px;
+  }
+
+  .bn-backend-label {
+    display: none;
+  }
+
+  .bn-backend-status {
+    padding-inline: 7px !important;
+  }
+}
+
+.bn-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--bg) 72%, var(--panel));
+}
+
+.bn-card-list .bn-run-row {
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--lift);
+  box-shadow: 0 2px 8px color-mix(in srgb, #000 16%, transparent);
+}
+
+.bn-card-list .bn-run-row.is-expanded {
+  border-color: color-mix(in srgb, var(--run-status) 38%, var(--line2));
+  background: color-mix(in srgb, var(--menu-active) 44%, var(--lift));
+}
+
+.bn-card-list .bn-run-timeline-mark::before {
+  display: none;
+}
+
+.bn-card-list .bn-runs-empty {
+  border: 1px dashed var(--line2);
+  border-radius: 8px;
+  background: var(--lift);
+}
+
 .bn-device-form {
   display: flex;
   flex-direction: column;
@@ -1371,6 +1463,16 @@ textarea {
     justify-content: flex-start;
   }
 
+  .bn-deploy-panel .bn-robot-step-actions {
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .bn-deploy-panel .bn-robot-step-actions button,
+  .bn-deploy-panel > .bn-runs-toolbar .bn-runs-actions button {
+    flex: 1 1 130px;
+    min-height: 32px;
+  }
 }
 
 @container deployment-panel (max-width: 330px) {
@@ -1387,6 +1489,12 @@ textarea {
     grid-column: 2;
     align-items: flex-start;
     white-space: normal;
+  }
+
+  .bn-deploy-panel .bn-robot-step-actions button,
+  .bn-deploy-panel > .bn-runs-toolbar .bn-runs-actions button {
+    flex-basis: 100%;
+    width: 100%;
   }
 }
 
@@ -1413,6 +1521,29 @@ textarea {
 .bn-device-error-action button {
   min-height: 28px;
   flex: 0 1 auto;
+}
+
+.bn-device-lease-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--ok) 44%, var(--line2));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+}
+
+.bn-device-lease-notice strong {
+  color: var(--ok);
+  font-size: 12px;
+}
+
+.bn-device-lease-notice span {
+  color: var(--tx2);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .bn-device-runtime-reuse {
