@@ -130,6 +130,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             "name": "ros2",
                             "default": True,
                             "node_types": [
+                                "JointMotionProfile",
                                 "ROS2JointSliders",
                                 "ROS2JointState",
                                 "ROS2ManualMove",
@@ -197,6 +198,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "description": "Generic motion, manipulation, policy, arbitration, and safety controllers.",
             "node_types": [
                 "BaseSafetyGate",
+                "JointMotionProfile",
                 "PolicyRuntime",
                 "PolicySafetyGate",
                 "ROS2BaseMove",
