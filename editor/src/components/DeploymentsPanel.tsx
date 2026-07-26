@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   api,
+  type ComputeDevice,
   type DeviceCalibrationCandidate,
   type DeviceRobotProfile,
   type Deployment,
@@ -52,6 +53,16 @@ function deviceForHardwareIdentity(
   return matches.length === 1 ? matches[0] : null
 }
 
+function deploymentsForRobot(
+  deployments: RemoteDeployment[],
+  deviceId: string,
+): RemoteDeployment[] {
+  return deployments.filter(deployment => (
+    !deployment.target_device_id
+    || deployment.target_device_id === deviceId
+  ))
+}
+
 const STATE_COLOR: Record<DeploymentState, string> = {
   running: 'var(--ok)',
   stopped: 'var(--tx3)',
@@ -84,15 +95,22 @@ const REMOTE_STATE_LABEL: Record<RemoteDeploymentState, string> = {
 
 interface DeploymentsPanelProps {
   onOpenTemplates: (query: string) => void
+  targetDeviceId?: string
+  onBackToDevices?: () => void
 }
 
-export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelProps) {
+export default function DeploymentsPanel({
+  onOpenTemplates,
+  targetDeviceId = '',
+  onBackToDevices,
+}: DeploymentsPanelProps) {
   const [deployments, setDeployments] = useState<Deployment[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const [logs, setLogs] = useState<Record<string, string>>({})
   const [devices, setDevices] = useState<HardwareDevice[]>([])
+  const [computeDevices, setComputeDevices] = useState<ComputeDevice[]>([])
   const [selectedDeviceId, setSelectedDeviceId] = useState('')
   const [preflight, setPreflight] = useState<DeploymentPreflight | null>(null)
   const [remoteDeployments, setRemoteDeployments] = useState<RemoteDeployment[]>([])
@@ -106,6 +124,12 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
   const activeTabId = useStore(s => s.activeTabId)
   const activeTab = tabs.find(tab => tab.id === activeTabId)
   const activeDeploymentName = deploymentNameFromTab(activeTab?.name)
+  const selectedRobot = devices.find(device => device.id === selectedDeviceId) ?? null
+  const selectedComputeDevice = computeDevices.find(device => (
+    device.id === selectedRobot?.host_id
+    || device.robots.some(robot => robot.id === selectedDeviceId)
+  )) ?? null
+  const isRobotContext = Boolean(targetDeviceId)
   const activeProject = useStore(s => s.activeProject)
   const deploymentProject = (
     activeProject
@@ -321,7 +345,12 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
     const pull = async () => {
       try {
         const result = await api.listRemoteDeployments(selectedDeviceId)
-        if (!cancelled) setRemoteDeployments(result.deployments)
+        if (!cancelled) {
+          setRemoteDeployments(deploymentsForRobot(
+            result.deployments,
+            selectedDeviceId,
+          ))
+        }
       } catch {
         if (!cancelled) setRemoteDeployments([])
       }
@@ -332,17 +361,21 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
   }, [selectedDeviceId])
 
   useEffect(() => {
-    api.listDevices()
-      .then(result => {
-        setDevices(result.devices)
+    Promise.all([api.listDevices(), api.listComputeDevices()])
+      .then(([robotResult, computeResult]) => {
+        setDevices(robotResult.devices)
+        setComputeDevices(computeResult.devices)
         setSelectedDeviceId(current => (
-          current && result.devices.some(device => device.id === current)
+          targetDeviceId
+          && robotResult.devices.some(device => device.id === targetDeviceId)
+            ? targetDeviceId
+            : current && robotResult.devices.some(device => device.id === current)
             ? current
-            : result.devices[0]?.id ?? ''
+            : robotResult.devices[0]?.id ?? ''
         ))
       })
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
-  }, [])
+  }, [targetDeviceId])
 
   useEffect(() => {
     if (!calibrationMatchedDevice) return
@@ -470,7 +503,7 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
   const refreshRemote = async () => {
     if (!selectedDeviceId) return
     const result = await api.listRemoteDeployments(selectedDeviceId)
-    setRemoteDeployments(result.deployments)
+    setRemoteDeployments(deploymentsForRobot(result.deployments, selectedDeviceId))
   }
 
   const actRemote = async (fn: () => Promise<unknown>) => {
@@ -541,8 +574,8 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
       await refreshRemote()
       setRemoteNotice(
         start
-          ? `"${name}" was sent to the device and started.`
-          : `"${name}" was sent to the device and is ready to start.`,
+          ? `"${name}" was sent to ${selectedComputeDevice?.name || 'the compute device'} and started for ${selectedRobot?.name || 'the selected robot'}.`
+          : `"${name}" was sent to ${selectedComputeDevice?.name || 'the compute device'} for ${selectedRobot?.name || 'the selected robot'} and is ready to start.`,
       )
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -559,56 +592,133 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
     setRemoteOpenId(current => current === deployment.id ? null : current)
   }
 
-  const running = deployments.filter(d => d.state === 'running').length
   const remoteRunning = remoteDeployments.filter(d => d.state === 'running').length
 
   return (
     <div className="bn-runs-panel bn-deploy-panel">
-      <div className="bn-runs-toolbar">
-        <div>
-          <div className="bn-runs-title">Deployments</div>
-          <div className="bn-runs-subtitle">
-            {deployments.length} total · {running} running
+      {isRobotContext ? (
+        <div className="bn-deploy-nav">
+          {onBackToDevices && (
+            <button type="button" className="bn-deploy-nav-button" onClick={onBackToDevices}>
+              <span aria-hidden="true">←</span>
+              <span>All devices</span>
+            </button>
+          )}
+          <button
+            type="button"
+            className="bn-deploy-nav-button bn-deploy-refresh"
+            onClick={refresh}
+            title="Refresh deployment status"
+          >
+            <span aria-hidden="true">↻</span>
+            <span>Refresh</span>
+          </button>
+        </div>
+      ) : (
+        <div className="bn-runs-toolbar">
+          <div>
+            <div className="bn-runs-title">Robot deployment</div>
+            <div className="bn-runs-subtitle">Choose a robot for the current workflow</div>
+          </div>
+          <div className="bn-runs-actions">
+            <button onClick={refresh} style={miniButton}>Refresh</button>
+            <button onClick={() => handleDeploy(false)} disabled={busy} style={miniButton} title="Save the runnable script on this computer without running it">Save local</button>
+            <button onClick={() => handleDeploy(true)} disabled={busy} style={primaryButton} title="Stop the live graph, then run it on this computer">Run local</button>
           </div>
         </div>
-        <div className="bn-runs-actions">
-          <button onClick={refresh} style={miniButton}>Refresh</button>
-          <button onClick={() => handleDeploy(false)} disabled={busy} style={miniButton} title="Save the runnable script on this computer without running it">Save local</button>
-          <button onClick={() => handleDeploy(true)} disabled={busy} style={primaryButton} title="Stop the live graph, then run it on this computer">Run local</button>
-        </div>
-      </div>
+      )}
 
       {error && <div className="bn-runs-error">{error}</div>}
 
       <div className="bn-deploy-target">
         <div className="bn-deploy-target-head">
           <div>
-            <div className="bn-deploy-target-title">Deploy one robot</div>
-            <div className="bn-runs-subtitle">
-              Choose the computer physically connected to this robot. Use a separate
-              deployment workflow for each additional robot.
+            <div className="bn-deploy-target-title">
+              {selectedRobot ? `Deploy to ${selectedRobot.name}` : 'Choose a robot'}
+            </div>
+            <div className="bn-deploy-target-copy">
+              Review where the current workflow will run, then deploy it.
             </div>
           </div>
         </div>
-        {devices.length > 0 ? (
-          <select
-            className="bn-deploy-device-select"
-            value={selectedDeviceId}
-            onChange={event => {
-              setSelectedDeviceId(event.target.value)
-              setPreflight(null)
-              setRemoteNotice(null)
-            }}
-          >
-            {devices.map(device => (
-              <option key={device.id} value={device.id}>
-                {device.name} · {device.base_url}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <div className="bn-device-help">Pair a Raspberry Pi in the Devices tab first.</div>
-        )}
+
+        <div className="bn-deploy-route" aria-label="Deployment route">
+          <article>
+            <span>Workflow</span>
+            <strong>{activeDeploymentName}</strong>
+            <small>Current editor tab</small>
+          </article>
+          <i aria-hidden="true">→</i>
+          <article>
+            <span>Robot</span>
+            <strong>{selectedRobot?.name || 'No robot selected'}</strong>
+            <small>
+              {selectedComputeDevice
+                ? `Connected through ${selectedComputeDevice.name}`
+                : 'Attach a robot in Devices first'}
+            </small>
+          </article>
+        </div>
+
+        {devices.length > 0 && !isRobotContext ? (
+          <label className="bn-deploy-target-picker">
+            <span>Target robot</span>
+            <select
+              className="bn-deploy-device-select"
+              value={selectedDeviceId}
+              onChange={event => {
+                setSelectedDeviceId(event.target.value)
+                setPreflight(null)
+                setRemoteNotice(null)
+                setRemoteOpenId(null)
+              }}
+            >
+              {computeDevices.map(computeDevice => {
+                const attachedRobots = devices.filter(device => (
+                  device.host_id === computeDevice.id
+                  || computeDevice.robots.some(robot => robot.id === device.id)
+                ))
+                if (attachedRobots.length === 0) return null
+                return (
+                  <optgroup
+                    key={computeDevice.id}
+                    label={`${computeDevice.name} — compute device`}
+                  >
+                    {attachedRobots.map(robot => (
+                      <option key={robot.id} value={robot.id}>
+                        {robot.name} — {robot.remote_device_id}
+                      </option>
+                    ))}
+                  </optgroup>
+                )
+              })}
+              {devices.some(device => !computeDevices.some(computeDevice => (
+                device.host_id === computeDevice.id
+                || computeDevice.robots.some(robot => robot.id === device.id)
+              ))) && (
+                <optgroup label="Other registered robots">
+                  {devices.filter(device => !computeDevices.some(computeDevice => (
+                    device.host_id === computeDevice.id
+                    || computeDevice.robots.some(robot => robot.id === device.id)
+                  ))).map(robot => (
+                    <option key={robot.id} value={robot.id}>
+                      {robot.name} — {robot.remote_device_id}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+            <small>
+              {selectedComputeDevice
+                ? `Attached under ${selectedComputeDevice.name}. The deployment runs on ${selectedComputeDevice.runtime_url}.`
+                : 'Select a robot already registered in Devices.'}
+            </small>
+          </label>
+        ) : devices.length === 0 ? (
+          <div className="bn-device-help">
+            Open Devices, add a compute device, then attach the physical robot to it.
+          </div>
+        ) : null}
         <div className={`bn-robot-step-status ${deploymentProject ? 'is-success' : ''}`}>
           <strong>Deployment ownership:</strong>{' '}
           {deploymentProject
@@ -627,9 +737,10 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
           <section className={`bn-robot-deploy-step${robotNodes.length > 0 ? ' is-complete' : ' is-needed'}`}>
             <div className="bn-robot-step-number">1</div>
             <div className="bn-robot-step-content">
-              <div className="bn-robot-step-title">Choose one robot profile</div>
+              <div className="bn-robot-step-title">Confirm the workflow’s robot profile</div>
               <div className="bn-robot-step-help">
-                The profile describes this robot’s model, joints, servo IDs, and driver.
+                This configures how the workflow controls the selected physical robot.
+                The physical robot remains registered under its compute device.
               </div>
 
               {robotNodes.length === 0 ? (
@@ -945,10 +1056,10 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
                 {preflight?.ready && (
                   <>
                     <button onClick={() => stageRemote(false)} disabled={busy} style={miniButton}>
-                      {remoteAction === 'send' ? 'Sending…' : 'Send to device'}
+                      {remoteAction === 'send' ? 'Sending…' : 'Send to robot'}
                     </button>
                     <button onClick={() => stageRemote(true)} disabled={busy} style={primaryButton}>
-                      {remoteAction === 'send-run' ? 'Sending & starting…' : 'Send & run'}
+                      {remoteAction === 'send-run' ? 'Sending & starting…' : 'Send & run on robot'}
                     </button>
                   </>
                 )}
@@ -971,8 +1082,15 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
 
       <div className="bn-deployment-section-head">
         <div>
-          <strong>Remote deployments</strong>
-          <span>{remoteDeployments.length} total · {remoteRunning} running</span>
+          <strong>
+            {selectedRobot
+              ? `Deployments for ${selectedRobot.name}`
+              : 'Robot deployments'}
+          </strong>
+          <span>
+            {selectedComputeDevice ? `Stored on ${selectedComputeDevice.name} · ` : ''}
+            {remoteDeployments.length} total · {remoteRunning} running
+          </span>
         </div>
         <button onClick={() => actRemote(refreshRemote)} disabled={busy || !selectedDeviceId} style={miniButton}>
           Refresh
@@ -981,8 +1099,8 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
       <div className="bn-runs-list bn-card-list bn-remote-deployment-list">
         {selectedDeviceId && remoteDeployments.length === 0 && (
           <div className="bn-runs-empty">
-            No deployment has been sent to this device. Check the setup, then choose
-            <strong> Send to device</strong> or <strong>Send &amp; run</strong>.
+            No deployment has been sent to this robot. Check the setup, then choose
+            <strong> Send to robot</strong> or <strong>Send &amp; run on robot</strong>.
           </div>
         )}
         {remoteDeployments.map(deployment => (
@@ -1015,34 +1133,38 @@ export default function DeploymentsPanel({ onOpenTemplates }: DeploymentsPanelPr
         ))}
       </div>
 
-      <div className="bn-deployment-section-head">
-        <div>
-          <strong>Local deployments</strong>
-          <span>Run by this editor computer</span>
-        </div>
-      </div>
-      <div className="bn-runs-list">
-        {deployments.length === 0 && !error && (
-          <div className="bn-runs-empty">
-            Nothing deployed. <strong>Deploy graph</strong> snapshots the current graph and runs
-            it in the background, so it keeps running while you edit something else.
+      {!isRobotContext && (
+        <>
+          <div className="bn-deployment-section-head">
+            <div>
+              <strong>Local deployments</strong>
+              <span>Run by this editor computer</span>
+            </div>
           </div>
-        )}
-        {deployments.map(deployment => (
-          <DeploymentRow
-            key={deployment.id}
-            deployment={deployment}
-            busy={busy}
-            expanded={openId === deployment.id}
-            log={logs[deployment.id] ?? ''}
-            onToggle={() => setOpenId(prev => (prev === deployment.id ? null : deployment.id))}
-            onStart={() => act(() => api.startDeployment(deployment.id))}
-            onStop={() => act(() => api.stopDeployment(deployment.id))}
-            onExport={() => handleExport(deployment)}
-            onDelete={() => handleDelete(deployment)}
-          />
-        ))}
-      </div>
+          <div className="bn-runs-list">
+            {deployments.length === 0 && !error && (
+              <div className="bn-runs-empty">
+                Nothing deployed. <strong>Deploy graph</strong> snapshots the current graph and runs
+                it in the background, so it keeps running while you edit something else.
+              </div>
+            )}
+            {deployments.map(deployment => (
+              <DeploymentRow
+                key={deployment.id}
+                deployment={deployment}
+                busy={busy}
+                expanded={openId === deployment.id}
+                log={logs[deployment.id] ?? ''}
+                onToggle={() => setOpenId(prev => (prev === deployment.id ? null : deployment.id))}
+                onStart={() => act(() => api.startDeployment(deployment.id))}
+                onStop={() => act(() => api.stopDeployment(deployment.id))}
+                onExport={() => handleExport(deployment)}
+                onDelete={() => handleDelete(deployment)}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }

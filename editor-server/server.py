@@ -1,6 +1,6 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib
+import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib
 import urllib.error, urllib.parse, urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -56,11 +56,13 @@ from blacknode.workflow import validate_workflow as validate_bn_workflow
 from device_installer import (
     control_runtime,
     DeviceInstallError,
+    inspect_managed_service_updates,
     inspect_runtime,
     install_runtime,
     probe_device,
     restart_hardware_service,
     uninstall_runtime,
+    update_managed_services,
 )
 from device_registry import (
     DeviceRegistry,
@@ -436,12 +438,19 @@ class InstallDeviceHostReq(InspectDeviceHostReq):
     action: str = "install"
     instance_id: str = ""
 
+class ConfigureDeviceHostManagementReq(InspectDeviceHostReq):
+    pass
+
 class UninstallDeviceHostReq(BaseModel):
     password: str
 
 class RuntimeLifecycleReq(BaseModel):
     action: str
     password: str
+
+class UpdateManagedDeviceReq(BaseModel):
+    password: str
+    scope: str = "all"
 
 class RobotLifecycleReq(BaseModel):
     action: str
@@ -3086,6 +3095,137 @@ def get_device_host_runtime_status(host_id: str):
     return _device_host_runtime_status(host_id)
 
 
+@app.post("/device-hosts/{host_id}/management")
+def configure_device_host_management(
+    host_id: str,
+    req: ConfigureDeviceHostManagementReq,
+):
+    try:
+        host = _device_registry.get_host_public(host_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if host is None:
+        raise HTTPException(404, "Device not found")
+    if isinstance(host.get("managed_runtime"), dict):
+        raise HTTPException(409, "SSH management is already configured for this device.")
+
+    try:
+        runtime_port = urllib.parse.urlsplit(
+            str(host.get("runtime_url") or "")
+        ).port
+    except ValueError as exc:
+        raise HTTPException(409, "The paired runtime URL has an invalid port.") from exc
+    if not runtime_port:
+        raise HTTPException(
+            409,
+            "The paired runtime URL must include its service port before SSH "
+            "management can be enabled.",
+        )
+
+    try:
+        inspection = inspect_runtime(
+            host=req.host,
+            port=req.port,
+            username=req.username,
+            password=req.password,
+            host_fingerprint=req.host_fingerprint,
+        )
+    except DeviceInstallError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    expected_device_id = str(host.get("remote_device_id") or "").strip()
+    if not expected_device_id:
+        try:
+            manifest = _device_registry.host_client(host_id).manifest()
+            if (
+                manifest.get("service") != "blacknode-runtime"
+                or manifest.get("protocol_version") != 1
+            ):
+                raise DeviceRegistryError(
+                    "Runtime service identity or protocol is incompatible."
+                )
+            expected_device_id = str(manifest.get("device_id") or "").strip()
+            _device_registry.set_host_remote_device_id(
+                host_id,
+                expected_device_id,
+            )
+        except KeyError as exc:
+            raise HTTPException(404, "Device not found") from exc
+        except DeviceRegistryError as exc:
+            raise HTTPException(
+                409,
+                "Blacknode could not recover a stable identity from this paired "
+                f"runtime. Pair the runtime again first. {exc}",
+            ) from exc
+    matches = [
+        instance
+        for instance in inspection.get("instances", [])
+        if (
+            isinstance(instance, dict)
+            and int(instance.get("port") or 0) == runtime_port
+            and bool(instance.get("service_installed"))
+            and str(instance.get("device_id") or "") == expected_device_id
+        )
+    ]
+    if not matches:
+        raise HTTPException(
+            409,
+            f"SSH connected, but no installed Blacknode runtime service on port "
+            f"{runtime_port} matches this paired device ({expected_device_id or 'unknown ID'}).",
+        )
+    if len(matches) != 1:
+        raise HTTPException(
+            409,
+            f"Multiple installed runtime services match port {runtime_port}; "
+            "resolve the duplicate services before enabling SSH management.",
+        )
+    instance = matches[0]
+    management = {
+        "ssh_host": str(req.host or "").strip(),
+        "ssh_port": int(req.port),
+        "ssh_username": str(req.username or "").strip(),
+        "host_fingerprint": str(inspection.get("host_fingerprint") or ""),
+        "instance_id": str(instance.get("instance_id") or ""),
+        "runtime_port": runtime_port,
+        "service_name": str(instance.get("service_name") or ""),
+        "runtime_dir": str(instance.get("runtime_dir") or ""),
+    }
+    if not all(
+        management.get(key)
+        for key in (
+            "ssh_host",
+            "ssh_username",
+            "host_fingerprint",
+            "instance_id",
+            "service_name",
+            "runtime_dir",
+        )
+    ):
+        raise HTTPException(
+            409,
+            "The matching runtime service does not expose a complete management identity.",
+        )
+    try:
+        device = _device_registry.set_host_management(host_id, management)
+    except KeyError as exc:
+        raise HTTPException(404, "Device not found") from exc
+    except DeviceRegistryError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {
+        "ok": True,
+        "device": device,
+        "instance": {
+            key: value
+            for key, value in instance.items()
+            if not str(key).startswith("_")
+        },
+        "summary": (
+            f"SSH management enabled for {management['service_name']} on "
+            f"runtime port {runtime_port}."
+        ),
+    }
+
+
 def _raise_rpc_error(result: dict[str, Any], *, action: str) -> None:
     error = result.get("error") if isinstance(result, dict) else None
     if not error:
@@ -3281,6 +3421,454 @@ def _lifecycle_stream(worker: Callable[[Callable[[dict[str, Any]], None]], dict[
 def stream_device_host_lifecycle(host_id: str, req: RuntimeLifecycleReq):
     return _lifecycle_stream(
         lambda progress: _control_device_host_lifecycle_payload(host_id, req, progress)
+    )
+
+
+def _update_device_host_payload(
+    host_id: str,
+    req: UpdateManagedDeviceReq,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    def report(percent: int, message: str) -> None:
+        if progress is not None:
+            progress({
+                "progress": max(0, min(100, int(percent))),
+                "message": str(message),
+            })
+
+    if not str(req.password or ""):
+        raise HTTPException(400, "Enter the SSH password to update this device.")
+    scope = str(req.scope or "all").strip().lower()
+    if scope not in {"all", "runtime", "hardware"}:
+        raise HTTPException(400, "Update scope must be all, runtime, or hardware.")
+    host = _device_registry.get_host_public(host_id)
+    if host is None:
+        raise HTTPException(404, "Device not found")
+    managed = host.get("managed_runtime")
+    if not isinstance(managed, dict):
+        raise HTTPException(
+            409,
+            "Enable SSH controls for this device before updating its services.",
+        )
+
+    robots = list(host.get("robots") or [])
+    hardware_ports: list[int] = []
+    hardware_device_ids: dict[int, str] = {}
+    for robot in robots:
+        try:
+            hardware_port = urllib.parse.urlsplit(
+                str(robot.get("base_url") or "")
+            ).port
+        except ValueError as exc:
+            raise HTTPException(
+                409,
+                f"{robot.get('name') or 'A robot'} has an invalid hardware URL.",
+            ) from exc
+        if not hardware_port:
+            raise HTTPException(
+                409,
+                f"{robot.get('name') or 'A robot'} has no hardware service port.",
+            )
+        hardware_ports.append(hardware_port)
+        hardware_device_ids[hardware_port] = str(
+            robot.get("remote_device_id") or ""
+        )
+    include_runtime = scope in {"all", "runtime"}
+    selected_hardware_ports = (
+        hardware_ports if scope in {"all", "hardware"} else []
+    )
+    if scope == "hardware" and not selected_hardware_ports:
+        raise HTTPException(409, "This device has no attached Hardware services to update.")
+
+    stopped_deployments: list[str] = []
+    controlled_robots: list[str] = []
+    warnings: list[str] = []
+    runtime_api_unavailable = False
+    report(5, "Stopping running deployments")
+    if not host.get("paused"):
+        last_runtime_error = ""
+        for attempt in range(3):
+            try:
+                runtime_client = _device_registry.host_client(host_id)
+                for deployment in runtime_client.list_deployments().get("deployments") or []:
+                    if (
+                        isinstance(deployment, dict)
+                        and str(deployment.get("state") or "") == "running"
+                        and str(deployment.get("id") or "")
+                    ):
+                        deployment_id = str(deployment["id"])
+                        runtime_client.stop_deployment(deployment_id)
+                        stopped_deployments.append(deployment_id)
+                last_runtime_error = ""
+                break
+            except (DeviceRegistryError, KeyError) as exc:
+                last_runtime_error = str(exc)
+                if attempt < 2:
+                    time.sleep(0.35)
+        if last_runtime_error:
+            runtime_api_unavailable = True
+            warnings.append(
+                "The Runtime API could not stop deployments directly. Blacknode "
+                "used the verified SSH service identity to stop the Runtime and its "
+                "deployment process group before updating. "
+                f"API error: {last_runtime_error}"
+            )
+
+    report(12, "Stopping and disarming attached robots")
+    for robot in robots:
+        robot_id = str(robot.get("id") or "")
+        if not robot_id:
+            continue
+        try:
+            result = _paired_device_client(robot_id).rpc({
+                "jsonrpc": "2.0",
+                "id": f"device-update-stop-{robot_id}",
+                "method": "stop",
+                "params": {},
+            })
+            _raise_rpc_error(result, action="prepare update for")
+            _device_registry.set_device_paused(robot_id, True)
+            controlled_robots.append(robot_id)
+        except (DeviceRegistryError, HTTPException, KeyError) as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            raise DeviceRegistryError(
+                f"Robot {robot.get('name') or robot_id} could not be stopped "
+                f"before update: {detail}"
+            ) from exc
+
+    runtime_paused_for_fallback = False
+    try:
+        if runtime_api_unavailable and not host.get("paused"):
+            report(14, "Stopping the unreachable Runtime safely over SSH")
+            control_runtime(
+                host=str(managed.get("ssh_host") or ""),
+                port=int(managed.get("ssh_port") or 22),
+                username=str(managed.get("ssh_username") or ""),
+                password=req.password,
+                host_fingerprint=str(managed.get("host_fingerprint") or ""),
+                instance_id=str(managed.get("instance_id") or "default"),
+                action="pause",
+            )
+            runtime_paused_for_fallback = True
+        update = update_managed_services(
+            host=str(managed.get("ssh_host") or ""),
+            port=int(managed.get("ssh_port") or 22),
+            username=str(managed.get("ssh_username") or ""),
+            password=req.password,
+            host_fingerprint=str(managed.get("host_fingerprint") or ""),
+            instance_id=str(managed.get("instance_id") or "default"),
+            runtime_port=int(managed.get("runtime_port") or 0),
+            hardware_ports=selected_hardware_ports,
+            hardware_device_ids={
+                hardware_port: hardware_device_ids.get(hardware_port, "")
+                for hardware_port in selected_hardware_ports
+            },
+            include_runtime=include_runtime,
+            progress=lambda value: report(
+                15 + int(int(value.get("progress") or 0) * 0.75),
+                str(value.get("message") or "Updating managed services"),
+            ),
+        )
+    except Exception:
+        if runtime_paused_for_fallback:
+            try:
+                control_runtime(
+                    host=str(managed.get("ssh_host") or ""),
+                    port=int(managed.get("ssh_port") or 22),
+                    username=str(managed.get("ssh_username") or ""),
+                    password=req.password,
+                    host_fingerprint=str(managed.get("host_fingerprint") or ""),
+                    instance_id=str(managed.get("instance_id") or "default"),
+                    action="resume",
+                )
+            except DeviceInstallError:
+                pass
+        for robot_id in controlled_robots:
+            try:
+                result = _paired_device_client(robot_id).rpc({
+                    "jsonrpc": "2.0",
+                    "id": f"device-update-recover-{robot_id}",
+                    "method": "resume",
+                    "params": {},
+                })
+                _raise_rpc_error(result, action="recover after update failure for")
+                _device_registry.set_device_paused(robot_id, False)
+            except (DeviceRegistryError, HTTPException, KeyError):
+                pass
+        raise
+
+    report(92, "Verifying reported runtime and hardware versions")
+    runtime_manifest: dict[str, Any] | None = None
+    runtime_error = ""
+    for _attempt in range(40):
+        try:
+            candidate = _device_registry.host_client(host_id).manifest()
+            if (
+                candidate.get("service") == "blacknode-runtime"
+                and candidate.get("protocol_version") == 1
+            ):
+                runtime_manifest = candidate
+                break
+        except (DeviceRegistryError, KeyError) as exc:
+            runtime_error = str(exc)
+            time.sleep(0.25)
+    if runtime_manifest is None:
+        raise DeviceRegistryError(
+            f"The runtime service updated but did not pass verification: {runtime_error}"
+        )
+
+    verified_robots: list[dict[str, Any]] = []
+    for robot in robots:
+        robot_id = str(robot.get("id") or "")
+        expected_id = str(robot.get("remote_device_id") or "")
+        verified_status: dict[str, Any] | None = None
+        last_error = ""
+        for _attempt in range(40):
+            try:
+                candidate = _paired_device_client(robot_id).status()
+                actual_id = str(candidate.get("device_id") or "")
+                if expected_id and actual_id != expected_id:
+                    raise DeviceRegistryError(
+                        f"returned robot '{actual_id}', expected '{expected_id}'"
+                    )
+                verified_status = candidate
+                break
+            except (DeviceRegistryError, HTTPException) as exc:
+                last_error = exc.detail if isinstance(exc, HTTPException) else str(exc)
+                time.sleep(0.25)
+        if verified_status is None:
+            raise DeviceRegistryError(
+                f"{robot.get('name') or robot_id} did not pass verification: {last_error}"
+            )
+        if verified_status.get("armed"):
+            raise DeviceRegistryError(
+                f"{robot.get('name') or robot_id} returned armed after its update."
+            )
+        if verified_status.get("torque_enabled") is True:
+            warnings.append(
+                f"{robot.get('name') or robot_id} reports physical servo torque enabled. "
+                "The software update did not turn off actuator power."
+            )
+        verified_status["paused"] = False
+        _device_registry.set_device_paused(robot_id, False)
+        verified_robots.append({
+            "id": robot_id,
+            "name": str(robot.get("name") or robot_id),
+            "port": urllib.parse.urlsplit(str(robot.get("base_url") or "")).port,
+            "software_version": str(
+                verified_status.get("software_version") or "not reported"
+            ),
+            "status": verified_status,
+        })
+
+    for component in update.get("components") or []:
+        if not isinstance(component, dict):
+            continue
+        if component.get("kind") == "runtime":
+            component["reported_version"] = str(
+                runtime_manifest.get("runtime_version") or "not reported"
+            )
+            continue
+        component_port = int(component.get("port") or 0)
+        robot_report = next(
+            (
+                item for item in verified_robots
+                if int(item.get("port") or 0) == component_port
+            ),
+            None,
+        )
+        if robot_report:
+            component["reported_version"] = robot_report["software_version"]
+
+    device = _device_registry.set_host_paused(host_id, False)
+    changed = sum(
+        1
+        for component in update.get("components") or []
+        if isinstance(component, dict) and component.get("changed")
+    )
+    service_count = len(update.get("components") or [])
+    current_reinstalled = service_count - changed
+    if changed:
+        summary = (
+            f"Updated {changed} managed service"
+            f"{'s' if changed != 1 else ''}"
+            + (
+                f" and reinstalled {current_reinstalled} current service"
+                f"{'s' if current_reinstalled != 1 else ''}"
+                if current_reinstalled
+                else ""
+            )
+            + ". "
+        )
+    else:
+        summary = (
+            f"Reinstalled {service_count} current managed service"
+            f"{'s' if service_count != 1 else ''}. "
+        )
+    summary += (
+        "The runtime and robot monitoring are online, and Blacknode motion remains disarmed."
+    )
+    if warnings:
+        summary += (
+            f" Completed with {len(warnings)} warning"
+            f"{'s' if len(warnings) != 1 else ''}; check the report."
+        )
+    report(100, summary)
+    return {
+        "ok": True,
+        "scope": scope,
+        "device": device,
+        "update": update,
+        "runtime": runtime_manifest,
+        "robots": verified_robots,
+        "stopped_deployments": stopped_deployments,
+        "controlled_robots": controlled_robots,
+        "warnings": warnings,
+        "summary": summary,
+    }
+
+
+@app.post("/device-hosts/{host_id}/update-stream")
+def stream_device_host_update(host_id: str, req: UpdateManagedDeviceReq):
+    return _lifecycle_stream(
+        lambda progress: _update_device_host_payload(host_id, req, progress)
+    )
+
+
+def _check_device_host_updates_payload(
+    host_id: str,
+    req: UpdateManagedDeviceReq,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    def report(percent: int, message: str) -> None:
+        if progress is not None:
+            progress({
+                "progress": max(0, min(100, int(percent))),
+                "message": str(message),
+            })
+
+    if not str(req.password or ""):
+        raise HTTPException(400, "Enter the SSH password to check software versions.")
+    host = _device_registry.get_host_public(host_id)
+    if host is None:
+        raise HTTPException(404, "Device not found")
+    managed = host.get("managed_runtime")
+    if not isinstance(managed, dict):
+        raise HTTPException(
+            409,
+            "Enable SSH controls for this device before checking upstream versions.",
+        )
+
+    robots = list(host.get("robots") or [])
+    hardware_ports: list[int] = []
+    hardware_device_ids: dict[int, str] = {}
+    for robot in robots:
+        try:
+            hardware_port = urllib.parse.urlsplit(
+                str(robot.get("base_url") or "")
+            ).port
+        except ValueError as exc:
+            raise HTTPException(
+                409,
+                f"{robot.get('name') or 'A robot'} has an invalid hardware URL.",
+            ) from exc
+        if not hardware_port:
+            raise HTTPException(
+                409,
+                f"{robot.get('name') or 'A robot'} has no hardware service port.",
+            )
+        hardware_ports.append(hardware_port)
+        hardware_device_ids[hardware_port] = str(
+            robot.get("remote_device_id") or ""
+        )
+
+    report(8, "Checking installed Runtime and Hardware software")
+    checked = inspect_managed_service_updates(
+        host=str(managed.get("ssh_host") or ""),
+        port=int(managed.get("ssh_port") or 22),
+        username=str(managed.get("ssh_username") or ""),
+        password=req.password,
+        host_fingerprint=str(managed.get("host_fingerprint") or ""),
+        instance_id=str(managed.get("instance_id") or "default"),
+        runtime_port=int(managed.get("runtime_port") or 0),
+        hardware_ports=hardware_ports,
+        hardware_device_ids=hardware_device_ids,
+        progress=lambda value: report(
+            10 + int(int(value.get("progress") or 0) * 0.75),
+            str(value.get("message") or "Comparing software versions"),
+        ),
+    )
+
+    warnings: list[str] = []
+    runtime_version = "not reported"
+    try:
+        manifest = _device_registry.host_client(host_id).manifest()
+        runtime_version = str(manifest.get("runtime_version") or "not reported")
+    except (DeviceRegistryError, KeyError) as exc:
+        warnings.append(f"Runtime live-version check failed: {exc}")
+
+    hardware_versions: dict[int, str] = {}
+    for robot in robots:
+        robot_id = str(robot.get("id") or "")
+        try:
+            robot_port = urllib.parse.urlsplit(str(robot.get("base_url") or "")).port
+            status = _paired_device_client(robot_id).status()
+            if robot_port:
+                hardware_versions[robot_port] = str(
+                    status.get("software_version") or "not reported"
+                )
+        except (DeviceRegistryError, HTTPException, ValueError) as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            warnings.append(
+                f"{robot.get('name') or robot_id} live-version check failed: {detail}"
+            )
+
+    for component in checked.get("components") or []:
+        if not isinstance(component, dict):
+            continue
+        if component.get("kind") == "runtime":
+            component["reported_version"] = runtime_version
+        else:
+            component["reported_version"] = hardware_versions.get(
+                int(component.get("port") or 0),
+                "not reported",
+            )
+
+    components = [
+        item for item in checked.get("components") or []
+        if isinstance(item, dict)
+    ]
+    available = sum(1 for item in components if item.get("update_available"))
+    blockers = sum(1 for item in components if item.get("error"))
+    if blockers:
+        summary = (
+            f"Checked {len(components)} services; {blockers} need attention before "
+            "Runtime + Hardware can be updated."
+        )
+    elif available:
+        summary = (
+            f"{available} of {len(components)} services have updates available."
+        )
+    else:
+        summary = f"Runtime + Hardware are current across {len(components)} services."
+    if warnings:
+        summary += (
+            f" {len(warnings)} live service check"
+            f"{'s' if len(warnings) != 1 else ''} could not be completed."
+        )
+    report(100, summary)
+    return {
+        "ok": blockers == 0,
+        "check": checked,
+        "warnings": warnings,
+        "summary": summary,
+    }
+
+
+@app.post("/device-hosts/{host_id}/update-check-stream")
+def stream_device_host_update_check(host_id: str, req: UpdateManagedDeviceReq):
+    return _lifecycle_stream(
+        lambda progress: _check_device_host_updates_payload(host_id, req, progress)
     )
 
 
@@ -3622,6 +4210,16 @@ def rename_device(device_id: str, req: RenameDeviceReq):
 def get_device_status(device_id: str):
     try:
         return _deployment_aware_device_status(device_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.get("/devices/{device_id}/monitor")
+def get_device_monitor(device_id: str):
+    try:
+        return _device_monitor_snapshot(device_id)
+    except KeyError as exc:
+        raise HTTPException(404, "Device not found") from exc
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
 
@@ -4857,25 +5455,39 @@ def _set_device_deployment_lease(device_id: str, *, leased: bool) -> None:
 
 
 def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
-    """Recover an orphaned hardware lease, or explain the active owner."""
+    """Report running deployments separately from physical motion ownership."""
     client = _paired_device_client(device_id)
     status = client.status()
     saved_device = _device_registry.get_public(device_id)
-    if saved_device and saved_device.get("paused"):
-        result = dict(status)
-        result["paused"] = True
-        result["notice"] = (
-            "Robot is paused and disarmed. Resume it before starting a workflow."
-        )
-        return result
+    reported_version = str(status.get("software_version") or "").strip()
+    saved_version = str((saved_device or {}).get("software_version") or "").strip()
+    if reported_version and reported_version.casefold() != "unknown":
+        try:
+            _device_registry.remember_device_software_version(
+                device_id,
+                reported_version,
+            )
+        except KeyError:
+            pass
+    elif saved_version:
+        status = {
+            **status,
+            "software_version": saved_version,
+            "software_version_cached": True,
+        }
+    paused = bool(saved_device and saved_device.get("paused"))
+    if paused:
+        status = {**status, "paused": True}
     error = str(status.get("error") or "")
     folded_error = error.casefold()
-    if "leased" not in folded_error or "deployment" not in folded_error:
-        return status
+    hardware_is_leased = (
+        "leased" in folded_error
+        and "deployment" in folded_error
+    )
 
     try:
         payload = _device_registry.runtime_client(device_id).list_deployments()
-    except (DeviceRegistryError, KeyError):
+    except (DeviceRegistryError, KeyError, AttributeError, TypeError):
         return status
     deployments = [
         item
@@ -4893,32 +5505,274 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
     if active:
         owner = active[0]
         result = dict(status)
-        result["deployment_lease"] = {
+        deployment = {
             "id": str(owner.get("id") or ""),
             "name": str(owner.get("name") or owner.get("id") or "Deployment"),
             "state": str(owner.get("state") or "running"),
         }
-        result.pop("error", None)
+        if hardware_is_leased:
+            result["deployment_lease"] = deployment
+            result.pop("error", None)
+            result["notice"] = (
+                f"Running deployment '{owner.get('name') or owner.get('id')}' "
+                "controls this robot. Device checks are paused here to prevent "
+                "another process from opening the same hardware connection."
+            )
+        else:
+            result["running_deployment"] = deployment
+            result["notice"] = (
+                f"Deployment '{owner.get('name') or owner.get('id')}' is running, "
+                "but the hardware service does not report that it owns motion control."
+            )
+        return result
+
+    if hardware_is_leased:
+        try:
+            _set_device_deployment_lease(device_id, leased=False)
+            status = client.status()
+            if paused:
+                status = {**status, "paused": True}
+        except HTTPException:
+            pass
+
+    stored = sorted(
+        (
+            item
+            for item in deployments
+            if (
+                str(item.get("state") or "") != "running"
+                and str(item.get("target_device_id") or "") in {"", device_id}
+                and str(item.get("id") or "")
+            )
+        ),
+        key=lambda item: (
+            str(item.get("updated_at") or ""),
+            str(item.get("created_at") or ""),
+        ),
+        reverse=True,
+    )
+    if stored:
+        deployment = stored[0]
+        result = dict(status)
+        result["stored_deployment"] = {
+            "id": str(deployment.get("id") or ""),
+            "name": str(
+                deployment.get("name")
+                or deployment.get("id")
+                or "Deployment"
+            ),
+            "state": str(deployment.get("state") or "stopped"),
+        }
         result["notice"] = (
-            f"Running deployment '{owner.get('name') or owner.get('id')}' "
-            "controls this robot. Device checks are paused here to prevent "
-            "another process from opening the same hardware connection."
+            f"Deployment '{deployment.get('name') or deployment.get('id')}' "
+            f"is stored on the Runtime in the "
+            f"{deployment.get('state') or 'stopped'} state"
+            + (
+                ". Resume this robot before restarting it."
+                if paused
+                else " and can be restarted."
+            )
         )
         return result
 
+    if paused:
+        result = dict(status)
+        result["notice"] = (
+            "Robot is paused and disarmed. Resume it before starting a workflow."
+        )
+        return result
+    return status
+
+
+def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
+    """Return one normalized robot-state sample from the current bus owner."""
+    device = _device_registry.get_public(device_id)
+    if device is None:
+        raise KeyError(device_id)
+    status = _deployment_aware_device_status(device_id)
+    deployment = status.get("deployment_lease") or status.get("running_deployment")
+    now = datetime.now().astimezone().isoformat(timespec="milliseconds")
+    if isinstance(deployment, dict) and deployment.get("id"):
+        deployment_id = str(deployment["id"])
+        try:
+            telemetry = _device_registry.runtime_client(device_id).deployment_telemetry(
+                deployment_id,
+            )
+        except (DeviceRegistryError, AttributeError, TypeError) as exc:
+            detail = str(exc)
+            endpoint_missing = "HTTP 404" in detail or "not found" in detail.casefold()
+            return {
+                "type": "robot_telemetry",
+                "robot_id": device_id,
+                "robot_name": str(device.get("name") or device_id),
+                "source": "deployment",
+                "source_label": str(deployment.get("name") or deployment_id),
+                "deployment": deployment,
+                "available": False,
+                "stale": True,
+                "received_at": now,
+                "message": (
+                    (
+                        "This device Runtime does not support deployed monitoring yet. "
+                        "Update Runtime to 0.3.9 or newer; Robot Hardware does not "
+                        "need to be reinstalled. Then stage the workflow again to sync "
+                        "blacknode-drivers 0.2.1 or newer and restart the deployment."
+                    )
+                    if endpoint_missing
+                    else (
+                        "The running deployment has not exposed live telemetry yet. "
+                        "Update Runtime and the robot driver package, then restart the "
+                        f"deployment. Details: {detail}"
+                    )
+                ),
+            }
+        payload = telemetry.get("payload")
+        available = bool(telemetry.get("available") and isinstance(payload, dict))
+        return {
+            "type": "robot_telemetry",
+            "robot_id": device_id,
+            "robot_name": str(device.get("name") or device_id),
+            "source": "deployment",
+            "source_label": str(deployment.get("name") or deployment_id),
+            "deployment": deployment,
+            "available": available,
+            "stale": bool(telemetry.get("stale", not available)),
+            "sequence": int(telemetry.get("sequence") or 0),
+            "sent_at": str(telemetry.get("sent_at") or ""),
+            "received_at": str(telemetry.get("received_at") or now),
+            "age_seconds": telemetry.get("age_seconds"),
+            "payload": payload if available else None,
+            "message": str(
+                telemetry.get("message")
+                or (
+                    "Receiving state from the running deployment."
+                    if available
+                    else "Waiting for the running deployment to publish robot state."
+                )
+            ),
+        }
+
+    positions = {
+        str(name): float(value)
+        for name, value in dict(status.get("positions") or {}).items()
+        if isinstance(value, (int, float))
+    }
+    reported_joint_names = [
+        str(name)
+        for name in (status.get("joint_names") or [])
+        if str(name) in positions
+    ]
+    joint_names = reported_joint_names + [
+        name for name in positions if name not in reported_joint_names
+    ]
+    available = bool(status.get("connected") and positions)
+    return {
+        "type": "robot_telemetry",
+        "robot_id": device_id,
+        "robot_name": str(device.get("name") or device_id),
+        "source": "hardware",
+        "source_label": "Robot Hardware",
+        "available": available,
+        "stale": not available,
+        "sequence": int(time.time() * 1000),
+        "sent_at": now,
+        "received_at": now,
+        "payload": {
+            "connected": bool(status.get("connected")),
+            "armed": bool(status.get("armed")),
+            "torque_enabled": status.get("torque_enabled"),
+            "position_unit": "degree",
+            "velocity_unit": "degree/s",
+            "joints": [
+                {
+                    "name": name,
+                    "position": positions[name],
+                    "velocity": 0.0,
+                }
+                for name in joint_names
+                if name in positions
+            ],
+            "error": str(status.get("error") or ""),
+        },
+        "message": (
+            "Receiving state from Robot Hardware."
+            if available
+            else str(
+                status.get("error")
+                or "Robot Hardware is connected but has not reported joint positions."
+            )
+        ),
+    }
+
+
+@app.websocket("/api/devices/{device_id}/monitor/ws")
+@app.websocket("/devices/{device_id}/monitor/ws")
+async def device_monitor_socket(websocket: WebSocket, device_id: str):
+    await websocket.accept()
     try:
-        _set_device_deployment_lease(device_id, leased=False)
-    except HTTPException:
-        return status
-    return client.status()
+        while True:
+            try:
+                snapshot = await asyncio.to_thread(_device_monitor_snapshot, device_id)
+            except KeyError:
+                await websocket.send_json({
+                    "type": "robot_telemetry",
+                    "robot_id": device_id,
+                    "available": False,
+                    "stale": True,
+                    "message": "Robot is no longer paired with this editor.",
+                })
+                await websocket.close(code=1008)
+                return
+            except Exception as exc:  # keep a transient device outage visible
+                snapshot = {
+                    "type": "robot_telemetry",
+                    "robot_id": device_id,
+                    "available": False,
+                    "stale": True,
+                    "received_at": datetime.now().astimezone().isoformat(
+                        timespec="milliseconds"
+                    ),
+                    "message": f"Monitoring temporarily unavailable: {exc}",
+                }
+            await websocket.send_json(snapshot)
+            await asyncio.sleep(0.1)
+    except (WebSocketDisconnect, RuntimeError):
+        return
 
 
 @app.get("/devices/{device_id}/deployments")
 def list_device_deployments(device_id: str):
     try:
-        return _runtime_client_or_404(device_id).list_deployments()
+        payload = _runtime_client_or_404(device_id).list_deployments()
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
+    deployments = [
+        deployment
+        for deployment in (payload.get("deployments") or [])
+        if (
+            isinstance(deployment, dict)
+            and str(deployment.get("target_device_id") or "").strip()
+            in {"", device_id}
+        )
+    ]
+    return {**payload, "deployments": deployments}
+
+
+def _require_targeted_deployment(
+    device_id: str,
+    deployment_id: str,
+) -> dict[str, Any]:
+    try:
+        deployment = _runtime_client_or_404(device_id).get_deployment(deployment_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    target_device_id = str(deployment.get("target_device_id") or "").strip()
+    if target_device_id and target_device_id != device_id:
+        raise HTTPException(
+            404,
+            f"Deployment '{deployment_id}' does not belong to this robot.",
+        )
+    return deployment
 
 
 def _remote_deployment_owner(
@@ -5093,14 +5947,12 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
 
 @app.get("/devices/{device_id}/deployments/{deployment_id}")
 def get_device_deployment(device_id: str, deployment_id: str):
-    try:
-        return _runtime_client_or_404(device_id).get_deployment(deployment_id)
-    except DeviceRegistryError as exc:
-        raise HTTPException(502, str(exc)) from exc
+    return _require_targeted_deployment(device_id, deployment_id)
 
 
 @app.post("/devices/{device_id}/deployments/{deployment_id}/start")
 def start_device_deployment(device_id: str, deployment_id: str):
+    _require_targeted_deployment(device_id, deployment_id)
     _require_device_safe_to_start(device_id)
     _set_device_deployment_lease(device_id, leased=True)
     try:
@@ -5114,6 +5966,7 @@ def start_device_deployment(device_id: str, deployment_id: str):
 
 @app.post("/devices/{device_id}/deployments/{deployment_id}/stop")
 def stop_device_deployment(device_id: str, deployment_id: str):
+    _require_targeted_deployment(device_id, deployment_id)
     try:
         deployment = _runtime_client_or_404(device_id).stop_deployment(deployment_id)
     except DeviceRegistryError as exc:
@@ -5128,6 +5981,7 @@ def rollback_device_deployment(
     deployment_id: str,
     req: RemoteRollbackReq,
 ):
+    _require_targeted_deployment(device_id, deployment_id)
     if req.start:
         _require_device_safe_to_start(device_id)
         _set_device_deployment_lease(device_id, leased=True)
@@ -5153,6 +6007,7 @@ def get_device_deployment_logs(
     deployment_id: str,
     limit: int = 20000,
 ):
+    _require_targeted_deployment(device_id, deployment_id)
     try:
         return _runtime_client_or_404(device_id).deployment_logs(
             deployment_id,
@@ -5164,6 +6019,7 @@ def get_device_deployment_logs(
 
 @app.delete("/devices/{device_id}/deployments/{deployment_id}")
 def delete_device_deployment(device_id: str, deployment_id: str):
+    _require_targeted_deployment(device_id, deployment_id)
     try:
         return _runtime_client_or_404(device_id).delete_deployment(deployment_id)
     except DeviceRegistryError as exc:
@@ -5185,6 +6041,51 @@ def call_device_rpc(device_id: str, req: DeviceRpcReq):
         return _paired_device_client(device_id).rpc(payload)
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
+
+
+@app.post("/devices/{device_id}/release-torque")
+def release_device_torque(device_id: str):
+    status = _deployment_aware_device_status(device_id)
+    if status.get("deployment_lease") or status.get("running_deployment"):
+        raise HTTPException(
+            409,
+            "Stop the robot deployment before releasing physical torque.",
+        )
+    if status.get("paused"):
+        raise HTTPException(
+            409,
+            "Resume the robot hardware monitor before releasing physical torque.",
+        )
+    if status.get("torque_enabled") is False:
+        return {"ok": True, "status": status, "already_released": True}
+    result = _paired_device_client(device_id).rpc({
+        "jsonrpc": "2.0",
+        "id": f"release-torque-{device_id}",
+        "method": "disable_torque",
+        "params": {},
+    })
+    _raise_rpc_error(result, action="release physical torque for")
+    verified = _paired_device_client(device_id).status()
+    if verified.get("torque_enabled") is True:
+        raise HTTPException(
+            409,
+            "The Hardware service accepted the request but still reports physical torque on.",
+        )
+    verification_warning = ""
+    if verified.get("torque_enabled") is None:
+        verification_warning = str(
+            verified.get("torque_report_error")
+            or (
+                "Robot Hardware sent the torque-off command successfully, but could "
+                "not read every servo torque-enable register to verify the result."
+            )
+        )
+    return {
+        "ok": True,
+        "status": verified,
+        "already_released": False,
+        "verification_warning": verification_warning,
+    }
 
 
 @app.delete("/devices/{device_id}")

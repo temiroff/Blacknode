@@ -1246,6 +1246,388 @@ html[data-theme="dark"] .bn-brand-logo {
   background: color-mix(in srgb, var(--err) 5%, var(--panel));
 }
 
+.bn-runtime-uninstall.bn-ssh-management-form {
+  position: relative;
+  gap: 14px;
+  overflow: hidden;
+  padding: 16px;
+  border-color: color-mix(in srgb, var(--action) 32%, var(--line2));
+  border-radius: 10px;
+  background:
+    radial-gradient(
+      circle at 0 0,
+      color-mix(in srgb, var(--action) 12%, transparent) 0,
+      transparent 38%
+    ),
+    linear-gradient(145deg, var(--panel), color-mix(in srgb, var(--lift) 88%, var(--action)));
+  box-shadow:
+    0 10px 30px color-mix(in srgb, var(--bg) 26%, transparent),
+    inset 0 1px color-mix(in srgb, #fff 36%, transparent);
+}
+
+.bn-runtime-uninstall.bn-ssh-management-form::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--action), color-mix(in srgb, var(--action) 18%, transparent));
+  content: "";
+}
+
+.bn-ssh-enable-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--action) 58%, var(--line2));
+  border-radius: var(--control-radius);
+  background: color-mix(in srgb, var(--action) 9%, var(--lift));
+  color: color-mix(in srgb, var(--action) 72%, var(--tx1));
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 720;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--bg) 22%, transparent);
+}
+
+.bn-ssh-enable-button:hover:not(:disabled),
+.bn-ssh-enable-button.is-active {
+  border-color: var(--action);
+  background: color-mix(in srgb, var(--action) 15%, var(--lift));
+  color: var(--tx1);
+}
+
+.bn-ssh-enable-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.bn-runtime-uninstall > div:first-child.bn-ssh-management-head {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+}
+
+.bn-ssh-management-head > div {
+  min-width: 0;
+}
+
+.bn-runtime-uninstall > div:first-child.bn-ssh-management-head strong {
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.bn-runtime-uninstall > div:first-child.bn-ssh-management-head span {
+  max-width: 560px;
+}
+
+.bn-ssh-management-icon {
+  display: grid !important;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--action) 34%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--action) 12%, var(--lift));
+  color: var(--action) !important;
+  box-shadow: inset 0 1px color-mix(in srgb, #fff 25%, transparent);
+}
+
+.bn-ssh-management-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.75;
+}
+
+.bn-ssh-private-badge,
+.bn-ssh-verified-badge {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--action) 28%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--action) 8%, var(--panel));
+  color: color-mix(in srgb, var(--action) 66%, var(--tx2)) !important;
+  font-size: 11px !important;
+  font-weight: 700;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+
+.bn-ssh-private-badge svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.35;
+}
+
+.bn-ssh-management-progress {
+  display: grid;
+  grid-template-columns: auto minmax(24px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.bn-ssh-management-progress > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.bn-ssh-management-progress > span i {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid var(--line2);
+  border-radius: 50%;
+  background: var(--lift);
+  color: var(--tx3);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.bn-ssh-management-progress > span.is-active {
+  color: var(--tx1);
+}
+
+.bn-ssh-management-progress > span.is-active i {
+  border-color: var(--action);
+  background: color-mix(in srgb, var(--action) 13%, var(--lift));
+  color: color-mix(in srgb, var(--action) 72%, var(--tx1));
+}
+
+.bn-ssh-management-progress > b {
+  height: 1px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--action) 54%, var(--line)), var(--line));
+}
+
+.bn-ssh-runtime-target {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg) 42%, var(--panel));
+}
+
+.bn-ssh-runtime-target > div {
+  min-width: 0;
+}
+
+.bn-ssh-runtime-target > div > span,
+.bn-ssh-runtime-target code {
+  display: block;
+}
+
+.bn-ssh-runtime-target > div > span {
+  margin-bottom: 2px;
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.bn-ssh-runtime-target code {
+  overflow: hidden;
+  color: var(--tx2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-ssh-identity-state {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.bn-ssh-identity-state i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 12%, transparent);
+}
+
+.bn-ssh-identity-state.is-known {
+  color: color-mix(in srgb, var(--action) 62%, var(--tx2));
+}
+
+.bn-ssh-identity-state.is-known i {
+  background: var(--action);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--action) 12%, transparent);
+}
+
+.bn-ssh-management-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  gap: 10px;
+}
+
+.bn-ssh-management-fields.is-auth {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bn-ssh-management-form label {
+  min-width: 0;
+}
+
+.bn-ssh-management-form label > span {
+  color: var(--tx2);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bn-ssh-management-form label > small {
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.bn-ssh-management-form input {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  outline: none;
+  background: color-mix(in srgb, var(--lift) 76%, var(--panel));
+  color: var(--tx1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--bg) 20%, transparent);
+  transition: border-color .12s ease, box-shadow .12s ease, background .12s ease;
+}
+
+.bn-ssh-management-form input:hover {
+  border-color: color-mix(in srgb, var(--tx2) 48%, var(--line2));
+}
+
+.bn-ssh-management-form input:focus {
+  border-color: var(--action);
+  background: var(--panel);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--action) 13%, transparent),
+    inset 0 1px 2px color-mix(in srgb, var(--bg) 16%, transparent);
+}
+
+.bn-ssh-management-form input::placeholder {
+  color: color-mix(in srgb, var(--tx3) 72%, transparent);
+}
+
+.bn-device-fingerprint.bn-ssh-host-card {
+  gap: 7px;
+  padding: 11px;
+  border-color: color-mix(in srgb, var(--action) 42%, var(--line2));
+  background: color-mix(in srgb, var(--action) 8%, var(--panel));
+}
+
+.bn-ssh-host-card > div {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.bn-ssh-host-card > span {
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-ssh-host-card code {
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--action) 20%, var(--line));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg) 42%, var(--panel));
+  color: color-mix(in srgb, var(--action) 72%, var(--tx1));
+}
+
+.bn-ssh-host-check {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--action) 16%, var(--lift));
+  color: var(--action);
+}
+
+.bn-ssh-host-check svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.bn-ssh-host-card > div > div {
+  min-width: 0;
+}
+
+.bn-ssh-host-card > div p {
+  margin: 1px 0 0;
+}
+
+.bn-ssh-management-actions {
+  align-items: center;
+  padding-top: 2px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.bn-ssh-management-actions button {
+  min-height: 34px;
+  padding-inline: 12px !important;
+}
+
+.bn-ssh-cancel-button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--tx3);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.bn-ssh-cancel-button:hover:not(:disabled) {
+  border-color: var(--line2);
+  background: var(--hover);
+  color: var(--tx1);
+}
+
+.bn-ssh-submit-button {
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--action) 24%, transparent);
+}
+
 .bn-runtime-uninstall label {
   display: flex;
   flex-direction: column;
@@ -1357,13 +1739,29 @@ button.bn-compute-device-card:active:not(:disabled) {
 
 .bn-compute-device-detail {
   flex: 0 0 auto;
-  margin: 0 12px 12px;
-  border: 1px solid var(--line);
+  margin: 12px;
+  border: 1px solid #737373;
   border-radius: 7px;
   background: var(--lift);
 }
 
-.bn-compute-device-detail-head,
+.bn-compute-device-detail-nav {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 7px 10px;
+  border-bottom: 1px solid color-mix(in srgb, #00d2ff 42%, var(--line));
+}
+
+.bn-compute-device-detail-head {
+  display: flex;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
 .bn-compute-robots-head {
   display: flex;
   align-items: center;
@@ -1372,47 +1770,59 @@ button.bn-compute-device-card:active:not(:disabled) {
   padding: 10px;
 }
 
-.bn-compute-device-detail-head {
-  border-bottom: 1px solid var(--line);
-}
-
 .bn-device-back-button {
   display: inline-flex;
-  min-height: 34px;
+  width: max-content;
+  max-width: 100%;
+  min-height: 32px;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 7px;
-  margin: 0 0 12px;
-  padding: 0 11px;
-  border: 1px solid var(--line2);
+  gap: 6px;
+  margin: 0;
+  padding: 0 10px 0 7px;
+  border: 1px solid #737373;
   border-radius: 6px;
-  background: var(--panel);
+  background: var(--lift);
   color: var(--tx1);
   cursor: pointer;
   font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
   box-shadow: 0 1px 2px color-mix(in srgb, var(--bg) 28%, transparent);
-  transition: border-color .12s ease, background .12s ease;
+  transition: border-color .12s ease, background .12s ease, box-shadow .12s ease;
 }
 
 .bn-device-back-button:hover {
-  border-color: var(--accent);
-  background: var(--hover);
+  border-color: #00d2ff;
+  background: color-mix(in srgb, #00d2ff 11%, var(--lift));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #00d2ff 20%, transparent);
 }
 
-.bn-compute-device-detail-head .bn-device-back-button > span {
+.bn-device-back-icon {
   display: grid;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   place-items: center;
-  color: var(--accent);
+  color: #00d2ff;
+}
+
+.bn-device-back-label {
+  display: inline-flex;
+  height: 18px;
+  flex: 0 0 auto;
+  align-items: center;
+  line-height: 18px;
+  transform: translateY(1px);
+  white-space: nowrap;
 }
 
 .bn-device-back-icon svg {
   display: block;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
 }
 
 .bn-device-back-icon path {
@@ -1424,8 +1834,12 @@ button.bn-compute-device-card:active:not(:disabled) {
 }
 
 .bn-device-back-button:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline: 2px solid color-mix(in srgb, #00d2ff 55%, transparent);
   outline-offset: 3px;
+}
+
+.bn-compute-device-detail-head .bn-run-detail-actions {
+  justify-content: flex-start;
 }
 
 .bn-runtime-check-button {
@@ -1460,6 +1874,91 @@ button.bn-compute-device-card:active:not(:disabled) {
 
 .bn-runtime-check-button:disabled {
   opacity: .8;
+}
+
+.bn-device-action-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  background: var(--lift);
+  color: var(--tx2);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  transition:
+    color .12s ease,
+    border-color .12s ease,
+    background .12s ease,
+    box-shadow .12s ease,
+    transform .08s ease;
+}
+
+.bn-device-action-button:hover:not(:disabled) {
+  border-color: #00d2ff;
+  background: color-mix(in srgb, #00d2ff 10%, var(--lift));
+  color: var(--tx1);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #00d2ff 16%, transparent);
+  transform: translateY(-1px);
+}
+
+.bn-device-action-button:active:not(:disabled) {
+  box-shadow: none;
+  transform: translateY(0);
+}
+
+.bn-device-action-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, #00d2ff 58%, transparent);
+  outline-offset: 2px;
+}
+
+.bn-device-action-button:disabled {
+  cursor: default;
+  opacity: .45;
+  transform: none;
+}
+
+.bn-device-action-button.is-primary {
+  border-color: var(--action);
+  background: var(--action);
+  color: var(--action-ink);
+  font-weight: 750;
+}
+
+.bn-device-action-button.is-primary:hover:not(:disabled) {
+  border-color: #00d2ff;
+  background: color-mix(in srgb, var(--action) 84%, #00d2ff);
+  color: var(--action-ink);
+}
+
+.bn-device-action-button.is-danger {
+  border-color: color-mix(in srgb, var(--err) 72%, var(--line2));
+  background: color-mix(in srgb, var(--err) 5%, var(--lift));
+  color: var(--err);
+}
+
+.bn-device-action-button.is-danger:hover:not(:disabled) {
+  border-color: var(--err);
+  background: color-mix(in srgb, var(--err) 13%, var(--lift));
+  color: var(--err);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--err) 16%, transparent);
+}
+
+.bn-device-header-actions {
+  width: 100%;
+  align-items: stretch;
+}
+
+.bn-device-header-actions .bn-device-action-button {
+  min-width: 0;
+  flex: 1 1 120px;
 }
 
 .bn-runtime-check-result {
@@ -1518,6 +2017,290 @@ button.bn-compute-device-card:active:not(:disabled) {
   color: var(--tx3);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.bn-device-update-form {
+  border-color: color-mix(in srgb, #00d2ff 45%, var(--line2));
+}
+
+.bn-device-update-password {
+  gap: 7px !important;
+  padding: 10px;
+  border: 1px solid #737373;
+  border-radius: 7px;
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, #00d2ff 7%, var(--lift)),
+      var(--lift) 58%
+    );
+}
+
+.bn-device-update-password > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bn-device-update-password > span strong {
+  color: var(--tx1);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bn-device-update-password > span small {
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 400;
+  text-align: right;
+}
+
+.bn-device-update-password input {
+  width: 100%;
+  min-height: 38px;
+  box-sizing: border-box;
+  padding: 8px 11px;
+  border: 1px solid #737373;
+  border-radius: 6px;
+  outline: none;
+  background: var(--surface);
+  color: var(--tx1);
+  caret-color: #00d2ff;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  transition:
+    border-color .14s ease,
+    box-shadow .14s ease,
+    background .14s ease;
+}
+
+.bn-device-update-password input::placeholder {
+  color: var(--tx3);
+  opacity: .78;
+}
+
+.bn-device-update-password input:hover {
+  border-color: #00d2ff;
+}
+
+.bn-device-update-password input:focus {
+  border-color: #00d2ff;
+  background: var(--lift);
+  box-shadow: 0 0 0 3px color-mix(in srgb, #00d2ff 18%, transparent);
+}
+
+.bn-device-update-password input:-webkit-autofill,
+.bn-device-update-password input:-webkit-autofill:hover,
+.bn-device-update-password input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--tx1);
+  caret-color: #00d2ff;
+  box-shadow: 0 0 0 1000px var(--surface) inset;
+}
+
+.bn-device-update-caution {
+  grid-column: 1 / -1;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line2));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 7%, var(--lift));
+  color: var(--tx2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bn-device-update-report {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #737373;
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.bn-device-update-report-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.bn-device-update-report-head > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.bn-device-update-report-head strong {
+  color: var(--tx1);
+  font-size: 13px;
+}
+
+.bn-device-update-report-head span {
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.bn-device-update-report-head > span {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  background: var(--lift);
+}
+
+.bn-device-update-components {
+  display: grid;
+  gap: 7px;
+}
+
+.bn-device-update-component {
+  display: grid;
+  min-width: 0;
+  grid-template-areas:
+    "identity version actions";
+  grid-template-columns: minmax(0, 1fr) minmax(0, .9fr) minmax(126px, auto);
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 11px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--lift);
+}
+
+.bn-device-update-component > div:first-child,
+.bn-device-update-version {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.bn-device-update-component > div:first-child {
+  grid-area: identity;
+}
+
+.bn-device-update-version {
+  grid-area: version;
+}
+
+.bn-device-update-component strong {
+  color: var(--tx1);
+  font-size: 12px;
+}
+
+.bn-device-update-component code {
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.bn-device-update-version > span,
+.bn-device-update-component > small {
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-device-update-version > strong {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  overflow-wrap: anywhere;
+}
+
+.bn-device-update-version i {
+  color: #00d2ff;
+  font-style: normal;
+}
+
+.bn-device-update-version.is-result > strong > span:first-child:not(.is-current) {
+  color: var(--tx3);
+  font-weight: 500;
+}
+
+.bn-device-update-version.is-result .is-current {
+  color: #00d2ff;
+}
+
+.bn-device-update-version.is-result code b {
+  color: var(--tx2);
+  font-weight: 500;
+}
+
+.bn-device-update-component > small > strong {
+  color: var(--tx2);
+  font-size: inherit;
+}
+
+.bn-device-update-state {
+  justify-self: end;
+  padding: 3px 7px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.bn-device-update-state.is-changed {
+  border-color: color-mix(in srgb, #00d2ff 55%, var(--line2));
+  color: #00d2ff;
+}
+
+.bn-device-update-state.is-blocked {
+  border-color: color-mix(in srgb, var(--warn) 60%, var(--line2));
+  color: var(--warn);
+}
+
+.bn-device-update-row-actions {
+  display: grid;
+  min-width: 0;
+  grid-area: actions;
+  justify-items: end;
+  gap: 7px;
+}
+
+.bn-device-update-row-actions .bn-device-action-button {
+  min-width: 118px;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.bn-device-update-component > small {
+  grid-column: 1 / -1;
+}
+
+.bn-device-update-component > .bn-device-update-component-error {
+  color: var(--warn);
+}
+
+.bn-device-update-warnings {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, var(--line2));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 7%, var(--lift));
+}
+
+.bn-device-update-warnings span {
+  color: var(--tx2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bn-device-update-report-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 3px;
 }
 
 @keyframes bn-runtime-check-pulse {
@@ -1581,7 +2364,7 @@ button.bn-compute-device-card:active:not(:disabled) {
 .bn-device-robot-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   padding: 0 10px 10px;
 }
 
@@ -1619,6 +2402,18 @@ button.bn-compute-device-card:active:not(:disabled) {
 .bn-card-list .bn-device-card {
   border-radius: 6px;
   box-shadow: none;
+}
+
+.bn-device-robot-list .bn-device-card {
+  overflow: hidden;
+  border: 1px solid #00d2ff;
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #00d2ff 7%, transparent);
+}
+
+.bn-device-robot-list .bn-device-card.is-expanded {
+  box-shadow: 0 0 0 2px color-mix(in srgb, #00d2ff 14%, transparent);
 }
 
 .bn-device-card-summary:hover {
@@ -1687,6 +2482,240 @@ button.bn-compute-device-card:active:not(:disabled) {
 
 .bn-device-card-detail {
   padding: 10px;
+  border-top: 1px solid color-mix(in srgb, #00d2ff 38%, var(--line));
+}
+
+.bn-robot-card-actions {
+  width: 100%;
+  align-items: stretch;
+  justify-content: stretch;
+  gap: 7px;
+}
+
+.bn-robot-card-actions + .bn-robot-card-actions {
+  margin-top: 7px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.bn-robot-card-actions button {
+  min-width: 0;
+  min-height: 34px;
+  flex: 1 1 135px;
+  justify-content: center;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.bn-robot-monitor {
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid #00d2ff;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 0 0, color-mix(in srgb, #00d2ff 9%, transparent), transparent 38%),
+    color-mix(in srgb, var(--panel) 94%, #00151b);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #00d2ff 14%, transparent);
+}
+
+.bn-robot-monitor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, #00d2ff 30%, var(--line));
+}
+
+.bn-robot-monitor-head > div:first-child {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.bn-robot-monitor-head strong,
+.bn-robot-monitor-head span {
+  display: block;
+}
+
+.bn-robot-monitor-head strong {
+  color: var(--tx1);
+  font-size: 13px;
+}
+
+.bn-robot-monitor-head > div:first-child div > span {
+  margin-top: 2px;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.bn-robot-monitor-pulse {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+  background: var(--tx3);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--tx3) 12%, transparent);
+}
+
+.bn-robot-monitor-pulse.is-live {
+  background: #00d2ff;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #00d2ff 15%, transparent);
+  animation: bn-monitor-pulse 1.7s ease-out infinite;
+}
+
+.bn-robot-monitor-pulse.is-stale,
+.bn-robot-monitor-pulse.is-waiting {
+  background: var(--warn);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+@keyframes bn-monitor-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, #00d2ff 35%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 7px transparent; }
+}
+
+.bn-robot-monitor-status {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.bn-robot-monitor-status > span {
+  padding: 3px 7px;
+  border: 1px solid #737373;
+  border-radius: 999px;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.bn-robot-monitor-status > span:first-child {
+  color: var(--warn);
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.bn-robot-monitor-status > span:first-child.is-live {
+  border-color: color-mix(in srgb, #00d2ff 75%, #737373);
+  color: #00d2ff;
+}
+
+.bn-robot-monitor-meta {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px 0;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.bn-robot-monitor-meta span + span::before {
+  margin-right: 12px;
+  color: #737373;
+  content: "·";
+}
+
+.bn-robot-monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  padding: 9px 10px 10px;
+}
+
+.bn-joint-monitor-card {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #737373;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--lift) 91%, transparent);
+}
+
+.bn-joint-monitor-title,
+.bn-joint-monitor-speed {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bn-joint-monitor-title strong {
+  overflow: hidden;
+  color: var(--tx2);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.bn-joint-monitor-title span,
+.bn-joint-monitor-speed strong {
+  color: #00d2ff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.bn-joint-monitor-chart {
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin: 7px 0 5px;
+  border-block: 1px solid color-mix(in srgb, #737373 42%, transparent);
+  background:
+    linear-gradient(to right, color-mix(in srgb, #737373 15%, transparent) 1px, transparent 1px) 0 0 / 25% 100%,
+    linear-gradient(to bottom, color-mix(in srgb, #737373 11%, transparent) 1px, transparent 1px) 0 0 / 100% 50%;
+}
+
+.bn-joint-monitor-chart line {
+  stroke: color-mix(in srgb, #737373 48%, transparent);
+  stroke-dasharray: 3 4;
+  stroke-width: 1;
+}
+
+.bn-joint-monitor-chart polyline {
+  fill: none;
+  stroke: #00d2ff;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.bn-joint-monitor-speed span {
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-joint-monitor-speed strong {
+  color: var(--tx2);
+  font-weight: 600;
+}
+
+.bn-robot-monitor-empty {
+  padding: 18px 14px;
+  text-align: center;
+}
+
+.bn-robot-monitor-empty strong,
+.bn-robot-monitor-empty span {
+  display: block;
+}
+
+.bn-robot-monitor-empty strong {
+  color: var(--tx2);
+  font-size: 12px;
+}
+
+.bn-robot-monitor-empty span {
+  max-width: 560px;
+  margin: 5px auto 0;
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .bn-device-card-addresses {
@@ -1791,6 +2820,46 @@ button.bn-compute-device-card:active:not(:disabled) {
   border-radius: 4px;
 }
 
+button.bn-device-fact {
+  width: 100%;
+  appearance: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+}
+
+.bn-device-fact.is-interactive {
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease;
+}
+
+.bn-device-fact.is-interactive:hover,
+.bn-device-fact.is-interactive:focus-visible {
+  border-color: #00d2ff;
+  background: color-mix(in srgb, #00d2ff 6%, var(--panel));
+  outline: none;
+}
+
+.bn-device-fact.is-interactive > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.bn-device-fact.is-interactive i {
+  color: #00d2ff;
+  font-size: 16px;
+  font-style: normal;
+  line-height: .7;
+  transform: rotate(90deg);
+  transition: transform .12s ease;
+}
+
+.bn-device-fact.is-interactive[aria-expanded="true"] i {
+  transform: rotate(-90deg);
+}
+
 .bn-device-fact span,
 .bn-device-fact strong {
   display: block;
@@ -1812,6 +2881,25 @@ button.bn-compute-device-card:active:not(:disabled) {
   white-space: nowrap;
 }
 
+@container devices-panel (max-width: 700px) {
+  .bn-device-update-component {
+    grid-template-areas:
+      "identity actions"
+      "version actions";
+    grid-template-columns: minmax(0, 1fr) minmax(136px, auto);
+    align-items: start;
+  }
+
+  .bn-device-update-row-actions {
+    align-self: stretch;
+    align-content: center;
+  }
+
+  .bn-device-update-component > small {
+    grid-column: 1 / -1;
+  }
+}
+
 @container devices-panel (max-width: 430px) {
   .bn-devices-panel > .bn-runs-toolbar {
     align-items: stretch;
@@ -1824,7 +2912,7 @@ button.bn-compute-device-card:active:not(:disabled) {
   }
 
   .bn-devices-panel > .bn-runs-toolbar .bn-runs-actions button,
-  .bn-devices-panel .bn-run-detail-actions button,
+  .bn-devices-panel .bn-run-detail-actions:not(.bn-robot-card-actions) button,
   .bn-device-form-actions button {
     flex: 1 1 auto;
     min-height: 30px;
@@ -1848,14 +2936,45 @@ button.bn-compute-device-card:active:not(:disabled) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .bn-robot-monitor-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .bn-robot-monitor-grid {
+    grid-template-columns: 1fr;
+  }
+
   .bn-host-environment-grid {
     grid-template-columns: 1fr;
   }
 
-  .bn-compute-device-detail-head,
   .bn-compute-robots-head {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .bn-runtime-uninstall.bn-ssh-management-form {
+    margin-inline: 10px;
+    padding: 13px;
+  }
+
+  .bn-runtime-uninstall > div:first-child.bn-ssh-management-head {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .bn-ssh-private-badge {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .bn-ssh-runtime-target {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .bn-ssh-management-fields {
+    grid-template-columns: minmax(0, 1fr) 88px;
   }
 
   .bn-devices-panel .bn-device-card-detail {
@@ -1874,6 +2993,42 @@ button.bn-compute-device-card:active:not(:disabled) {
 
   .bn-device-continue button {
     align-self: flex-start;
+  }
+
+  .bn-device-update-report-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bn-device-update-report-head > span {
+    align-self: flex-start;
+  }
+
+  .bn-device-update-component {
+    grid-template-areas:
+      "identity"
+      "version"
+      "actions";
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bn-device-update-version {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .bn-device-update-row-actions {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: stretch;
+  }
+
+  .bn-device-update-state {
+    justify-self: start;
+  }
+
+  .bn-device-update-row-actions .bn-device-action-button {
+    width: 100%;
   }
 
   .bn-devices-panel .bn-device-runtime-reuse button {
@@ -1900,6 +3055,25 @@ button.bn-compute-device-card:active:not(:disabled) {
     grid-template-columns: 1fr;
   }
 
+  .bn-ssh-management-fields,
+  .bn-ssh-management-fields.is-auth {
+    grid-template-columns: 1fr;
+  }
+
+  .bn-ssh-management-progress > span {
+    gap: 4px;
+    font-size: 11px;
+  }
+
+  .bn-ssh-host-card > div {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .bn-ssh-verified-badge {
+    grid-column: 2;
+    justify-self: start;
+  }
+
   .bn-device-card-summary {
     grid-template-columns: 9px minmax(0, 1fr) 12px;
   }
@@ -1910,9 +3084,59 @@ button.bn-compute-device-card:active:not(:disabled) {
 }
 
 .bn-deploy-target {
-  padding: 10px 12px;
+  padding: 14px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--lift);
+}
+
+.bn-deploy-nav {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, #00d2ff 42%, var(--line));
+  background: var(--panel);
+}
+
+.bn-deploy-nav-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: max-content;
+  min-height: 28px;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, #00d2ff 38%, transparent);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--tx2);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bn-deploy-nav-button:hover {
+  border-color: #00d2ff;
+  background: var(--hover);
+  color: var(--tx1);
+}
+
+.bn-deploy-nav-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.bn-deploy-refresh {
+  margin-left: auto;
 }
 
 .bn-deploy-target-head {
@@ -1926,6 +3150,95 @@ button.bn-compute-device-card:active:not(:disabled) {
   color: var(--tx1);
   font-size: 13px;
   font-weight: 650;
+}
+
+.bn-deploy-target-copy {
+  margin-top: 3px;
+  color: var(--tx3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.bn-deploy-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #00d2ff;
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #00d2ff 8%, transparent);
+}
+
+.bn-deploy-route article {
+  min-width: 0;
+}
+
+.bn-deploy-route article > span,
+.bn-deploy-route article > strong,
+.bn-deploy-route article > small {
+  display: block;
+}
+
+.bn-deploy-route article > span {
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.bn-deploy-route article > strong {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--tx1);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-deploy-route article > small {
+  overflow: hidden;
+  margin-top: 1px;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-deploy-route > i {
+  color: color-mix(in srgb, var(--action) 66%, var(--tx3));
+  font-size: 14px;
+  font-style: normal;
+  text-align: center;
+}
+
+.bn-deploy-target-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.bn-deploy-target-picker > span {
+  color: var(--tx2);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.bn-deploy-target-picker > small {
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bn-deploy-target-picker .bn-deploy-device-select {
+  margin-top: 0;
 }
 
 .bn-deploy-device-select {
@@ -2385,7 +3698,7 @@ button.bn-compute-device-card:active:not(:disabled) {
 .bn-robot-step-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
@@ -2473,27 +3786,29 @@ button.bn-compute-device-card:active:not(:disabled) {
   white-space: normal;
 }
 
-@container deployment-panel (max-width: 620px) {
-  .bn-deploy-target-head,
-  .bn-deploy-panel > .bn-runs-toolbar {
-    align-items: stretch;
-    flex-direction: column;
+@container deployment-panel (min-width: 621px) {
+  .bn-deploy-target {
+    padding: 18px 24px 20px;
   }
 
-  .bn-deploy-target-head .bn-runs-actions,
-  .bn-deploy-panel > .bn-runs-toolbar .bn-runs-actions {
-    justify-content: flex-start;
+  .bn-deploy-target > .bn-deploy-target-head,
+  .bn-deploy-target > .bn-deploy-route,
+  .bn-deploy-target > .bn-deploy-target-picker,
+  .bn-deploy-target > .bn-device-help,
+  .bn-deploy-target > .bn-robot-step-status,
+  .bn-deploy-target > .bn-robot-deploy-steps {
+    max-width: 680px;
+    margin-left: auto;
+    margin-right: auto;
   }
 
-  .bn-deploy-panel .bn-robot-step-actions {
-    align-items: stretch;
-    justify-content: flex-start;
+  .bn-robot-deploy-step {
+    padding: 14px;
   }
 
-  .bn-deploy-panel .bn-robot-step-actions button,
-  .bn-deploy-panel > .bn-runs-toolbar .bn-runs-actions button {
-    flex: 1 1 130px;
-    min-height: 32px;
+  .bn-deployment-section-head {
+    padding-right: 24px;
+    padding-left: 24px;
   }
 }
 
@@ -2513,8 +3828,7 @@ button.bn-compute-device-card:active:not(:disabled) {
     white-space: normal;
   }
 
-  .bn-deploy-panel .bn-robot-step-actions button,
-  .bn-deploy-panel > .bn-runs-toolbar .bn-runs-actions button {
+  .bn-deploy-panel .bn-robot-step-actions button {
     flex-basis: 100%;
     width: 100%;
   }
@@ -2551,13 +3865,13 @@ button.bn-compute-device-card:active:not(:disabled) {
   gap: 3px;
   margin-top: 8px;
   padding: 9px 10px;
-  border: 1px solid color-mix(in srgb, var(--ok) 44%, var(--line2));
+  border: 1px solid var(--line2);
   border-radius: 6px;
-  background: color-mix(in srgb, var(--ok) 8%, transparent);
+  background: var(--lift);
 }
 
 .bn-device-lease-notice strong {
-  color: var(--ok);
+  color: var(--tx2);
   font-size: 12px;
 }
 
@@ -2566,6 +3880,71 @@ button.bn-compute-device-card:active:not(:disabled) {
   font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+.bn-device-lease-notice.is-active {
+  border-color: color-mix(in srgb, var(--ok) 44%, var(--line2));
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+}
+
+.bn-device-lease-notice.is-active strong {
+  color: var(--ok);
+}
+
+.bn-device-lease-notice.is-running {
+  border-color: color-mix(in srgb, #00d2ff 44%, var(--line2));
+  background: color-mix(in srgb, #00d2ff 7%, transparent);
+}
+
+.bn-device-lease-notice.is-running strong {
+  color: #00d2ff;
+}
+
+.bn-device-lease-notice.is-stored {
+  border-color: color-mix(in srgb, #00d2ff 34%, var(--line2));
+  background: color-mix(in srgb, #00d2ff 5%, transparent);
+}
+
+.bn-device-lease-notice.is-stored strong {
+  color: color-mix(in srgb, #00d2ff 76%, var(--tx2));
+}
+
+.bn-device-torque-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 58%, var(--line2));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 7%, var(--lift));
+}
+
+.bn-device-torque-warning > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bn-device-torque-warning strong {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.bn-device-torque-warning span {
+  color: var(--tx2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bn-device-torque-warning button {
+  flex: 0 0 auto;
+}
+
+.bn-device-torque-warning.is-unknown {
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--line2));
+  background: color-mix(in srgb, var(--warn) 5%, var(--lift));
 }
 
 .bn-device-runtime-reuse {

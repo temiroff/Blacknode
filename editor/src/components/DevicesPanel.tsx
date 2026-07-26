@@ -1,12 +1,17 @@
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import {
   api,
+  deviceMonitorSocketUrl,
   type ComputeDevice,
   type DeviceActionProgress,
   type DeviceInstallProgress,
   type DeviceRuntimeStatus,
   type HardwareDevice,
   type HardwareDeviceStatus,
+  type ManagedServiceUpdateCheckResult,
+  type ManagedServiceUpdateResult,
+  type RobotTelemetryJoint,
+  type RobotTelemetrySample,
   type SshDeviceProbe,
   type SshRuntimeInspection,
 } from '../api'
@@ -79,12 +84,37 @@ function hardwareUrlError(value: string, runtimeUrl = DEFAULT_RUNTIME_URL): stri
   return null
 }
 
+function runtimeHostname(runtimeUrl: string): string {
+  try {
+    return new URL(runtimeUrl).hostname
+  } catch {
+    return ''
+  }
+}
+
+function urlPort(url: string): number | null {
+  try {
+    const parsed = new URL(url)
+    const value = parsed.port || (parsed.protocol === 'https:' ? '443' : '80')
+    const port = Number(value)
+    return Number.isInteger(port) && port > 0 ? port : null
+  } catch {
+    return null
+  }
+}
+
+function formatVersion(value?: string): string {
+  const version = value?.trim()
+  return version && version !== 'unknown' ? `v${version}` : 'version unavailable'
+}
+
 export default function DevicesPanel() {
   const activeProject = useStore(state => state.activeProject)
   const setActiveProject = useStore(state => state.setActiveProject)
   const [devices, setDevices] = useState<ComputeDevice[]>([])
   const [deviceStates, setDeviceStates] = useState<Record<string, DeviceState>>({})
   const [robotStates, setRobotStates] = useState<Record<string, RobotState>>({})
+  const [knownHardwareVersions, setKnownHardwareVersions] = useState<Record<string, string>>({})
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [showDeviceForm, setShowDeviceForm] = useState(false)
   const [setupMode, setSetupMode] = useState<'automatic' | 'manual'>('automatic')
@@ -103,8 +133,18 @@ export default function DevicesPanel() {
   const [actionProgress, setActionProgress] = useState<Record<string, DeviceActionProgress>>({})
   const [showRuntimeControl, setShowRuntimeControl] = useState(false)
   const [runtimeControlPassword, setRuntimeControlPassword] = useState('')
+  const [showUpdateForm, setShowUpdateForm] = useState(false)
+  const [updatePassword, setUpdatePassword] = useState('')
+  const [updateCheckReport, setUpdateCheckReport] = useState<ManagedServiceUpdateCheckResult | null>(null)
+  const [updateReport, setUpdateReport] = useState<ManagedServiceUpdateResult | null>(null)
   const [showUninstallForm, setShowUninstallForm] = useState(false)
   const [uninstallPassword, setUninstallPassword] = useState('')
+  const [showSshManagement, setShowSshManagement] = useState(false)
+  const [managementHost, setManagementHost] = useState('')
+  const [managementPort, setManagementPort] = useState(22)
+  const [managementUsername, setManagementUsername] = useState('')
+  const [managementPassword, setManagementPassword] = useState('')
+  const [managementProbe, setManagementProbe] = useState<SshDeviceProbe | null>(null)
   const [showRobotForm, setShowRobotForm] = useState(false)
   const [robotName, setRobotName] = useState('')
   const [robotUrl, setRobotUrl] = useState('')
@@ -117,6 +157,106 @@ export default function DevicesPanel() {
   const selectedDeviceState = selectedDevice
     ? deviceStates[selectedDevice.id]
     : undefined
+  const selectedRobotChecks = selectedDevice
+    ? selectedDevice.robots.map(robot => ({
+      robot,
+      state: robotStates[robot.id],
+    }))
+    : []
+  const selectedDeviceChecking = Boolean(
+    selectedDeviceState?.loading
+    || selectedRobotChecks.some(item => item.state?.loading),
+  )
+  const selectedHardwareReady = selectedRobotChecks.every(item => Boolean(
+    item.state?.status
+    && !item.state.error
+    && (
+      item.state.status.connected
+      || item.state.status.leased_to_deployment
+      || item.state.status.deployment_lease
+    ),
+  ))
+  const selectedDeviceReady = Boolean(
+    selectedDeviceState?.runtime?.ok
+    && selectedHardwareReady,
+  )
+  const selectedServiceVersions = selectedDevice
+    ? [
+      `Runtime ${
+        selectedDeviceState?.runtime?.manifest?.runtime_version
+          ? `v${selectedDeviceState.runtime.manifest.runtime_version}`
+          : 'version not reported'
+      }`,
+      ...selectedRobotChecks.map(({ robot, state }) => (
+        `${robot.name} Hardware ${
+          state?.status?.software_version
+            ? `v${state.status.software_version}`
+            : robot.software_version
+              ? `v${robot.software_version} (last verified)`
+            : 'version not reported'
+        }`
+      )),
+    ]
+    : []
+  const selectedLastChecked = Math.max(
+    selectedDeviceState?.checkedAt ?? 0,
+    ...selectedRobotChecks.map(item => item.state?.checkedAt ?? 0),
+  )
+  const checkedSoftwareComponents = updateCheckReport?.check.components ?? []
+  const checkedHardwareComponents = checkedSoftwareComponents.filter(
+    component => component.kind === 'hardware',
+  )
+  const checkedHardwareNeedsRepair = checkedHardwareComponents.some(component => (
+    Boolean(component.error)
+    || component.installed.version === 'unknown'
+    || component.latest.version === 'unknown'
+  ))
+  const checkedHardwareHasUpdate = checkedHardwareComponents.some(
+    component => component.update_available,
+  )
+  const checkedHardwareIsDirty = checkedHardwareComponents.some(
+    component => component.dirty,
+  )
+  const checkedRuntimeComponents = checkedSoftwareComponents.filter(
+    component => component.kind === 'runtime',
+  )
+  const checkedHardwareInstallation = checkedHardwareComponents.find(component => (
+    component.installed.version !== 'unknown'
+    && component.latest.version !== 'unknown'
+  )) ?? checkedHardwareComponents[0]
+  const updatedSoftwareComponents = updateReport?.update.components ?? []
+  const updatedRuntimeComponents = updatedSoftwareComponents.filter(
+    component => component.kind === 'runtime',
+  )
+  const updatedHardwareComponents = updatedSoftwareComponents.filter(
+    component => component.kind === 'hardware',
+  )
+  const updatedHardwareInstallation = updatedHardwareComponents[0]
+  const robotNameForPort = (port: number): string => (
+    selectedDevice?.robots.find(robot => urlPort(robot.base_url) === port)?.name
+    ?? `Robot on port ${port}`
+  )
+  const installedHardwareVersionForPort = (port: number | null): string => {
+    if (port == null) return ''
+    const checked = updateCheckReport?.check.components.find(component => (
+      component.kind === 'hardware' && component.port === port
+    ))
+    if (checked?.installed.version && checked.installed.version !== 'unknown') {
+      return checked.installed.version
+    }
+    const updated = updateReport?.update.components.find(component => (
+      component.kind === 'hardware' && component.port === port
+    ))
+    if (updated?.after.version && updated.after.version !== 'unknown') {
+      return updated.after.version
+    }
+    const robot = selectedDevice?.robots.find(
+      item => urlPort(item.base_url) === port,
+    )
+    return robot
+      ? knownHardwareVersions[robot.id] ?? robot.software_version ?? ''
+      : ''
+  }
 
   const refreshRobot = async (robot: HardwareDevice) => {
     setRobotStates(previous => ({
@@ -125,6 +265,13 @@ export default function DevicesPanel() {
     }))
     try {
       const status = await api.deviceStatus(robot.id)
+      const reportedVersion = status.software_version
+      if (reportedVersion) {
+        setKnownHardwareVersions(previous => ({
+          ...previous,
+          [robot.id]: reportedVersion,
+        }))
+      }
       setRobotStates(previous => ({
         ...previous,
         [robot.id]: { status, loading: false, checkedAt: Date.now() },
@@ -190,6 +337,25 @@ export default function DevicesPanel() {
   useEffect(() => {
     void refresh()
   }, [])
+
+  useEffect(() => {
+    const timers = Object.entries(actionProgress).flatMap(([id, value]) => {
+      const failed = (
+        value.progress <= 0
+        && value.message.toLowerCase().includes('failed')
+      )
+      if (value.progress < 100 && !failed) return []
+      return [window.setTimeout(() => {
+        setActionProgress(previous => {
+          if (previous[id] !== value) return previous
+          const next = { ...previous }
+          delete next[id]
+          return next
+        })
+      }, failed ? 10000 : 3500)]
+    })
+    return () => timers.forEach(timer => window.clearTimeout(timer))
+  }, [actionProgress])
 
   const resetDeviceForm = () => {
     setShowDeviceForm(false)
@@ -390,7 +556,9 @@ export default function DevicesPanel() {
       setError('Remove the robots from this device first. Saved deployment targets stay intact until you choose to remove them.')
       return
     }
-    if (!window.confirm(`Remove "${device.name}" from this Blacknode editor?`)) return
+    if (!window.confirm(
+      `Forget "${device.name}"? This removes only Blacknode's saved connection. Runtime and Hardware stay installed and running on the computer.`,
+    )) return
     setBusy(true)
     setError(null)
     try {
@@ -421,6 +589,81 @@ export default function DevicesPanel() {
       await refresh()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const checkDevice = async (device: ComputeDevice) => {
+    setShowUpdateForm(false)
+    setUpdatePassword('')
+    setUpdateCheckReport(null)
+    setUpdateReport(null)
+    setBusy(true)
+    setError(null)
+    try {
+      await Promise.all([
+        refreshDevice(device),
+        ...device.robots.map(refreshRobot),
+      ])
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const openSshManagement = (device: ComputeDevice) => {
+    setShowSshManagement(current => !current)
+    setShowRuntimeControl(false)
+    setShowUninstallForm(false)
+    setManagementHost(runtimeHostname(device.runtime_url))
+    setManagementPort(22)
+    setManagementUsername('')
+    setManagementPassword('')
+    setManagementProbe(null)
+    setError(null)
+  }
+
+  const configureSshManagement = async (
+    event: FormEvent,
+    device: ComputeDevice,
+  ) => {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      if (!managementProbe) {
+        const probe = await api.probeComputeDeviceSsh(
+          managementHost.trim(),
+          managementPort,
+        )
+        setManagementProbe(probe)
+        return
+      }
+      const result = await api.configureComputeDeviceSsh(
+        device.id,
+        managementHost.trim(),
+        managementPort,
+        managementUsername.trim(),
+        managementPassword,
+        managementProbe.host_fingerprint,
+      )
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: { progress: 100, message: result.summary },
+      }))
+      setShowSshManagement(false)
+      setManagementPassword('')
+      setManagementProbe(null)
+      await refresh()
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      if (
+        message.toLowerCase().includes('authentication failed')
+        || message.toLowerCase().includes('ssh login was rejected')
+      ) {
+        setManagementPassword('')
+      }
+      setError(message)
     } finally {
       setBusy(false)
     }
@@ -470,6 +713,174 @@ export default function DevicesPanel() {
       setActionProgress(previous => ({
         ...previous,
         [device.id]: { progress: 0, message: `Device action failed: ${message}` },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const updateDevice = async (
+    device: ComputeDevice,
+    scope: 'all' | 'runtime' | 'hardware',
+  ) => {
+    if (!updatePassword) {
+      setError('Enter the SSH password to update this managed device.')
+      return
+    }
+    const selectedComponents = checkedSoftwareComponents.filter(component => (
+      scope === 'all' || component.kind === scope
+    ))
+    const selectedUpdatesAvailable = selectedComponents.some(
+      component => component.update_available,
+    )
+    const operation = selectedUpdatesAvailable ? 'Update' : 'Reinstall'
+    const hardwareServiceCount = device.robots.length
+    const targetLabel = scope === 'all'
+      ? 'Runtime + Robot Hardware'
+      : scope === 'runtime'
+        ? 'Runtime'
+        : `shared Robot Hardware installation used by ${hardwareServiceCount} robot service${
+          hardwareServiceCount === 1 ? '' : 's'
+        }`
+    if (!window.confirm(
+      `${operation} ${targetLabel} on "${device.name}"? Running deployments will stop and robots will return with Blacknode motion disarmed. This action does not switch off physical actuator power.`,
+    )) return
+    setBusy(true)
+    setError(null)
+    setUpdateReport(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [device.id]: {
+        progress: 1,
+        message: scope === 'runtime'
+          ? 'Preparing Runtime update'
+          : scope === 'hardware'
+            ? `Preparing shared Robot Hardware update for ${hardwareServiceCount} robot service${
+              hardwareServiceCount === 1 ? '' : 's'
+            }`
+            : 'Preparing Runtime + Robot Hardware update',
+      },
+    }))
+    try {
+      const result = await api.updateComputeDevice(
+        device.id,
+        updatePassword,
+        scope,
+        progress => setActionProgress(previous => ({
+          ...previous,
+          [device.id]: progress,
+        })),
+      )
+      setUpdateReport(result)
+      setKnownHardwareVersions(previous => {
+        const next = { ...previous }
+        result.update.components.forEach(component => {
+          if (component.kind !== 'hardware' || component.after.version === 'unknown') return
+          const robot = device.robots.find(
+            item => urlPort(item.base_url) === component.port,
+          )
+          if (robot) next[robot.id] = component.after.version
+        })
+        return next
+      })
+      await refresh()
+      try {
+        const refreshedCheck = await api.checkComputeDeviceUpdates(
+          device.id,
+          updatePassword,
+          progress => setActionProgress(previous => ({
+            ...previous,
+            [device.id]: progress,
+          })),
+        )
+        setUpdateCheckReport(refreshedCheck)
+        setKnownHardwareVersions(previous => {
+          const next = { ...previous }
+          refreshedCheck.check.components.forEach(component => {
+            if (component.kind !== 'hardware' || component.installed.version === 'unknown') return
+            const robot = device.robots.find(
+              item => urlPort(item.base_url) === component.port,
+            )
+            if (robot) next[robot.id] = component.installed.version
+          })
+          return next
+        })
+        setActionProgress(previous => ({
+          ...previous,
+          [device.id]: { progress: 100, message: result.summary },
+        }))
+      } catch (checkReason) {
+        const checkMessage = checkReason instanceof Error
+          ? checkReason.message
+          : String(checkReason)
+        setUpdateCheckReport(null)
+        setActionProgress(previous => ({
+          ...previous,
+          [device.id]: {
+            progress: 100,
+            message: `${result.summary} Version report refresh failed: ${checkMessage}`,
+          },
+        }))
+        setError(
+          `The update completed, but the version report could not refresh: ${checkMessage}`,
+        )
+      }
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: { progress: 0, message: `${targetLabel} update failed: ${message}` },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const checkDeviceSoftware = async (device: ComputeDevice) => {
+    if (!updatePassword) {
+      setError('Enter the SSH password to compare installed and latest versions.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setUpdateReport(null)
+    setUpdateCheckReport(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [device.id]: { progress: 1, message: 'Checking Runtime + Robot Hardware versions' },
+    }))
+    try {
+      const result = await api.checkComputeDeviceUpdates(
+        device.id,
+        updatePassword,
+        progress => setActionProgress(previous => ({
+          ...previous,
+          [device.id]: progress,
+        })),
+      )
+      setUpdateCheckReport(result)
+      setKnownHardwareVersions(previous => {
+        const next = { ...previous }
+        result.check.components.forEach(component => {
+          if (component.kind !== 'hardware' || component.installed.version === 'unknown') return
+          const robot = device.robots.find(
+            item => urlPort(item.base_url) === component.port,
+          )
+          if (robot) next[robot.id] = component.installed.version
+        })
+        return next
+      })
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: { progress: 100, message: result.summary },
+      }))
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: { progress: 0, message: `Version check failed: ${message}` },
       }))
       setError(message)
     } finally {
@@ -583,6 +994,75 @@ export default function DevicesPanel() {
     }
   }
 
+  const restartStoredDeployment = async (
+    robot: HardwareDevice,
+    deploymentId: string,
+    deploymentName: string,
+  ) => {
+    if (!window.confirm(
+      `Restart stored deployment "${deploymentName}" on "${robot.name}"? Blacknode will recheck the robot safety state before starting it.`,
+    )) return
+    setBusy(true)
+    setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [robot.id]: { progress: 10, message: 'Restarting stored deployment' },
+    }))
+    try {
+      await api.startRemoteDeployment(robot.id, deploymentId)
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: { progress: 100, message: `"${deploymentName}" restarted` },
+      }))
+      await refreshRobot(robot)
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: { progress: 0, message: `Deployment restart failed: ${message}` },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const releaseRobotTorque = async (robot: HardwareDevice) => {
+    if (!window.confirm(
+      `Release physical holding torque on "${robot.name}"? Support the robot first: its joints may move or drop as soon as torque is disabled.`,
+    )) return
+    setBusy(true)
+    setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [robot.id]: { progress: 10, message: 'Releasing physical servo torque' },
+    }))
+    try {
+      const result = await api.releaseDeviceTorque(robot.id)
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: {
+          progress: 100,
+          message: result.verification_warning
+            ? `Torque-off command sent. ${result.verification_warning}`
+            : result.already_released
+              ? 'Physical servo torque was already off'
+              : 'Physical servo torque released and verified off',
+        },
+      }))
+      await refreshRobot(robot)
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: { progress: 0, message: `Torque release failed: ${message}` },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="bn-runs-panel bn-devices-panel">
       <div className="bn-runs-toolbar">
@@ -594,7 +1074,9 @@ export default function DevicesPanel() {
           </div>
         </div>
         <div className="bn-runs-actions">
-          <button onClick={refresh} disabled={busy} style={miniButton}>Refresh</button>
+          <button onClick={refresh} disabled={busy} className="bn-device-action-button">
+            Refresh
+          </button>
           <button
             onClick={() => {
               setSelectedDeviceId(null)
@@ -603,7 +1085,7 @@ export default function DevicesPanel() {
               setError(null)
             }}
             disabled={busy}
-            style={primaryButton}
+            className="bn-device-action-button is-primary"
           >
             Add device
           </button>
@@ -1035,7 +1517,11 @@ export default function DevicesPanel() {
               Install or pair Blacknode Runtime first. Then attach one or more robots
               and deploy a workflow to the robot you choose.
             </p>
-            <button type="button" onClick={() => setShowDeviceForm(true)} style={primaryButton}>
+            <button
+              type="button"
+              onClick={() => setShowDeviceForm(true)}
+              className="bn-device-action-button is-primary"
+            >
               Add first device
             </button>
           </div>
@@ -1049,6 +1535,8 @@ export default function DevicesPanel() {
                 selected={false}
                 onSelect={() => {
                   setSelectedDeviceId(device.id)
+                  setUpdateCheckReport(null)
+                  setUpdateReport(null)
                   setShowDeviceForm(false)
                   setShowRobotForm(false)
                 }}
@@ -1060,76 +1548,286 @@ export default function DevicesPanel() {
 
       {selectedDevice && (
         <section className="bn-compute-device-detail">
+          <div className="bn-compute-device-detail-nav">
+            <button
+              type="button"
+              className="bn-device-back-button"
+              onClick={() => {
+                setSelectedDeviceId(null)
+                setUpdateCheckReport(null)
+                setUpdateReport(null)
+                setShowRobotForm(false)
+                setShowUninstallForm(false)
+                setShowRuntimeControl(false)
+                setShowUpdateForm(false)
+                setUninstallPassword('')
+                setRuntimeControlPassword('')
+                setUpdatePassword('')
+                setShowSshManagement(false)
+                setManagementPassword('')
+                setManagementProbe(null)
+                setError(null)
+              }}
+            >
+              <span className="bn-device-back-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M15 5 8 12l7 7" />
+                </svg>
+              </span>
+              <span className="bn-device-back-label">Back to all devices</span>
+            </button>
+          </div>
           <div className="bn-compute-device-detail-head">
-            <div>
-              <button
-                type="button"
-                className="bn-device-back-button"
-                onClick={() => {
-                  setSelectedDeviceId(null)
-                  setShowRobotForm(false)
-                  setShowUninstallForm(false)
-                  setShowRuntimeControl(false)
-                  setUninstallPassword('')
-                  setRuntimeControlPassword('')
-                  setError(null)
-                }}
-              >
-                <span className="bn-device-back-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false">
-                    <path d="M15 5 8 12l7 7" />
-                  </svg>
-                </span>
-                Back to all devices
-              </button>
-              <span>Compute device</span>
+            <div className="bn-compute-device-identity">
               <strong>{selectedDevice.name}</strong>
               <code>{selectedDevice.runtime_url}</code>
             </div>
-            <div className="bn-run-detail-actions">
+            <div className="bn-run-detail-actions bn-device-header-actions">
               <button
-                onClick={() => refreshDevice(selectedDevice)}
+                onClick={() => void checkDevice(selectedDevice)}
                 disabled={busy || selectedDeviceState?.loading}
-                className={`bn-runtime-check-button${selectedDeviceState?.loading ? ' is-checking' : ''}`}
+                className={`bn-device-action-button bn-runtime-check-button${selectedDeviceState?.loading ? ' is-checking' : ''}`}
+                title="Check the runtime and every attached robot hardware service"
               >
-                {selectedDeviceState?.loading ? 'Checking runtime…' : 'Check runtime'}
+                {selectedDeviceState?.loading ? 'Checking device…' : 'Check device'}
               </button>
-              <button onClick={() => renameDevice(selectedDevice)} disabled={busy} style={miniButton}>
+              <button
+                onClick={() => renameDevice(selectedDevice)}
+                disabled={busy}
+                className="bn-device-action-button"
+              >
                 Rename
               </button>
+              {!selectedDevice.managed_runtime && (
+                <button
+                  onClick={() => openSshManagement(selectedDevice)}
+                  disabled={busy}
+                  className={`bn-device-action-button bn-ssh-enable-button${showSshManagement ? ' is-active' : ''}`}
+                  title="Verify this paired runtime over SSH to enable lifecycle controls"
+                  aria-expanded={showSshManagement}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <rect x="3.5" y="5" width="17" height="14" rx="3" />
+                    <path d="m7.5 9 2.5 2.5L7.5 14M12.5 14H16" />
+                  </svg>
+                  Enable SSH controls
+                </button>
+              )}
               {selectedDevice.managed_runtime && (
                 <>
                   <button
                     onClick={() => {
                       setShowRuntimeControl(current => !current)
+                      setShowUpdateForm(false)
                       setShowUninstallForm(false)
                       setRuntimeControlPassword('')
                       setError(null)
                     }}
                     disabled={busy}
-                    style={selectedDevice.paused ? primaryButton : miniButton}
+                    className={`bn-device-action-button${selectedDevice.paused ? ' is-primary' : ''}`}
                   >
                     {selectedDevice.paused ? 'Resume device' : 'Pause device'}
                   </button>
                   <button
                     onClick={() => {
+                      setShowUpdateForm(current => !current)
+                      setShowRuntimeControl(false)
+                      setShowUninstallForm(false)
+                      setUpdatePassword('')
+                      setError(null)
+                    }}
+                    disabled={busy}
+                    className={`bn-device-action-button${showUpdateForm ? ' is-active' : ''}`}
+                  >
+                    Runtime + Robot Hardware
+                  </button>
+                  <button
+                    onClick={() => {
                       setShowUninstallForm(current => !current)
                       setShowRuntimeControl(false)
+                      setShowUpdateForm(false)
                       setUninstallPassword('')
                       setError(null)
                     }}
                     disabled={busy}
-                    style={dangerButton}
+                    className="bn-device-action-button is-danger"
                   >
                     Uninstall runtime
                   </button>
                 </>
               )}
-              <button onClick={() => removeDevice(selectedDevice)} disabled={busy} style={dangerButton}>
-                Remove from editor
+              <button
+                onClick={() => removeDevice(selectedDevice)}
+                disabled={busy}
+                className="bn-device-action-button is-danger"
+                title="Remove only Blacknode's saved connection; do not uninstall Runtime or Hardware"
+              >
+                Forget device
               </button>
             </div>
           </div>
+
+          {showSshManagement && !selectedDevice.managed_runtime && (
+            <form
+              className="bn-runtime-uninstall bn-ssh-management-form"
+              onSubmit={event => void configureSshManagement(event, selectedDevice)}
+            >
+              <div className="bn-ssh-management-head">
+                <span className="bn-ssh-management-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M7 10V8a5 5 0 0 1 10 0v2" />
+                    <rect x="4" y="10" width="16" height="11" rx="3" />
+                    <path d="M12 14v3" />
+                  </svg>
+                </span>
+                <div>
+                  <strong>Enable SSH lifecycle controls</strong>
+                  <span>
+                    Securely connect this paired computer so Blacknode can pause,
+                    resume, and maintain its runtime.
+                  </span>
+                </div>
+                <span className="bn-ssh-private-badge">
+                  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                    <path d="M4.75 7V5.5a3.25 3.25 0 0 1 6.5 0V7" />
+                    <rect x="3" y="7" width="10" height="7" rx="2" />
+                  </svg>
+                  Password not saved
+                </span>
+              </div>
+
+              <div className="bn-ssh-management-progress" aria-label="SSH setup progress">
+                <span className="is-active">
+                  <i>1</i>
+                  Connection
+                </span>
+                <b aria-hidden="true" />
+                <span className={managementProbe ? 'is-active' : ''}>
+                  <i>2</i>
+                  Verify & enable
+                </span>
+              </div>
+
+              <div className="bn-ssh-runtime-target">
+                <div>
+                  <span>Paired runtime</span>
+                  <code>{selectedDevice.runtime_url}</code>
+                </div>
+                <span className={`bn-ssh-identity-state${selectedDevice.remote_device_id ? ' is-known' : ''}`}>
+                  <i aria-hidden="true" />
+                  {selectedDevice.remote_device_id
+                    ? `Identity ${selectedDevice.remote_device_id}`
+                    : 'Identity verified during setup'}
+                </span>
+              </div>
+
+              <div className="bn-ssh-management-fields">
+                <label>
+                  <span>Device IP address or hostname</span>
+                  <input
+                    value={managementHost}
+                    onChange={event => {
+                      setManagementHost(event.target.value)
+                      setManagementProbe(null)
+                    }}
+                    placeholder="192.168.1.87"
+                    autoComplete="off"
+                    required
+                  />
+                  <small>The address used to reach this computer from Blacknode.</small>
+                </label>
+                <label className="bn-ssh-port-field">
+                  <span>SSH port</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={managementPort}
+                    onChange={event => {
+                      setManagementPort(Number(event.target.value))
+                      setManagementProbe(null)
+                    }}
+                    required
+                  />
+                  <small>Usually 22</small>
+                </label>
+              </div>
+
+              {managementProbe && (
+                <>
+                  <div className="bn-device-fingerprint bn-ssh-host-card">
+                    <div>
+                      <span className="bn-ssh-host-check" aria-hidden="true">
+                        <svg viewBox="0 0 16 16" focusable="false">
+                          <path d="m3.5 8.5 3 3 6-7" />
+                        </svg>
+                      </span>
+                      <div>
+                        <strong>SSH connection verified</strong>
+                        <p>{managementProbe.hostname} · {managementProbe.os} · {managementProbe.architecture}</p>
+                      </div>
+                      <span className="bn-ssh-verified-badge">Host verified</span>
+                    </div>
+                    <span>Confirm the host key before entering your credentials.</span>
+                    <code>{managementProbe.host_fingerprint}</code>
+                  </div>
+                  <div className="bn-ssh-management-fields is-auth">
+                    <label>
+                      <span>SSH username</span>
+                      <input
+                        value={managementUsername}
+                        onChange={event => setManagementUsername(event.target.value)}
+                        autoComplete="username"
+                        placeholder="robot"
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>SSH password</span>
+                      <input
+                        type="password"
+                        value={managementPassword}
+                        onChange={event => setManagementPassword(event.target.value)}
+                        autoComplete="current-password"
+                        placeholder="Enter password"
+                        required
+                      />
+                    </label>
+                  </div>
+                </>
+              )}
+
+              <div className="bn-device-form-actions bn-ssh-management-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSshManagement(false)
+                    setManagementPassword('')
+                    setManagementProbe(null)
+                  }}
+                  disabled={busy}
+                  className="bn-ssh-cancel-button"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    busy
+                    || !managementHost.trim()
+                    || (Boolean(managementProbe)
+                      && (!managementUsername.trim() || !managementPassword))
+                  }
+                  style={primaryButton}
+                  className="bn-ssh-submit-button"
+                >
+                  {busy
+                    ? managementProbe ? 'Verifying runtime…' : 'Checking SSH…'
+                    : managementProbe ? 'Confirm and enable' : 'Check SSH connection'}
+                </button>
+              </div>
+            </form>
+          )}
 
           {showRuntimeControl && selectedDevice.managed_runtime && (
             <form
@@ -1186,6 +1884,385 @@ export default function DevicesPanel() {
             <LifecycleProgress value={actionProgress[selectedDevice.id]} />
           )}
 
+          {showUpdateForm && selectedDevice.managed_runtime && (
+            <form
+              className="bn-runtime-uninstall bn-device-update-form"
+              onSubmit={event => {
+                event.preventDefault()
+                void checkDeviceSoftware(selectedDevice)
+              }}
+            >
+              <div>
+                <strong>Runtime + Robot Hardware</strong>
+                <span>
+                  Checks the Blacknode Runtime repository and every Blacknode Hardware
+                  repository used by this device. Installed, latest, and live-reported
+                  versions are shown together first. Current versions can also be
+                  reinstalled when you want to repair the environments and restart services.
+                </span>
+              </div>
+              <label className="bn-device-update-password">
+                <span>
+                  <strong>SSH password</strong>
+                  <small>
+                    {selectedDevice.managed_runtime.ssh_username} · verified device · never saved
+                  </small>
+                </span>
+                <input
+                  type="password"
+                  value={updatePassword}
+                  onChange={event => setUpdatePassword(event.target.value)}
+                  autoComplete="current-password"
+                  placeholder="Enter SSH password"
+                  spellCheck={false}
+                  required
+                />
+              </label>
+              <div className="bn-device-update-caution">
+                Checking versions is read-only. Updating stops deployments and restarts
+                robot monitoring disarmed. Physical servo torque may remain enabled.
+              </div>
+              <div className="bn-device-form-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowUpdateForm(false)
+                    setUpdatePassword('')
+                  }}
+                  className="bn-device-action-button"
+                >
+                  Cancel
+                </button>
+                <button type="submit" disabled={busy} className="bn-device-action-button">
+                  {busy ? 'Checking versions…' : 'Check installed vs latest'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {updateCheckReport && (
+            <section className="bn-device-update-report" aria-label="Runtime and Robot Hardware version report">
+              <div className="bn-device-update-report-head">
+                <div>
+                  <strong>Runtime + Robot Hardware version report</strong>
+                  <span>{updateCheckReport.summary}</span>
+                </div>
+                <span>{updateCheckReport.check.components.length} services checked</span>
+              </div>
+              <div className="bn-device-update-components">
+                {checkedRuntimeComponents.map(component => (
+                  <div
+                    className="bn-device-update-component"
+                    key={`check-${component.kind}-${component.service_name}-${component.port}`}
+                  >
+                    <div>
+                      <strong>Runtime</strong>
+                      <code>{component.service_name} · port {component.port}</code>
+                    </div>
+                    <div className="bn-device-update-version">
+                      <span>Installed → latest</span>
+                      <strong>
+                        {component.installed.version}
+                        <i aria-hidden="true">→</i>
+                        {component.latest.version}
+                      </strong>
+                      <code>
+                        {component.installed.commit || 'unknown'}
+                        {' → '}
+                        {component.latest.commit || 'unknown'}
+                      </code>
+                    </div>
+                    <div className="bn-device-update-row-actions">
+                      <span
+                        className={`bn-device-update-state${
+                          component.error
+                            ? ' is-blocked'
+                            : component.update_available
+                              ? ' is-changed'
+                              : ''
+                        }`}
+                      >
+                        {component.error
+                          ? 'ATTENTION'
+                          : component.update_available
+                            ? 'UPDATE AVAILABLE'
+                            : 'CURRENT'}
+                      </span>
+                      <button
+                        type="button"
+                        className={`bn-device-action-button${
+                          component.update_available ? ' is-primary' : ''
+                        }`}
+                        disabled={busy || component.dirty || !updatePassword}
+                        title={component.dirty
+                          ? 'Local source changes must be resolved before reinstalling'
+                          : component.error
+                            ? 'Attempt to repair and reinstall Runtime'
+                            : component.update_available
+                              ? 'Update Runtime'
+                              : 'Reinstall current Runtime'}
+                        onClick={() => void updateDevice(selectedDevice, 'runtime')}
+                      >
+                        {busy
+                          ? 'Working…'
+                          : component.error
+                            || component.installed.version === 'unknown'
+                            || component.latest.version === 'unknown'
+                            ? 'Repair Runtime'
+                            : component.update_available
+                              ? 'Update Runtime'
+                              : 'Reinstall Runtime'}
+                      </button>
+                    </div>
+                    <small>
+                      Live service reports {component.reported_version || 'version unavailable'}
+                    </small>
+                    {component.error && (
+                      <small className="bn-device-update-component-error">
+                        {component.error}
+                      </small>
+                    )}
+                  </div>
+                ))}
+                {checkedHardwareInstallation && (
+                  <div className="bn-device-update-component" key="check-hardware-shared">
+                    <div>
+                      <strong>Robot Hardware</strong>
+                      <code>
+                        Shared installation · {checkedHardwareComponents.length} robot
+                        {' '}service{checkedHardwareComponents.length === 1 ? '' : 's'}
+                      </code>
+                    </div>
+                    <div className="bn-device-update-version">
+                      <span>Installed → latest</span>
+                      <strong>
+                        {checkedHardwareInstallation.installed.version}
+                        <i aria-hidden="true">→</i>
+                        {checkedHardwareInstallation.latest.version}
+                      </strong>
+                      <code>
+                        {checkedHardwareInstallation.installed.commit || 'unknown'}
+                        {' → '}
+                        {checkedHardwareInstallation.latest.commit || 'unknown'}
+                      </code>
+                    </div>
+                    <div className="bn-device-update-row-actions">
+                      <span
+                        className={`bn-device-update-state${
+                          checkedHardwareNeedsRepair
+                            ? ' is-blocked'
+                            : checkedHardwareHasUpdate
+                              ? ' is-changed'
+                              : ''
+                        }`}
+                      >
+                        {checkedHardwareNeedsRepair
+                          ? 'ATTENTION'
+                          : checkedHardwareHasUpdate
+                            ? 'UPDATE AVAILABLE'
+                            : 'CURRENT'}
+                      </span>
+                      <button
+                        type="button"
+                        className={`bn-device-action-button${
+                          checkedHardwareHasUpdate ? ' is-primary' : ''
+                        }`}
+                        disabled={busy || !updatePassword || checkedHardwareIsDirty}
+                        title={`Updates the shared Robot Hardware installation and restarts ${
+                          checkedHardwareComponents.length
+                        } robot service${checkedHardwareComponents.length === 1 ? '' : 's'}`}
+                        onClick={() => void updateDevice(selectedDevice, 'hardware')}
+                      >
+                        {busy
+                          ? 'Working…'
+                          : checkedHardwareNeedsRepair
+                            ? 'Repair Robot Hardware'
+                            : checkedHardwareHasUpdate
+                              ? 'Update Robot Hardware'
+                              : 'Reinstall Robot Hardware'}
+                      </button>
+                    </div>
+                    <small>
+                      Robot services:{' '}
+                      {checkedHardwareComponents.map(component => (
+                        `${robotNameForPort(component.port)} (port ${component.port}) — ${
+                          component.error
+                            ? 'attention'
+                            : formatVersion(
+                              component.reported_version || component.installed.version,
+                            )
+                        }`
+                      )).join(' · ')}
+                    </small>
+                    {checkedHardwareComponents
+                      .filter(component => Boolean(component.error))
+                      .map(component => (
+                        <small
+                          className="bn-device-update-component-error"
+                          key={`hardware-error-${component.port}`}
+                        >
+                          {robotNameForPort(component.port)}: {component.error}
+                        </small>
+                      ))}
+                  </div>
+                )}
+              </div>
+              {updateCheckReport.warnings.length > 0 && (
+                <div className="bn-device-update-warnings">
+                  {updateCheckReport.warnings.map(warning => (
+                    <span key={warning}>{warning}</span>
+                  ))}
+                </div>
+              )}
+              <div className="bn-device-update-report-actions">
+                <button
+                  type="button"
+                  className="bn-device-action-button"
+                  disabled={
+                    busy
+                    || !updatePassword
+                    || checkedSoftwareComponents.some(
+                      component => component.dirty || Boolean(component.error),
+                    )
+                  }
+                  title="Update or reinstall Runtime and the shared Robot Hardware installation together"
+                  onClick={() => void updateDevice(selectedDevice, 'all')}
+                >
+                  {checkedSoftwareComponents.some(component => component.update_available)
+                    ? 'Update all'
+                    : 'Reinstall all'}
+                </button>
+              </div>
+            </section>
+          )}
+
+          {updateReport && (
+            <section className="bn-device-update-report" aria-label="Runtime and Hardware update report">
+              <div className="bn-device-update-report-head">
+                <div>
+                  <strong>Runtime + Robot Hardware update report</strong>
+                  <span>{updateReport.summary}</span>
+                </div>
+                <span>{updateReport.update.components.length} services checked</span>
+              </div>
+              <div className="bn-device-update-components">
+                {updatedRuntimeComponents.map(component => (
+                  <div
+                    className="bn-device-update-component"
+                    key={`${component.kind}-${component.service_name}-${component.port}`}
+                  >
+                    <div>
+                      <strong>Runtime</strong>
+                      <code>{component.service_name} · port {component.port}</code>
+                    </div>
+                    <div className="bn-device-update-version is-result">
+                      <span>
+                        {component.changed
+                          ? 'Before update → Installed now'
+                          : 'Reinstalled version'}
+                      </span>
+                      {component.changed ? (
+                        <>
+                          <strong>
+                            <span>{component.before.version}</span>
+                            <i aria-hidden="true">→</i>
+                            <span className="is-current">{component.after.version}</span>
+                          </strong>
+                          <code>
+                            {component.before.commit}
+                            {' → '}
+                            <b>{component.after.commit}</b>
+                          </code>
+                        </>
+                      ) : (
+                        <>
+                          <strong>
+                            <span className="is-current">{component.after.version}</span>
+                          </strong>
+                          <code><b>{component.after.commit}</b></code>
+                        </>
+                      )}
+                    </div>
+                    <span className={`bn-device-update-state${component.changed ? ' is-changed' : ''}`}>
+                      {component.changed ? 'UPDATE COMPLETE' : 'REINSTALLED'}
+                    </span>
+                    <small>
+                      Running service confirms{' '}
+                      <strong>{component.reported_version || 'version unavailable'}</strong>
+                    </small>
+                  </div>
+                ))}
+                {updatedHardwareInstallation && (
+                  <div className="bn-device-update-component" key="hardware-shared-result">
+                    <div>
+                      <strong>Robot Hardware</strong>
+                      <code>
+                        Shared installation · {updatedHardwareComponents.length} robot
+                        {' '}service{updatedHardwareComponents.length === 1 ? '' : 's'}
+                      </code>
+                    </div>
+                    <div className="bn-device-update-version is-result">
+                      <span>
+                        {updatedHardwareComponents.some(component => component.changed)
+                          ? 'Before update → Installed now'
+                          : 'Reinstalled version'}
+                      </span>
+                      {updatedHardwareComponents.some(component => component.changed) ? (
+                        <>
+                          <strong>
+                            <span>{updatedHardwareInstallation.before.version}</span>
+                            <i aria-hidden="true">→</i>
+                            <span className="is-current">
+                              {updatedHardwareInstallation.after.version}
+                            </span>
+                          </strong>
+                          <code>
+                            {updatedHardwareInstallation.before.commit}
+                            {' → '}
+                            <b>{updatedHardwareInstallation.after.commit}</b>
+                          </code>
+                        </>
+                      ) : (
+                        <>
+                          <strong>
+                            <span className="is-current">
+                              {updatedHardwareInstallation.after.version}
+                            </span>
+                          </strong>
+                          <code><b>{updatedHardwareInstallation.after.commit}</b></code>
+                        </>
+                      )}
+                    </div>
+                    <span className={`bn-device-update-state${
+                      updatedHardwareComponents.some(component => component.changed)
+                        ? ' is-changed'
+                        : ''
+                    }`}>
+                      {updatedHardwareComponents.some(component => component.changed)
+                        ? 'UPDATE COMPLETE'
+                        : 'REINSTALLED'}
+                    </span>
+                    <small>
+                      Robot services:{' '}
+                      {updatedHardwareComponents.map(component => (
+                        `${robotNameForPort(component.port)} (port ${component.port}) — ${
+                          formatVersion(component.reported_version)
+                        }`
+                      )).join(' · ')}
+                    </small>
+                  </div>
+                )}
+              </div>
+              {updateReport.warnings.length > 0 && (
+                <div className="bn-device-update-warnings">
+                  {updateReport.warnings.map(warning => (
+                    <span key={warning}>{warning}</span>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
           {showUninstallForm && selectedDevice.managed_runtime && (
             <form
               className="bn-runtime-uninstall"
@@ -1233,11 +2310,11 @@ export default function DevicesPanel() {
 
           <div
             className={`bn-runtime-check-result${
-              selectedDeviceState?.loading
+              selectedDeviceChecking
                 ? ' is-checking'
                 : selectedDevice.paused || selectedDeviceState?.runtime?.paused
                   ? ' is-paused'
-                : selectedDeviceState?.runtime?.ok
+                : selectedDeviceReady
                   ? ' is-ready'
                   : ' is-error'
             }`}
@@ -1247,48 +2324,52 @@ export default function DevicesPanel() {
             <span className="bn-runtime-check-dot" aria-hidden="true" />
             <div>
               <strong>
-                {selectedDeviceState?.loading
-                  ? 'Checking runtime…'
+                {selectedDeviceChecking
+                  ? 'Checking device services…'
                   : selectedDevice.paused || selectedDeviceState?.runtime?.paused
-                    ? 'Runtime paused'
-                  : selectedDeviceState?.runtime?.ok
-                    ? 'Runtime connected'
-                    : 'Runtime unavailable'}
+                    ? 'Device paused'
+                  : selectedDeviceReady
+                    ? 'Device services connected'
+                    : 'Device needs attention'}
               </strong>
               <span>
-                {selectedDeviceState?.loading
-                  ? `Contacting ${selectedDevice.runtime_url}`
+                {selectedDeviceChecking
+                  ? `Checking Runtime and ${selectedDevice.robots.length} Robot Hardware service${selectedDevice.robots.length === 1 ? '' : 's'}`
                   : selectedDevice.paused || selectedDeviceState?.runtime?.paused
                     ? 'Deployments are stopped and attached robots are disarmed.'
-                  : selectedDeviceState?.runtime?.ok
-                    ? `Last checked ${formatCheckedAt(selectedDeviceState.checkedAt)}`
-                    : selectedDeviceState?.runtime?.error || 'The runtime has not been checked yet.'}
+                  : selectedDeviceReady
+                    ? `${selectedServiceVersions.join(' · ')} · Last checked ${formatCheckedAt(selectedLastChecked)}`
+                    : selectedDeviceState?.runtime?.error
+                      || selectedRobotChecks.find(item => item.state?.error)?.state?.error
+                      || 'Run Check device to verify Runtime and attached Robot Hardware services.'}
               </span>
             </div>
           </div>
 
           <div className="bn-compute-robots-head">
             <div>
-              <strong>Robots</strong>
+              <strong>Attached robots</strong>
               <span>
                 {selectedDevice.robots.length
                   ? `${selectedDevice.robots.length} attached to this device`
-                  : 'Add the robot hardware connected to this device'}
+                  : 'Attach the robot hardware physically connected to this device'}
               </span>
             </div>
             <button
               type="button"
               onClick={() => openRobotForm(selectedDevice)}
               disabled={busy}
-              style={primaryButton}
+              className="bn-device-action-button is-primary"
             >
-              Add robot
+              Attach robot
             </button>
           </div>
 
           {showRobotForm && (
             <form className="bn-device-form bn-robot-form" onSubmit={addRobot}>
-              <div className="bn-device-form-title">Add robot to {selectedDevice.name}</div>
+              <div className="bn-device-form-title">
+                Attach existing robot to {selectedDevice.name}
+              </div>
               <label>
                 <span>Robot name</span>
                 <input
@@ -1299,7 +2380,7 @@ export default function DevicesPanel() {
                 />
               </label>
               <label>
-                <span>Hardware service URL</span>
+                <span>Robot Hardware service URL</span>
                 <input
                   value={robotUrl}
                   onChange={event => setRobotUrl(event.target.value)}
@@ -1326,8 +2407,8 @@ export default function DevicesPanel() {
                 />
               </label>
               <div className="bn-device-help">
-                This pairs hardware only. Deployments automatically use the runtime on{' '}
-                {selectedDevice.name}.
+                This registers existing hardware under {selectedDevice.name}. After
+                attaching, expand the robot card and choose Deploy workflow.
               </div>
               <div className="bn-device-form-actions">
                 <button
@@ -1341,7 +2422,7 @@ export default function DevicesPanel() {
                   Cancel
                 </button>
                 <button type="submit" disabled={busy} style={primaryButton}>
-                  {busy ? 'Adding…' : 'Add and verify robot'}
+                  {busy ? 'Attaching…' : 'Attach and verify robot'}
                 </button>
               </div>
             </form>
@@ -1350,7 +2431,8 @@ export default function DevicesPanel() {
           <div className="bn-device-robot-list">
             {selectedDevice.robots.length === 0 && !showRobotForm && (
               <div className="bn-device-robot-empty">
-                This device is ready. Add a robot to create a deployment target.
+                This compute device is ready. Attach its physical robot to create a
+                deployment target.
               </div>
             )}
             {selectedDevice.robots.map(robot => (
@@ -1360,13 +2442,24 @@ export default function DevicesPanel() {
                 state={robotStates[robot.id]}
                 runtimeReady={deviceStates[selectedDevice.id]?.runtime?.ok === true}
                 actionProgress={actionProgress[robot.id]}
+                installedSoftwareVersion={installedHardwareVersionForPort(
+                  urlPort(robot.base_url),
+                )}
                 canRestartService={Boolean(selectedDevice.managed_runtime)}
                 sshUsername={selectedDevice.managed_runtime?.ssh_username}
                 busy={busy}
                 onRefresh={() => refreshRobot(robot)}
                 onRename={() => renameRobot(robot)}
                 onRemove={() => removeRobot(robot)}
+                onDeploy={() => window.dispatchEvent(new CustomEvent(
+                  'blacknode:open-panel',
+                  { detail: { tab: 'deployments', deviceId: robot.id } },
+                ))}
                 onStopDeployment={deploymentId => stopDeployment(robot, deploymentId)}
+                onStartDeployment={(deploymentId, deploymentName) => (
+                  restartStoredDeployment(robot, deploymentId, deploymentName)
+                )}
+                onReleaseTorque={() => releaseRobotTorque(robot)}
                 onControl={action => controlRobot(robot, action)}
                 onRestartService={password => controlRobot(robot, 'restart', password)}
               />
@@ -1417,13 +2510,17 @@ function RobotRow({
   state,
   runtimeReady,
   actionProgress,
+  installedSoftwareVersion,
   canRestartService,
   sshUsername,
   busy,
   onRefresh,
   onRename,
   onRemove,
+  onDeploy,
   onStopDeployment,
+  onStartDeployment,
+  onReleaseTorque,
   onControl,
   onRestartService,
 }: {
@@ -1431,21 +2528,37 @@ function RobotRow({
   state?: RobotState
   runtimeReady: boolean
   actionProgress?: DeviceActionProgress
+  installedSoftwareVersion: string
   canRestartService: boolean
   sshUsername?: string
   busy: boolean
   onRefresh: () => void
   onRename: () => void
   onRemove: () => void
+  onDeploy: () => void
   onStopDeployment: (deploymentId: string) => void
+  onStartDeployment: (deploymentId: string, deploymentName: string) => void
+  onReleaseTorque: () => void
   onControl: (action: 'pause' | 'resume') => void
   onRestartService: (password: string) => Promise<boolean>
 }) {
   const [expanded, setExpanded] = useState(false)
   const [showRestart, setShowRestart] = useState(false)
+  const [showMonitor, setShowMonitor] = useState(false)
+  const [showTorqueDetails, setShowTorqueDetails] = useState(false)
   const [restartPassword, setRestartPassword] = useState('')
   const status = state?.status
   const deploymentLease = status?.deployment_lease
+  const runningDeployment = deploymentLease ?? status?.running_deployment
+  const storedDeployment = runningDeployment ? undefined : status?.stored_deployment
+  const torqueReleaseSupported = Boolean(
+    status?.service_features?.includes('torque_release_v1'),
+  )
+  const torqueUnknownReason = status?.torque_report_error
+    || (runningDeployment
+      ? 'The running deployment owns the robot connection, so the monitoring service cannot read the servo torque registers.'
+      : 'Robot Hardware did not receive a valid torque-register reading from every configured servo.')
+  const mqttTelemetry = status?.telemetry?.sinks.find(sink => sink.name === 'mqtt')
   const paused = Boolean(robot.paused || status?.paused)
   const leased = Boolean(status?.leased_to_deployment || deploymentLease)
   const connected = Boolean(status?.connected)
@@ -1466,8 +2579,12 @@ function RobotRow({
       ? 'PAUSED'
     : deploymentLease
       ? 'ACTIVE'
+      : runningDeployment
+        ? 'RUNNING'
       : armed
         ? 'ARMED'
+      : storedDeployment
+        ? 'STORED'
       : ready
         ? 'CONNECTED'
         : 'OFF'
@@ -1477,13 +2594,17 @@ function RobotRow({
       ? 'Stopped and disarmed'
     : deploymentLease
       ? `Deployment “${deploymentLease.name}” is running`
+      : runningDeployment
+        ? `Deployment “${runningDeployment.name}” is running · motion control not held`
       : armed
         ? 'Robot motion is armed'
+      : storedDeployment
+        ? `Deployment “${storedDeployment.name}” is stored · ${storedDeployment.state}`
       : ready
         ? 'Hardware monitoring connected · Blacknode motion disarmed'
         : status
           ? 'Robot needs attention'
-          : 'Hardware service unavailable'
+          : 'Robot Hardware service unavailable'
 
   return (
     <div
@@ -1519,48 +2640,191 @@ function RobotRow({
             <div className="bn-run-error-line bn-device-error" role="alert">{state.error}</div>
           )}
           {actionProgress && <LifecycleProgress value={actionProgress} compact />}
-          {deploymentLease && (
-            <div className="bn-device-lease-notice" role="status">
-              <strong>Deployment controls this robot</strong>
-              <span>{status?.notice || `“${deploymentLease.name}” is running.`}</span>
-            </div>
-          )}
+          <div
+            className={`bn-device-lease-notice${
+              deploymentLease
+                ? ' is-active'
+                : runningDeployment
+                  ? ' is-running'
+                  : storedDeployment
+                    ? ' is-stored'
+                    : ''
+            }`}
+            role="status"
+          >
+            <strong>Deployment</strong>
+            <span>
+              {deploymentLease
+                ? status?.notice || `“${deploymentLease.name}” is running.`
+                : runningDeployment
+                  ? status?.notice || `“${runningDeployment.name}” is running without motion control.`
+                : storedDeployment
+                  ? status?.notice || `“${storedDeployment.name}” remains stored on the Runtime and can be restarted.`
+                : 'No deployment currently controls this robot.'}
+            </span>
+          </div>
           <div className="bn-device-facts">
             <DeviceFact
-              label={deploymentLease ? 'Motion control' : 'Armed'}
-              value={deploymentLease ? `Deployment · ${deploymentLease.name}` : status ? (status.armed ? 'Yes' : 'No') : '—'}
+              label="Motion"
+              value={deploymentLease
+                ? `Workflow · ${deploymentLease.name}`
+                : runningDeployment
+                  ? `Running · ${runningDeployment.name}`
+                : status
+                  ? status.armed ? 'Armed' : 'Disarmed'
+                  : 'Unknown'}
               warn={!deploymentLease && Boolean(status?.armed)}
             />
             <DeviceFact
-              label="Torque"
-              value={status?.torque_enabled == null ? 'Not reported' : status.torque_enabled ? 'On' : 'Off'}
-              warn={status?.torque_enabled === true}
+              label="Physical torque"
+              value={status?.torque_enabled == null ? 'Unknown' : status.torque_enabled ? 'On' : 'Off'}
+              warn={Boolean(status && status.torque_enabled !== false)}
+              title={status?.torque_enabled == null
+                ? `${showTorqueDetails ? 'Hide' : 'Show'} why physical torque is unknown`
+                : undefined}
+              onClick={status && status.torque_enabled == null
+                ? () => setShowTorqueDetails(value => !value)
+                : undefined}
+              expanded={showTorqueDetails}
             />
             <DeviceFact
               label="Calibrated"
               value={status?.calibrated == null ? '—' : status.calibrated ? 'Yes' : 'No'}
             />
-            <DeviceFact label="Hardware" value={connected || leased ? 'Connected' : 'Unavailable'} />
+            <DeviceFact
+              label="Robot Hardware version"
+              value={status?.software_version
+                ? `v${status.software_version}${
+                  status.software_version_cached ? ' (last verified)' : ''
+                }`
+                : installedSoftwareVersion
+                  ? `v${installedSoftwareVersion} (installed)`
+                  : 'Not reported'}
+            />
+            <DeviceFact label="Connection" value={connected || leased ? 'Connected' : 'Unavailable'} />
+            {mqttTelemetry && (
+              <DeviceFact
+                label="MQTT telemetry"
+                value={mqttTelemetry.connected
+                  ? 'Connected'
+                  : mqttTelemetry.error
+                    ? 'Attention'
+                    : 'Connecting'}
+                warn={!mqttTelemetry.connected}
+                title={
+                  mqttTelemetry.error
+                  || `${mqttTelemetry.broker || 'MQTT broker'} · ${
+                    mqttTelemetry.published ?? 0
+                  } samples published`
+                }
+              />
+            )}
             <DeviceFact label="Last check" value={formatCheckedAt(state?.checkedAt)} />
           </div>
-          <div className="bn-run-detail-actions">
+          {status
+            && status.torque_enabled !== false
+            && (status.torque_enabled === true || showTorqueDetails)
+            && (
+            <div
+              className={`bn-device-torque-warning${
+                status.torque_enabled == null ? ' is-unknown' : ''
+              }`}
+              role={status.torque_enabled === true ? 'alert' : 'status'}
+            >
+              <div>
+                <strong>
+                  {status.torque_enabled === true
+                    ? 'Physical torque is on'
+                    : 'Physical torque state is unknown'}
+                </strong>
+                <span>
+                  {status.torque_enabled === true
+                    ? 'Motion is disarmed, but the servos are still holding.'
+                    : torqueUnknownReason}
+                  {' '}Treat the servos as possibly holding torque. Support the robot
+                  before releasing it because its joints may move or drop.
+                  {!runningDeployment && !torqueReleaseSupported
+                    ? ' Update Robot Hardware to enable the remote torque-off action.'
+                    : ''}
+                </span>
+              </div>
+              {!runningDeployment && (
+                <button
+                  type="button"
+                  onClick={onReleaseTorque}
+                  disabled={busy || state?.loading || paused || !torqueReleaseSupported}
+                  title={torqueReleaseSupported
+                    ? 'Send torque-off to every configured servo, then verify when register reads are available'
+                    : 'Update Robot Hardware before releasing torque remotely'}
+                  className="bn-device-action-button is-danger"
+                >
+                  Release torque
+                </button>
+              )}
+            </div>
+          )}
+          <div className="bn-run-detail-actions bn-robot-card-actions is-primary">
+            <button
+              onClick={() => {
+                if (storedDeployment?.id) {
+                  onStartDeployment(storedDeployment.id, storedDeployment.name)
+                } else {
+                  onDeploy()
+                }
+              }}
+              disabled={busy || state?.loading || paused}
+              className="bn-device-action-button is-primary"
+              title={paused
+                ? `Resume this robot before ${
+                  storedDeployment ? 'restarting its stored deployment' : 'deploying a workflow'
+                }`
+                : storedDeployment
+                  ? `Start the stored ${storedDeployment.state} deployment`
+                  : 'Open deployment setup and history for this robot'}
+            >
+              {storedDeployment ? 'Restart deployment' : 'Deploy workflow'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowMonitor(value => !value)}
+              className={`bn-device-action-button${showMonitor ? ' is-primary' : ''}`}
+              aria-pressed={showMonitor}
+            >
+              {showMonitor ? 'Close monitor' : 'Monitor live'}
+            </button>
             <button
               onClick={() => onControl(paused ? 'resume' : 'pause')}
               disabled={busy || state?.loading}
-              style={paused ? primaryButton : miniButton}
+              className={`bn-device-action-button${paused ? ' is-primary' : ''}`}
             >
               {paused ? 'Resume robot' : 'Pause robot'}
             </button>
-            {deploymentLease?.id && (
-              <button
-                onClick={() => onStopDeployment(deploymentLease.id)}
-                disabled={busy || state?.loading}
-                style={miniButton}
-              >
-                Stop deployment
-              </button>
-            )}
-            <button onClick={onRefresh} disabled={busy || state?.loading} style={miniButton}>
+            <button
+              onClick={() => {
+                if (runningDeployment?.id) {
+                  onStopDeployment(runningDeployment.id)
+                } else if (storedDeployment) {
+                  onDeploy()
+                }
+              }}
+              disabled={busy || state?.loading || (!runningDeployment?.id && !storedDeployment)}
+              title={runningDeployment?.id
+                ? 'Stop the workflow running on this robot'
+                : storedDeployment
+                  ? 'Open this robot’s stored deployment and revision history'
+                  : 'No deployment is stored on this robot'}
+              className="bn-device-action-button"
+            >
+              {storedDeployment ? 'Deployment details' : 'Stop deployment'}
+            </button>
+          </div>
+          {showMonitor && <RobotMonitor robot={robot} />}
+          <div className="bn-run-detail-actions bn-robot-card-actions is-secondary">
+            <button
+              onClick={onRefresh}
+              disabled={busy || state?.loading}
+              className="bn-device-action-button"
+            >
               Refresh
             </button>
             <button
@@ -1572,13 +2836,17 @@ function RobotRow({
               disabled={busy || state?.loading || !canRestartService}
               title={canRestartService
                 ? 'Restart the exact remote blacknode-hardware systemd service for this port'
-                : 'Automatic restart requires a compute device installed through SSH'}
-              style={miniButton}
+                : 'Open the compute device and choose Enable SSH controls first'}
+              className="bn-device-action-button"
             >
-              Restart robot service
+              Restart Robot Hardware
             </button>
-            <button onClick={onRename} disabled={busy} style={miniButton}>Rename</button>
-            <button onClick={onRemove} disabled={busy} style={dangerButton}>Remove</button>
+            <button onClick={onRename} disabled={busy} className="bn-device-action-button">
+              Rename
+            </button>
+            <button onClick={onRemove} disabled={busy} className="bn-device-action-button is-danger">
+              Remove
+            </button>
           </div>
           {showRestart && canRestartService && (
             <form
@@ -1597,7 +2865,7 @@ function RobotRow({
               }}
             >
               <div>
-                <strong>Restart this robot service</strong>
+                  <strong>Restart Robot Hardware for this robot</strong>
                 <span>
                   Blacknode resolves the exact systemd unit from hardware port
                   {' '}{new URL(robot.base_url).port}, restarts only that unit, and verifies
@@ -1638,6 +2906,228 @@ function RobotRow({
   )
 }
 
+type JointTrace = {
+  position: number[]
+  velocity: number[]
+}
+
+function RobotMonitor({ robot }: { robot: HardwareDevice }) {
+  const [sample, setSample] = useState<RobotTelemetrySample | null>(null)
+  const [connection, setConnection] = useState<'connecting' | 'live' | 'offline'>('connecting')
+  const [traces, setTraces] = useState<Record<string, JointTrace>>({})
+  const previous = useRef<Record<string, { position: number; at: number }>>({})
+  const activeSource = useRef('')
+
+  useEffect(() => {
+    let stopped = false
+    let socket: WebSocket | null = null
+    let reconnectTimer: number | undefined
+
+    const connect = () => {
+      if (stopped) return
+      setConnection('connecting')
+      socket = new WebSocket(deviceMonitorSocketUrl(robot.id))
+      socket.onopen = () => setConnection('live')
+      socket.onmessage = event => {
+        let next: RobotTelemetrySample
+        try {
+          next = JSON.parse(String(event.data)) as RobotTelemetrySample
+        } catch {
+          return
+        }
+        const sourceKey = `${next.source || 'unknown'}:${next.source_label || ''}`
+        if (activeSource.current && activeSource.current !== sourceKey) {
+          previous.current = {}
+          setTraces({})
+        }
+        activeSource.current = sourceKey
+        const receivedAt = Date.now()
+        if (next.available && next.payload?.joints) {
+          const normalized = next.payload.joints.map(joint => {
+            const prior = previous.current[joint.name]
+            const elapsed = prior ? (receivedAt - prior.at) / 1000 : 0
+            const derivedVelocity = elapsed > 0
+              ? (joint.position - prior.position) / elapsed
+              : 0
+            previous.current[joint.name] = {
+              position: joint.position,
+              at: receivedAt,
+            }
+            return {
+              ...joint,
+              velocity: next.source === 'hardware'
+                ? derivedVelocity
+                : Number.isFinite(joint.velocity) ? joint.velocity : derivedVelocity,
+            }
+          })
+          next = {
+            ...next,
+            payload: {
+              ...next.payload,
+              joints: normalized,
+            },
+          }
+          setTraces(current => {
+            const updated = { ...current }
+            for (const joint of normalized) {
+              const trace = updated[joint.name] || { position: [], velocity: [] }
+              updated[joint.name] = {
+                position: [...trace.position, joint.position].slice(-80),
+                velocity: [...trace.velocity, joint.velocity].slice(-80),
+              }
+            }
+            return updated
+          })
+        }
+        setSample(next)
+      }
+      socket.onerror = () => socket?.close()
+      socket.onclose = () => {
+        if (stopped) return
+        setConnection('offline')
+        reconnectTimer = window.setTimeout(connect, 1200)
+      }
+    }
+
+    connect()
+    return () => {
+      stopped = true
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+      socket?.close()
+    }
+  }, [robot.id])
+
+  const joints = sample?.payload?.joints || []
+  const sourceLabel = sample?.source === 'deployment'
+    ? `Deployed · ${sample.source_label || 'workflow'}`
+    : 'Local · Robot Hardware'
+  const torque = sample?.payload?.torque_enabled
+  const stateLabel = connection !== 'live'
+    ? connection
+    : sample?.stale
+      ? 'stale'
+      : sample?.available
+        ? 'live'
+        : 'waiting'
+
+  return (
+    <section className="bn-robot-monitor" aria-label={`Live monitoring for ${robot.name}`}>
+      <div className="bn-robot-monitor-head">
+        <div>
+          <span className={`bn-robot-monitor-pulse is-${stateLabel}`} aria-hidden="true" />
+          <div>
+            <strong>Live robot state</strong>
+            <span>{sourceLabel}</span>
+          </div>
+        </div>
+        <div className="bn-robot-monitor-status">
+          <span className={`is-${stateLabel}`}>{stateLabel.toUpperCase()}</span>
+          <span>
+            Torque {torque == null ? 'unknown' : torque ? 'on' : 'off'}
+          </span>
+        </div>
+      </div>
+
+      {!sample?.available || joints.length === 0 ? (
+        <div className="bn-robot-monitor-empty" role="status">
+          <strong>
+            {connection === 'connecting'
+              ? 'Connecting to robot…'
+              : connection === 'offline'
+                ? 'Reconnecting…'
+                : 'Waiting for joint state'}
+          </strong>
+          <span>
+            {sample?.message
+              || 'The monitor will start as soon as this robot reports joint positions.'}
+          </span>
+        </div>
+      ) : (
+        <>
+          <div className="bn-robot-monitor-meta">
+            <span>{joints.length} joints</span>
+            <span>{sample.payload?.position_unit || 'degree'}</span>
+            <span>
+              Updated {sample.received_at
+                ? new Date(sample.received_at).toLocaleTimeString()
+                : 'now'}
+            </span>
+          </div>
+          <div className="bn-robot-monitor-grid">
+            {joints.map(joint => (
+              <JointMonitorCard
+                key={joint.name}
+                joint={joint}
+                trace={traces[joint.name]}
+                positionUnit={sample.payload?.position_unit || 'degree'}
+                velocityUnit={sample.payload?.velocity_unit || 'degree/s'}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+function JointMonitorCard({
+  joint,
+  trace,
+  positionUnit,
+  velocityUnit,
+}: {
+  joint: RobotTelemetryJoint
+  trace?: JointTrace
+  positionUnit: string
+  velocityUnit: string
+}) {
+  return (
+    <article className="bn-joint-monitor-card">
+      <div className="bn-joint-monitor-title">
+        <strong title={joint.name}>{joint.name.replace(/_/g, ' ')}</strong>
+        <span>{joint.position.toFixed(2)} {shortUnit(positionUnit)}</span>
+      </div>
+      <TelemetrySparkline values={trace?.position || []} />
+      <div className="bn-joint-monitor-speed">
+        <span>Speed</span>
+        <strong>{joint.velocity.toFixed(2)} {shortUnit(velocityUnit)}</strong>
+      </div>
+    </article>
+  )
+}
+
+function TelemetrySparkline({ values }: { values: number[] }) {
+  const width = 180
+  const height = 44
+  const finite = values.filter(Number.isFinite)
+  const minimum = finite.length ? Math.min(...finite) : 0
+  const maximum = finite.length ? Math.max(...finite) : 0
+  const range = Math.max(maximum - minimum, 0.001)
+  const points = finite.map((value, index) => {
+    const x = finite.length <= 1 ? width : index * width / (finite.length - 1)
+    const y = height - 4 - ((value - minimum) / range) * (height - 8)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+  return (
+    <svg
+      className="bn-joint-monitor-chart"
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="Recent joint position"
+    >
+      <line x1="0" y1={height / 2} x2={width} y2={height / 2} />
+      {points && <polyline points={points} />}
+    </svg>
+  )
+}
+
+function shortUnit(unit: string): string {
+  return unit
+    .replace('degree', '°')
+    .replace('/s', '/s')
+}
+
 function LifecycleProgress({
   value,
   compact = false,
@@ -1670,12 +3160,42 @@ function formatCheckedAt(checkedAt?: number): string {
   return checkedAt ? new Date(checkedAt).toLocaleTimeString() : '—'
 }
 
-function DeviceFact({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
-  return (
-    <div className="bn-device-fact">
-      <span>{label}</span>
+function DeviceFact({
+  label,
+  value,
+  warn = false,
+  title,
+  onClick,
+  expanded = false,
+}: {
+  label: string
+  value: string
+  warn?: boolean
+  title?: string
+  onClick?: () => void
+  expanded?: boolean
+}) {
+  const content = (
+    <>
+      <span>
+        {label}
+        {onClick && <i aria-hidden="true">›</i>}
+      </span>
       <strong style={warn ? { color: 'var(--warn)' } : undefined}>{value}</strong>
-    </div>
+    </>
+  )
+  return onClick ? (
+    <button
+      type="button"
+      className="bn-device-fact is-interactive"
+      title={title}
+      onClick={onClick}
+      aria-expanded={expanded}
+    >
+      {content}
+    </button>
+  ) : (
+    <div className="bn-device-fact" title={title}>{content}</div>
   )
 }
 

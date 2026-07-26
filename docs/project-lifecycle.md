@@ -37,7 +37,12 @@ setup request and is not saved.
 
 For manual setup, install `blacknode-runtime` on the device, run
 `./service.sh pairing`, and enter the printed runtime URL and token under
-**Add device → Pair manually**.
+**Add device → Pair manually**. You can add SSH management later from that
+device's details with **Enable SSH controls**. Blacknode confirms the SSH host
+key, verifies that the installed systemd runtime has the same port and runtime
+device identity as the existing pairing, and then enables device lifecycle and
+robot-service restart actions. The SSH password is used for that request and is
+not saved.
 
 Open the new square device card and choose **Add robot** for each hardware
 service connected to that computer. Enter the robot URL and token printed by
@@ -87,6 +92,9 @@ The Project shows the running deployment and its owning device. Use
 **Deployments** to inspect logs, stop, update, or roll back a revision. Stops
 remain explicit because stopping a hardware workflow may release actuator
 torque.
+The robot card reports stopped and staged deployments that remain stored on the
+Runtime and can restart the latest stored deployment after the robot passes the
+same connected, disarmed, calibration, and ownership checks.
 
 Update the graph, check setup again, and send a new revision to iterate. Project
 artifacts retain evidence from datasets, training runs, policies, evaluations,

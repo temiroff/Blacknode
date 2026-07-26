@@ -1146,8 +1146,8 @@ export default function ProjectPanel() {
               ))}
               {deployments.length === 0 && (
                 <div className="bn-project-empty">
-                  No deployments are assigned to this project. Older unassigned
-                  deployments remain available in Deployments.
+                  No deployments are assigned to this project. Open a robot in
+                  Devices to deploy the current workflow directly to it.
                 </div>
               )}
             </div>
