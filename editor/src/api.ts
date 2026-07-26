@@ -101,6 +101,7 @@ export interface HardwareDevice {
   token_fingerprint: string
   runtime_token_fingerprint?: string
   runtime_token_configured?: boolean
+  software_version?: string
   paused?: boolean
   created_at: string
   updated_at: string
@@ -216,13 +217,43 @@ export interface DeviceRuntimeStatus {
 
 export interface HardwareDeviceStatus {
   device_id: string
+  software_version?: string
+  software_version_cached?: boolean
+  service_features?: string[]
   connected: boolean
   armed: boolean
   torque_enabled?: boolean
+  torque_report_error?: string
+  telemetry?: {
+    enabled: boolean
+    streams: string[]
+    sinks: Array<{
+      name: string
+      configured?: boolean
+      connected?: boolean
+      broker?: string
+      tls?: boolean
+      topic_prefix?: string
+      qos?: number
+      published?: number
+      last_published_at?: number | null
+      error?: string
+    }>
+  }
   calibrated?: boolean
   leased_to_deployment?: boolean
   paused?: boolean
   deployment_lease?: {
+    id: string
+    name: string
+    state: string
+  }
+  running_deployment?: {
+    id: string
+    name: string
+    state: string
+  }
+  stored_deployment?: {
     id: string
     name: string
     state: string
@@ -244,6 +275,58 @@ export interface HardwareDeviceStatus {
   }
 }
 
+export interface RobotTelemetryJoint {
+  name: string
+  position: number
+  velocity: number
+}
+
+export interface RobotTelemetrySample {
+  type: 'robot_telemetry'
+  robot_id: string
+  robot_name?: string
+  source?: 'hardware' | 'deployment'
+  source_label?: string
+  deployment?: {
+    id: string
+    name: string
+    state: string
+  }
+  available: boolean
+  stale: boolean
+  sequence?: number
+  sent_at?: string
+  received_at?: string
+  age_seconds?: number
+  payload?: {
+    connected: boolean
+    armed?: boolean
+    torque_enabled?: boolean | null
+    position_unit: string
+    velocity_unit: string
+    joints: RobotTelemetryJoint[]
+    error?: string
+    battery?: {
+      level?: number
+      voltage?: number
+      charging?: boolean
+    }
+    camera_streams?: Array<{
+      id: string
+      label?: string
+      url?: string
+    }>
+  } | null
+  message?: string
+}
+
+export function deviceMonitorSocketUrl(id: string): string {
+  const path = `${BASE}/devices/${encodeURIComponent(id)}/monitor/ws`
+  const url = new URL(path, window.location.href)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
+}
+
 export interface DeviceInstallProgress {
   progress: number
   message: string
@@ -257,6 +340,64 @@ export interface ComputeDeviceLifecycleResult {
   device: ComputeDevice
   stopped_deployments: string[]
   controlled_robots: string[]
+  warnings: string[]
+  summary: string
+}
+
+export interface ManagedServiceUpdateResult {
+  ok: boolean
+  scope: 'all' | 'runtime' | 'hardware'
+  device: ComputeDevice
+  update: {
+    ok: boolean
+    host_fingerprint: string
+    components: Array<{
+      kind: 'runtime' | 'hardware'
+      service_name: string
+      port: number
+      before: { version: string; commit: string }
+      after: { version: string; commit: string }
+      reported_version?: string
+      changed: boolean
+      state: string
+    }>
+  }
+  runtime: {
+    runtime_version?: string
+    [key: string]: unknown
+  }
+  robots: Array<{
+    id: string
+    name: string
+    port: number
+    software_version: string
+    status: HardwareDeviceStatus
+  }>
+  stopped_deployments: string[]
+  controlled_robots: string[]
+  warnings: string[]
+  summary: string
+}
+
+export interface ManagedServiceUpdateCheckResult {
+  ok: boolean
+  check: {
+    ok: boolean
+    host_fingerprint: string
+    components: Array<{
+      kind: 'runtime' | 'hardware'
+      service_name: string
+      port: number
+      installed: { version: string; commit: string }
+      latest: { version: string; commit: string }
+      reported_version?: string
+      update_available: boolean
+      can_update: boolean
+      dirty: boolean
+      state: string
+      error: string
+    }>
+  }
   warnings: string[]
   summary: string
 }
@@ -995,6 +1136,31 @@ export const api = {
       },
       60000,
     ),
+  configureComputeDeviceSsh: (
+    id: string,
+    host: string,
+    port: number,
+    username: string,
+    password: string,
+    hostFingerprint: string,
+  ) =>
+    req<{
+      ok: boolean
+      device: ComputeDevice
+      instance: SshRuntimeInstance
+      summary: string
+    }>(
+      'POST',
+      `/device-hosts/${encodeURIComponent(id)}/management`,
+      {
+        host,
+        port,
+        username,
+        password,
+        host_fingerprint: hostFingerprint,
+      },
+      60000,
+    ),
   installComputeDevice: (
     name: string,
     host: string,
@@ -1064,6 +1230,27 @@ export const api = {
     streamDeviceAction<ComputeDeviceLifecycleResult>(
       `/device-hosts/${encodeURIComponent(id)}/lifecycle-stream`,
       { action, password },
+      onProgress,
+    ),
+  updateComputeDevice: (
+    id: string,
+    password: string,
+    scope: 'all' | 'runtime' | 'hardware',
+    onProgress: (progress: DeviceActionProgress) => void,
+  ) =>
+    streamDeviceAction<ManagedServiceUpdateResult>(
+      `/device-hosts/${encodeURIComponent(id)}/update-stream`,
+      { password, scope },
+      onProgress,
+    ),
+  checkComputeDeviceUpdates: (
+    id: string,
+    password: string,
+    onProgress: (progress: DeviceActionProgress) => void,
+  ) =>
+    streamDeviceAction<ManagedServiceUpdateCheckResult>(
+      `/device-hosts/${encodeURIComponent(id)}/update-check-stream`,
+      { password },
       onProgress,
     ),
   listDevices:      () => req<{ devices: HardwareDevice[] }>('GET', '/devices'),
@@ -1195,6 +1382,18 @@ export const api = {
       `/devices/${encodeURIComponent(id)}/rpc`,
       { jsonrpc: '2.0', id: requestId, method, params },
       10000,
+    ),
+  releaseDeviceTorque: (id: string) =>
+    req<{
+      ok: boolean
+      status: HardwareDeviceStatus
+      already_released: boolean
+      verification_warning?: string
+    }>(
+      'POST',
+      `/devices/${encodeURIComponent(id)}/release-torque`,
+      {},
+      15000,
     ),
   deleteDevice:     (id: string) =>
     req<{ ok: boolean; id: string }>('DELETE', `/devices/${encodeURIComponent(id)}`),

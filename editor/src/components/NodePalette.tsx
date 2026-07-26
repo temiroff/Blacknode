@@ -34,7 +34,6 @@ const PANEL_DEFAULT_W = 240
 const PANEL_MIN_W = 188
 const PANEL_PROJECT_W = 420
 const PANEL_DEPLOY_W = 460
-const PANEL_EXPANDED_W = 760
 const PANEL_MAX_W = 860
 const welcomeButtonStyle: React.CSSProperties = {
   border: '1px solid var(--line2)',
@@ -116,15 +115,6 @@ const ICON_RUNTIME = (
   </svg>
 )
 
-const ICON_DEPLOYMENTS = (
-  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-    <rect x="2.5" y="3" width="13" height="4" rx="1.2" stroke="currentColor" strokeWidth="1.3"/>
-    <rect x="2.5" y="11" width="13" height="4" rx="1.2" stroke="currentColor" strokeWidth="1.3"/>
-    <circle cx="5.5" cy="5" r=".9" fill="currentColor"/>
-    <circle cx="5.5" cy="13" r=".9" fill="currentColor"/>
-  </svg>
-)
-
 const ICON_DEVICES = (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
     <rect x="3" y="2.5" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
@@ -148,7 +138,6 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'workflows', label: 'Workflows', icon: ICON_WORKFLOWS },
   { id: 'script',    label: 'Script',    icon: ICON_SCRIPT    },
   { id: 'runs',      label: 'Runs',      icon: ICON_RUNS      },
-  { id: 'deployments', label: 'Deploy',  icon: ICON_DEPLOYMENTS },
   { id: 'devices',   label: 'Devices',   icon: ICON_DEVICES   },
   { id: 'runtime',   label: 'Runtime',   icon: ICON_RUNTIME   },
   { id: 'console',   label: 'Console',   icon: ICON_CONSOLE   },
@@ -171,12 +160,11 @@ export default function NodePalette() {
   const [activeTab, setActiveTab] = useState<Tab | null>('templates')
   const [showPackageWelcome, setShowPackageWelcome] = useState(false)
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
-  const [panelExpanded, setPanelExpanded] = useState(false)
+  const [deploymentTargetId, setDeploymentTargetId] = useState('')
   const [templateSearch, setTemplateSearch] = useState('')
   const [templateOpenInNewTab, setTemplateOpenInNewTab] = useState(false)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
-  const compactWidthRef = useRef(PANEL_DEPLOY_W)
 
   const clampPanelWidth = (width: number) => {
     const viewportMax = Math.max(PANEL_MIN_W, window.innerWidth - RAIL_W - 220)
@@ -194,11 +182,9 @@ export default function NodePalette() {
         setPanelWidth(clampPanelWidth(PANEL_DEPLOY_W))
       }
     } else {
-      const compactWidth = panelExpanded ? compactWidthRef.current : panelWidth
       setPanelWidth(clampPanelWidth(
-        tab === 'projects' ? Math.max(compactWidth, PANEL_PROJECT_W) : compactWidth,
+        tab === 'projects' ? Math.max(panelWidth, PANEL_PROJECT_W) : panelWidth,
       ))
-      if (panelExpanded) setPanelExpanded(false)
     }
   }
 
@@ -210,25 +196,10 @@ export default function NodePalette() {
     openPanel(tab)
   }
 
-  const togglePanelExpanded = () => {
-    if (panelExpanded) {
-      setPanelWidth(clampPanelWidth(compactWidthRef.current))
-      setPanelExpanded(false)
-      return
-    }
-    compactWidthRef.current = panelWidth
-    setPanelWidth(clampPanelWidth(PANEL_EXPANDED_W))
-    setPanelExpanded(true)
-  }
-
   const openTemplateGuide = (query: string) => {
     setTemplateSearch(query)
     setTemplateOpenInNewTab(true)
     setActiveTab('templates')
-    if (panelExpanded) {
-      setPanelWidth(clampPanelWidth(compactWidthRef.current))
-      setPanelExpanded(false)
-    }
   }
 
   useEffect(() => {
@@ -244,8 +215,12 @@ export default function NodePalette() {
 
   useEffect(() => {
     const handleOpenPanel = (event: Event) => {
-      const tab = (event as CustomEvent<{ tab?: Tab }>).detail?.tab
-      if (!tab || !TABS.some(item => item.id === tab)) return
+      const detail = (event as CustomEvent<{ tab?: Tab; deviceId?: string }>).detail
+      const tab = detail?.tab
+      if (!tab || (tab !== 'deployments' && !TABS.some(item => item.id === tab))) return
+      if (tab === 'deployments') {
+        setDeploymentTargetId(String(detail?.deviceId || ''))
+      }
       openPanel(tab)
     }
     window.addEventListener('blacknode:open-panel', handleOpenPanel)
@@ -292,7 +267,6 @@ export default function NodePalette() {
       setPanelWidth(clampPanelWidth(
         dragRef.current.startW + ev.clientX - dragRef.current.startX,
       ))
-      setPanelExpanded(false)
     }
     const onUp = () => {
       dragRef.current = null
@@ -705,7 +679,9 @@ export default function NodePalette() {
           height: `calc(100% - ${TOP_BAR_H}px)`,
           marginTop: TOP_BAR_H,
           background: 'var(--panel)',
-          borderRight: '1px solid var(--line)',
+          borderRight: activeTab === 'deployments'
+            ? '1px solid #00d2ff'
+            : '1px solid var(--line)',
           display: 'flex',
           flexDirection: 'column',
           flexShrink: 0,
@@ -746,29 +722,10 @@ export default function NodePalette() {
               textTransform: 'uppercase',
               color: 'var(--tx2)',
             }}>
-              {TABS.find(t => t.id === activeTab)?.label}
+              {activeTab === 'deployments'
+                ? 'Deploy to robot'
+                : TABS.find(t => t.id === activeTab)?.label}
             </span>
-            {activeTab === 'deployments' && (
-              <button
-                type="button"
-                onClick={togglePanelExpanded}
-                title={panelExpanded ? 'Return the deployment panel to its previous width' : 'Expand the deployment panel'}
-                aria-label={panelExpanded ? 'Compact deployment panel' : 'Expand deployment panel'}
-                style={{
-                  padding: '4px 7px',
-                  border: '1px solid var(--line2)',
-                  borderRadius: 4,
-                  background: 'transparent',
-                  color: 'var(--tx2)',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: 11,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {panelExpanded ? 'Compact' : 'Expand'}
-              </button>
-            )}
           </div>
 
           <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -828,7 +785,11 @@ export default function NodePalette() {
             {activeTab === 'runs' && <RunsPanel />}
 
             {activeTab === 'deployments' && (
-              <DeploymentsPanel onOpenTemplates={openTemplateGuide} />
+              <DeploymentsPanel
+                onOpenTemplates={openTemplateGuide}
+                targetDeviceId={deploymentTargetId}
+                onBackToDevices={() => openPanel('devices')}
+              />
             )}
 
             {activeTab === 'devices' && <DevicesPanel />}

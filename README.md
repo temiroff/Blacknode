@@ -17,6 +17,11 @@ Workflows stay readable as systems grow: each node has typed ports, each
 connection is validated, and hardware-specific implementations remain behind
 stable robot capabilities.
 
+Robot Hardware can fan timestamped capability telemetry to optional transports.
+Its MQTT adapter publishes versioned robot-state streams for dashboards, fleet
+systems, and third-party consumers while local hardware control remains
+authenticated and independently supervised.
+
 ## A Robot Workflow, Layer by Layer
 
 A Blacknode robot workflow moves from task intent to physical hardware through
@@ -148,14 +153,66 @@ disarmed; previous deployments stay stopped until explicitly started again.
 Each lifecycle action shows stage progress. Each robot also has its own
 **Pause robot** and **Resume robot** controls. Robot Pause still sends the
 direct hardware stop when its deployment runtime is unavailable and reports
-that runtime address as a warning. The robot detail reports physical torque
-only when the hardware provider exposes it; otherwise it shows **Not reported**
-instead of inferring torque state from the motion-armed flag.
+that runtime address as a warning. The robot detail reports physical torque as
+**On**, **Off**, or **Unknown**. Unknown includes the provider's readback reason
+when available and is treated as possibly on; select the **Physical torque**
+fact card to open or close that explanation. Blacknode never infers physical
+torque from the separate motion-armed flag. The last verified Robot Hardware
+version is retained in the paired-device record, so an active workflow or
+temporary version-report outage does not erase it from the robot card.
 For robots on SSH-managed computers, **Restart robot service** asks for the SSH
 password, resolves the exact hardware systemd unit from that robot's saved
 hardware port, and restarts only that unit. Restart is blocked while a
 deployment is active or the robot is armed. Blacknode then verifies that the
 same authenticated robot returned and keeps motion disarmed.
+**Check device** checks the Runtime and every attached Robot Hardware service
+together. SSH-managed computers also expose one **Runtime + Robot Hardware**
+panel.
+Its read-only version check compares installed and latest upstream versions
+and commits for both repositories, includes the version reported by each live
+service, and states whether each service is current or has an update. **Update
+Runtime + Robot Hardware** stops active deployments, stops and disarms attached
+robots, verifies trusted clean Git checkouts, fast-forwards them, reinstalls the
+packages in their existing environments, and restarts only the matched
+services. The report also offers **Update Runtime** and **Update Robot
+Hardware** independently, so a valid Runtime update remains available when a
+Robot Hardware service needs attention. Runtime has its own installation row.
+Robot Hardware has one shared installation row because every robot service on
+that compute device uses the same checkout and environment; a compact status
+line identifies the robot services that were verified. **Restart Robot
+Hardware** remains a per-robot action.
+Unknown versions and service-resolution errors expose **Repair Runtime** or
+**Repair Robot Hardware**. When an authenticated Robot Hardware process was
+started manually from the trusted checkout, Repair Robot Hardware verifies and stops only
+that listener, installs the saved persistent systemd services, and continues
+the update. If an installed unit has drifted to a different HTTP port, Repair
+Hardware matches its saved configuration by stable robot identity, reconciles
+the service manifest to the editor's paired port, and reinstalls the unit.
+An unidentified port owner is never stopped automatically. Local source
+changes remain blocked. When every selected commit is current, the
+matching control becomes **Reinstall
+Runtime + Robot Hardware** and repairs the current package environments before
+restarting and verifying the services. Local source changes block either
+operation and are never overwritten.
+Updating does not switch off physical actuator power; a torque warning remains
+visible when the updated hardware service reads an enabled servo torque
+register. When no deployment is running, the robot card offers an explicitly
+confirmed **Release torque** action. It writes only torque-disable values and
+verifies the reported physical state afterward; support the robot first because
+its joints may move or drop.
+Each robot card also exposes **Monitor live**. Select the robot to view its
+current joint positions, derived joint speeds, torque state, stream freshness,
+and recent per-joint traces. The monitor reads Robot Hardware while the robot
+is idle and automatically switches to the running deployment when that process
+owns the serial bus. MQTT is optional: it remains available for external
+dashboards and fleet consumers, while the editor monitor uses the authenticated
+device connection directly. Deployed monitoring requires Runtime 0.3.9 or
+newer and `blacknode-drivers` 0.2.1 or newer; restart a running deployment after
+updating so it receives the new telemetry channel.
+Devices initially paired manually can use **Enable SSH controls** later.
+Blacknode confirms the SSH host key and enables management only when the
+installed systemd runtime matches the pairing's exact port and runtime device
+identity. The SSH password remains request-only.
 
 The installer detects each computer's current address; it does not hardcode a
 LAN IP. Use a router DHCP reservation or a resolvable hostname for robots that
@@ -203,6 +260,10 @@ cannot be deployed accidentally.
 
 Remote deployments appear below the preflight report. Expand one to view its
 device log and use **Run**, **Stop**, **Stage update**, or **Rollback**.
+The robot card also distinguishes a running deployment from a stopped, staged,
+exited, or failed deployment that remains stored on its Runtime. A stored
+deployment exposes **Restart deployment** and **Deployment details**, so a
+Runtime or Hardware reinstall does not require sending the same workflow again.
 **Stage update** uploads the currently validated graph as another revision of
 that deployment. **Rollback** selects the previous revision without starting
 it; use **Run** after checking its state. A running deployment must be stopped

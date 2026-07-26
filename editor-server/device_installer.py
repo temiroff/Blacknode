@@ -19,6 +19,7 @@ class DeviceInstallError(RuntimeError):
 
 _INSTANCE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 _INSPECTION_MARKER = "__BLACKNODE_RUNTIME_INSPECTION__="
+_UPDATE_REPORT_MARKER = "__BLACKNODE_UPDATE_REPORT__="
 _INSPECTION_SCRIPT = r"""python3 - <<'PY'
 import glob
 import json
@@ -1038,6 +1039,954 @@ progress 96 "Verifying the runtime service"
         connection.close()
 
 
+def update_managed_services(
+    *,
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    host_fingerprint: str,
+    instance_id: str,
+    runtime_port: int,
+    hardware_ports: list[int],
+    hardware_device_ids: dict[int, str] | None = None,
+    include_runtime: bool = True,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Fast-forward and restart selected managed Runtime and Hardware services."""
+
+    def report(percent: int, message: str) -> None:
+        if progress is not None:
+            progress({
+                "progress": max(0, min(100, int(percent))),
+                "message": str(message),
+            })
+
+    selected_instance = _clean_instance_id(instance_id or "default")
+    selected_runtime_port = int(runtime_port)
+    if selected_runtime_port < 1 or selected_runtime_port > 65535:
+        raise DeviceInstallError("The managed runtime port is invalid.")
+    selected_hardware_ports = sorted({int(value) for value in hardware_ports})
+    selected_hardware_targets = [
+        {
+            "port": value,
+            "device_id": str((hardware_device_ids or {}).get(value) or ""),
+        }
+        for value in selected_hardware_ports
+    ]
+    if any(value < 1 or value > 65535 for value in selected_hardware_ports):
+        raise DeviceInstallError("A robot hardware port is invalid.")
+    if not include_runtime and not selected_hardware_ports:
+        raise DeviceInstallError("Choose Runtime, Hardware, or both to update.")
+
+    report(3, "Connecting to the verified device")
+    connection = _connect(
+        host,
+        port,
+        username,
+        password,
+        expected_fingerprint=host_fingerprint,
+        timeout=15.0,
+    )
+    remote_script_path = f"/tmp/blacknode-update-{secrets.token_hex(8)}.sh"
+    script = r"""#!/usr/bin/env bash
+set -euo pipefail
+progress() {
+  echo "__BLACKNODE_UPDATE_PROGRESS__=$1|$2"
+}
+sudo() {
+  command sudo -S -p '' "$@"
+}
+export -f sudo
+
+include_runtime="$1"
+instance="$2"
+runtime_port="$3"
+hardware_targets_payload="$4"
+hardware_ports=()
+hardware_device_ids=()
+while IFS=$'\t' read -r target_port target_device_id; do
+  [[ -n "$target_port" ]] || continue
+  hardware_ports+=("$target_port")
+  hardware_device_ids+=("$target_device_id")
+done < <(
+  python3 - "$hardware_targets_payload" <<'PY'
+import base64
+import json
+import sys
+
+targets = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
+for target in targets:
+    print(f"{int(target['port'])}\t{str(target.get('device_id') or '')}")
+PY
+)
+if [[ "$instance" == "default" ]]; then
+  runtime_dir="$HOME/blacknode-runtime"
+  runtime_service="blacknode-runtime.service"
+else
+  [[ "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || {
+    echo "Invalid Blacknode runtime instance."
+    exit 2
+  }
+  runtime_dir="$HOME/blacknode-runtimes/$instance"
+  runtime_service="blacknode-runtime-$instance.service"
+fi
+
+package_version() {
+  python3 - "$1" <<'PY'
+import sys
+import tomllib
+from pathlib import Path
+
+path = Path(sys.argv[1]) / "pyproject.toml"
+try:
+    payload = tomllib.loads(path.read_text(encoding="utf-8"))
+    print(str((payload.get("project") or {}).get("version") or "unknown"))
+except Exception:
+    print("unknown")
+PY
+}
+
+validate_checkout() {
+  local directory="$1"
+  local repository="$2"
+  [[ -d "$directory/.git" && -f "$directory/pyproject.toml" ]] || {
+    echo "$repository is not an updateable Git checkout: $directory"
+    exit 3
+  }
+  local origin
+  origin="$(git -C "$directory" remote get-url origin 2>/dev/null || true)"
+  python3 - "$origin" "$repository" <<'PY'
+import re
+import sys
+
+origin = sys.argv[1].strip().lower().removesuffix(".git").rstrip("/")
+repository = sys.argv[2].strip().lower()
+if not re.search(rf"(?:github\.com[:/])temiroff/{re.escape(repository)}$", origin):
+    raise SystemExit(
+        f"Refusing to update {repository}: its origin is not the trusted "
+        f"temiroff/{repository} repository."
+    )
+PY
+  if [[ -n "$(git -C "$directory" status --porcelain --untracked-files=normal)" ]]; then
+    echo "$repository has local changes. Commit, stash, or remove them before remote update."
+    exit 4
+  fi
+  git -C "$directory" rev-parse --verify '@{upstream}' >/dev/null 2>&1 || {
+    echo "$repository does not have an upstream branch configured."
+    exit 5
+  }
+}
+
+resolve_hardware_unit() {
+  local hardware_port="$1"
+  local matches=()
+  local active_matches=()
+  local enabled_matches=()
+  local unit exec_start unit_definition normalized unit_path
+  mapfile -t candidate_units < <(
+    {
+      systemctl list-unit-files 'blacknode-hardware*.service' --no-legend 2>/dev/null
+      systemctl list-units --all --type=service 'blacknode-hardware*.service' \
+        --no-legend 2>/dev/null
+      find /etc/systemd/system /run/systemd/system -maxdepth 1 \
+        -name 'blacknode-hardware*.service' -printf '%f\n' 2>/dev/null
+    } | awk '{print $1}' | sort -u
+  )
+  for unit in "${candidate_units[@]}"; do
+    [[ "$unit" =~ ^blacknode-hardware([-.@][A-Za-z0-9_.@-]+)?\.service$ ]] || continue
+    exec_start="$(systemctl show "$unit" --property=ExecStart --value 2>/dev/null || true)"
+    unit_definition=""
+    for unit_path in "/etc/systemd/system/$unit" "/run/systemd/system/$unit"; do
+      if [[ -f "$unit_path" ]]; then
+        unit_definition+="$(command cat "$unit_path")"
+        unit_definition+=$'\n'
+      fi
+    done
+    normalized="${exec_start//\"/}"$'\n'"${unit_definition//\"/}"
+    if printf '%s\n' "$normalized" \
+      | grep -oE -- '--port(=|[[:space:]])[0-9]+' \
+      | grep -oE '[0-9]+' \
+      | grep -Fxq -- "$hardware_port"; then
+      matches+=("$unit")
+      systemctl is-active --quiet "$unit" 2>/dev/null \
+        && active_matches+=("$unit")
+      systemctl is-enabled --quiet "$unit" 2>/dev/null \
+        && enabled_matches+=("$unit")
+    fi
+  done
+  if [[ "${#matches[@]}" -eq 0 ]]; then
+    echo "No installed or active Blacknode Hardware systemd service matches port $hardware_port. Discovered units: ${candidate_units[*]:-none}." >&2
+    return 60
+  fi
+  if [[ "${#matches[@]}" -eq 1 ]]; then
+    printf '%s\n' "${matches[0]}"
+    return 0
+  fi
+  if [[ "${#active_matches[@]}" -eq 1 ]]; then
+    printf '%s\n' "${active_matches[0]}"
+    return 0
+  fi
+  if [[ "${#active_matches[@]}" -gt 1 ]]; then
+    echo "Multiple active Blacknode Hardware services claim port $hardware_port: ${active_matches[*]}." >&2
+    return 61
+  fi
+  if [[ "${#enabled_matches[@]}" -eq 1 ]]; then
+    printf '%s\n' "${enabled_matches[0]}"
+    return 0
+  fi
+  echo "Could not choose the persistent Hardware service for port $hardware_port. Candidates: ${matches[*]}. Enabled: ${enabled_matches[*]:-none}." >&2
+  return 61
+}
+
+stop_verified_manual_hardware() {
+  local hardware_repo="$1"
+  local hardware_port="$2"
+  local listener_pids=()
+  local pid cmdline
+  if command -v ss >/dev/null 2>&1; then
+    mapfile -t listener_pids < <(
+      ss -H -ltnp "sport = :$hardware_port" 2>/dev/null \
+        | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u
+    )
+  elif command -v lsof >/dev/null 2>&1; then
+    mapfile -t listener_pids < <(
+      lsof -nP -t -iTCP:"$hardware_port" -sTCP:LISTEN 2>/dev/null | sort -u
+    )
+  fi
+  if [[ "${#listener_pids[@]}" -eq 0 ]]; then
+    if (echo >/dev/tcp/127.0.0.1/"$hardware_port") >/dev/null 2>&1; then
+      echo "Port $hardware_port is owned by a process that SSH cannot identify. Stop the manually running Hardware process and retry Repair Hardware." >&2
+      return 1
+    fi
+    return 0
+  fi
+  for pid in "${listener_pids[@]}"; do
+    [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/cmdline" ]] || {
+      echo "Could not verify the process listening on Hardware port $hardware_port." >&2
+      return 1
+    }
+    cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline")"
+    if [[ "$cmdline" != *"$hardware_repo/scripts/hardware_service.py"* ]] \
+      || [[ ! "$cmdline" =~ --port(=|[[:space:]])${hardware_port}([^0-9]|$) ]]; then
+      echo "Refusing to stop unverified process $pid on Hardware port $hardware_port: $cmdline" >&2
+      return 1
+    fi
+  done
+  for pid in "${listener_pids[@]}"; do
+    echo "Stopping verified manually started Hardware process $pid on port $hardware_port."
+    kill -TERM "$pid"
+  done
+  for _attempt in {1..40}; do
+    listening=false
+    for pid in "${listener_pids[@]}"; do
+      kill -0 "$pid" >/dev/null 2>&1 && listening=true
+    done
+    [[ "$listening" == false ]] && return 0
+    sleep 0.25
+  done
+  echo "The manually running Hardware process on port $hardware_port did not stop. Stop it from its terminal and retry Repair Hardware." >&2
+  return 1
+}
+
+install_persistent_hardware_services() {
+  local hardware_repo="$HOME/blacknode-hardware"
+  [[ -x "$hardware_repo/install-service.sh" ]] || {
+    echo "Repair Hardware requires $hardware_repo/install-service.sh." >&2
+    return 1
+  }
+  validate_checkout "$hardware_repo" "blacknode-hardware"
+  if [[ -f "$hardware_repo/.blacknode-hardware/devices.json" ]]; then
+    python3 - "$hardware_repo/.blacknode-hardware/devices.json" \
+      "$hardware_targets_payload" <<'PY'
+import base64
+import json
+import os
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+targets = json.loads(base64.urlsafe_b64decode(sys.argv[2]).decode("utf-8"))
+payload = json.loads(path.read_text(encoding="utf-8"))
+devices = payload.get("devices") or []
+by_id = {
+    str(item.get("device_id") or ""): item
+    for item in devices
+    if isinstance(item, dict) and item.get("device_id")
+}
+for target in targets:
+    device_id = str(target.get("device_id") or "")
+    if not device_id:
+        raise SystemExit(
+            f"Cannot reconcile Hardware port {target['port']}: "
+            "the paired robot has no stable device identity."
+        )
+    device = by_id.get(device_id)
+    if device is None:
+        raise SystemExit(
+            f"Cannot reconcile Hardware port {target['port']}: device identity "
+            f"{device_id!r} is not present in {path}."
+        )
+    device["service_port"] = int(target["port"])
+ports = [int(item["service_port"]) for item in devices]
+if len(ports) != len(set(ports)):
+    raise SystemExit(
+        "Cannot reconcile Hardware services because two configured robots "
+        "would use the same HTTP port."
+    )
+temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+os.replace(temporary, path)
+PY
+  fi
+  for hardware_port in "${hardware_ports[@]}"; do
+    stop_verified_manual_hardware "$hardware_repo" "$hardware_port"
+  done
+  progress 11 "Installing missing persistent Hardware services"
+  if [[ -f "$hardware_repo/.blacknode-hardware/devices.json" ]]; then
+    (
+      cd "$hardware_repo"
+      ./install-service.sh --all
+    )
+  elif [[ "${#hardware_ports[@]}" -eq 1 ]]; then
+    (
+      cd "$hardware_repo"
+      BLACKNODE_HARDWARE_PORT="${hardware_ports[0]}" ./install-service.sh
+    )
+  else
+    echo "Multiple Hardware ports require a saved multi-robot configuration. Run ./configure.sh --all before Repair Hardware." >&2
+    return 1
+  fi
+}
+
+progress 8 "Resolving selected managed services"
+if [[ "$include_runtime" == "1" ]]; then
+  [[ -d "$runtime_dir" ]] || {
+    echo "The managed runtime directory is missing: $runtime_dir"
+    exit 3
+  }
+fi
+repair_hardware=false
+for hardware_port in "${hardware_ports[@]}"; do
+  if unit="$(resolve_hardware_unit "$hardware_port")"; then
+    :
+  else
+    resolve_status=$?
+    if [[ "$resolve_status" -eq 60 ]]; then
+      repair_hardware=true
+    else
+      exit 6
+    fi
+  fi
+done
+if [[ "$repair_hardware" == true ]]; then
+  install_persistent_hardware_services || exit 6
+fi
+hardware_units=()
+hardware_dirs=()
+for hardware_port in "${hardware_ports[@]}"; do
+  [[ "$hardware_port" =~ ^[0-9]{1,5}$ ]] || exit 2
+  if ! unit="$(resolve_hardware_unit "$hardware_port")"; then
+    echo "Repair Hardware did not create exactly one persistent service for port $hardware_port." >&2
+    exit 6
+  fi
+  directory="$(systemctl show "$unit" --property=WorkingDirectory --value 2>/dev/null || true)"
+  if [[ -z "$directory" ]]; then
+    for unit_path in "/etc/systemd/system/$unit" "/run/systemd/system/$unit"; do
+      if [[ -f "$unit_path" ]]; then
+        directory="$(
+          sed -nE 's/^WorkingDirectory=(.*)$/\1/p' "$unit_path" | tail -n 1
+        )"
+        [[ -n "$directory" ]] && break
+      fi
+    done
+  fi
+  [[ -n "$directory" ]] || {
+    echo "$unit does not report its repository WorkingDirectory." >&2
+    exit 6
+  }
+  hardware_units+=("$unit")
+  hardware_dirs+=("$directory")
+done
+
+progress 15 "Checking trusted clean Git checkouts"
+if [[ "$include_runtime" == "1" ]]; then
+  validate_checkout "$runtime_dir" "blacknode-runtime"
+fi
+unique_hardware_dirs=()
+for directory in "${hardware_dirs[@]}"; do
+  found=false
+  for existing in "${unique_hardware_dirs[@]}"; do
+    [[ "$existing" == "$directory" ]] && found=true
+  done
+  if [[ "$found" == false ]]; then
+    validate_checkout "$directory" "blacknode-hardware"
+    unique_hardware_dirs+=("$directory")
+  fi
+done
+
+runtime_before_version=""
+runtime_before_commit=""
+if [[ "$include_runtime" == "1" ]]; then
+  runtime_before_version="$(package_version "$runtime_dir")"
+  runtime_before_commit="$(git -C "$runtime_dir" rev-parse --short=12 HEAD)"
+fi
+hardware_before_versions=()
+hardware_before_commits=()
+for directory in "${hardware_dirs[@]}"; do
+  hardware_before_versions+=("$(package_version "$directory")")
+  hardware_before_commits+=("$(git -C "$directory" rev-parse --short=12 HEAD)")
+done
+
+if [[ "$include_runtime" == "1" ]]; then
+  progress 25 "Downloading Runtime updates"
+  git -C "$runtime_dir" fetch --prune
+fi
+for directory in "${unique_hardware_dirs[@]}"; do
+  progress 35 "Downloading robot hardware updates"
+  git -C "$directory" fetch --prune
+done
+
+services=()
+if [[ "$include_runtime" == "1" ]]; then
+  services+=("$runtime_service")
+fi
+services+=("${hardware_units[@]}")
+restore_services() {
+  local unit
+  for unit in "${services[@]}"; do
+    sudo systemctl start "$unit" >/dev/null 2>&1 || true
+  done
+}
+trap restore_services EXIT
+
+progress 45 "Stopping managed services"
+for unit in "${hardware_units[@]}"; do
+  sudo systemctl stop "$unit"
+done
+if [[ "$include_runtime" == "1" ]]; then
+  sudo systemctl stop "$runtime_service"
+fi
+
+if [[ "$include_runtime" == "1" ]]; then
+  progress 55 "Fast-forwarding Blacknode Runtime"
+  git -C "$runtime_dir" merge --ff-only '@{upstream}'
+  "$runtime_dir/.venv/bin/python" -m pip install -e "$runtime_dir"
+fi
+
+for directory in "${unique_hardware_dirs[@]}"; do
+  progress 68 "Fast-forwarding Blacknode Hardware"
+  git -C "$directory" merge --ff-only '@{upstream}'
+  "$directory/.venv/bin/python" -m pip install -e "$directory"
+done
+
+progress 80 "Starting the selected updated services"
+if [[ "$include_runtime" == "1" ]]; then
+  sudo systemctl start "$runtime_service"
+fi
+for unit in "${hardware_units[@]}"; do
+  sudo systemctl start "$unit"
+done
+
+for unit in "${services[@]}"; do
+  state=""
+  for _attempt in {1..60}; do
+    state="$(systemctl is-active "$unit" 2>/dev/null || true)"
+    [[ "$state" == "active" ]] && break
+    sleep 0.25
+  done
+  [[ "$state" == "active" ]] || {
+    echo "$unit did not return to the active state."
+    exit 7
+  }
+done
+trap - EXIT
+
+progress 90 "Collecting installed versions"
+report_file="$(mktemp)"
+trap 'rm -f -- "$report_file"' EXIT
+if [[ "$include_runtime" == "1" ]]; then
+  runtime_after_version="$(package_version "$runtime_dir")"
+  runtime_after_commit="$(git -C "$runtime_dir" rev-parse --short=12 HEAD)"
+  printf 'runtime\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$runtime_service" "$runtime_port" "$runtime_before_version" "$runtime_after_version" \
+    "$runtime_before_commit" "$runtime_after_commit" >> "$report_file"
+fi
+for index in "${!hardware_units[@]}"; do
+  directory="${hardware_dirs[$index]}"
+  printf 'hardware\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "${hardware_units[$index]}" "${hardware_ports[$index]}" \
+    "${hardware_before_versions[$index]}" "$(package_version "$directory")" \
+    "${hardware_before_commits[$index]}" "$(git -C "$directory" rev-parse --short=12 HEAD)" \
+    >> "$report_file"
+done
+python3 - "$report_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+components = []
+for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    kind, service, port, before_version, after_version, before_commit, after_commit = line.split("\t")
+    components.append({
+        "kind": kind,
+        "service_name": service,
+        "port": int(port),
+        "before": {"version": before_version, "commit": before_commit},
+        "after": {"version": after_version, "commit": after_commit},
+        "changed": before_commit != after_commit,
+        "state": "active",
+    })
+print("__BLACKNODE_UPDATE_REPORT__=" + json.dumps({
+    "ok": True,
+    "components": components,
+}, separators=(",", ":")))
+PY
+progress 96 "Managed services updated"
+"""
+    try:
+        sftp = connection.client.open_sftp()
+        try:
+            with sftp.file(remote_script_path, "w") as remote_script:
+                remote_script.write(script)
+            sftp.chmod(remote_script_path, 0o700)
+        finally:
+            sftp.close()
+
+        def remote_output(line: str) -> None:
+            match = re.match(
+                r"^__BLACKNODE_UPDATE_PROGRESS__=(\d{1,3})\|(.*)$",
+                line.strip(),
+            )
+            if match:
+                report(int(match.group(1)), match.group(2).strip())
+
+        targets_payload = base64.urlsafe_b64encode(json.dumps(
+            selected_hardware_targets,
+            separators=(",", ":"),
+        ).encode("utf-8")).decode("ascii")
+        arguments = " ".join([
+            "1" if include_runtime else "0",
+            selected_instance,
+            str(selected_runtime_port),
+            targets_payload,
+        ])
+        output = _run(
+            connection,
+            f"bash {remote_script_path} {arguments}",
+            stdin_text=_sudo_input(password),
+            timeout=900.0,
+            on_output=remote_output,
+        )
+        payload_line = next(
+            (
+                line[len(_UPDATE_REPORT_MARKER):]
+                for line in reversed(output.splitlines())
+                if line.startswith(_UPDATE_REPORT_MARKER)
+            ),
+            "",
+        )
+        if not payload_line:
+            raise DeviceInstallError("The device did not return an update report.")
+        try:
+            result = json.loads(payload_line)
+        except json.JSONDecodeError as exc:
+            raise DeviceInstallError("The device returned an invalid update report.") from exc
+        if not isinstance(result, dict) or not isinstance(result.get("components"), list):
+            raise DeviceInstallError("The device returned an incomplete update report.")
+        result["host_fingerprint"] = connection.fingerprint
+        return result
+    finally:
+        try:
+            _run(connection, f"rm -f -- {remote_script_path}", timeout=10.0)
+        except DeviceInstallError:
+            pass
+        connection.close()
+
+
+def inspect_managed_service_updates(
+    *,
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    host_fingerprint: str,
+    instance_id: str,
+    runtime_port: int,
+    hardware_ports: list[int],
+    hardware_device_ids: dict[int, str] | None = None,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Compare installed managed-service commits with their trusted upstreams."""
+
+    def report(percent: int, message: str) -> None:
+        if progress is not None:
+            progress({
+                "progress": max(0, min(100, int(percent))),
+                "message": str(message),
+            })
+
+    selected_instance = _clean_instance_id(instance_id or "default")
+    selected_runtime_port = int(runtime_port)
+    if selected_runtime_port < 1 or selected_runtime_port > 65535:
+        raise DeviceInstallError("The managed runtime port is invalid.")
+    selected_hardware_ports = sorted({int(value) for value in hardware_ports})
+    if any(value < 1 or value > 65535 for value in selected_hardware_ports):
+        raise DeviceInstallError("A robot hardware port is invalid.")
+
+    report(5, "Connecting to the verified device")
+    connection = _connect(
+        host,
+        port,
+        username,
+        password,
+        expected_fingerprint=host_fingerprint,
+        timeout=15.0,
+    )
+    arguments = base64.urlsafe_b64encode(json.dumps({
+        "instance_id": selected_instance,
+        "runtime_port": selected_runtime_port,
+        "hardware_targets": [
+            {
+                "port": value,
+                "device_id": str((hardware_device_ids or {}).get(value) or ""),
+            }
+            for value in selected_hardware_ports
+        ],
+    }, separators=(",", ":")).encode("utf-8")).decode("ascii")
+    script = rf"""python3 - {arguments} <<'PY'
+import base64
+import json
+import re
+import subprocess
+import sys
+import tomllib
+import urllib.request
+from pathlib import Path
+
+MARKER = "__BLACKNODE_UPDATE_CHECK__="
+request = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
+home = Path.home()
+instance = request["instance_id"]
+if instance == "default":
+    runtime_dir = home / "blacknode-runtime"
+    runtime_service = "blacknode-runtime.service"
+else:
+    runtime_dir = home / "blacknode-runtimes" / instance
+    runtime_service = f"blacknode-runtime-{{instance}}.service"
+
+def command(args, timeout=30):
+    try:
+        return subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return subprocess.CompletedProcess(args, 124, "", str(exc))
+
+def project_version(text):
+    try:
+        payload = tomllib.loads(text)
+        return str((payload.get("project") or {{}}).get("version") or "unknown")
+    except Exception:
+        return "unknown"
+
+def package_version(directory):
+    try:
+        return project_version(
+            (Path(directory) / "pyproject.toml").read_text(encoding="utf-8")
+        )
+    except Exception:
+        return "unknown"
+
+def resolve_hardware(port, expected_device_id):
+    installed = command([
+        "systemctl", "list-unit-files", "blacknode-hardware*.service", "--no-legend"
+    ])
+    active = command([
+        "systemctl", "list-units", "--all", "--type=service",
+        "blacknode-hardware*.service", "--no-legend",
+    ])
+    candidate_units = {{
+        line.split()[0]
+        for line in (installed.stdout + "\n" + active.stdout).splitlines()
+        if line.split()
+    }}
+    candidate_units.update(
+        path.name
+        for root in (Path("/etc/systemd/system"), Path("/run/systemd/system"))
+        for path in root.glob("blacknode-hardware*.service")
+    )
+    matches = []
+    states = {{}}
+    definitions = {{}}
+    declared_ports = {{}}
+    device_ids = {{}}
+    for unit in sorted(candidate_units):
+        if not re.fullmatch(r"blacknode-hardware(?:[-.@][A-Za-z0-9_.@-]+)?\.service", unit):
+            continue
+        shown = command(["systemctl", "show", unit, "--property=ExecStart", "--value"])
+        definition = ""
+        for root in (Path("/etc/systemd/system"), Path("/run/systemd/system")):
+            unit_path = root / unit
+            if unit_path.is_file():
+                try:
+                    definition += unit_path.read_text(encoding="utf-8") + "\n"
+                except OSError:
+                    pass
+        definitions[unit] = definition
+        normalized = (shown.stdout + "\n" + definition).replace('"', "")
+        declared_ports[unit] = sorted({{
+            int(value)
+            for value in re.findall(r"--port(?:=|\s+)([0-9]+)", normalized)
+        }})
+        config_match = re.search(r"--config(?:=|\s+)([^\s;]+)", normalized)
+        configured_device_id = ""
+        if config_match:
+            try:
+                configured_device_id = str(
+                    json.loads(
+                        Path(config_match.group(1)).read_text(encoding="utf-8")
+                    ).get("device_id") or ""
+                )
+            except Exception:
+                pass
+        device_ids[unit] = configured_device_id
+        states[unit] = {{
+            "active": command(["systemctl", "is-active", unit]).stdout.strip() or "unknown",
+            "enabled": command(["systemctl", "is-enabled", unit]).stdout.strip() or "unknown",
+        }}
+        if int(port) in declared_ports[unit]:
+            matches.append(unit)
+    resolution_error = ""
+    if not matches:
+        identity_matches = [
+            unit
+            for unit in sorted(candidate_units)
+            if expected_device_id and device_ids.get(unit) == expected_device_id
+        ]
+        if identity_matches:
+            matches = identity_matches
+            configured = sorted({{
+                configured_port
+                for unit in identity_matches
+                for configured_port in declared_ports.get(unit, [])
+            }})
+            resolution_error = (
+                f"The persistent service for robot {{expected_device_id!r}} "
+                f"declares port(s) {{configured or ['unknown']}}, while the editor "
+                f"is paired to port {{port}}. Repair Hardware will reconcile the "
+                "saved service port using this stable robot identity."
+            )
+        else:
+            details = ", ".join(
+                f"{{unit}} (ports={{declared_ports.get(unit) or ['unknown']}}, "
+                f"device_id={{device_ids.get(unit) or 'unknown'}})"
+                for unit in sorted(candidate_units)
+            ) or "none"
+            raise RuntimeError(
+                f"No persistent Hardware service matches port {{port}} or robot "
+                f"identity {{expected_device_id or 'not reported'!r}}. "
+                f"Discovered units: {{details}}."
+            )
+    active_matches = [
+        unit for unit in matches if states[unit]["active"] == "active"
+    ]
+    enabled_matches = [
+        unit for unit in matches if states[unit]["enabled"] == "enabled"
+    ]
+    if len(matches) == 1:
+        unit = matches[0]
+    elif len(active_matches) == 1:
+        unit = active_matches[0]
+    elif len(active_matches) > 1:
+        raise RuntimeError(
+            f"Multiple active Blacknode Hardware services claim port {{port}}: "
+            + ", ".join(active_matches)
+        )
+    elif len(enabled_matches) == 1:
+        unit = enabled_matches[0]
+    else:
+        details = ", ".join(
+            f"{{candidate}} (active={{states[candidate]['active']}}, "
+            f"enabled={{states[candidate]['enabled']}})"
+            for candidate in matches
+        )
+        raise RuntimeError(
+            f"Could not choose the persistent Hardware service for port {{port}}. "
+            f"Candidates: {{details}}."
+        )
+    directory = command([
+        "systemctl", "show", unit, "--property=WorkingDirectory", "--value"
+    ]).stdout.strip()
+    if not directory:
+        working_directory = re.findall(
+            r"^WorkingDirectory=(.+)$",
+            definitions.get(unit, ""),
+            flags=re.MULTILINE,
+        )
+        if working_directory:
+            directory = working_directory[-1].strip().strip('"')
+    if not directory:
+        raise RuntimeError(f"{{unit}} does not report its repository WorkingDirectory.")
+    return unit, Path(directory), resolution_error
+
+def inspect(kind, repository, service, port, directory):
+    component = {{
+        "kind": kind,
+        "service_name": service,
+        "port": int(port),
+        "installed": {{"version": package_version(directory), "commit": ""}},
+        "latest": {{"version": "unknown", "commit": ""}},
+        "update_available": False,
+        "can_update": False,
+        "dirty": False,
+        "state": command(["systemctl", "is-active", service]).stdout.strip() or "unknown",
+        "error": "",
+    }}
+    try:
+        if not (directory / ".git").is_dir():
+            raise RuntimeError(f"{{repository}} is not an updateable Git checkout.")
+        origin = command(["git", "-C", str(directory), "remote", "get-url", "origin"])
+        origin_url = origin.stdout.strip()
+        normalized = origin_url.lower().removesuffix(".git").rstrip("/")
+        if not re.search(
+            rf"(?:github\.com[:/])temiroff/{{re.escape(repository)}}$",
+            normalized,
+        ):
+            raise RuntimeError(
+                f"origin is not the trusted temiroff/{{repository}} repository"
+            )
+        current = command(["git", "-C", str(directory), "rev-parse", "HEAD"])
+        if current.returncode:
+            raise RuntimeError(current.stderr.strip() or "could not read installed commit")
+        component["installed"]["commit"] = current.stdout.strip()[:12]
+        dirty = command([
+            "git", "-C", str(directory), "status", "--porcelain", "--untracked-files=normal"
+        ])
+        component["dirty"] = bool(dirty.stdout.strip())
+        branch = command([
+            "git", "-C", str(directory), "rev-parse", "--abbrev-ref", "HEAD",
+        ]).stdout.strip()
+        upstream = command([
+            "git", "-C", str(directory), "config", "--get",
+            f"branch.{{branch}}.merge",
+        ])
+        upstream_ref = upstream.stdout.strip()
+        if not upstream_ref.startswith("refs/heads/"):
+            raise RuntimeError("the installed branch has no upstream configured")
+        latest = command(["git", "ls-remote", origin_url, upstream_ref], timeout=45)
+        if latest.returncode or not latest.stdout.strip():
+            raise RuntimeError(
+                latest.stderr.strip() or "could not read the latest upstream commit"
+            )
+        latest_commit = latest.stdout.split()[0]
+        component["latest"]["commit"] = latest_commit[:12]
+        component["update_available"] = current.stdout.strip() != latest_commit
+        if not component["update_available"]:
+            component["latest"]["version"] = component["installed"]["version"]
+        else:
+            local_latest = command([
+                "git", "-C", str(directory), "show",
+                f"{{latest_commit}}:pyproject.toml",
+            ])
+            if not local_latest.returncode:
+                component["latest"]["version"] = project_version(local_latest.stdout)
+            if component["latest"]["version"] == "unknown":
+                raw_url = (
+                    f"https://raw.githubusercontent.com/temiroff/{{repository}}/"
+                    f"{{latest_commit}}/pyproject.toml"
+                )
+                try:
+                    with urllib.request.urlopen(raw_url, timeout=15) as response:
+                        component["latest"]["version"] = project_version(
+                            response.read().decode("utf-8")
+                        )
+                except Exception:
+                    pass
+        component["can_update"] = not component["dirty"]
+        if component["dirty"]:
+            component["error"] = (
+                "Local source changes must be committed, stashed, or removed before update."
+            )
+    except Exception as exc:
+        component["error"] = str(exc)
+    return component
+
+components = [
+    inspect(
+        "runtime",
+        "blacknode-runtime",
+        runtime_service,
+        request["runtime_port"],
+        runtime_dir,
+    )
+]
+for target in request["hardware_targets"]:
+    hardware_port = int(target["port"])
+    try:
+        service, directory, resolution_error = resolve_hardware(
+            hardware_port,
+            str(target.get("device_id") or ""),
+        )
+        component = inspect(
+            "hardware",
+            "blacknode-hardware",
+            service,
+            hardware_port,
+            directory,
+        )
+        if resolution_error:
+            component["error"] = resolution_error
+            component["can_update"] = False
+        components.append(component)
+    except Exception as exc:
+        components.append({{
+            "kind": "hardware",
+            "service_name": "unresolved",
+            "port": int(hardware_port),
+            "installed": {{"version": "unknown", "commit": ""}},
+            "latest": {{"version": "unknown", "commit": ""}},
+            "update_available": False,
+            "can_update": False,
+            "dirty": False,
+            "state": "unknown",
+            "error": str(exc),
+        }})
+print(MARKER + json.dumps({{
+    "ok": all(not item["error"] for item in components),
+    "components": components,
+}}, separators=(",", ":")))
+PY"""
+    try:
+        report(25, "Comparing installed Runtime and Hardware commits")
+        output = _run(connection, script, timeout=120.0)
+        payload_line = next(
+            (
+                line[len("__BLACKNODE_UPDATE_CHECK__="):]
+                for line in reversed(output.splitlines())
+                if line.startswith("__BLACKNODE_UPDATE_CHECK__=")
+            ),
+            "",
+        )
+        if not payload_line:
+            raise DeviceInstallError("The device did not return a software version report.")
+        try:
+            result = json.loads(payload_line)
+        except json.JSONDecodeError as exc:
+            raise DeviceInstallError("The device returned an invalid software version report.") from exc
+        if not isinstance(result, dict) or not isinstance(result.get("components"), list):
+            raise DeviceInstallError("The device returned an incomplete software version report.")
+        result["host_fingerprint"] = connection.fingerprint
+        report(90, "Installed and latest versions compared")
+        return result
+    finally:
+        connection.close()
+
+
 def control_runtime(
     *,
     host: str,
@@ -1129,27 +2078,56 @@ hardware_port="$1"
   exit 2
 }
 mapfile -t candidate_units < <(
-  systemctl list-unit-files 'blacknode-hardware*.service' --no-legend 2>/dev/null \
-    | awk '{print $1}'
+  {
+    systemctl list-unit-files 'blacknode-hardware*.service' --no-legend 2>/dev/null
+    systemctl list-units --all --type=service 'blacknode-hardware*.service' \
+      --no-legend 2>/dev/null
+    find /etc/systemd/system /run/systemd/system -maxdepth 1 \
+      -name 'blacknode-hardware*.service' -printf '%f\n' 2>/dev/null
+  } | awk '{print $1}' | sort -u
 )
 matches=()
+active_matches=()
+enabled_matches=()
 for unit in "${candidate_units[@]}"; do
-  [[ "$unit" =~ ^blacknode-hardware([-.][A-Za-z0-9_.@-]+)?\.service$ ]] || continue
+  [[ "$unit" =~ ^blacknode-hardware([-.@][A-Za-z0-9_.@-]+)?\.service$ ]] || continue
   exec_start="$(systemctl show "$unit" --property=ExecStart --value 2>/dev/null || true)"
-  normalized="${exec_start//\"/}"
-  if [[ "$normalized" =~ --port(=|[[:space:]])${hardware_port}([^0-9]|$) ]]; then
+  unit_definition=""
+  for unit_path in "/etc/systemd/system/$unit" "/run/systemd/system/$unit"; do
+    if [[ -f "$unit_path" ]]; then
+      unit_definition+="$(command cat "$unit_path")"
+      unit_definition+=$'\n'
+    fi
+  done
+  normalized="${exec_start//\"/}"$'\n'"${unit_definition//\"/}"
+  if printf '%s\n' "$normalized" \
+    | grep -oE -- '--port(=|[[:space:]])[0-9]+' \
+    | grep -oE '[0-9]+' \
+    | grep -Fxq -- "$hardware_port"; then
     matches+=("$unit")
+    systemctl is-active --quiet "$unit" 2>/dev/null \
+      && active_matches+=("$unit")
+    systemctl is-enabled --quiet "$unit" 2>/dev/null \
+      && enabled_matches+=("$unit")
   fi
 done
 if [[ "${#matches[@]}" -eq 0 ]]; then
-  echo "No Blacknode hardware service owns port $hardware_port."
+  echo "No Blacknode hardware service owns port $hardware_port. Discovered units: ${candidate_units[*]:-none}."
   exit 3
 fi
-if [[ "${#matches[@]}" -ne 1 ]]; then
-  echo "Multiple Blacknode hardware services claim port $hardware_port."
+if [[ "${#matches[@]}" -eq 1 ]]; then
+  service_name="${matches[0]}"
+elif [[ "${#active_matches[@]}" -eq 1 ]]; then
+  service_name="${active_matches[0]}"
+elif [[ "${#active_matches[@]}" -gt 1 ]]; then
+  echo "Multiple active Blacknode hardware services claim port $hardware_port: ${active_matches[*]}."
+  exit 4
+elif [[ "${#enabled_matches[@]}" -eq 1 ]]; then
+  service_name="${enabled_matches[0]}"
+else
+  echo "Could not choose the hardware service for port $hardware_port. Candidates: ${matches[*]}. Enabled: ${enabled_matches[*]:-none}."
   exit 4
 fi
-service_name="${matches[0]}"
 sudo -S -p '' systemctl restart "$service_name"
 state=""
 for _attempt in {1..40}; do

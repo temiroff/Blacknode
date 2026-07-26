@@ -272,6 +272,16 @@ class RuntimeDeviceClient(HardwareDeviceClient):
             f"{self._deployment_endpoint(deployment_id)}/logs?limit={safe_limit}",
         )
 
+    def deployment_telemetry(
+        self,
+        deployment_id: str,
+        *,
+        stream: str = "robot-state",
+    ) -> dict[str, Any]:
+        endpoint = self._deployment_endpoint(deployment_id)
+        query = urllib.parse.urlencode({"stream": stream})
+        return self._request("GET", f"{endpoint}/telemetry?{query}")
+
     def delete_deployment(self, deployment_id: str) -> dict[str, Any]:
         return self._request("DELETE", self._deployment_endpoint(deployment_id))
 
@@ -497,6 +507,78 @@ class DeviceRegistry:
             ]
             return public
 
+    def set_host_remote_device_id(
+        self,
+        host_id: str,
+        remote_device_id: str,
+    ) -> dict[str, Any]:
+        clean_remote_id = str(remote_device_id or "").strip()
+        if not clean_remote_id:
+            raise DeviceRegistryError("The runtime manifest has no stable device identity.")
+        with self._lock:
+            hosts, records = self._load_payload()
+            hosts, _changed = self._materialize_hosts(hosts, records)
+            host = hosts.get(host_id)
+            if host is None:
+                raise KeyError(host_id)
+            current_remote_id = str(host.get("remote_device_id") or "").strip()
+            if current_remote_id and current_remote_id != clean_remote_id:
+                raise DeviceRegistryError(
+                    "The paired runtime identity changed. Pair the runtime again "
+                    "before enabling SSH management."
+                )
+            host["remote_device_id"] = clean_remote_id
+            host["updated_at"] = _iso_now()
+            self._save_payload(hosts, records)
+            public = self._public_host(host)
+            public["robots"] = [
+                self._public(record)
+                for record in records.values()
+                if str(record.get("host_id") or "") == host_id
+            ]
+            return public
+
+    def set_host_management(
+        self,
+        host_id: str,
+        managed_runtime: dict[str, Any],
+    ) -> dict[str, Any]:
+        allowed_keys = {
+            "ssh_host",
+            "ssh_port",
+            "ssh_username",
+            "host_fingerprint",
+            "instance_id",
+            "runtime_port",
+            "service_name",
+            "runtime_dir",
+        }
+        management = {
+            key: value
+            for key, value in managed_runtime.items()
+            if key in allowed_keys
+        }
+        if set(management) != allowed_keys:
+            raise DeviceRegistryError(
+                "The verified SSH runtime identity is incomplete."
+            )
+        with self._lock:
+            hosts, records = self._load_payload()
+            hosts, _changed = self._materialize_hosts(hosts, records)
+            host = hosts.get(host_id)
+            if host is None:
+                raise KeyError(host_id)
+            host["managed_runtime"] = management
+            host["updated_at"] = _iso_now()
+            self._save_payload(hosts, records)
+            public = self._public_host(host)
+            public["robots"] = [
+                self._public(record)
+                for record in records.values()
+                if str(record.get("host_id") or "") == host_id
+            ]
+            return public
+
     def rename_host(self, host_id: str, name: str) -> dict[str, Any]:
         clean_name = str(name or "").strip()
         if not clean_name:
@@ -665,6 +747,10 @@ class DeviceRegistry:
                 "runtime_token_fingerprint": token_fingerprint(clean_runtime_token),
                 "runtime_token_explicit": runtime_token_explicit,
                 "remote_device_id": remote_device_id,
+                "software_version": (
+                    str(status.get("software_version") or "").strip()
+                    or str((existing or {}).get("software_version") or "").strip()
+                ),
                 "paused": False,
                 "created_at": created_at,
                 "updated_at": now,
@@ -688,6 +774,25 @@ class DeviceRegistry:
                         other["updated_at"] = now
             self._save_payload(hosts, records)
             return self._public(record)
+
+    def remember_device_software_version(
+        self,
+        device_id: str,
+        software_version: str,
+    ) -> None:
+        clean_version = str(software_version or "").strip()
+        if not clean_version or clean_version.casefold() == "unknown":
+            return
+        with self._lock:
+            hosts, records = self._load_payload()
+            record = records.get(device_id)
+            if record is None:
+                raise KeyError(device_id)
+            if str(record.get("software_version") or "") == clean_version:
+                return
+            record["software_version"] = clean_version
+            record["updated_at"] = _iso_now()
+            self._save_payload(hosts, records)
 
     def delete(self, device_id: str) -> bool:
         with self._lock:
