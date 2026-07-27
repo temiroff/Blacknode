@@ -1040,7 +1040,7 @@ manifest_path.write_text(json.dumps({
     "packages_dir": str(Path(sys.argv[3]) / "packages"),
     "hardware_dir": sys.argv[4] if sys.argv[6] == "isolated_stack" else "",
     "runtime_service": sys.argv[5],
-}, indent=2) + "\n", encoding="utf-8")
+}, indent=2) + "\\n", encoding="utf-8")
 PY
 install_complete=true
 progress 96 "Verifying the runtime service"

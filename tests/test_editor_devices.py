@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -495,6 +496,25 @@ class EditorDeviceApiTests(unittest.TestCase):
             'legacy_side_root = home / "blacknode-runtimes"',
             device_installer._INSPECTION_SCRIPT,
         )
+
+    def test_remote_install_embedded_python_blocks_compile(self):
+        script = next(
+            value
+            for value in device_installer.install_runtime.__code__.co_consts
+            if (
+                isinstance(value, str)
+                and value.startswith("#!/usr/bin/env bash")
+                and "__BLACKNODE_INSTALL_PROGRESS__" in value
+            )
+        )
+        python_blocks = re.findall(
+            r"(?ms)^[^\n]*<<'PY'(?:\s*&)?\n(.*?)^PY$",
+            script,
+        )
+
+        self.assertEqual(len(python_blocks), 3)
+        for index, python_block in enumerate(python_blocks, start=1):
+            compile(python_block, f"<remote-install-python-{index}>", "exec")
 
     def test_reinstall_of_incomplete_instance_uses_next_available_port(self):
         class RemoteFile(io.StringIO):
