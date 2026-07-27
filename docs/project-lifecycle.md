@@ -28,16 +28,64 @@ Select **Set up robot** from the Project's Next step and open **Devices**. Start
 with the Jetson, Raspberry Pi, or Ubuntu computer that will run Blacknode
 workflows.
 
-For automatic setup, choose **Add device → Automatic SSH** and enter the
+For a local setup, choose **Add device → Local computer**, select the local
+stack installation folder, and press **Add local computer**. Blacknode prepares
+separate Runtime and Robot Hardware checkouts, Python environments,
+authentication, and state; selects separate loopback ports; starts both
+processes; verifies the Runtime manifest and the Hardware service's disconnected,
+disarmed state; and pairs the Runtime automatically. Robot Hardware waits for a
+physical robot configuration. Deployments, logs, monitoring, Projects, and
+locally attached robots use the same device interfaces as a remote target. The
+device card can pause, resume, check, and uninstall the managed local stack.
+Uninstall removes checkout folders created by Blacknode and preserves existing
+source checkouts.
+Every managed device summary shows the Runtime and Hardware package cards in
+the same layout. Each package reports its installed version and current
+RUNNING, STOPPED, UNREACHABLE, or NOT INSTALLED state, with aligned Run/Stop,
+Restart, Update, Reinstall, and Delete controls. Restart stops and starts only
+the selected local package service. Deleting a local package removes its
+environment while preserving its checkout and configuration for reinstall.
+Runtime state is normalized across local and remote computers: a successful
+health check reports RUNNING, a paused service reports STOPPED, and a failed
+health check reports UNREACHABLE.
+Robot connection status is binary in the device UI. CONNECTED requires a fresh
+positive hardware or deployment report; every other completed connection check
+shows DISCONNECTED. When an active deployment has not published fresh
+connectivity telemetry, the detail explains that Blacknode treated the robot as
+disconnected and asks the user to stop the deployment before verifying the
+physical connection directly.
+Robot Hardware also reports non-invasive serial-device presence while a
+deployment owns the port. This lets a reconnected or unplugged robot move
+between CONNECTED and DISCONNECTED without opening the serial bus twice.
+On Windows, local Runtime and Hardware services use the windowless Python
+launcher and continue in the background with output written to their package
+log files.
+Checking the device or package versions does not start a stopped service.
+Remote package actions use the verified SSH identity and one unsaved password
+field above the same two cards.
+Remote Hardware Run, Stop, and Restart control every exact
+`blacknode-hardware` service attached to that compute device. Stop first ends
+active deployments and disarms each robot; Run and Restart return with motion
+disarmed.
+
+For remote SSH setup, choose **Add device → Remote SSH** and enter the
 computer's IP address, username, and password. Blacknode first displays the
 SSH host-key fingerprint for confirmation. After confirmation it installs the
 runtime service, configures runtime port `8766` in UFW when UFW is active, and
 pairs the runtime with the editor. The SSH password remains in memory for that
 setup request and is not saved.
 
+When another robot needs complete separation on the same Linux computer,
+choose **Install a complete isolated robot stack** during the SSH review. The
+new stack receives separate Runtime and Robot Hardware repositories,
+environments, tokens, state, calibration, systemd service names, and ports.
+Its Hardware environment starts empty. The new device card shows the
+instance-scoped command for adding one newly connected stable serial path;
+existing robots remain assigned to their current stacks.
+
 For manual setup, install `blacknode-runtime` on the device, run
 `./service.sh pairing`, and enter the printed runtime URL and token under
-**Add device → Pair manually**. You can add SSH management later from that
+**Add device → Remote Manual**. You can add SSH management later from that
 device's details with **Enable SSH controls**. Blacknode confirms the SSH host
 key, verifies that the installed systemd runtime has the same port and runtime
 device identity as the existing pairing, and then enables device lifecycle and
@@ -92,9 +140,11 @@ The Project shows the running deployment and its owning device. Use
 **Deployments** to inspect logs, stop, update, or roll back a revision. Stops
 remain explicit because stopping a hardware workflow may release actuator
 torque.
-The robot card reports stopped and staged deployments that remain stored on the
-Runtime and can restart the latest stored deployment after the robot passes the
-same connected, disarmed, calibration, and ownership checks.
+The robot card reports hardware connection separately from deployment status.
+Connection can be connected, disconnected, checking, unknown, or unreachable;
+deployment can be active, inactive, completed, failed, or absent. The latest
+inactive deployment remains available on the Runtime and can restart after the
+robot passes the same connected, disarmed, calibration, and ownership checks.
 
 Update the graph, check setup again, and send a new revision to iterate. Project
 artifacts retain evidence from datasets, training runs, policies, evaluations,

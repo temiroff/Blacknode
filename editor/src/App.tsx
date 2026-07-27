@@ -11,6 +11,7 @@ import { LIVE_STREAM_NODE_TYPES } from './liveNodeTypes'
 import ValueNode from './components/ValueNode'
 import ModelNode from './components/ModelNode'
 import OutputNode from './components/OutputNode'
+import RobotMonitorNode from './components/RobotMonitorNode'
 import SubnetNode from './components/SubnetNode'
 import SubnetBreadcrumb from './components/SubnetBreadcrumb'
 import SubgraphInputNode from './components/SubgraphInputNode'
@@ -30,6 +31,7 @@ const NODE_TYPES = {
   valuenode: ValueNode,
   modelnode: ModelNode,
   outputnode: OutputNode,
+  robotmonitor: RobotMonitorNode,
   subnetnode: SubnetNode,
   subnetinput: SubgraphInputNode,
   subnetoutput: SubgraphOutputNode,
@@ -527,6 +529,86 @@ export default function App() {
     window.addEventListener('blacknode:fit-view', handler)
     return () => window.removeEventListener('blacknode:fit-view', handler)
   }, [fitCurrentCanvas])
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        robotId?: string
+        robotName?: string
+      }>).detail
+      const robotId = String(detail?.robotId || '').trim()
+      const robotName = String(detail?.robotName || '').trim()
+      if (!robotId) return
+
+      void (async () => {
+        try {
+          if (!useStore.getState().nodeTypes.includes('RobotMonitor')) {
+            window.dispatchEvent(new CustomEvent('blacknode:open-panel', {
+              detail: { tab: 'packages' },
+            }))
+            window.dispatchEvent(new CustomEvent('blacknode:notice', {
+              detail: {
+                kind: 'info',
+                title: 'Robot package required',
+                message: 'Install or reload blacknode-robot to add the Robot Monitor node.',
+              },
+            }))
+            return
+          }
+          window.dispatchEvent(new CustomEvent('blacknode:close-panel'))
+          let target = useStore.getState().nodes.find(node => (
+            node.data.type === 'RobotMonitor'
+            && String(node.data.params?.robot_id || '') === robotId
+          ))
+          if (!target) {
+            const before = new Set(useStore.getState().nodes.map(node => node.id))
+            const position = rfInstance.current?.screenToFlowPosition({
+              x: window.innerWidth / 2,
+              y: window.innerHeight / 2,
+            }) ?? { x: 120, y: 100 }
+            await addNode('RobotMonitor', position, {
+              robot_id: robotId,
+              robot_name: robotName,
+            })
+            target = useStore.getState().nodes.find(node => (
+              !before.has(node.id) && node.data.type === 'RobotMonitor'
+            ))
+          } else if (robotName && target.data.params?.robot_name !== robotName) {
+            await updateParam(target.id, 'robot_name', robotName)
+            target = useStore.getState().nodes.find(node => node.id === target?.id) ?? target
+          }
+          if (!target) throw new Error('The Robot Monitor node was not created.')
+
+          const live = useStore.getState()
+          live.onNodesChange(live.nodes.map(node => ({
+            id: node.id,
+            type: 'select' as const,
+            selected: node.id === target?.id,
+          })))
+          selectNode(target.id)
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              rfInstance.current?.setCenter(
+                target!.position.x + 380,
+                target!.position.y + 240,
+                { zoom: 0.9, duration: 320 },
+              )
+            })
+          })
+        } catch (error) {
+          window.dispatchEvent(new CustomEvent('blacknode:notice', {
+            detail: {
+              kind: 'error',
+              title: 'Monitor could not open',
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }))
+        }
+      })()
+    }
+    window.addEventListener('blacknode:monitor-robot', handler)
+    return () => window.removeEventListener('blacknode:monitor-robot', handler)
+  }, [addNode, selectNode, updateParam])
 
   const importWorkflowFile = useCallback(async (file: File) => {
     if (importingFile) return

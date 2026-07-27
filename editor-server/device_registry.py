@@ -447,6 +447,21 @@ class DeviceRegistry:
                         "runtime_port",
                         "service_name",
                         "runtime_dir",
+                        "stack_mode",
+                        "hardware_dir",
+                        "hardware_port",
+                        "hardware_service_name",
+                        "hardware_state",
+                        "hardware_configured",
+                        "hardware_pid_file",
+                        "hardware_token_file",
+                        "hardware_log_path",
+                        "hardware_owned_install",
+                        "management_mode",
+                        "config_path",
+                        "pid_file",
+                        "log_path",
+                        "owned_install",
                     }
                 }
                 if managed_runtime
@@ -552,13 +567,45 @@ class DeviceRegistry:
             "runtime_port",
             "service_name",
             "runtime_dir",
+            "stack_mode",
+            "hardware_dir",
+            "hardware_port",
+            "hardware_service_name",
+            "hardware_state",
+            "hardware_configured",
+            "hardware_pid_file",
+            "hardware_token_file",
+            "hardware_log_path",
+            "hardware_owned_install",
+            "management_mode",
+            "config_path",
+            "pid_file",
+            "log_path",
+            "owned_install",
         }
         management = {
             key: value
             for key, value in managed_runtime.items()
             if key in allowed_keys
         }
-        if set(management) != allowed_keys:
+        required_keys = allowed_keys - {
+            "stack_mode",
+            "hardware_dir",
+            "hardware_port",
+            "hardware_service_name",
+            "hardware_state",
+            "hardware_configured",
+            "hardware_pid_file",
+            "hardware_token_file",
+            "hardware_log_path",
+            "hardware_owned_install",
+            "management_mode",
+            "config_path",
+            "pid_file",
+            "log_path",
+            "owned_install",
+        }
+        if not required_keys.issubset(management):
             raise DeviceRegistryError(
                 "The verified SSH runtime identity is incomplete."
             )

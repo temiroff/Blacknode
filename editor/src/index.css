@@ -972,7 +972,7 @@ html[data-theme="dark"] .bn-brand-logo {
 
 .bn-device-mode-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   padding: 3px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -995,6 +995,235 @@ html[data-theme="dark"] .bn-brand-logo {
   background: var(--menu-active);
   color: var(--tx1);
   box-shadow: inset 0 0 0 1px var(--line2);
+}
+
+.bn-device-path-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.bn-device-path-field input {
+  min-width: 0;
+  flex: 1;
+}
+
+.bn-device-path-field button {
+  flex: 0 0 auto;
+}
+
+.bn-device-local-capabilities,
+.bn-device-local-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line2));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+}
+
+.bn-device-local-capabilities strong,
+.bn-device-local-note strong {
+  color: var(--tx1);
+  font-size: 12px;
+}
+
+.bn-device-local-capabilities span,
+.bn-device-local-capabilities small,
+.bn-device-local-note span {
+  color: var(--tx2);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.bn-device-local-capabilities small {
+  color: var(--tx3);
+}
+
+.bn-device-local-note {
+  margin: 10px;
+}
+
+.bn-local-package-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bn-local-package-summary-head > div {
+  min-width: 0;
+}
+
+.bn-local-package-summary-head > div > strong,
+.bn-local-package-summary-head > div > span {
+  display: block;
+}
+
+.bn-local-package-summary-head > div > span {
+  margin-top: 2px;
+  color: var(--tx3);
+}
+
+.bn-local-package-password {
+  display: flex;
+  min-width: 230px;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bn-local-package-password > span {
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-local-package-password input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  outline: none;
+  background: var(--panel);
+  color: var(--tx1);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.bn-local-package-password input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.bn-local-package-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin: 5px 0;
+}
+
+.bn-local-package-card,
+.bn-local-package-missing {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line2);
+  border-radius: 7px;
+  background: var(--panel);
+}
+
+.bn-local-package-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.bn-local-package-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bn-local-package-card-head > div {
+  min-width: 0;
+}
+
+.bn-local-package-card-head > div > strong,
+.bn-local-package-card-head > div > span {
+  display: block;
+}
+
+.bn-local-package-card-head > div > span {
+  margin-top: 2px;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+}
+
+.bn-local-package-state {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.bn-local-package-state i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 13%, transparent);
+}
+
+.bn-local-package-state.is-running {
+  color: var(--ok);
+}
+
+.bn-local-package-state.is-stopped,
+.bn-local-package-state.is-missing {
+  color: var(--tx3);
+}
+
+.bn-local-package-state.is-checking {
+  color: var(--accent);
+}
+
+.bn-local-package-state.is-attention {
+  color: var(--err);
+}
+
+.bn-local-package-card > code {
+  display: block;
+  margin-top: 8px;
+  overflow: hidden;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-local-package-card > small {
+  display: block;
+  margin-top: 3px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-local-package-update-available {
+  margin-top: 7px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.bn-local-package-actions {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 9px;
+}
+
+.bn-local-package-actions .bn-device-action-button {
+  min-width: 0;
+  min-height: 30px;
+  justify-content: center;
+  padding-inline: 6px;
+}
+
+.bn-local-package-missing strong,
+.bn-local-package-missing span {
+  display: block;
+}
+
+.bn-local-package-missing span {
+  margin-top: 4px;
+  color: var(--tx3);
 }
 
 .bn-device-ssh-grid {
@@ -1695,10 +1924,18 @@ button.bn-compute-device-card:active:not(:disabled) {
 
 .bn-compute-device-card-top {
   align-items: flex-start;
-  justify-content: flex-end;
+  justify-content: flex-start;
+}
+
+.bn-compute-device-kind {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .055em;
 }
 
 .bn-compute-device-status {
+  margin-left: auto;
   color: var(--device-status);
   font-size: 11px;
   font-weight: 800;
@@ -1996,6 +2233,11 @@ button.bn-compute-device-card:active:not(:disabled) {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 14%, transparent);
 }
 
+.bn-runtime-check-result.is-warning .bn-runtime-check-dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
 .bn-runtime-check-result.is-checking .bn-runtime-check-dot {
   background: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
@@ -2017,6 +2259,82 @@ button.bn-compute-device-card:active:not(:disabled) {
   color: var(--tx3);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.bn-runtime-check-services {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.bn-runtime-check-service {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 7px;
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  background: var(--lift);
+}
+
+.bn-runtime-check-service-dot {
+  width: 7px;
+  height: 7px;
+  margin: 0;
+  border-radius: 50%;
+  background: var(--tx3);
+}
+
+.bn-runtime-check-service.is-connected .bn-runtime-check-service-dot,
+.bn-runtime-check-service.is-awaiting .bn-runtime-check-service-dot {
+  background: var(--ok);
+}
+
+.bn-runtime-check-service.is-disconnected .bn-runtime-check-service-dot,
+.bn-runtime-check-service.is-unreachable .bn-runtime-check-service-dot {
+  background: var(--err);
+}
+
+.bn-runtime-check-service.is-unknown .bn-runtime-check-service-dot {
+  background: var(--warn);
+}
+
+.bn-runtime-check-service.is-checking .bn-runtime-check-service-dot {
+  background: var(--accent);
+}
+
+.bn-runtime-check-service > div {
+  min-width: 0;
+}
+
+.bn-runtime-check-service > div strong,
+.bn-runtime-check-service > div span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-runtime-check-service-state {
+  margin: 0 !important;
+  color: var(--tx2) !important;
+  font-size: 11px !important;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.bn-runtime-check-service.is-connected .bn-runtime-check-service-state,
+.bn-runtime-check-service.is-awaiting .bn-runtime-check-service-state {
+  color: var(--ok) !important;
+}
+
+.bn-runtime-check-service.is-disconnected .bn-runtime-check-service-state,
+.bn-runtime-check-service.is-unreachable .bn-runtime-check-service-state {
+  color: var(--err) !important;
+}
+
+.bn-runtime-check-service.is-unknown .bn-runtime-check-service-state {
+  color: var(--warn) !important;
 }
 
 .bn-device-update-form {
@@ -2282,6 +2600,71 @@ button.bn-compute-device-card:active:not(:disabled) {
   color: var(--warn);
 }
 
+.bn-device-update-dirty-help {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line2));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--warn) 7%, var(--lift));
+}
+
+.bn-device-update-dirty-help strong {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.bn-device-update-dirty-help span,
+.bn-device-update-dirty-help code {
+  margin: 0;
+  color: var(--tx2);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.bn-device-update-dirty-help code {
+  padding: 4px 6px;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.bn-device-update-empty {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px dashed var(--line2);
+  border-radius: 6px;
+  background: var(--lift);
+}
+
+.bn-device-update-empty > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.bn-device-update-empty strong {
+  color: var(--tx1);
+  font-size: 12px;
+}
+
+.bn-device-update-empty span {
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.bn-device-update-empty .bn-device-action-button {
+  flex: 0 0 auto;
+}
+
 .bn-device-update-warnings {
   display: grid;
   gap: 4px;
@@ -2369,6 +2752,9 @@ button.bn-compute-device-card:active:not(:disabled) {
 }
 
 .bn-device-robot-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   padding: 14px;
   border: 1px dashed var(--line2);
   border-radius: 6px;
@@ -2376,6 +2762,26 @@ button.bn-compute-device-card:active:not(:disabled) {
   font-size: 12px;
   line-height: 1.45;
   text-align: center;
+}
+
+.bn-device-robot-empty strong {
+  color: var(--tx1);
+}
+
+.bn-device-robot-empty span {
+  color: var(--tx2);
+}
+
+.bn-device-robot-empty code {
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--tx2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: left;
 }
 
 .bn-device-card-summary {
@@ -2458,14 +2864,31 @@ button.bn-compute-device-card:active:not(:disabled) {
 }
 
 .bn-device-card-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 2px 6px;
-  border: 1px solid color-mix(in srgb, var(--run-status) 70%, var(--line2));
+  border: 1px solid color-mix(in srgb, var(--device-status-color, var(--run-status)) 70%, var(--line2));
   border-radius: 999px;
-  color: var(--run-status);
+  color: var(--device-status-color, var(--run-status));
   font-size: 11px;
   font-weight: 800;
   letter-spacing: .03em;
   white-space: nowrap;
+}
+
+.bn-device-card-statuses {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bn-device-card-state small {
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
 }
 
 .bn-device-card-chevron {
@@ -2516,6 +2939,81 @@ button.bn-compute-device-card:active:not(:disabled) {
     radial-gradient(circle at 0 0, color-mix(in srgb, #00d2ff 9%, transparent), transparent 38%),
     color-mix(in srgb, var(--panel) 94%, #00151b);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #00d2ff 14%, transparent);
+}
+
+.bn-robot-monitor-node-title {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--line2);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, #00b8d9 18%, transparent), transparent 55%),
+    var(--lift);
+}
+
+.bn-robot-monitor-node-title > div {
+  min-width: 0;
+}
+
+.bn-robot-monitor-node-title > div span,
+.bn-robot-monitor-node-title > div strong {
+  display: block;
+}
+
+.bn-robot-monitor-node-title > div span {
+  color: #00d2ff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .1em;
+}
+
+.bn-robot-monitor-node-title > div strong {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--tx1);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-robot-monitor-node-title label {
+  display: flex;
+  min-width: 250px;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--tx3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.bn-robot-monitor-node-title select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  outline: none;
+  background: var(--panel);
+  color: var(--tx1);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  text-transform: none;
+}
+
+.bn-robot-monitor-node-title select:focus {
+  border-color: #00b8d9;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #00b8d9 22%, transparent);
+}
+
+.bn-robot-monitor.bn-robot-monitor-node-panel {
+  margin-top: 0;
+  border: 0;
+  border-radius: 0 0 8px 8px;
+  box-shadow: none;
 }
 
 .bn-robot-monitor-head {
@@ -2604,6 +3102,61 @@ button.bn-compute-device-card:active:not(:disabled) {
   color: #00d2ff;
 }
 
+.bn-robot-monitor-overview {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  padding: 1px 0;
+  border-bottom: 1px solid color-mix(in srgb, #00d2ff 20%, var(--line));
+  background: var(--line);
+}
+
+.bn-robot-monitor-fact {
+  min-width: 0;
+  padding: 8px 9px;
+  background: color-mix(in srgb, var(--panel) 95%, #00151b);
+}
+
+.bn-robot-monitor-fact span,
+.bn-robot-monitor-fact strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-robot-monitor-fact span {
+  color: var(--tx3);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.bn-robot-monitor-fact strong {
+  margin-top: 3px;
+  color: var(--tx2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.bn-robot-monitor-fact.is-live strong {
+  color: #00d2ff;
+}
+
+.bn-robot-monitor-fact.is-ok strong {
+  color: var(--ok);
+}
+
+.bn-robot-monitor-fact.is-warning strong {
+  color: var(--warn);
+}
+
+.bn-robot-monitor-fact.is-error strong {
+  color: var(--err);
+}
+
 .bn-robot-monitor-meta {
   display: flex;
   gap: 12px;
@@ -2617,6 +3170,36 @@ button.bn-compute-device-card:active:not(:disabled) {
   margin-right: 12px;
   color: #737373;
   content: "·";
+}
+
+.bn-robot-monitor-cameras {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+  padding: 9px 10px 0;
+}
+
+.bn-robot-monitor-cameras article {
+  overflow: hidden;
+  border: 1px solid #737373;
+  border-radius: 6px;
+  background: var(--lift);
+}
+
+.bn-robot-monitor-cameras strong,
+.bn-robot-monitor-cameras span {
+  display: block;
+  padding: 6px 8px;
+  color: var(--tx2);
+  font-size: 11px;
+}
+
+.bn-robot-monitor-cameras img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  background: #050708;
 }
 
 .bn-robot-monitor-grid {
@@ -2882,6 +3465,19 @@ button.bn-device-fact {
 }
 
 @container devices-panel (max-width: 700px) {
+  .bn-local-package-summary-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bn-local-package-password {
+    min-width: 0;
+  }
+
+  .bn-local-package-summary {
+    grid-template-columns: 1fr;
+  }
+
   .bn-device-update-component {
     grid-template-areas:
       "identity actions"
@@ -3038,6 +3634,10 @@ button.bn-device-fact {
 }
 
 @container devices-panel (max-width: 280px) {
+  .bn-device-mode-tabs {
+    grid-template-columns: 1fr;
+  }
+
   .bn-device-facts {
     grid-template-columns: 1fr;
   }
@@ -3078,7 +3678,7 @@ button.bn-device-fact {
     grid-template-columns: 9px minmax(0, 1fr) 12px;
   }
 
-  .bn-device-card-state {
+  .bn-device-card-statuses {
     display: none;
   }
 }
@@ -3900,12 +4500,12 @@ button.bn-device-fact {
   color: #00d2ff;
 }
 
-.bn-device-lease-notice.is-stored {
+.bn-device-lease-notice.is-inactive {
   border-color: color-mix(in srgb, #00d2ff 34%, var(--line2));
   background: color-mix(in srgb, #00d2ff 5%, transparent);
 }
 
-.bn-device-lease-notice.is-stored strong {
+.bn-device-lease-notice.is-inactive strong {
   color: color-mix(in srgb, #00d2ff 76%, var(--tx2));
 }
 

@@ -489,6 +489,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "node_types": [
                         "RobotConnectionDashboard",
                         "RobotDiscovery",
+                        "RobotMonitor",
                         "RobotROSInterfaceCheck",
                         "RobotUSBDiscovery"
                     ]
@@ -512,6 +513,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "RobotDriverPreset",
                 "RobotJointDefinition",
                 "RobotJointList",
+                "RobotMonitor",
                 "RobotProfileDuplicate",
                 "RobotProfileList",
                 "RobotProfileLoad",

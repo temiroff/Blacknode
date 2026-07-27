@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -24,6 +26,7 @@ if str(EDITOR_SERVER_DIR) not in sys.path:
 
 import device_registry  # noqa: E402
 import device_installer  # noqa: E402
+import local_runtime  # noqa: E402
 import server  # noqa: E402
 
 
@@ -391,6 +394,9 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn("sock.bind((\"0.0.0.0\", candidate))", script)
         self.assertIn("'blacknode-runtime*.service' 'blacknode-hardware*.service'", script)
         self.assertIn('sudo systemctl start "$sibling_service"', script)
+        self.assertIn('hardware_dir="$HOME/blacknode-hardware-instances/$instance"', script)
+        self.assertIn('BLACKNODE_HARDWARE_INSTANCE="$service_instance"', script)
+        self.assertIn("does not support isolated stacks yet", script)
         self.assertNotIn("keep_sudo_alive", script)
 
         self.assertIn(
@@ -457,6 +463,79 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(result["runtime_port"], 8769)
         self.assertIn("replace instance-2 8768", commands[0])
 
+    def test_isolated_stack_uninstall_streams_remote_cleanup_progress(self):
+        uploaded = []
+
+        class RemoteFile(io.StringIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                uploaded.append(self.getvalue())
+                self.close()
+                return False
+
+        class Sftp:
+            def file(self, _path, _mode):
+                return RemoteFile()
+
+            def chmod(self, _path, _mode):
+                return None
+
+            def close(self):
+                return None
+
+        connection = SimpleNamespace(
+            client=SimpleNamespace(open_sftp=lambda: Sftp()),
+            fingerprint="SHA256:trusted-device-key",
+            close=lambda: None,
+        )
+        inspection = {
+            "instances": [{
+                "instance_id": "instance-2",
+                "port": 8768,
+                "healthy": True,
+            }],
+        }
+
+        def fake_run(_connection, command, **kwargs):
+            if "sudo -S -p '' -v" in command:
+                kwargs["on_output"](
+                    "__BLACKNODE_UNINSTALL_PROGRESS__=60|"
+                    "Stopping isolated Robot Hardware services"
+                )
+            return ""
+
+        progress = []
+        with (
+            patch.object(device_installer, "_connect", return_value=connection),
+            patch.object(device_installer, "_inspect_connection", return_value=inspection),
+            patch.object(device_installer, "_run", side_effect=fake_run),
+        ):
+            result = device_installer.uninstall_runtime(
+                host="192.168.1.87",
+                port=22,
+                username="robot",
+                password="ssh-password",
+                host_fingerprint="SHA256:trusted-device-key",
+                instance_id="instance-2",
+                runtime_port=8768,
+                stack_mode="isolated",
+                progress=progress.append,
+            )
+
+        self.assertEqual(result["stack_mode"], "isolated")
+        self.assertTrue(any(item["progress"] == 60 for item in progress))
+        self.assertIn(
+            'progress 48 "Finding isolated Robot Hardware services"',
+            uploaded[0],
+        )
+        self.assertIn(
+            'progress 74 "Removing isolated Robot Hardware files"',
+            uploaded[0],
+        )
+        self.assertNotIn("ssh-password", uploaded[0])
+
     def test_robot_service_restart_resolves_exact_systemd_unit_by_port(self):
         uploaded = []
 
@@ -513,11 +592,12 @@ class EditorDeviceApiTests(unittest.TestCase):
             "ok": True,
             "hardware_port": 8767,
             "service_name": "blacknode-hardware-follower.service",
+            "action": "restart",
             "state": "active",
         })
-        self.assertIn(" 8767", commands[0])
+        self.assertIn(" 8767 restart", commands[0])
         self.assertIn("systemctl list-unit-files 'blacknode-hardware*.service'", uploaded[0])
-        self.assertIn('systemctl restart "$service_name"', uploaded[0])
+        self.assertIn('systemctl "$action" "$service_name"', uploaded[0])
         self.assertNotIn("ssh-password", uploaded[0])
 
     def test_managed_update_uses_trusted_clean_checkouts_and_returns_versions(self):
@@ -594,12 +674,13 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(result["host_fingerprint"], "SHA256:trusted-device-key")
         self.assertIn(" default 8766 ", commands[0])
         targets = json.loads(base64.urlsafe_b64decode(
-            commands[0].split()[-1]
+            commands[0].split()[-2]
         ).decode("utf-8"))
         self.assertEqual(targets, [{
             "port": 8767,
             "device_id": "follower-device",
         }])
+        self.assertEqual(commands[0].split()[-1], "runtime_only")
         self.assertIn("status --porcelain --untracked-files=normal", uploaded[0])
         self.assertIn("merge --ff-only '@{upstream}'", uploaded[0])
         self.assertIn("temiroff/{repository}", uploaded[0])
@@ -775,7 +856,9 @@ class EditorDeviceApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["runtime"]["ok"])
+        self.assertEqual(response.json()["runtime"]["state"], "running")
         self.assertTrue(runtime_status.json()["ok"])
+        self.assertEqual(runtime_status.json()["state"], "running")
         device = response.json()["device"]
         self.assertNotIn("token", device)
         self.assertNotIn("runtime_token", device)
@@ -825,6 +908,7 @@ class EditorDeviceApiTests(unittest.TestCase):
 
         self.assertEqual(paired_host.status_code, 200)
         self.assertEqual(paired_host.json()["device"]["robots"], [])
+        self.assertEqual(paired_host.json()["runtime"]["state"], "running")
         self.assertNotIn(runtime.token, paired_host.text)
         self.assertEqual(paired_robot.status_code, 200)
         self.assertEqual(paired_robot.json()["robot"]["host_id"], host_id)
@@ -842,6 +926,603 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(saved["schema_version"], 2)
         self.assertEqual(saved["hosts"][host_id]["runtime_token"], runtime.token)
         self.assertEqual(saved["devices"]["workshop-arm"]["token"], robot.token)
+
+    def test_local_compute_device_pairs_over_loopback_without_ssh_management(self):
+        runtime = _HardwareService("local-runtime-token")
+
+        with patch("device_registry.urllib.request.urlopen", side_effect=runtime):
+            paired = self.client.post("/device-hosts", json={
+                "name": "Local computer",
+                "runtime_url": "http://127.0.0.1:8766",
+                "runtime_token": runtime.token,
+            })
+            listed = self.client.get("/device-hosts")
+
+        self.assertEqual(paired.status_code, 200)
+        device = paired.json()["device"]
+        self.assertEqual(device["name"], "Local computer")
+        self.assertEqual(device["runtime_url"], "http://127.0.0.1:8766")
+        self.assertNotIn("managed_runtime", device)
+        self.assertNotIn(runtime.token, paired.text)
+        self.assertEqual(
+            listed.json()["devices"][0]["runtime_url"],
+            "http://127.0.0.1:8766",
+        )
+        self.assertNotIn(runtime.token, listed.text)
+        manifest_requests = [
+            request for request in runtime.requests if request[1] == "/manifest"
+        ]
+        self.assertTrue(manifest_requests)
+        self.assertTrue(all(
+            authorization == f"Bearer {runtime.token}"
+            for _method, _path, authorization, _body in manifest_requests
+        ))
+
+    def test_local_compute_device_install_stream_configures_complete_stack(self):
+        install_result = {
+            "ok": True,
+            "runtime_token": "generated-local-runtime-token-" + "x" * 24,
+            "runtime_url": "http://127.0.0.1:8766",
+            "manifest": {
+                "service": "blacknode-runtime",
+                "protocol_version": 1,
+                "device_id": "workstation-local",
+                "runtime_version": "0.3.10",
+            },
+            "runtime_port": 8766,
+            "runtime_dir": r"E:\Blacknode\blacknode-runtime",
+            "service_name": "blacknode-runtime-local-process",
+            "instance_id": "local",
+            "stack_mode": "runtime_only",
+            "hardware_dir": r"E:\Blacknode\blacknode-hardware",
+            "hardware_port": 8765,
+            "hardware_service_name": "blacknode-hardware-local-awaiting-device",
+            "hardware_state": "awaiting_device",
+            "hardware_configured": False,
+            "hardware_pid_file": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\hardware.pid",
+            "hardware_token_file": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\auth.token",
+            "hardware_log_path": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\hardware.log",
+            "hardware_owned_install": True,
+            "management_mode": "local",
+            "config_path": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.json",
+            "pid_file": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.pid",
+            "log_path": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.log",
+            "owned_install": True,
+            "elapsed_seconds": 8.2,
+        }
+
+        def install(**kwargs):
+            kwargs["progress"]({
+                "progress": 82,
+                "message": "Starting the local Runtime",
+            })
+            return install_result
+
+        with patch.object(server, "install_local_runtime", side_effect=install) as local_install:
+            response = self.client.post(
+                "/device-hosts/local-install-stream",
+                json={
+                    "name": "Local computer",
+                    "install_dir": r"E:\Blacknode",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        events = [json.loads(line) for line in response.text.splitlines() if line]
+        self.assertTrue(any(
+            event.get("progress") == 82
+            and event.get("message") == "Starting the local Runtime"
+            for event in events
+        ))
+        self.assertEqual(events[-1]["type"], "done")
+        device = events[-1]["result"]["device"]
+        self.assertEqual(device["runtime_url"], "http://127.0.0.1:8766")
+        self.assertEqual(device["managed_runtime"]["management_mode"], "local")
+        self.assertEqual(
+            device["managed_runtime"]["runtime_dir"],
+            r"E:\Blacknode\blacknode-runtime",
+        )
+        self.assertEqual(
+            device["managed_runtime"]["hardware_dir"],
+            r"E:\Blacknode\blacknode-hardware",
+        )
+        self.assertEqual(device["managed_runtime"]["hardware_port"], 8765)
+        self.assertEqual(
+            device["managed_runtime"]["hardware_state"],
+            "awaiting_device",
+        )
+        self.assertNotIn(install_result["runtime_token"], response.text)
+        local_install.assert_called_once()
+        self.assertEqual(
+            local_install.call_args.kwargs["install_dir"],
+            r"E:\Blacknode",
+        )
+
+    def test_local_uninstall_removes_read_only_git_pack_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / "blacknode-runtime"
+            pack_dir = checkout / ".git" / "objects" / "pack"
+            pack_dir.mkdir(parents=True)
+            pack_file = pack_dir / "pack-test.idx"
+            pack_file.write_bytes(b"git index")
+            os.chmod(pack_file, stat.S_IREAD)
+
+            local_runtime._remove_tree(checkout)
+
+            self.assertFalse(checkout.exists())
+
+    def test_windows_background_services_use_pythonw(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            scripts = Path(temporary) / ".venv" / "Scripts"
+            scripts.mkdir(parents=True)
+            python = scripts / "python.exe"
+            pythonw = scripts / "pythonw.exe"
+            python.touch()
+            pythonw.touch()
+
+            with patch.object(local_runtime.os, "name", "nt"):
+                selected = local_runtime._background_python(python)
+
+            self.assertEqual(selected, pythonw)
+
+    def test_local_package_inspection_does_not_start_stopped_services(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            stack = Path(temporary)
+            runtime_dir = stack / "blacknode-runtime"
+            hardware_dir = stack / "blacknode-hardware"
+            (runtime_dir / "scripts").mkdir(parents=True)
+            (hardware_dir / "scripts").mkdir(parents=True)
+            (runtime_dir / "scripts" / "runtime_service.py").write_text(
+                "# runtime\n",
+                encoding="utf-8",
+            )
+            (hardware_dir / "scripts" / "hardware_service.py").write_text(
+                "# hardware\n",
+                encoding="utf-8",
+            )
+            (runtime_dir / "pyproject.toml").write_text(
+                '[project]\nname = "blacknode-runtime"\nversion = "0.3.9"\n',
+                encoding="utf-8",
+            )
+            (hardware_dir / "pyproject.toml").write_text(
+                '[project]\nname = "blacknode-hardware"\nversion = "0.1.1"\n',
+                encoding="utf-8",
+            )
+            runtime_state = runtime_dir / ".blacknode-runtime"
+            hardware_state = hardware_dir / ".blacknode-hardware"
+            runtime_state.mkdir()
+            hardware_state.mkdir()
+            managed = {
+                "runtime_dir": str(runtime_dir),
+                "runtime_port": 8766,
+                "config_path": str(runtime_state / "runtime.json"),
+                "pid_file": str(runtime_state / "runtime.pid"),
+                "hardware_dir": str(hardware_dir),
+                "hardware_port": 8765,
+                "hardware_token_file": str(hardware_state / "auth.token"),
+                "hardware_pid_file": str(hardware_state / "hardware.pid"),
+            }
+            with (
+                patch.object(local_runtime, "_spawn_runtime") as spawn_runtime,
+                patch.object(local_runtime, "_spawn_hardware") as spawn_hardware,
+            ):
+                runtime_report = local_runtime.inspect_local_runtime(managed)
+                hardware_report = local_runtime.inspect_local_hardware(managed)
+
+            self.assertEqual(runtime_report["state"], "stopped")
+            self.assertEqual(runtime_report["installed_version"], "0.3.9")
+            self.assertEqual(hardware_report["state"], "stopped")
+            self.assertEqual(hardware_report["installed_version"], "0.1.1")
+            spawn_runtime.assert_not_called()
+            spawn_hardware.assert_not_called()
+
+    def test_local_runtime_status_reports_unattached_managed_hardware_service(self):
+        runtime = _HardwareService("local-runtime-token")
+        host = server._device_registry.pair_host(
+            name="Local computer",
+            runtime_url="http://127.0.0.1:8766",
+            runtime_token=runtime.token,
+            manifest={
+                "service": "blacknode-runtime",
+                "protocol_version": 1,
+                "device_id": "workstation-local",
+            },
+            managed_runtime={
+                "management_mode": "local",
+                "instance_id": "local",
+                "runtime_port": 8766,
+                "service_name": "blacknode-runtime-local-process",
+                "runtime_dir": r"E:\Blacknode\blacknode-runtime",
+                "stack_mode": "runtime_only",
+                "hardware_dir": r"E:\Blacknode\blacknode-hardware",
+                "hardware_port": 8765,
+                "hardware_service_name": "blacknode-hardware-local-awaiting-device",
+                "hardware_state": "awaiting_device",
+                "hardware_configured": False,
+                "hardware_pid_file": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\hardware.pid",
+                "hardware_token_file": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\auth.token",
+                "hardware_log_path": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\hardware.log",
+                "hardware_owned_install": True,
+                "config_path": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.json",
+                "pid_file": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.pid",
+                "log_path": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.log",
+                "owned_install": True,
+            },
+        )
+        safe_status = {
+            "device_id": "workstation-hardware-awaiting-device",
+            "software_version": "0.2.0",
+            "connected": False,
+            "armed": False,
+        }
+        with (
+            patch.object(
+                server,
+                "inspect_local_hardware",
+                return_value={
+                    "ok": True,
+                    "kind": "hardware",
+                    "state": "running",
+                    "installed": True,
+                    "installed_version": "0.2.0",
+                    "service_url": "http://127.0.0.1:8765",
+                    "service_name": "blacknode-hardware-local-awaiting-device",
+                    "status": safe_status,
+                },
+            ) as inspect_hardware,
+            patch.object(
+                server,
+                "inspect_local_runtime",
+                return_value={
+                    "ok": True,
+                    "kind": "runtime",
+                    "state": "running",
+                    "installed": True,
+                    "installed_version": "0.3.10",
+                    "manifest": {
+                        "service": "blacknode-runtime",
+                        "protocol_version": 1,
+                        "runtime_version": "0.3.10",
+                    },
+                },
+            ) as inspect_runtime,
+            patch.object(server, "ensure_local_runtime") as ensure_runtime,
+        ):
+            response = self.client.get(
+                f"/device-hosts/{host['id']}/runtime-status",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["hardware"], {
+            "ok": True,
+            "kind": "hardware",
+            "installed": True,
+            "installed_version": "0.2.0",
+            "service_url": "http://127.0.0.1:8765",
+            "service_name": "blacknode-hardware-local-awaiting-device",
+            "state": "running",
+            "status": safe_status,
+        })
+        self.assertTrue(inspect_hardware.called)
+        self.assertTrue(inspect_runtime.called)
+        ensure_runtime.assert_not_called()
+
+    def test_local_package_version_check_needs_no_ssh_and_keeps_services_stopped(self):
+        managed = {
+            "management_mode": "local",
+            "runtime_dir": r"E:\Blacknode\blacknode-runtime",
+            "hardware_dir": r"E:\Blacknode\blacknode-hardware",
+        }
+        host = {
+            "id": "local-computer",
+            "name": "Local computer",
+            "managed_runtime": managed,
+            "robots": [],
+        }
+        checked = {
+            "ok": True,
+            "components": [
+                {
+                    "kind": "runtime",
+                    "installed": {"version": "0.3.9", "commit": "aaa"},
+                    "latest": {"version": "0.3.10", "commit": "bbb"},
+                    "update_available": True,
+                    "error": "",
+                    "state": "stopped",
+                },
+                {
+                    "kind": "hardware",
+                    "installed": {"version": "0.1.1", "commit": "ccc"},
+                    "latest": {"version": "0.1.1", "commit": "ccc"},
+                    "update_available": False,
+                    "error": "",
+                    "state": "stopped",
+                },
+            ],
+        }
+        with (
+            patch.object(server._device_registry, "get_host_public", return_value=host),
+            patch.object(
+                server,
+                "inspect_local_package_updates",
+                return_value=checked,
+            ) as inspect,
+            patch.object(server, "ensure_local_runtime") as ensure,
+        ):
+            result = server._check_device_host_updates_payload(
+                host["id"],
+                server.UpdateManagedDeviceReq(password=""),
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertIn("1 of 2 packages", result["summary"])
+        inspect.assert_called_once()
+        ensure.assert_not_called()
+
+    def test_local_package_restart_stops_and_starts_only_selected_service(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            stack = Path(temporary)
+            runtime_dir = stack / "blacknode-runtime"
+            hardware_dir = stack / "blacknode-hardware"
+            (runtime_dir / "scripts").mkdir(parents=True)
+            (hardware_dir / "scripts").mkdir(parents=True)
+            (runtime_dir / "scripts" / "runtime_service.py").write_text(
+                "# runtime\n",
+                encoding="utf-8",
+            )
+            (hardware_dir / "scripts" / "hardware_service.py").write_text(
+                "# hardware\n",
+                encoding="utf-8",
+            )
+            (runtime_dir / "pyproject.toml").write_text(
+                '[project]\nname = "blacknode-runtime"\nversion = "0.3.9"\n',
+                encoding="utf-8",
+            )
+            (hardware_dir / "pyproject.toml").write_text(
+                '[project]\nname = "blacknode-hardware"\nversion = "0.1.1"\n',
+                encoding="utf-8",
+            )
+            managed = {
+                "runtime_dir": str(runtime_dir),
+                "hardware_dir": str(hardware_dir),
+            }
+            with (
+                patch.object(
+                    local_runtime,
+                    "inspect_local_runtime",
+                    return_value={"state": "running"},
+                ),
+                patch.object(
+                    local_runtime,
+                    "inspect_local_hardware",
+                    return_value={"state": "running"},
+                ),
+                patch.object(
+                    local_runtime,
+                    "stop_local_runtime",
+                    return_value={"state": "inactive"},
+                ) as stop_runtime,
+                patch.object(
+                    local_runtime,
+                    "ensure_local_runtime",
+                    return_value={"state": "active"},
+                ) as start_runtime,
+                patch.object(
+                    local_runtime,
+                    "stop_local_hardware",
+                    return_value={"state": "inactive"},
+                ) as stop_hardware,
+                patch.object(
+                    local_runtime,
+                    "ensure_local_hardware",
+                    return_value={"state": "active"},
+                ) as start_hardware,
+            ):
+                runtime_result = local_runtime.manage_local_package(
+                    managed,
+                    kind="runtime",
+                    action="restart",
+                    core_root=stack,
+                )
+                self.assertTrue(runtime_result["restarted"])
+                stop_runtime.assert_called_once()
+                start_runtime.assert_called_once()
+                stop_hardware.assert_not_called()
+                start_hardware.assert_not_called()
+
+                stop_runtime.reset_mock()
+                start_runtime.reset_mock()
+                hardware_result = local_runtime.manage_local_package(
+                    managed,
+                    kind="hardware",
+                    action="restart",
+                    core_root=stack,
+                )
+                self.assertTrue(hardware_result["restarted"])
+                stop_hardware.assert_called_once()
+                start_hardware.assert_called_once()
+                stop_runtime.assert_not_called()
+                start_runtime.assert_not_called()
+
+    def test_local_package_action_is_independent_and_needs_no_ssh(self):
+        managed = {
+            "management_mode": "local",
+            "runtime_dir": r"E:\Blacknode\blacknode-runtime",
+            "hardware_dir": r"E:\Blacknode\blacknode-hardware",
+        }
+        host = {
+            "id": "local-computer",
+            "name": "Local computer",
+            "managed_runtime": managed,
+            "robots": [],
+        }
+        with (
+            patch.object(server._device_registry, "get_host_public", return_value=host),
+            patch.object(
+                server,
+                "manage_local_package",
+                return_value={"ok": True, "kind": "hardware", "action": "restart"},
+            ) as manage,
+            patch.object(
+                server,
+                "_device_host_runtime_status",
+                return_value={"ok": True, "runtime_url": "http://127.0.0.1:8766"},
+            ),
+        ):
+            result = server._manage_local_package_payload(
+                host["id"],
+                "hardware",
+                server.LocalPackageActionReq(action="restart"),
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["kind"], "hardware")
+        self.assertEqual(manage.call_args.kwargs["kind"], "hardware")
+        self.assertEqual(manage.call_args.kwargs["action"], "restart")
+
+    def test_remote_hardware_package_stop_controls_exact_robot_services(self):
+        managed = {
+            "ssh_host": "192.168.1.87",
+            "ssh_port": 22,
+            "ssh_username": "robot",
+            "host_fingerprint": "SHA256:trusted-device-key",
+            "instance_id": "default",
+            "runtime_port": 8766,
+            "service_name": "blacknode-runtime.service",
+            "runtime_dir": "~/blacknode-runtime",
+        }
+        host = {
+            "id": "robot-computer",
+            "name": "Robot computer",
+            "managed_runtime": managed,
+            "robots": [{
+                "id": "follower",
+                "name": "Follower",
+                "base_url": "http://192.168.1.87:8767",
+            }],
+        }
+        with (
+            patch.object(server._device_registry, "get_host_public", return_value=host),
+            patch.object(server, "_control_robot_lifecycle_payload") as safe_stop,
+            patch.object(server, "restart_hardware_service", return_value={
+                "ok": True,
+                "hardware_port": 8767,
+                "service_name": "blacknode-hardware-follower.service",
+                "action": "stop",
+                "state": "inactive",
+            }) as control_service,
+            patch.object(server._device_registry, "set_device_paused") as set_paused,
+            patch.object(server._device_registry, "set_host_management", return_value=host) as set_management,
+        ):
+            result = server._manage_remote_hardware_package_payload(
+                host["id"],
+                server.RemoteHardwarePackageActionReq(
+                    action="stop",
+                    password="ssh-password",
+                ),
+            )
+
+        self.assertEqual(result["state"], "stopped")
+        safe_stop.assert_called_once()
+        self.assertEqual(control_service.call_args.kwargs["hardware_port"], 8767)
+        self.assertEqual(control_service.call_args.kwargs["action"], "stop")
+        set_paused.assert_called_once_with("follower", True)
+        self.assertEqual(
+            set_management.call_args.args[1]["hardware_state"],
+            "stopped",
+        )
+
+    def test_local_compute_device_pause_resume_and_uninstall_use_local_process(self):
+        token = "generated-local-runtime-token-" + "x" * 24
+        host = server._device_registry.pair_host(
+            name="Local computer",
+            runtime_url="http://127.0.0.1:8766",
+            runtime_token=token,
+            manifest={
+                "service": "blacknode-runtime",
+                "protocol_version": 1,
+                "device_id": "workstation-local",
+            },
+            managed_runtime={
+                "management_mode": "local",
+                "instance_id": "local",
+                "runtime_port": 8766,
+                "service_name": "blacknode-runtime-local-process",
+                "runtime_dir": r"E:\Blacknode\blacknode-runtime",
+                "stack_mode": "runtime_only",
+                "hardware_dir": "",
+                "config_path": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.json",
+                "pid_file": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.pid",
+                "log_path": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.log",
+                "owned_install": True,
+            },
+        )
+        paused = {
+            "ok": True,
+            "action": "pause",
+            "state": "inactive",
+            "service_name": "blacknode-runtime-local-process",
+        }
+        resumed = {
+            "ok": True,
+            "action": "resume",
+            "state": "active",
+            "service_name": "blacknode-runtime-local-process",
+        }
+        with (
+            patch.object(
+                server._device_registry,
+                "host_client",
+                return_value=SimpleNamespace(list_deployments=lambda: {"deployments": []}),
+            ),
+            patch.object(server, "stop_local_runtime", return_value=paused) as stop,
+        ):
+            pause_response = self.client.post(
+                f"/device-hosts/{host['id']}/lifecycle-stream",
+                json={"action": "pause", "password": ""},
+            )
+        self.assertEqual(pause_response.status_code, 200)
+        self.assertTrue(stop.called)
+
+        with patch.object(server, "ensure_local_runtime", return_value=resumed) as start:
+            resume_response = self.client.post(
+                f"/device-hosts/{host['id']}/lifecycle-stream",
+                json={"action": "resume", "password": ""},
+            )
+        self.assertEqual(resume_response.status_code, 200)
+        self.assertTrue(start.called)
+
+        uninstall_result = {
+            "ok": True,
+            "instance_id": "local",
+            "runtime_port": 8766,
+            "already_absent": False,
+            "stack_mode": "runtime_only",
+            "source_preserved": False,
+        }
+        with patch.object(
+            server,
+            "uninstall_local_runtime",
+            return_value=uninstall_result,
+        ) as uninstall:
+            uninstall_response = self.client.post(
+                f"/device-hosts/{host['id']}/uninstall-stream",
+                json={"password": ""},
+            )
+        self.assertEqual(uninstall_response.status_code, 200)
+        uninstall_events = [
+            json.loads(line)
+            for line in uninstall_response.text.splitlines()
+            if line
+        ]
+        self.assertEqual(
+            uninstall_events[-1]["result"]["summary"],
+            "Local Runtime uninstalled",
+        )
+        self.assertTrue(uninstall.called)
+        self.assertEqual(self.client.get("/device-hosts").json()["devices"], [])
 
     def test_existing_robot_pairings_are_grouped_into_compute_devices(self):
         hardware = _HardwareService()
@@ -947,6 +1628,49 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(events[-1]["result"]["device"]["managed_runtime"]["instance_id"], "instance-2")
         self.assertNotIn("ssh-password", response.text)
         self.assertNotIn(runtime.token, response.text)
+
+    def test_automatic_isolated_stack_records_separate_hardware_installation(self):
+        runtime = _HardwareService("isolated-runtime-token")
+        install_result = {
+            "ok": True,
+            "runtime_token": runtime.token,
+            "host_fingerprint": "SHA256:trusted-device-key",
+            "elapsed_seconds": 20.0,
+            "action": "isolated_stack",
+            "instance_id": "instance-2",
+            "runtime_port": 8768,
+            "service_name": "blacknode-runtime-instance-2.service",
+            "runtime_dir": "~/blacknode-runtimes/instance-2",
+            "stack_mode": "isolated",
+            "hardware_dir": "~/blacknode-hardware-instances/instance-2",
+        }
+        with (
+            patch.object(server, "install_runtime", return_value=install_result),
+            patch("device_registry.urllib.request.urlopen", side_effect=runtime),
+        ):
+            response = self.client.post("/device-hosts/install", json={
+                "name": "Isolated robot stack",
+                "host": "192.168.1.87",
+                "port": 22,
+                "username": "robot",
+                "password": "ssh-password",
+                "host_fingerprint": "SHA256:trusted-device-key",
+                "action": "isolated_stack",
+                "instance_id": "instance-2",
+            })
+
+        self.assertEqual(response.status_code, 200)
+        managed = response.json()["device"]["managed_runtime"]
+        self.assertEqual(managed["stack_mode"], "isolated")
+        self.assertEqual(
+            managed["hardware_dir"],
+            "~/blacknode-hardware-instances/instance-2",
+        )
+        self.assertEqual(response.json()["device"]["robots"], [])
+        self.assertNotIn(runtime.token, response.text)
+        saved = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        saved_management = next(iter(saved["hosts"].values()))["managed_runtime"]
+        self.assertEqual(saved_management["stack_mode"], "isolated")
 
     def test_ssh_inspection_reports_existing_instances_without_credentials(self):
         inspection = {
@@ -1236,7 +1960,66 @@ class EditorDeviceApiTests(unittest.TestCase):
             host_fingerprint="SHA256:trusted-device-key",
             instance_id="instance-2",
             runtime_port=8767,
+            stack_mode="runtime_only",
+            progress=None,
         )
+
+    def test_managed_runtime_uninstall_stream_reports_progress_until_registry_cleanup(self):
+        host = server._device_registry.pair_host(
+            name="Isolated robot stack",
+            runtime_url="http://192.168.1.87:8768",
+            runtime_token="runtime-token",
+            manifest={
+                "service": "blacknode-runtime",
+                "protocol_version": 1,
+                "device_id": "robot-computer-instance-2",
+            },
+            managed_runtime={
+                "ssh_host": "192.168.1.87",
+                "ssh_port": 22,
+                "ssh_username": "robot",
+                "host_fingerprint": "SHA256:trusted-device-key",
+                "instance_id": "instance-2",
+                "runtime_port": 8768,
+                "service_name": "blacknode-runtime-instance-2.service",
+                "runtime_dir": "~/blacknode-runtimes/instance-2",
+                "stack_mode": "isolated",
+                "hardware_dir": "~/blacknode-hardware-instances/instance-2",
+            },
+        )
+
+        def uninstall(**kwargs):
+            kwargs["progress"]({
+                "progress": 60,
+                "message": "Stopping isolated Robot Hardware services",
+            })
+            return {
+                "ok": True,
+                "instance_id": "instance-2",
+                "runtime_port": 8768,
+                "already_absent": False,
+                "stack_mode": "isolated",
+            }
+
+        with patch.object(server, "uninstall_runtime", side_effect=uninstall):
+            response = self.client.post(
+                f"/device-hosts/{host['id']}/uninstall-stream",
+                json={"password": "ssh-password"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        events = [json.loads(line) for line in response.text.splitlines() if line]
+        progress = [event for event in events if event["type"] == "progress"]
+        self.assertEqual(progress[0]["progress"], 1)
+        self.assertTrue(any(event["progress"] == 60 for event in progress))
+        self.assertEqual(progress[-1], {
+            "type": "progress",
+            "progress": 100,
+            "message": "Isolated robot stack uninstalled",
+        })
+        self.assertEqual(events[-1]["type"], "done")
+        self.assertEqual(events[-1]["result"]["summary"], "Isolated robot stack uninstalled")
+        self.assertEqual(self.client.get("/device-hosts").json()["devices"], [])
 
     def test_device_can_be_renamed_without_repairing_or_exposing_tokens(self):
         hardware = _HardwareService()
@@ -1940,6 +2723,74 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(inspect.call_args.kwargs["hardware_ports"], [8767])
         self.assertNotIn("ssh-password", response.text)
 
+    def test_managed_update_check_describes_runtime_only_dirty_checkout(self):
+        runtime = _HardwareService("runtime-token")
+        host = server._device_registry.pair_host(
+            name="Second Runtime",
+            runtime_url="http://192.168.1.87:8768",
+            runtime_token=runtime.token,
+            manifest={
+                "service": "blacknode-runtime",
+                "protocol_version": 1,
+                "device_id": "alex-desktop-instance-2",
+            },
+            managed_runtime={
+                "ssh_host": "192.168.1.87",
+                "ssh_port": 22,
+                "ssh_username": "robot",
+                "host_fingerprint": "SHA256:trusted-device-key",
+                "instance_id": "instance-2",
+                "runtime_port": 8768,
+                "service_name": "blacknode-runtime-instance-2.service",
+                "runtime_dir": "~/blacknode-runtimes/instance-2",
+            },
+        )
+        checked = {
+            "ok": False,
+            "host_fingerprint": "SHA256:trusted-device-key",
+            "components": [{
+                "kind": "runtime",
+                "service_name": "blacknode-runtime-instance-2.service",
+                "port": 8768,
+                "installed": {"version": "0.3.8", "commit": "111111111111"},
+                "latest": {"version": "0.3.9", "commit": "222222222222"},
+                "update_available": True,
+                "can_update": False,
+                "dirty": True,
+                "state": "active",
+                "error": (
+                    "Local source changes must be committed, stashed, or "
+                    "removed before update."
+                ),
+            }],
+        }
+        with (
+            patch.object(
+                server._device_registry,
+                "host_client",
+                return_value=SimpleNamespace(manifest=lambda: {
+                    "runtime_version": "0.3.8",
+                }),
+            ),
+            patch.object(
+                server,
+                "inspect_managed_service_updates",
+                return_value=checked,
+            ) as inspect,
+        ):
+            result = server._check_device_host_updates_payload(
+                host["id"],
+                server.UpdateManagedDeviceReq(password="ssh-password"),
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            result["summary"],
+            "Checked 1 service; 1 needs attention before Runtime can be updated.",
+        )
+        inspect.assert_called_once()
+        self.assertEqual(inspect.call_args.kwargs["hardware_ports"], [])
+
     def test_managed_robot_service_can_be_restarted_by_exact_hardware_port(self):
         hardware = _HardwareService()
         host = server._device_registry.pair_host(
@@ -2072,15 +2923,81 @@ class EditorDeviceApiTests(unittest.TestCase):
             "name": "Leader live",
             "state": "running",
         })
+        self.assertFalse(payload["connected"])
+        self.assertEqual(payload["connection_state"], "disconnected")
+        self.assertFalse(payload["connection_reported"])
         self.assertNotIn("error", payload)
         self.assertIn("Leader live", payload["notice"])
-        self.assertIn("Device checks are paused", payload["notice"])
+        self.assertIn("treats the robot as disconnected", payload["notice"])
+        self.assertIn("Stop the deployment", payload["notice"])
         rpc_methods = [
             body["method"]
             for method, path, _auth, body in hardware.requests
             if method == "POST" and path == "/rpc"
         ]
         self.assertNotIn("resume", rpc_methods)
+
+    def test_device_status_uses_active_deployment_connection_telemetry(self):
+        hardware = _HardwareService(status_overrides={
+            "connected": False,
+            "leased_to_deployment": True,
+            "error": "serial hardware is leased to a Blacknode deployment",
+        })
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            paired = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]
+            hardware.runtime_deployments["leader-live"] = {
+                "id": "leader-live",
+                "name": "Leader live",
+                "state": "running",
+                "target_device_id": paired["id"],
+            }
+            hardware.runtime_telemetry["leader-live"] = {
+                "available": True,
+                "stale": False,
+                "payload": {"connected": True},
+            }
+            response = self.client.get(f"/devices/{paired['id']}/status")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["connected"])
+        self.assertEqual(payload["connection_state"], "connected")
+        self.assertTrue(payload["connection_reported"])
+        self.assertEqual(payload["deployment_lease"]["state"], "running")
+
+    def test_device_status_uses_noninvasive_serial_presence_during_deployment(self):
+        hardware = _HardwareService(status_overrides={
+            "connected": True,
+            "connection_present": True,
+            "connection_reported": True,
+            "connection_source": "device_path",
+            "leased_to_deployment": True,
+            "error": "serial hardware is leased to a Blacknode deployment",
+        })
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            paired = self.client.post("/devices", json={
+                "name": "Follower arm",
+                "base_url": "http://192.168.1.87:8767",
+                "token": hardware.token,
+            }).json()["device"]
+            hardware.runtime_deployments["follower-live"] = {
+                "id": "follower-live",
+                "name": "Follower live",
+                "state": "running",
+                "target_device_id": paired["id"],
+            }
+            response = self.client.get(f"/devices/{paired['id']}/status")
+
+        payload = response.json()
+        self.assertTrue(payload["connected"])
+        self.assertEqual(payload["connection_state"], "connected")
+        self.assertTrue(payload["connection_reported"])
+        self.assertEqual(payload["connection_source"], "device_path")
+        self.assertIn("serial device path is present", payload["notice"])
 
     def test_device_status_reports_running_monitor_without_motion_lease(self):
         hardware = _HardwareService(status_overrides={
@@ -2206,7 +3123,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(payload["source"], "hardware")
         self.assertEqual(payload["payload"]["joints"][0]["position"], 5.0)
 
-    def test_device_status_reports_stopped_deployment_stored_on_runtime(self):
+    def test_device_status_reports_stopped_deployment_as_inactive(self):
         hardware = _HardwareService(status_overrides={
             "connected": True,
             "leased_to_deployment": False,
@@ -2229,13 +3146,19 @@ class EditorDeviceApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
+        self.assertEqual(payload["connection_state"], "connected")
+        self.assertEqual(payload["inactive_deployment"], {
+            "id": "leader-stored",
+            "name": "Leader workflow",
+            "state": "stopped",
+        })
         self.assertEqual(payload["stored_deployment"], {
             "id": "leader-stored",
             "name": "Leader workflow",
             "state": "stopped",
         })
-        self.assertIn("stored on the Runtime", payload["notice"])
-        self.assertIn("can be restarted", payload["notice"])
+        self.assertIn("stopped on the Runtime", payload["notice"])
+        self.assertIn("can be restarted", payload["notice"].lower())
         self.assertNotIn("running_deployment", payload)
 
     def test_repairing_same_url_replaces_token_without_duplicating_device(self):
@@ -3168,7 +4091,8 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         self.assertEqual(hardware_check["status"], "fail")
         self.assertIn("Leader live", hardware_check["message"])
-        self.assertIn("Device checks are paused", hardware_check["message"])
+        self.assertIn("treats the robot as disconnected", hardware_check["message"])
+        self.assertIn("Stop the deployment", hardware_check["message"])
 
     def test_staging_rejects_graph_changed_after_validation(self):
         hardware = _HardwareService()

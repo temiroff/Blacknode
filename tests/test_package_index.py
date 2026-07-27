@@ -89,6 +89,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["ROS2TopicPublisher"]["package"] == "blacknode-ros2"
     assert "ROS2DemoPublisher" not in payload["nodes"]
     assert payload["nodes"]["RobotDiscovery"]["package"] == "blacknode-robot"
+    assert payload["nodes"]["RobotMonitor"]["package"] == "blacknode-robot"
     assert payload["nodes"]["EpisodeRecorder"] == {
         "package": "blacknode-dataset",
         "git_url": "https://github.com/temiroff/blacknode-dataset.git",

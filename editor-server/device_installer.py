@@ -311,7 +311,7 @@ def _load_paramiko():
         import paramiko  # type: ignore
     except ImportError as exc:
         raise DeviceInstallError(
-            "Automatic SSH setup requires Paramiko. Reinstall the editor-server "
+            "Remote SSH setup requires Paramiko. Reinstall the editor-server "
             "requirements, then restart Blacknode."
         ) from exc
     return paramiko
@@ -682,9 +682,17 @@ def install_runtime(
         timeout=15.0,
     )
     clean_action = str(action or "").strip().lower()
-    if clean_action not in {"install", "reuse", "replace", "side_by_side"}:
+    if clean_action not in {
+        "install",
+        "reuse",
+        "replace",
+        "side_by_side",
+        "isolated_stack",
+    }:
         connection.close()
-        raise DeviceInstallError("Choose install, reuse, replace, or side_by_side.")
+        raise DeviceInstallError(
+            "Choose install, reuse, replace, side_by_side, or isolated_stack."
+        )
     started = time.monotonic()
     token = ""
     remote_token_path = ""
@@ -734,6 +742,8 @@ def install_runtime(
                     "runtime_port": runtime_port,
                     "service_name": str(existing.get("service_name") or ""),
                     "runtime_dir": str(existing.get("runtime_dir") or ""),
+                    "stack_mode": "runtime_only",
+                    "hardware_dir": "",
                 }
             remove_old_port = bool(existing.get("service_installed"))
         else:
@@ -775,6 +785,7 @@ if [[ "$instance" == "default" ]]; then
   token_file="$HOME/.blacknode/runtime.auth.token"
   service_name="blacknode-runtime.service"
   service_instance=""
+  hardware_dir="$HOME/blacknode-hardware"
 else
   [[ "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || {
     echo "Invalid Blacknode runtime instance."
@@ -784,9 +795,11 @@ else
   token_file="$HOME/.blacknode/runtimes/$instance.auth.token"
   service_name="blacknode-runtime-$instance.service"
   service_instance="$instance"
+  hardware_dir="$HOME/blacknode-hardware-instances/$instance"
 fi
 active_sibling_services=()
-if [[ "$action" == "side_by_side" ]] && command -v systemctl >/dev/null 2>&1; then
+if [[ "$action" == "side_by_side" || "$action" == "isolated_stack" ]] \
+  && command -v systemctl >/dev/null 2>&1; then
   mapfile -t active_sibling_services < <(
     systemctl list-units --type=service --state=active --no-legend \
       'blacknode-runtime*.service' 'blacknode-hardware*.service' 2>/dev/null \
@@ -795,6 +808,7 @@ if [[ "$action" == "side_by_side" ]] && command -v systemctl >/dev/null 2>&1; th
 fi
 install_complete=false
 cleanup_install=false
+cleanup_hardware=false
 port_guard=""
 port_file=""
 cleanup_failed_install() {
@@ -812,6 +826,9 @@ cleanup_failed_install() {
     sudo systemctl daemon-reload >/dev/null 2>&1 || true
     rm -rf -- "$runtime_dir"
     rm -f -- "$token_file"
+    if [[ "$cleanup_hardware" == true ]]; then
+      rm -rf -- "$hardware_dir"
+    fi
   fi
   exit "$exit_code"
 }
@@ -820,8 +837,17 @@ case "$runtime_dir" in
   "$HOME/blacknode-runtime"|"$HOME/blacknode-runtimes/"*) ;;
   *) echo "Unsafe runtime directory."; exit 2 ;;
 esac
+case "$hardware_dir" in
+  "$HOME/blacknode-hardware"|"$HOME/blacknode-hardware-instances/"*) ;;
+  *) echo "Unsafe Hardware directory."; exit 2 ;;
+esac
 token_dir="$(dirname -- "$token_file")"
 progress 14 "Preparing the selected runtime"
+if [[ "$action" == "isolated_stack" && -e "$hardware_dir" ]]; then
+  echo "The isolated Hardware directory already exists. Preserve or remove it before retrying:"
+  echo "  $hardware_dir"
+  exit 3
+fi
 if [[ "$action" == "replace" ]]; then
   cleanup_install=true
   sudo systemctl stop "$service_name" >/dev/null 2>&1 || true
@@ -933,6 +959,21 @@ if [[ -n "$service_instance" ]]; then
   BLACKNODE_RUNTIME_INSTANCE="$service_instance" ./configure.sh \
     --device-id "$(hostname)-$service_instance"
 fi
+if [[ "$action" == "isolated_stack" ]]; then
+  progress 72 "Creating the isolated Robot Hardware environment"
+  mkdir -p "$(dirname -- "$hardware_dir")"
+  cleanup_hardware=true
+  git clone https://github.com/temiroff/blacknode-hardware.git "$hardware_dir"
+  if ! grep -q 'BLACKNODE_HARDWARE_INSTANCE' "$hardware_dir/install-service.sh" \
+    || ! grep -q 'previous_working_directory' "$hardware_dir/install-service.sh"; then
+    echo "The downloaded Blacknode Hardware release does not support isolated stacks yet."
+    exit 4
+  fi
+  (
+    cd "$hardware_dir"
+    BLACKNODE_HARDWARE_INSTANCE="$service_instance" ./setup_ubuntu.sh
+  )
+fi
 progress 88 "Installing the runtime service"
 kill "$port_guard" >/dev/null 2>&1 || true
 wait "$port_guard" >/dev/null 2>&1 || true
@@ -1025,6 +1066,16 @@ progress 96 "Verifying the runtime service"
                 if selected_instance == "default"
                 else f"~/blacknode-runtimes/{selected_instance}"
             ),
+            "stack_mode": (
+                "isolated"
+                if clean_action == "isolated_stack"
+                else "runtime_only"
+            ),
+            "hardware_dir": (
+                f"~/blacknode-hardware-instances/{selected_instance}"
+                if clean_action == "isolated_stack"
+                else ""
+            ),
         }
     finally:
         if remote_script_path or remote_token_path:
@@ -1051,6 +1102,7 @@ def update_managed_services(
     hardware_ports: list[int],
     hardware_device_ids: dict[int, str] | None = None,
     include_runtime: bool = True,
+    stack_mode: str = "runtime_only",
     progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Fast-forward and restart selected managed Runtime and Hardware services."""
@@ -1063,6 +1115,9 @@ def update_managed_services(
             })
 
     selected_instance = _clean_instance_id(instance_id or "default")
+    selected_stack_mode = str(stack_mode or "runtime_only").strip().lower()
+    if selected_stack_mode not in {"runtime_only", "isolated"}:
+        raise DeviceInstallError("The managed stack mode is invalid.")
     selected_runtime_port = int(runtime_port)
     if selected_runtime_port < 1 or selected_runtime_port > 65535:
         raise DeviceInstallError("The managed runtime port is invalid.")
@@ -1103,6 +1158,7 @@ include_runtime="$1"
 instance="$2"
 runtime_port="$3"
 hardware_targets_payload="$4"
+stack_mode="$5"
 hardware_ports=()
 hardware_device_ids=()
 while IFS=$'\t' read -r target_port target_device_id; do
@@ -1130,6 +1186,11 @@ else
   }
   runtime_dir="$HOME/blacknode-runtimes/$instance"
   runtime_service="blacknode-runtime-$instance.service"
+fi
+if [[ "$stack_mode" == "isolated" ]]; then
+  hardware_repo="$HOME/blacknode-hardware-instances/$instance"
+else
+  hardware_repo="$HOME/blacknode-hardware"
 fi
 
 package_version() {
@@ -1290,7 +1351,6 @@ stop_verified_manual_hardware() {
 }
 
 install_persistent_hardware_services() {
-  local hardware_repo="$HOME/blacknode-hardware"
   [[ -x "$hardware_repo/install-service.sh" ]] || {
     echo "Repair Hardware requires $hardware_repo/install-service.sh." >&2
     return 1
@@ -1570,6 +1630,7 @@ progress 96 "Managed services updated"
             selected_instance,
             str(selected_runtime_port),
             targets_payload,
+            selected_stack_mode,
         ])
         output = _run(
             connection,
@@ -2056,11 +2117,15 @@ def restart_hardware_service(
     password: str,
     host_fingerprint: str,
     hardware_port: int,
+    action: str = "restart",
 ) -> dict[str, Any]:
-    """Restart exactly one Blacknode hardware unit resolved by its HTTP port."""
+    """Control exactly one Blacknode hardware unit resolved by its HTTP port."""
     selected_port = int(hardware_port)
     if selected_port < 1 or selected_port > 65535:
         raise DeviceInstallError("The robot hardware port is invalid.")
+    clean_action = str(action or "").strip().lower()
+    if clean_action not in {"start", "stop", "restart"}:
+        raise DeviceInstallError("Hardware service action must be start, stop, or restart.")
     connection = _connect(
         host,
         port,
@@ -2069,12 +2134,17 @@ def restart_hardware_service(
         expected_fingerprint=host_fingerprint,
         timeout=15.0,
     )
-    remote_script_path = f"/tmp/blacknode-hardware-restart-{secrets.token_hex(8)}.sh"
+    remote_script_path = f"/tmp/blacknode-hardware-control-{secrets.token_hex(8)}.sh"
     script = r"""#!/usr/bin/env bash
 set -euo pipefail
 hardware_port="$1"
+action="$2"
 [[ "$hardware_port" =~ ^[0-9]{1,5}$ ]] || {
   echo "Invalid robot hardware port."
+  exit 2
+}
+[[ "$action" =~ ^(start|stop|restart)$ ]] || {
+  echo "Invalid robot hardware service action."
   exit 2
 }
 mapfile -t candidate_units < <(
@@ -2128,16 +2198,18 @@ else
   echo "Could not choose the hardware service for port $hardware_port. Candidates: ${matches[*]}. Enabled: ${enabled_matches[*]:-none}."
   exit 4
 fi
-sudo -S -p '' systemctl restart "$service_name"
+sudo -S -p '' systemctl "$action" "$service_name"
+expected_state="active"
+[[ "$action" == "stop" ]] && expected_state="inactive"
 state=""
 for _attempt in {1..40}; do
   state="$(systemctl is-active "$service_name" 2>/dev/null || true)"
-  [[ "$state" == "active" ]] && break
+  [[ "$state" == "$expected_state" ]] && break
   sleep 0.25
 done
 echo "__BLACKNODE_HARDWARE_SERVICE__=$service_name"
 echo "__BLACKNODE_HARDWARE_STATE__=$state"
-[[ "$state" == "active" ]]
+[[ "$state" == "$expected_state" ]]
 """
     try:
         sftp = connection.client.open_sftp()
@@ -2149,7 +2221,7 @@ echo "__BLACKNODE_HARDWARE_STATE__=$state"
             sftp.close()
         output = _run(
             connection,
-            f"bash {remote_script_path} {selected_port}",
+            f"bash {remote_script_path} {selected_port} {clean_action}",
             stdin_text=_sudo_input(password),
             timeout=60.0,
         )
@@ -2165,17 +2237,19 @@ echo "__BLACKNODE_HARDWARE_STATE__=$state"
         )
         if not service_match or not state_match:
             raise DeviceInstallError(
-                "The device did not confirm which robot service was restarted."
+                "The device did not confirm which robot service was controlled."
             )
         state = state_match.group(1)
-        if state != "active":
+        expected_state = "inactive" if clean_action == "stop" else "active"
+        if state != expected_state:
             raise DeviceInstallError(
-                f"{service_match.group(1)} did not return to the active state."
+                f"{service_match.group(1)} did not enter the {expected_state} state."
             )
         return {
             "ok": True,
             "hardware_port": selected_port,
             "service_name": service_match.group(1),
+            "action": clean_action,
             "state": state,
         }
     finally:
@@ -2195,8 +2269,23 @@ def uninstall_runtime(
     host_fingerprint: str,
     instance_id: str,
     runtime_port: int,
+    stack_mode: str = "runtime_only",
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
+    def report(percent: int, message: str) -> None:
+        if progress is not None:
+            progress({
+                "progress": max(0, min(100, int(percent))),
+                "message": str(message),
+            })
+
+    report(2, "Connecting securely")
     selected_instance = _clean_instance_id(instance_id or "default")
+    selected_stack_mode = str(stack_mode or "runtime_only").strip().lower()
+    if selected_stack_mode not in {"runtime_only", "isolated"}:
+        raise DeviceInstallError("The managed stack mode is invalid.")
+    if selected_stack_mode == "isolated" and selected_instance == "default":
+        raise DeviceInstallError("The default Runtime cannot own an isolated stack.")
     selected_port = int(runtime_port)
     if selected_port < 1 or selected_port > 65535:
         raise DeviceInstallError("The managed runtime port is invalid.")
@@ -2211,8 +2300,12 @@ def uninstall_runtime(
     remote_script_path = f"/tmp/blacknode-runtime-uninstall-{secrets.token_hex(8)}.sh"
     script = """#!/usr/bin/env bash
 set -euo pipefail
+progress() {
+  echo "__BLACKNODE_UNINSTALL_PROGRESS__=$1|$2"
+}
 instance="$1"
 runtime_port="$2"
+stack_mode="$3"
 if [[ "$instance" == "default" ]]; then
   runtime_dir="$HOME/blacknode-runtime"
   token_file="$HOME/.blacknode/runtime.auth.token"
@@ -2223,22 +2316,67 @@ else
   token_file="$HOME/.blacknode/runtimes/$instance.auth.token"
   service_name="blacknode-runtime-$instance.service"
 fi
+hardware_dir="$HOME/blacknode-hardware-instances/$instance"
 case "$runtime_dir" in
   "$HOME/blacknode-runtime"|"$HOME/blacknode-runtimes/"*) ;;
   *) echo "Unsafe runtime directory."; exit 2 ;;
 esac
+progress 20 "Stopping Runtime service"
 sudo systemctl stop "$service_name" >/dev/null 2>&1 || true
 sudo systemctl disable "$service_name" >/dev/null 2>&1 || true
+progress 35 "Removing Runtime service"
 sudo rm -f -- "/etc/systemd/system/$service_name"
 sudo systemctl daemon-reload
+if [[ "$stack_mode" == "isolated" ]]; then
+  case "$hardware_dir" in
+    "$HOME/blacknode-hardware-instances/"*) ;;
+    *) echo "Unsafe Hardware directory."; exit 2 ;;
+  esac
+  progress 48 "Finding isolated Robot Hardware services"
+  mapfile -t hardware_units < <(
+    {
+      systemctl list-unit-files 'blacknode-hardware*.service' --no-legend 2>/dev/null
+      systemctl list-units --all --type=service 'blacknode-hardware*.service' \
+        --no-legend 2>/dev/null
+    } | awk '{print $1}' | sort -u
+  )
+  for hardware_unit in "${hardware_units[@]}"; do
+    [[ "$hardware_unit" =~ ^blacknode-hardware([-.@][A-Za-z0-9_.@-]+)?\\.service$ ]] \
+      || continue
+    working_directory="$(
+      systemctl show "$hardware_unit" --property=WorkingDirectory --value 2>/dev/null || true
+    )"
+    [[ "$working_directory" == "$hardware_dir" ]] || continue
+    progress 60 "Stopping isolated Robot Hardware services"
+    hardware_port="$(
+      systemctl cat "$hardware_unit" 2>/dev/null \
+        | sed -nE 's/.*--port[= ]"?([0-9]+).*/\\1/p' \
+        | tail -n 1
+    )"
+    sudo systemctl stop "$hardware_unit" >/dev/null 2>&1 || true
+    sudo systemctl disable "$hardware_unit" >/dev/null 2>&1 || true
+    sudo rm -f -- "/etc/systemd/system/$hardware_unit"
+    if [[ "$hardware_port" =~ ^[0-9]+$ ]] \
+      && command -v ufw >/dev/null 2>&1 \
+      && sudo ufw status 2>/dev/null | grep -qi '^Status: active'; then
+      sudo ufw --force delete allow "$hardware_port/tcp" >/dev/null 2>&1 || true
+    fi
+  done
+  progress 74 "Removing isolated Robot Hardware files"
+  sudo systemctl daemon-reload
+  rm -rf -- "$hardware_dir"
+fi
+progress 84 "Removing Runtime files and firewall rule"
 if command -v ufw >/dev/null 2>&1 \
   && sudo ufw status 2>/dev/null | grep -qi '^Status: active'; then
   sudo ufw --force delete allow "$runtime_port/tcp" >/dev/null 2>&1 || true
 fi
 rm -rf -- "$runtime_dir"
 rm -f -- "$token_file"
+progress 94 "Finalizing uninstall"
 """
     try:
+        report(10, "Inspecting the managed stack")
         inspection = _inspect_connection(connection)
         existing = _find_instance(inspection, selected_instance)
         if existing:
@@ -2255,14 +2393,24 @@ rm -f -- "$token_file"
             sftp.chmod(remote_script_path, 0o700)
         finally:
             sftp.close()
+
+        def remote_output(line: str) -> None:
+            match = re.match(
+                r"^__BLACKNODE_UNINSTALL_PROGRESS__=(\d{1,3})\|(.*)$",
+                line.strip(),
+            )
+            if match:
+                report(int(match.group(1)), match.group(2).strip())
+
         _run(
             connection,
             (
                 f"sudo -S -p '' -v && bash {remote_script_path} "
-                f"{selected_instance} {selected_port}"
+                f"{selected_instance} {selected_port} {selected_stack_mode}"
             ),
             stdin_text=password + "\n",
             timeout=120.0,
+            on_output=remote_output,
         )
         return {
             "ok": True,
@@ -2270,6 +2418,7 @@ rm -f -- "$token_file"
             "instance_id": selected_instance,
             "runtime_port": selected_port,
             "already_absent": not bool(existing),
+            "stack_mode": selected_stack_mode,
         }
     finally:
         try:

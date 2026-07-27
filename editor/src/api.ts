@@ -118,14 +118,29 @@ export interface ComputeDevice {
   updated_at: string
   robots: HardwareDevice[]
   managed_runtime?: {
-    ssh_host: string
-    ssh_port: number
-    ssh_username: string
-    host_fingerprint: string
+    management_mode?: 'ssh' | 'local'
+    ssh_host?: string
+    ssh_port?: number
+    ssh_username?: string
+    host_fingerprint?: string
     instance_id: string
     runtime_port: number
     service_name: string
     runtime_dir: string
+    stack_mode?: 'runtime_only' | 'isolated'
+    hardware_dir?: string
+    hardware_port?: number
+    hardware_service_name?: string
+    hardware_state?: 'awaiting_device' | 'configured' | 'running' | 'stopped'
+    hardware_configured?: boolean
+    hardware_pid_file?: string
+    hardware_token_file?: string
+    hardware_log_path?: string
+    hardware_owned_install?: boolean
+    config_path?: string
+    pid_file?: string
+    log_path?: string
+    owned_install?: boolean
   }
 }
 
@@ -204,6 +219,9 @@ export interface SshRuntimeInspection {
 export interface DeviceRuntimeStatus {
   ok: boolean
   paused?: boolean
+  state?: 'running' | 'stopped' | 'unreachable' | 'unavailable' | string
+  installed?: boolean
+  installed_version?: string
   runtime_url: string
   manifest?: {
     service?: string
@@ -211,6 +229,16 @@ export interface DeviceRuntimeStatus {
     runtime_version?: string
     device_id?: string
     [key: string]: unknown
+  }
+  hardware?: {
+    ok: boolean
+    service_url: string
+    service_name: string
+    state: 'awaiting_device' | 'configured' | string
+    installed?: boolean
+    installed_version?: string
+    status?: HardwareDeviceStatus
+    error?: string
   }
   error?: string
 }
@@ -221,6 +249,10 @@ export interface HardwareDeviceStatus {
   software_version_cached?: boolean
   service_features?: string[]
   connected: boolean
+  connection_state?: 'connected' | 'disconnected'
+  connection_reported?: boolean
+  connection_present?: boolean
+  connection_source?: 'device_path' | 'deployment_telemetry' | string
   armed: boolean
   torque_enabled?: boolean
   torque_report_error?: string
@@ -254,6 +286,11 @@ export interface HardwareDeviceStatus {
     state: string
   }
   stored_deployment?: {
+    id: string
+    name: string
+    state: string
+  }
+  inactive_deployment?: {
     id: string
     name: string
     state: string
@@ -350,7 +387,7 @@ export interface ManagedServiceUpdateResult {
   device: ComputeDevice
   update: {
     ok: boolean
-    host_fingerprint: string
+    host_fingerprint?: string
     components: Array<{
       kind: 'runtime' | 'hardware'
       service_name: string
@@ -396,6 +433,7 @@ export interface ManagedServiceUpdateCheckResult {
       dirty: boolean
       state: string
       error: string
+      environment_installed?: boolean
     }>
   }
   warnings: string[]
@@ -420,13 +458,20 @@ export interface InstallComputeDeviceResult {
   runtime: DeviceRuntimeStatus
   install: {
     ok: boolean
-    host_fingerprint: string
+    host_fingerprint?: string
     elapsed_seconds: number
-    action: string
+    action?: string
     instance_id: string
     runtime_port: number
     service_name: string
     runtime_dir: string
+    stack_mode?: 'runtime_only' | 'isolated'
+    hardware_dir?: string
+    management_mode?: 'ssh' | 'local'
+    config_path?: string
+    pid_file?: string
+    log_path?: string
+    owned_install?: boolean
   }
 }
 
@@ -1040,8 +1085,12 @@ export const api = {
     req('PATCH', `/nodes/${id}/params`, { key, value }, 10000),
   controlNode:(id: string, action: string) =>
     req<{ ok: boolean; node_id: string; outputs: Record<string, unknown> }>('POST', `/nodes/${id}/control`, { action }),
-  pickDirectory:(initialPath = '') =>
-    req<{ selected: string; cancelled: boolean }>('POST', '/filesystem/pick-directory', { initial_path: initialPath }),
+  pickDirectory:(initialPath = '', title = '') =>
+    req<{ selected: string; cancelled: boolean }>(
+      'POST',
+      '/filesystem/pick-directory',
+      { initial_path: initialPath, title },
+    ),
   datasetFrame:(token: string, index: number) =>
     req<Record<string, unknown>>('GET', `/dataset/frame/${encodeURIComponent(token)}?index=${Math.max(0, Math.floor(index))}`),
   trimDatasetEpisode:(token: string, frameIndex: number, side: 'before' | 'after') =>
@@ -1107,6 +1156,18 @@ export const api = {
       { name, runtime_url: runtimeUrl, runtime_token: runtimeToken },
       10000,
     ),
+  localComputeDeviceInstallDefaults: () =>
+    req<{ install_dir: string }>('GET', '/device-hosts/local-install-defaults'),
+  installLocalComputeDevice: (
+    name: string,
+    installDir: string,
+    onProgress: (progress: DeviceInstallProgress) => void = () => {},
+  ) =>
+    streamDeviceAction<InstallComputeDeviceResult>(
+      '/device-hosts/local-install-stream',
+      { name, install_dir: installDir },
+      onProgress,
+    ),
   probeComputeDeviceSsh: (
     host: string,
     port: number,
@@ -1168,7 +1229,7 @@ export const api = {
     username: string,
     password: string,
     hostFingerprint: string,
-    action: 'install' | 'reuse' | 'replace' | 'side_by_side',
+    action: 'install' | 'reuse' | 'replace' | 'side_by_side' | 'isolated_stack',
     instanceId: string,
     onProgress: (progress: DeviceInstallProgress) => void = () => {},
   ) =>
@@ -1214,12 +1275,20 @@ export const api = {
       'DELETE',
       `/device-hosts/${encodeURIComponent(id)}`,
     ),
-  uninstallComputeDevice: (id: string, password: string) =>
-    req<{ ok: boolean; id: string; uninstall: { instance_id: string; runtime_port: number } }>(
-      'POST',
-      `/device-hosts/${encodeURIComponent(id)}/uninstall`,
+  uninstallComputeDevice: (
+    id: string,
+    password: string,
+    onProgress: (progress: DeviceActionProgress) => void,
+  ) =>
+    streamDeviceAction<{
+      ok: boolean
+      id: string
+      uninstall: { instance_id: string; runtime_port: number }
+      summary: string
+    }>(
+      `/device-hosts/${encodeURIComponent(id)}/uninstall-stream`,
       { password },
-      180000,
+      onProgress,
     ),
   controlComputeDevice: (
     id: string,
@@ -1236,11 +1305,48 @@ export const api = {
     id: string,
     password: string,
     scope: 'all' | 'runtime' | 'hardware',
+    operation: 'auto' | 'update' | 'reinstall',
     onProgress: (progress: DeviceActionProgress) => void,
   ) =>
     streamDeviceAction<ManagedServiceUpdateResult>(
       `/device-hosts/${encodeURIComponent(id)}/update-stream`,
-      { password, scope },
+      { password, scope, operation },
+      onProgress,
+    ),
+  manageLocalPackage: (
+    id: string,
+    kind: 'runtime' | 'hardware',
+    action: 'run' | 'stop' | 'restart' | 'delete',
+    onProgress: (progress: DeviceActionProgress) => void,
+  ) =>
+    streamDeviceAction<{
+      ok: boolean
+      kind: 'runtime' | 'hardware'
+      action: 'run' | 'stop' | 'restart' | 'delete'
+      package: Record<string, unknown>
+      runtime: DeviceRuntimeStatus
+    }>(
+      `/device-hosts/${encodeURIComponent(id)}/local-packages/${kind}/action-stream`,
+      { action },
+      onProgress,
+    ),
+  manageRemoteHardwarePackage: (
+    id: string,
+    action: 'run' | 'stop' | 'restart',
+    password: string,
+    onProgress: (progress: DeviceActionProgress) => void,
+  ) =>
+    streamDeviceAction<{
+      ok: boolean
+      action: 'run' | 'stop' | 'restart'
+      state: 'running' | 'stopped'
+      services: Array<Record<string, unknown>>
+      device: ComputeDevice
+      warnings: string[]
+      summary: string
+    }>(
+      `/device-hosts/${encodeURIComponent(id)}/hardware-package/action-stream`,
+      { action, password },
       onProgress,
     ),
   checkComputeDeviceUpdates: (

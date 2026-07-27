@@ -228,6 +228,12 @@ export default function NodePalette() {
   })
 
   useEffect(() => {
+    const handleClosePanel = () => setActiveTab(null)
+    window.addEventListener('blacknode:close-panel', handleClosePanel)
+    return () => window.removeEventListener('blacknode:close-panel', handleClosePanel)
+  }, [])
+
+  useEffect(() => {
     const handleViewportResize = () => {
       setPanelWidth(width => clampPanelWidth(width))
     }

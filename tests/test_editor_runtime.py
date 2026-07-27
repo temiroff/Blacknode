@@ -288,7 +288,7 @@ class EditorRuntimeTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"selected": r"E:\RobotData", "cancelled": False})
-        picker.assert_called_once_with(r"C:\Users\robot")
+        picker.assert_called_once_with(r"C:\Users\robot", "")
 
     def test_dataset_frame_endpoint_returns_synchronized_robot_values(self):
         frame = {
