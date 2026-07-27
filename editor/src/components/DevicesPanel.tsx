@@ -9,6 +9,7 @@ import {
   type HardwareDeviceStatus,
   type ManagedServiceUpdateCheckResult,
   type ManagedServiceUpdateResult,
+  type RemoteRos2Diagnostics,
   type SshDeviceProbe,
   type SshRuntimeInspection,
 } from '../api'
@@ -25,6 +26,17 @@ type DeviceState = {
   runtime?: DeviceRuntimeStatus
   loading?: boolean
   checkedAt?: number
+}
+
+type RosHealthState = 'checking' | 'healthy' | 'warning' | 'error' | 'unavailable'
+
+type RosHealth = {
+  state: RosHealthState
+  checking?: boolean
+  summary: string
+  issues: string[]
+  checkedAt?: number
+  diagnostics?: RemoteRos2Diagnostics
 }
 
 type ServiceCheckState =
@@ -130,12 +142,200 @@ function formatVersion(value?: string): string {
   return version && version !== 'unknown' ? `v${version}` : 'version unavailable'
 }
 
+function rosEndpointCount(stdout: string, label: 'Publisher' | 'Subscription'): number | null {
+  const match = stdout.match(new RegExp(`${label} count:\\s*(\\d+)`, 'i'))
+  return match ? Number(match[1]) : null
+}
+
+function rosTopicName(topic: string): string {
+  return topic.replace(/\s+\[[^\]]+\]\s*$/, '').trim()
+}
+
+function rosTopicType(topic: string): string {
+  return topic.match(/\[([^\]]+)\]\s*$/)?.[1] ?? 'type unavailable'
+}
+
+function rosTopicEndpointSummary(
+  detail: RemoteRos2Diagnostics['topic_details'][number] | undefined,
+): string {
+  if (!detail) return 'endpoint counts not sampled'
+  if (!detail.ok) return detail.error || detail.stderr || 'endpoint inspection failed'
+  const publishers = rosEndpointCount(detail.stdout || '', 'Publisher')
+  const subscribers = rosEndpointCount(detail.stdout || '', 'Subscription')
+  if (publishers === null && subscribers === null) return 'endpoint counts unavailable'
+  return `${publishers ?? '?'} publisher${publishers === 1 ? '' : 's'} · ${
+    subscribers ?? '?'
+  } subscriber${subscribers === 1 ? '' : 's'}`
+}
+
+function rosTopicDetail(
+  diagnostics: RemoteRos2Diagnostics,
+  topic: string,
+): RemoteRos2Diagnostics['topic_details'][number] | undefined {
+  return diagnostics.topic_details.find(detail => detail.topic === topic)
+}
+
+function rosPathCounts(
+  diagnostics: RemoteRos2Diagnostics,
+  topic: string,
+): { publishers: number | null; subscribers: number | null } {
+  const detail = rosTopicDetail(diagnostics, topic)
+  if (!detail?.ok) return { publishers: null, subscribers: null }
+  return {
+    publishers: rosEndpointCount(detail.stdout || '', 'Publisher'),
+    subscribers: rosEndpointCount(detail.stdout || '', 'Subscription'),
+  }
+}
+
+function rosNameCounts(names: string[]): Array<[string, number]> {
+  const counts = new Map<string, number>()
+  names.forEach(name => counts.set(name, (counts.get(name) ?? 0) + 1))
+  return [...counts.entries()].sort(([left], [right]) => left.localeCompare(right))
+}
+
+function RosRobotPathCard({
+  diagnostics,
+  role,
+}: {
+  diagnostics: RemoteRos2Diagnostics
+  role: 'leader' | 'follower'
+}) {
+  const states = rosPathCounts(diagnostics, `/${role}/joint_states`)
+  const commands = rosPathCounts(diagnostics, `/${role}/joint_commands`)
+  const requiredCounts = role === 'leader'
+    ? [states.publishers, states.subscribers]
+    : [
+        states.publishers,
+        states.subscribers,
+        commands.publishers,
+        commands.subscribers,
+      ]
+  const countsAvailable = requiredCounts.every(value => value !== null)
+  const ready = countsAvailable
+    && (states.publishers ?? 0) > 0
+    && (states.subscribers ?? 0) > 0
+    && (
+      role === 'leader'
+      || (
+        (commands.publishers ?? 0) > 0
+        && (commands.subscribers ?? 0) > 0
+      )
+    )
+
+  return (
+    <div className={`bn-ros-robot-path${ready ? ' is-ready' : countsAvailable ? ' is-attention' : ''}`}>
+      <div>
+        <strong>{role === 'leader' ? 'Leader' : 'Follower'}</strong>
+        <span>{ready ? 'Connected' : countsAvailable ? 'Missing endpoint' : 'Checking endpoints'}</span>
+      </div>
+      <dl>
+        <div>
+          <dt>Position feedback</dt>
+          <dd>
+            {states.publishers ?? '?'} hardware source → {states.subscribers ?? '?'} workflow listener
+          </dd>
+        </div>
+        <div>
+          <dt>{role === 'leader' ? 'Motion commands' : 'Joint commands'}</dt>
+          <dd>
+            {role === 'leader'
+              ? 'Read-only by design'
+              : `${commands.publishers ?? '?'} workflow source → ${
+                  commands.subscribers ?? '?'
+                } hardware listener`}
+          </dd>
+        </div>
+      </dl>
+    </div>
+  )
+}
+
+function summarizeRosHealth(
+  diagnostics: RemoteRos2Diagnostics,
+  expectController: boolean,
+): RosHealth {
+  if (!diagnostics.available) {
+    return {
+      state: 'unavailable',
+      summary: diagnostics.summary || 'ROS 2 is unavailable.',
+      issues: diagnostics.warnings ?? [],
+      checking: false,
+      checkedAt: Date.now(),
+      diagnostics,
+    }
+  }
+
+  const issues = [...(diagnostics.warnings ?? [])]
+  const robotTopics = (diagnostics.topics ?? []).filter(topic => (
+    topic.startsWith('/leader/')
+    || topic.startsWith('/follower/')
+    || topic.startsWith('/blacknode/leader_follower/')
+  ))
+  if (expectController && robotTopics.length === 0) {
+    issues.push('No leader/follower ROS 2 topics are visible to the running deployment.')
+  }
+  if (expectController) {
+    for (const detail of diagnostics.topic_details ?? []) {
+      const publishers = rosEndpointCount(detail.stdout || '', 'Publisher')
+      const subscribers = rosEndpointCount(detail.stdout || '', 'Subscription')
+      if (detail.topic.endsWith('/joint_states') && publishers === 0) {
+        issues.push(`${detail.topic} has no publisher.`)
+      }
+      if (detail.topic.endsWith('/joint_states') && subscribers === 0) {
+        issues.push(`${detail.topic} is not reaching the controller.`)
+      }
+      if (
+        detail.topic === '/follower/joint_commands'
+        && (publishers === 0 || subscribers === 0)
+      ) {
+        issues.push('/follower/joint_commands is missing its controller or driver endpoint.')
+      }
+      if (
+        detail.topic.startsWith('/blacknode/leader_follower/')
+        && subscribers === 0
+      ) {
+        issues.push(`${detail.topic} has no armed-state listener.`)
+      }
+    }
+  }
+
+  const uniqueIssues = [...new Set(issues)]
+  const state: RosHealthState = !diagnostics.ok || (
+    expectController
+    && uniqueIssues.some(issue => (
+      issue.includes('No leader/follower')
+      || issue.includes('no publisher')
+      || issue.includes('not reaching')
+      || issue.includes('missing its controller')
+      || issue.includes('no armed-state listener')
+    ))
+  )
+    ? 'error'
+    : uniqueIssues.length
+      ? 'warning'
+      : 'healthy'
+  return {
+    state,
+    checking: false,
+    summary: state === 'healthy'
+      ? 'ROS 2 graph healthy'
+      : state === 'warning'
+        ? 'ROS 2 is running with warnings'
+        : 'ROS 2 needs attention',
+    issues: uniqueIssues,
+    checkedAt: Date.now(),
+    diagnostics,
+  }
+}
+
 export default function DevicesPanel() {
   const activeProject = useStore(state => state.activeProject)
   const setActiveProject = useStore(state => state.setActiveProject)
+  const openGraphAsTab = useStore(state => state.openGraphAsTab)
   const [devices, setDevices] = useState<ComputeDevice[]>([])
   const [deviceStates, setDeviceStates] = useState<Record<string, DeviceState>>({})
   const [robotStates, setRobotStates] = useState<Record<string, RobotState>>({})
+  const [rosHealthByDevice, setRosHealthByDevice] = useState<Record<string, RosHealth>>({})
   const [knownHardwareVersions, setKnownHardwareVersions] = useState<Record<string, string>>({})
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [showDeviceForm, setShowDeviceForm] = useState(false)
@@ -157,6 +357,10 @@ export default function DevicesPanel() {
   const [showRuntimeControl, setShowRuntimeControl] = useState(false)
   const [runtimeControlPassword, setRuntimeControlPassword] = useState('')
   const [showUpdateForm, setShowUpdateForm] = useState(false)
+  const [showSoftwareDetails, setShowSoftwareDetails] = useState(false)
+  const [showServiceDetails, setShowServiceDetails] = useState(false)
+  const [showRosDetails, setShowRosDetails] = useState(false)
+  const [showDeviceManagement, setShowDeviceManagement] = useState(false)
   const [updatePassword, setUpdatePassword] = useState('')
   const [updateCheckReport, setUpdateCheckReport] = useState<ManagedServiceUpdateCheckResult | null>(null)
   const [updateReport, setUpdateReport] = useState<ManagedServiceUpdateResult | null>(null)
@@ -177,8 +381,12 @@ export default function DevicesPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [linkedProjectName, setLinkedProjectName] = useState('')
+  const rosChecksInFlight = useRef(new Set<string>())
 
   const selectedDevice = devices.find(device => device.id === selectedDeviceId) ?? null
+  const selectedRosHealth = selectedDevice
+    ? rosHealthByDevice[selectedDevice.id]
+    : undefined
   const selectedDeviceIsLocal = Boolean(
     selectedDevice && isLocalRuntimeUrl(selectedDevice.runtime_url),
   )
@@ -505,6 +713,7 @@ export default function DevicesPanel() {
         ...previous,
         [robot.id]: { status, loading: false, checkedAt: Date.now() },
       }))
+      return status
     } catch (reason) {
       setRobotStates(previous => ({
         ...previous,
@@ -514,6 +723,49 @@ export default function DevicesPanel() {
           error: reason instanceof Error ? reason.message : String(reason),
         },
       }))
+      return undefined
+    }
+  }
+
+  const checkRosHealth = async (
+    device: ComputeDevice,
+    expectController = device.robots.some(robot => Boolean(
+      robotStates[robot.id]?.status?.deployment_lease
+      || robotStates[robot.id]?.status?.running_deployment,
+    )),
+  ) => {
+    if (device.robots.length === 0 || rosChecksInFlight.current.has(device.id)) return
+    rosChecksInFlight.current.add(device.id)
+    setRosHealthByDevice(previous => ({
+      ...previous,
+      [device.id]: {
+        ...previous[device.id],
+        state: previous[device.id]?.state ?? 'checking',
+        checking: true,
+        summary: previous[device.id]?.summary ?? 'Checking ROS 2 graph…',
+        issues: previous[device.id]?.issues ?? [],
+      },
+    }))
+    try {
+      const diagnostics = await api.remoteRos2Diagnostics(device.robots[0].id)
+      setRosHealthByDevice(previous => ({
+        ...previous,
+        [device.id]: summarizeRosHealth(diagnostics, expectController),
+      }))
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setRosHealthByDevice(previous => ({
+        ...previous,
+        [device.id]: {
+          state: 'error',
+          checking: false,
+          summary: 'ROS 2 diagnostics failed',
+          issues: [message],
+          checkedAt: Date.now(),
+        },
+      }))
+    } finally {
+      rosChecksInFlight.current.delete(device.id)
     }
   }
 
@@ -554,10 +806,16 @@ export default function DevicesPanel() {
           ? current
           : null
       ))
-      await Promise.all([
-        ...result.devices.map(refreshDevice),
-        ...result.devices.flatMap(device => device.robots.map(refreshRobot)),
-      ])
+      await Promise.all(result.devices.map(async device => {
+        const [, statuses] = await Promise.all([
+          refreshDevice(device),
+          Promise.all(device.robots.map(refreshRobot)),
+        ])
+        const expectController = statuses.some(status => Boolean(
+          status?.deployment_lease || status?.running_deployment,
+        ))
+        await checkRosHealth(device, expectController)
+      }))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     }
@@ -566,6 +824,14 @@ export default function DevicesPanel() {
   useEffect(() => {
     void refresh()
   }, [])
+
+  useEffect(() => {
+    if (!selectedDevice || selectedDevice.robots.length === 0) return
+    const timer = window.setInterval(() => {
+      void checkRosHealth(selectedDevice)
+    }, 30000)
+    return () => window.clearInterval(timer)
+  }, [selectedDeviceId])
 
   useEffect(() => {
     if (!showDeviceForm || setupMode !== 'local' || localInstallDir) return
@@ -927,10 +1193,13 @@ export default function DevicesPanel() {
     setBusy(true)
     setError(null)
     try {
-      await Promise.all([
+      const [, statuses] = await Promise.all([
         refreshDevice(device),
-        ...device.robots.map(refreshRobot),
+        Promise.all(device.robots.map(refreshRobot)),
       ])
+      await checkRosHealth(device, statuses.some(status => Boolean(
+        status?.deployment_lease || status?.running_deployment,
+      )))
     } finally {
       setBusy(false)
     }
@@ -1579,6 +1848,50 @@ export default function DevicesPanel() {
     }
   }
 
+  const openDeployedGraph = async (
+    robot: HardwareDevice,
+    deploymentId: string,
+    deploymentName: string,
+  ) => {
+    setBusy(true)
+    setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [robot.id]: {
+        progress: 25,
+        message: `Loading deployed graph for "${deploymentName}"`,
+      },
+    }))
+    try {
+      const captured = await api.remoteDeploymentWorkflow(robot.id, deploymentId)
+      const workflow = captured.workflow
+      await openGraphAsTab(
+        `${workflow.name || deploymentName} · deployed ${captured.revision.slice(0, 8)}`,
+        {
+          nodes: Object.values(workflow.node_meta ?? {}),
+          edges: workflow.edges ?? [],
+          metadata: workflow.metadata ?? {},
+        },
+      )
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: {
+          progress: 100,
+          message: `Opened deployed revision ${captured.revision.slice(0, 8)}`,
+        },
+      }))
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: { progress: 0, message },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const releaseRobotTorque = async (robot: HardwareDevice) => {
     if (!window.confirm(
       `Release physical holding torque on "${robot.name}"? Support the robot first: its joints may move or drop as soon as torque is disabled.`,
@@ -2171,6 +2484,10 @@ export default function DevicesPanel() {
                   setSelectedDeviceId(device.id)
                   setUpdateCheckReport(null)
                   setUpdateReport(null)
+                  setShowSoftwareDetails(false)
+                  setShowServiceDetails(false)
+                  setShowRosDetails(false)
+                  setShowDeviceManagement(false)
                   setShowDeviceForm(false)
                   setShowRobotForm(false)
                   setShowSshManagement(false)
@@ -2198,6 +2515,10 @@ export default function DevicesPanel() {
                 setUninstallPassword('')
                 setRuntimeControlPassword('')
                 setUpdatePassword('')
+                setShowSoftwareDetails(false)
+                setShowServiceDetails(false)
+                setShowRosDetails(false)
+                setShowDeviceManagement(false)
                 setShowSshManagement(false)
                 setManagementPassword('')
                 setManagementProbe(null)
@@ -2224,21 +2545,23 @@ export default function DevicesPanel() {
             </div>
             <div className="bn-run-detail-actions bn-device-header-actions">
               <button
-                onClick={() => void checkDevice(selectedDevice)}
-                disabled={busy || selectedDeviceChecking}
-                className={`bn-device-action-button bn-runtime-check-button${selectedDeviceChecking ? ' is-checking' : ''}`}
-                title="Check the runtime and every attached robot hardware service"
-              >
-                {selectedDeviceChecking ? 'Checking device…' : 'Check device'}
-              </button>
-              <button
-                onClick={() => renameDevice(selectedDevice)}
+                onClick={() => setShowDeviceManagement(current => !current)}
                 disabled={busy}
-                className="bn-device-action-button"
+                className={`bn-device-action-button${showDeviceManagement ? ' is-primary' : ''}`}
+                aria-expanded={showDeviceManagement}
               >
-                Rename
+                {showDeviceManagement ? 'Close device settings' : 'Manage device'}
               </button>
-              {!selectedDevice.managed_runtime && !selectedDeviceIsLocal && (
+              {showDeviceManagement && (
+                <>
+                  <button
+                    onClick={() => renameDevice(selectedDevice)}
+                    disabled={busy}
+                    className="bn-device-action-button"
+                  >
+                    Rename
+                  </button>
+                  {!selectedDevice.managed_runtime && !selectedDeviceIsLocal && (
                 <button
                   onClick={() => openSshManagement(selectedDevice)}
                   disabled={busy}
@@ -2252,56 +2575,276 @@ export default function DevicesPanel() {
                   </svg>
                   Enable SSH controls
                 </button>
-              )}
-              {selectedDevice.managed_runtime && (
-                <>
+                  )}
+                  {selectedDevice.managed_runtime && (
+                    <>
+                      <button
+                        onClick={() => {
+                          if (selectedDeviceManagedLocally) {
+                            void controlDevice(
+                              selectedDevice,
+                              selectedDevice.paused ? 'resume' : 'pause',
+                            )
+                          } else {
+                            setShowRuntimeControl(current => !current)
+                            setShowUpdateForm(false)
+                            setShowUninstallForm(false)
+                            setRuntimeControlPassword('')
+                            setError(null)
+                          }
+                        }}
+                        disabled={busy}
+                        className={`bn-device-action-button${selectedDevice.paused ? ' is-primary' : ''}`}
+                      >
+                        {selectedDevice.paused ? 'Resume device' : 'Pause device'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowUninstallForm(current => !current)
+                          setShowRuntimeControl(false)
+                          setShowUpdateForm(false)
+                          setUninstallPassword('')
+                          setError(null)
+                        }}
+                        disabled={busy}
+                        className="bn-device-action-button is-danger"
+                      >
+                        {selectedDeviceManagedLocally ? 'Uninstall local stack' : 'Uninstall runtime'}
+                      </button>
+                    </>
+                  )}
                   <button
-                    onClick={() => {
-                      if (selectedDeviceManagedLocally) {
-                        void controlDevice(
-                          selectedDevice,
-                          selectedDevice.paused ? 'resume' : 'pause',
-                        )
-                      } else {
-                        setShowRuntimeControl(current => !current)
-                        setShowUpdateForm(false)
-                        setShowUninstallForm(false)
-                        setRuntimeControlPassword('')
-                        setError(null)
-                      }
-                    }}
-                    disabled={busy}
-                    className={`bn-device-action-button${selectedDevice.paused ? ' is-primary' : ''}`}
-                  >
-                    {selectedDevice.paused ? 'Resume device' : 'Pause device'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowUninstallForm(current => !current)
-                      setShowRuntimeControl(false)
-                      setShowUpdateForm(false)
-                      setUninstallPassword('')
-                      setError(null)
-                    }}
+                    onClick={() => removeDevice(selectedDevice)}
                     disabled={busy}
                     className="bn-device-action-button is-danger"
+                    title="Remove only Blacknode's saved connection; do not uninstall Runtime or Hardware"
                   >
-                    {selectedDeviceManagedLocally ? 'Uninstall local stack' : 'Uninstall runtime'}
+                    Forget device
                   </button>
                 </>
               )}
+            </div>
+          </div>
+
+          <div className="bn-device-overview" role="status" aria-live="polite">
+            <div className={`bn-device-overview-item${
+              selectedDeviceChecking
+                ? ' is-checking'
+                : selectedDeviceReady
+                  ? ' is-ready'
+                  : ' is-attention'
+            }`}>
+              <span className="bn-device-overview-dot" aria-hidden="true" />
+              <div>
+                <small>System</small>
+                <strong>
+                  {selectedDeviceChecking
+                    ? 'Checking'
+                    : selectedDevice.paused || selectedDeviceState?.runtime?.paused
+                      ? 'Paused'
+                      : selectedDeviceReady
+                        ? 'Running'
+                        : 'Needs attention'}
+                </strong>
+                <span>Runtime {selectedRuntimeVersion}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className={`bn-device-overview-item bn-device-overview-toggle is-${
+                selectedRosHealth?.state ?? 'checking'
+              }${showRosDetails ? ' is-expanded' : ''}`}
+              onClick={() => setShowRosDetails(current => !current)}
+              aria-expanded={showRosDetails}
+              aria-controls="bn-live-ros2-details"
+              title="Show live ROS 2 nodes, topics, services, and endpoint counts"
+            >
+              <span className="bn-device-overview-dot" aria-hidden="true" />
+              <div>
+                <small>ROS 2</small>
+                <strong>
+                  {selectedRosHealth?.state === 'healthy'
+                    ? 'Healthy'
+                    : selectedRosHealth?.state === 'warning'
+                      ? 'Warning'
+                      : selectedRosHealth?.state === 'error'
+                        ? 'Needs attention'
+                        : selectedRosHealth?.state === 'unavailable'
+                          ? 'Unavailable'
+                          : 'Checking'}
+                </strong>
+                <span>
+                  {selectedRosHealth?.checking && selectedRosHealth.state !== 'checking'
+                    ? `Rechecking · ${selectedRosHealth.summary}`
+                    : selectedRosHealth?.summary ?? 'Waiting for diagnostics'}
+                </span>
+              </div>
+            </button>
+            <div className="bn-device-overview-item">
+              <span className="bn-device-overview-dot" aria-hidden="true" />
+              <div>
+                <small>Robots</small>
+                <strong>
+                  {selectedRobotChecks.filter(item => item.state?.status?.connected).length}
+                  /{selectedDevice.robots.length} connected
+                </strong>
+                <span>
+                  {selectedRobotChecks.filter(item => (
+                    item.state?.status?.deployment_lease
+                    || item.state?.status?.running_deployment
+                  )).length} running deployment{
+                    selectedRobotChecks.filter(item => (
+                      item.state?.status?.deployment_lease
+                      || item.state?.status?.running_deployment
+                    )).length === 1 ? '' : 's'
+                  }
+                </span>
+              </div>
+            </div>
+            <div className="bn-device-overview-actions">
               <button
-                onClick={() => removeDevice(selectedDevice)}
-                disabled={busy}
-                className="bn-device-action-button is-danger"
-                title="Remove only Blacknode's saved connection; do not uninstall Runtime or Hardware"
+                type="button"
+                onClick={() => void checkDevice(selectedDevice)}
+                disabled={busy || selectedDeviceChecking || selectedRosHealth?.checking}
+                className="bn-device-action-button is-primary"
               >
-                Forget device
+                {selectedDeviceChecking ? 'Checking…' : 'Check now'}
+              </button>
+              {selectedDevice.managed_runtime && (
+                <button
+                  type="button"
+                  onClick={() => setShowSoftwareDetails(current => !current)}
+                  className="bn-device-action-button"
+                  aria-expanded={showSoftwareDetails}
+                >
+                  {showSoftwareDetails ? 'Hide software' : 'Software'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowServiceDetails(current => !current)}
+                className="bn-device-action-button"
+                aria-expanded={showServiceDetails}
+              >
+                {showServiceDetails ? 'Hide details' : 'Details'}
               </button>
             </div>
           </div>
 
-          {selectedDevice.managed_runtime && (
+          {selectedRosHealth
+            && (selectedRosHealth.state === 'warning' || selectedRosHealth.state === 'error')
+            && (
+              <div
+                className={`bn-device-health-alert is-${selectedRosHealth.state}`}
+                role={selectedRosHealth.state === 'error' ? 'alert' : 'status'}
+              >
+                <span className="bn-device-overview-dot" aria-hidden="true" />
+                <div>
+                  <strong>{selectedRosHealth.summary}</strong>
+                  <span>
+                    {selectedRosHealth.issues[0]
+                      || 'The ROS 2 graph did not pass its latest health check.'}
+                  </span>
+                </div>
+                <div className="bn-run-detail-actions">
+                  <button
+                    type="button"
+                    onClick={() => setShowRosDetails(current => !current)}
+                    className="bn-device-action-button"
+                  >
+                    {showRosDetails ? 'Hide ROS details' : 'ROS details'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void checkRosHealth(selectedDevice)}
+                    disabled={selectedRosHealth.checking}
+                    className="bn-device-action-button"
+                  >
+                    {selectedRosHealth.checking ? 'Checking…' : 'Check ROS'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+          {showRosDetails && selectedRosHealth?.diagnostics && (
+            <div id="bn-live-ros2-details" className="bn-device-ros-details">
+              <div className="bn-device-ros-details-head">
+                <div>
+                  <strong>Live ROS 2 graph</strong>
+                  <span>Last checked {formatCheckedAt(selectedRosHealth.checkedAt)}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void checkRosHealth(selectedDevice)}
+                  disabled={selectedRosHealth.checking}
+                  className="bn-device-action-button"
+                >
+                  {selectedRosHealth.checking ? 'Checking…' : 'Refresh ROS'}
+                </button>
+              </div>
+              <div className="bn-ros-robot-paths">
+                <RosRobotPathCard
+                  diagnostics={selectedRosHealth.diagnostics}
+                  role="leader"
+                />
+                <RosRobotPathCard
+                  diagnostics={selectedRosHealth.diagnostics}
+                  role="follower"
+                />
+              </div>
+              <p className="bn-ros-internals-note">
+                ROS internals: {selectedRosHealth.diagnostics.nodes.length} nodes,{' '}
+                {selectedRosHealth.diagnostics.topics.length} topics, and{' '}
+                {selectedRosHealth.diagnostics.services.length} services. Parameter and
+                type-description services are generated automatically by ROS 2.
+              </p>
+              <details className="bn-ros-advanced">
+                <summary>Advanced · raw ROS graph</summary>
+                <section className="bn-ros-graph-section">
+                  <h4>Nodes ({selectedRosHealth.diagnostics.nodes.length})</h4>
+                  {selectedRosHealth.diagnostics.nodes.length > 0 ? (
+                    <ul className="bn-ros-graph-list">
+                      {rosNameCounts(selectedRosHealth.diagnostics.nodes).map(([node, count]) => (
+                        <li key={node}>
+                          <code>{node}</code>
+                          {count > 1 && <span>{count} running instances</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <span>No nodes discovered.</span>}
+                </section>
+                <section className="bn-ros-graph-section">
+                  <h4>Topics ({selectedRosHealth.diagnostics.topics.length})</h4>
+                  {selectedRosHealth.diagnostics.topics.length > 0 ? (
+                    <ul className="bn-ros-graph-list is-topics">
+                      {selectedRosHealth.diagnostics.topics.map(topic => {
+                        const name = rosTopicName(topic)
+                        const detail = rosTopicDetail(selectedRosHealth.diagnostics!, name)
+                        return (
+                          <li key={name}>
+                            <code>{name}</code>
+                            <span>{rosTopicType(topic)} · {rosTopicEndpointSummary(detail)}</span>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : <span>No topics discovered.</span>}
+                </section>
+                <section className="bn-ros-graph-section">
+                  <h4>Services ({selectedRosHealth.diagnostics.services.length})</h4>
+                  {selectedRosHealth.diagnostics.services.length > 0 ? (
+                    <ul className="bn-ros-graph-list">
+                      {selectedRosHealth.diagnostics.services.map(service => (
+                        <li key={service}><code>{service}</code></li>
+                      ))}
+                    </ul>
+                  ) : <span>No services discovered.</span>}
+                </section>
+              </details>
+            </div>
+          )}
+
+          {selectedDevice.managed_runtime && showSoftwareDetails && (
             <div className="bn-device-local-note" role="note">
               <div className="bn-local-package-summary-head">
                 <div>
@@ -3344,6 +3887,10 @@ export default function DevicesPanel() {
             </form>
           )}
 
+          {(showServiceDetails
+            || selectedCheckHasFailure
+            || selectedCheckHasStopped
+            || selectedCheckHasUnknown) && (
           <div
             className={`bn-runtime-check-result${
               selectedDeviceChecking
@@ -3415,6 +3962,7 @@ export default function DevicesPanel() {
               </div>
             </div>
           </div>
+          )}
 
           <div className="bn-compute-robots-head">
             <div>
@@ -3528,6 +4076,7 @@ export default function DevicesPanel() {
                 key={robot.id}
                 robot={robot}
                 state={robotStates[robot.id]}
+                rosHealth={selectedRosHealth}
                 actionProgress={actionProgress[robot.id]}
                 installedSoftwareVersion={installedHardwareVersionForPort(
                   urlPort(robot.base_url),
@@ -3537,7 +4086,12 @@ export default function DevicesPanel() {
                 )}
                 sshUsername={selectedDevice.managed_runtime?.ssh_username}
                 busy={busy}
-                onRefresh={() => refreshRobot(robot)}
+                onRefresh={() => {
+                  void refreshRobot(robot).then(status => checkRosHealth(
+                    selectedDevice,
+                    Boolean(status?.deployment_lease || status?.running_deployment),
+                  ))
+                }}
                 onRename={() => renameRobot(robot)}
                 onRemove={() => removeRobot(robot)}
                 onDeploy={() => window.dispatchEvent(new CustomEvent(
@@ -3554,6 +4108,9 @@ export default function DevicesPanel() {
                 )}
                 onSetDeploymentMotion={(deploymentId, deploymentName, armed) => (
                   setDeploymentMotion(robot, deploymentId, deploymentName, armed)
+                )}
+                onOpenDeployedGraph={(deploymentId, deploymentName) => (
+                  openDeployedGraph(robot, deploymentId, deploymentName)
                 )}
                 onReleaseTorque={() => releaseRobotTorque(robot)}
                 onControl={action => controlRobot(robot, action)}
@@ -3777,6 +4334,7 @@ function SoftwarePackageSummaryCard({
 function RobotRow({
   robot,
   state,
+  rosHealth,
   actionProgress,
   installedSoftwareVersion,
   canRestartService,
@@ -3790,12 +4348,14 @@ function RobotRow({
   onStopDeployment,
   onStartDeployment,
   onSetDeploymentMotion,
+  onOpenDeployedGraph,
   onReleaseTorque,
   onControl,
   onRestartService,
 }: {
   robot: HardwareDevice
   state?: RobotState
+  rosHealth?: RosHealth
   actionProgress?: DeviceActionProgress
   installedSoftwareVersion: string
   canRestartService: boolean
@@ -3812,6 +4372,10 @@ function RobotRow({
     deploymentId: string,
     deploymentName: string,
     armed: boolean,
+  ) => void
+  onOpenDeployedGraph: (
+    deploymentId: string,
+    deploymentName: string,
   ) => void
   onReleaseTorque: () => void
   onControl: (action: 'pause' | 'resume') => void
@@ -3873,6 +4437,22 @@ function RobotRow({
       ? 'var(--err)'
       : deploymentState === 'exited'
         ? 'var(--tx2)'
+      : 'var(--tx3)'
+  const rosLabel = rosHealth?.state === 'healthy'
+    ? 'HEALTHY'
+    : rosHealth?.state === 'warning'
+      ? 'WARNING'
+      : rosHealth?.state === 'error'
+        ? 'ATTENTION'
+        : rosHealth?.state === 'unavailable'
+          ? 'UNAVAILABLE'
+          : 'CHECKING'
+  const rosColor = rosHealth?.state === 'healthy'
+    ? 'var(--ok)'
+    : rosHealth?.state === 'warning'
+      ? 'var(--warn)'
+      : rosHealth?.state === 'error'
+        ? 'var(--err)'
         : 'var(--tx3)'
   const summary = state?.loading
     ? 'Checking robot hardware…'
@@ -3915,9 +4495,51 @@ function RobotRow({
             <small>Deployment</small>
             {deploymentLabel}
           </span>
+          <span
+            className="bn-device-card-state"
+            style={{ '--device-status-color': rosColor } as CSSProperties}
+            title={rosHealth?.issues[0] || rosHealth?.summary}
+          >
+            <small>ROS 2</small>
+            {rosLabel}
+          </span>
         </span>
         <span className="bn-device-card-chevron" aria-hidden="true">›</span>
       </button>
+      {!expanded && runningDeployment?.id && (
+        <div className="bn-device-card-quick-actions">
+          <span title={runningDeployment.name}>
+            Running · {runningDeployment.name}
+          </span>
+          <button
+            type="button"
+            onClick={() => onOpenDeployedGraph(
+              runningDeployment.id,
+              runningDeployment.name,
+            )}
+            disabled={busy || state?.loading}
+            className="bn-device-action-button"
+          >
+            Open graph
+          </button>
+          {Number(runningDeployment.motion_control_count || 0) === 1 && (
+            <button
+              type="button"
+              onClick={() => onSetDeploymentMotion(
+                runningDeployment.id,
+                runningDeployment.name,
+                !runningDeployment.motion_armed,
+              )}
+              disabled={busy || state?.loading || paused}
+              className={`bn-device-action-button${
+                runningDeployment.motion_armed ? ' is-danger' : ' is-primary'
+              }`}
+            >
+              {runningDeployment.motion_armed ? 'Disarm' : 'Arm follower'}
+            </button>
+          )}
+        </div>
+      )}
       {expanded && (
         <div className="bn-run-detail bn-device-card-detail">
           <div className="bn-device-card-addresses">
@@ -4106,6 +4728,20 @@ function RobotRow({
             >
               Monitor
             </button>
+            {runningDeployment?.id && (
+              <button
+                type="button"
+                onClick={() => onOpenDeployedGraph(
+                  runningDeployment.id,
+                  runningDeployment.name,
+                )}
+                disabled={busy || state?.loading}
+                className="bn-device-action-button"
+                title="Open the exact active deployment revision in a new editable graph tab"
+              >
+                Open deployed graph
+              </button>
+            )}
             <button
               onClick={() => onControl(paused ? 'resume' : 'pause')}
               disabled={busy || state?.loading}
