@@ -119,8 +119,12 @@ device identity as the existing pairing, and then enables device lifecycle and
 robot-service restart actions. The SSH password is used for that request and is
 not saved.
 
-Open the new square device card and choose **Add robot** for each hardware
-service connected to that computer. Enter the robot URL and token printed by
+Open the device card and choose **Attach robot**. On an SSH-managed device,
+**Find and attach robots** discovers installed Robot Hardware services and
+reads their private pairing credentials through the verified SSH connection.
+The token is paired server-side and is never displayed in the browser; the SSH
+password is used for that request and is not saved. Manual pairing remains
+available by entering the robot URL and token printed by
 `blacknode-hardware/pair.sh`. One device may contain several robots; each robot
 remains a distinct deployment target and uses its parent device's shared
 runtime. Pairing and discovery keep physical motion disarmed.

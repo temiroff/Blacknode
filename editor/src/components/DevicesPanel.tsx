@@ -522,6 +522,7 @@ export default function DevicesPanel() {
   const [robotName, setRobotName] = useState('')
   const [robotUrl, setRobotUrl] = useState('')
   const [robotToken, setRobotToken] = useState('')
+  const [robotDiscoveryPassword, setRobotDiscoveryPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [linkedProjectName, setLinkedProjectName] = useState('')
@@ -1251,8 +1252,95 @@ export default function DevicesPanel() {
     setRobotName('')
     setRobotUrl(suggestedHardwareUrl(device))
     setRobotToken('')
+    setRobotDiscoveryPassword('')
     setError(null)
     setShowRobotForm(true)
+  }
+
+  const discoverAndAttachRobots = async () => {
+    if (!selectedDevice) return
+    if (!robotDiscoveryPassword) {
+      setError('Enter the device SSH password to find installed robots.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [selectedDevice.id]: {
+        progress: 10,
+        message: 'Finding installed Robot Hardware services over verified SSH',
+      },
+    }))
+    try {
+      const result = await api.discoverAndPairRobots(
+        selectedDevice.id,
+        robotDiscoveryPassword,
+      )
+      setRobotDiscoveryPassword('')
+      setShowRobotForm(false)
+      setRobotToken('')
+      setRobotStates(previous => {
+        const next = { ...previous }
+        result.robots.forEach(robot => {
+          next[robot.id] = {
+            status: result.statuses[robot.id],
+            loading: false,
+            checkedAt: Date.now(),
+          }
+        })
+        return next
+      })
+      setActionProgress(previous => ({
+        ...previous,
+        [selectedDevice.id]: {
+          progress: 100,
+          message: result.errors.length
+            ? `${result.summary} ${result.errors.join(' ')}`
+            : result.summary,
+        },
+      }))
+      await refresh()
+      if (activeProject) {
+        const discoveredIds = result.robots.map(robot => robot.id)
+        const nextDeviceIds = Array.from(new Set([
+          ...activeProject.deviceIds,
+          ...discoveredIds,
+        ]))
+        if (nextDeviceIds.length !== activeProject.deviceIds.length) {
+          try {
+            const project = await api.updateProject(activeProject.id, {
+              device_ids: nextDeviceIds,
+            })
+            setActiveProject({
+              id: project.id,
+              name: project.name,
+              workflowSlugs: project.workflow_slugs,
+              deviceIds: project.device_ids,
+            })
+            setLinkedProjectName(project.name)
+          } catch (projectError) {
+            setError(
+              `The robots were attached, but they could not be linked to “${activeProject.name}”: ${
+                projectError instanceof Error ? projectError.message : String(projectError)
+              }`,
+            )
+          }
+        }
+      }
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [selectedDevice.id]: {
+          progress: 0,
+          message: `Robot discovery failed: ${message}`,
+        },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const addRobot = async (event: FormEvent) => {
@@ -4357,6 +4445,41 @@ export default function DevicesPanel() {
               <div className="bn-device-form-title">
                 Attach existing robot to {selectedDevice.name}
               </div>
+              {selectedDevice.managed_runtime && !selectedDeviceManagedLocally && (
+                <div className="bn-device-local-note" role="note">
+                  <strong>Find installed robots automatically</strong>
+                  <span>
+                    Blacknode reads each installed Hardware service URL and pairing
+                    token through this device’s verified SSH connection. Tokens remain
+                    hidden and the SSH password is never saved.
+                  </span>
+                  <label>
+                    <span>Device SSH password</span>
+                    <input
+                      type="password"
+                      value={robotDiscoveryPassword}
+                      onChange={event => setRobotDiscoveryPassword(event.target.value)}
+                      placeholder={`Password for ${
+                        selectedDevice.managed_runtime.ssh_username || 'SSH user'
+                      }`}
+                      autoComplete="current-password"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="bn-device-action-button is-primary"
+                    disabled={busy || !robotDiscoveryPassword}
+                    onClick={() => void discoverAndAttachRobots()}
+                  >
+                    {busy ? 'Finding robots…' : 'Find and attach robots'}
+                  </button>
+                </div>
+              )}
+              {selectedDevice.managed_runtime && !selectedDeviceManagedLocally && (
+                <div className="bn-device-help">
+                  Or enter one Hardware service manually below.
+                </div>
+              )}
               <label>
                 <span>Robot name</span>
                 <input
@@ -4403,6 +4526,7 @@ export default function DevicesPanel() {
                   onClick={() => {
                     setShowRobotForm(false)
                     setRobotToken('')
+                    setRobotDiscoveryPassword('')
                   }}
                   style={miniButton}
                 >

@@ -1314,6 +1314,19 @@ export const api = {
       { name, base_url: baseUrl, token },
       10000,
     ),
+  discoverAndPairRobots: (hostId: string, password: string) =>
+    req<{
+      ok: boolean
+      robots: HardwareDevice[]
+      statuses: Record<string, HardwareDeviceStatus>
+      errors: string[]
+      summary: string
+    }>(
+      'POST',
+      `/device-hosts/${encodeURIComponent(hostId)}/robots/discover`,
+      { password },
+      60000,
+    ),
   renameComputeDevice: (id: string, name: string) =>
     req<{ device: ComputeDevice }>(
       'PATCH',

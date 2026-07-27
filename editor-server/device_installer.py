@@ -10,6 +10,7 @@ import secrets
 import socket
 import time
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Any, Callable
 
 
@@ -19,6 +20,7 @@ class DeviceInstallError(RuntimeError):
 
 _INSTANCE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 _INSPECTION_MARKER = "__BLACKNODE_RUNTIME_INSPECTION__="
+_HARDWARE_PAIRING_INSPECTION_MARKER = "__BLACKNODE_HARDWARE_PAIRINGS__="
 _UPDATE_REPORT_MARKER = "__BLACKNODE_UPDATE_REPORT__="
 _INSPECTION_SCRIPT = r"""python3 - <<'PY'
 import glob
@@ -629,6 +631,258 @@ def _read_remote_token(connection: _Connection, instance: dict[str, Any]) -> str
     if len(clean) < 24 or any(character.isspace() for character in clean):
         raise DeviceInstallError("The existing runtime pairing token is invalid.")
     return clean
+
+
+def discover_hardware_pairings(
+    *,
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    host_fingerprint: str,
+    expected_hardware_dir: str = "",
+) -> dict[str, Any]:
+    """Read installed Hardware service credentials over the verified SSH channel."""
+
+    expected = str(host_fingerprint or "").strip()
+    if not expected:
+        raise DeviceInstallError(
+            "Check the SSH connection and confirm its host fingerprint first."
+        )
+    expected_directory_payload = base64.urlsafe_b64encode(
+        json.dumps(str(expected_hardware_dir or "")).encode("utf-8")
+    ).decode("ascii")
+    connection = _connect(
+        host,
+        port,
+        username,
+        password,
+        expected_fingerprint=expected,
+        timeout=15.0,
+    )
+    inspection_command = r"""python3 - __BLACKNODE_EXPECTED_HARDWARE_DIR__ <<'PY'
+import base64
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+
+expected_directory = json.loads(
+    base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8")
+)
+expected_directory = (
+    os.path.abspath(os.path.expanduser(expected_directory))
+    if expected_directory
+    else ""
+)
+
+def command(args):
+    try:
+        return subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=124,
+            stdout="",
+            stderr=str(exc),
+        )
+
+def argument(argv, name):
+    for index, value in enumerate(argv):
+        if value == name and index + 1 < len(argv):
+            return argv[index + 1]
+        if value.startswith(name + "="):
+            return value.split("=", 1)[1]
+    return ""
+
+units = set()
+for args in (
+    ["systemctl", "list-unit-files", "blacknode-hardware*.service", "--no-legend"],
+    [
+        "systemctl", "list-units", "--all", "--type=service",
+        "blacknode-hardware*.service", "--no-legend",
+    ],
+):
+    result = command(args)
+    for line in result.stdout.splitlines():
+        unit = line.split(None, 1)[0] if line.split() else ""
+        if re.fullmatch(
+            r"blacknode-hardware(?:[-.@][A-Za-z0-9_.@-]+)?\.service",
+            unit,
+        ):
+            units.add(unit)
+
+services = []
+for unit in sorted(units):
+    result = command(["systemctl", "cat", unit])
+    if result.returncode != 0:
+        continue
+    working_directory = ""
+    exec_start = ""
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if line.startswith("WorkingDirectory="):
+            working_directory = line.split("=", 1)[1].strip().strip('"')
+        elif line.startswith("ExecStart="):
+            exec_start = line.split("=", 1)[1].strip()
+    if not working_directory or not exec_start:
+        continue
+    working_directory = os.path.abspath(os.path.expanduser(working_directory))
+    if expected_directory and working_directory != expected_directory:
+        continue
+    try:
+        argv = shlex.split(exec_start)
+    except ValueError:
+        continue
+    service_port = argument(argv, "--port")
+    config_path = argument(argv, "--config")
+    token_path = argument(argv, "--auth-token-file")
+    if not service_port.isdigit() or not config_path or not token_path:
+        continue
+    services.append({
+        "service_name": unit,
+        "working_directory": working_directory,
+        "port": int(service_port),
+        "config_path": os.path.abspath(os.path.expanduser(config_path)),
+        "token_path": os.path.abspath(os.path.expanduser(token_path)),
+        "active": command(["systemctl", "is-active", "--quiet", unit]).returncode == 0,
+    })
+
+print("__BLACKNODE_HARDWARE_PAIRINGS__=" + json.dumps(
+    {"services": services},
+    separators=(",", ":"),
+))
+PY"""
+    inspection_command = inspection_command.replace(
+        "__BLACKNODE_EXPECTED_HARDWARE_DIR__",
+        expected_directory_payload,
+        1,
+    )
+    try:
+        output = _run(connection, inspection_command, timeout=45.0)
+        marker_line = next(
+            (
+                line[len(_HARDWARE_PAIRING_INSPECTION_MARKER):]
+                for line in output.splitlines()
+                if line.startswith(_HARDWARE_PAIRING_INSPECTION_MARKER)
+            ),
+            "",
+        )
+        if not marker_line:
+            raise DeviceInstallError(
+                "The device did not return its installed Robot Hardware services."
+            )
+        try:
+            inspection = json.loads(marker_line)
+        except json.JSONDecodeError as exc:
+            raise DeviceInstallError(
+                "The device returned invalid Robot Hardware service information."
+            ) from exc
+        services = [
+            item
+            for item in inspection.get("services", [])
+            if isinstance(item, dict)
+        ]
+        pairings: list[dict[str, Any]] = []
+        errors: list[str] = []
+        sftp = connection.client.open_sftp()
+        try:
+            def read_remote_text(path: PurePosixPath, limit: int) -> str:
+                with sftp.file(str(path), "r") as remote_file:
+                    value = remote_file.read(limit + 1)
+                if isinstance(value, bytes):
+                    value = value.decode("utf-8", errors="strict")
+                text = str(value)
+                if len(text.encode("utf-8")) > limit:
+                    raise ValueError("file is larger than the allowed limit")
+                return text
+
+            for service in services:
+                unit = str(service.get("service_name") or "Robot Hardware service")
+                try:
+                    service_port = int(service.get("port") or 0)
+                    working_directory = PurePosixPath(
+                        str(service.get("working_directory") or "")
+                    )
+                    config_path = PurePosixPath(
+                        str(service.get("config_path") or "")
+                    )
+                    token_path = PurePosixPath(
+                        str(service.get("token_path") or "")
+                    )
+                    if (
+                        not working_directory.is_absolute()
+                        or not config_path.is_absolute()
+                        or not token_path.is_absolute()
+                        or not 1 <= service_port <= 65535
+                    ):
+                        raise ValueError("service paths or port are invalid")
+                    private_directory = working_directory / ".blacknode-hardware"
+                    config_path.relative_to(private_directory)
+                    token_path.relative_to(private_directory)
+                    if token_path.name != "auth.token":
+                        raise ValueError("pairing token path is not an auth.token file")
+                    manifest = read_remote_text(
+                        working_directory / "pyproject.toml",
+                        256 * 1024,
+                    )
+                    if not re.search(
+                        r'(?m)^\s*name\s*=\s*["\']blacknode-hardware["\']\s*$',
+                        manifest,
+                    ):
+                        raise ValueError(
+                            "service directory is not a Blacknode Hardware checkout"
+                        )
+                    config = json.loads(read_remote_text(config_path, 256 * 1024))
+                    if not isinstance(config, dict):
+                        raise ValueError("robot configuration is not an object")
+                    token = read_remote_text(token_path, 4096).strip()
+                    if len(token) < 32 or any(
+                        character.isspace() for character in token
+                    ):
+                        raise ValueError("pairing token is invalid")
+                    pairings.append({
+                        "service_name": unit,
+                        "port": service_port,
+                        "name": str(
+                            config.get("name")
+                            or config.get("device_id")
+                            or unit
+                        ).strip(),
+                        "device_id": str(config.get("device_id") or "").strip(),
+                        "token": token,
+                        "active": bool(service.get("active")),
+                    })
+                except (
+                    OSError,
+                    UnicodeDecodeError,
+                    ValueError,
+                    json.JSONDecodeError,
+                ) as exc:
+                    errors.append(f"{unit}: {exc}")
+        finally:
+            sftp.close()
+        return {
+            "pairings": pairings,
+            "errors": errors,
+            "discovered": len(services),
+        }
+    except DeviceInstallError:
+        raise
+    except Exception as exc:
+        raise DeviceInstallError(
+            "Could not read installed Robot Hardware pairing credentials."
+        ) from exc
+    finally:
+        connection.close()
 
 
 def inspect_runtime(

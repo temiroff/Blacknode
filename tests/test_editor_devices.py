@@ -516,6 +516,93 @@ class EditorDeviceApiTests(unittest.TestCase):
         for index, python_block in enumerate(python_blocks, start=1):
             compile(python_block, f"<remote-install-python-{index}>", "exec")
 
+    def test_hardware_pairing_discovery_reads_only_verified_service_files(self):
+        token = "hardware-pairing-token-1234567890"
+        files = {
+            "/home/alex/Blacknode/devices/default/hardware/pyproject.toml": (
+                '[project]\nname = "blacknode-hardware"\nversion = "0.1.2"\n'
+            ),
+            (
+                "/home/alex/Blacknode/devices/default/hardware/"
+                ".blacknode-hardware/devices/follower/device.json"
+            ): json.dumps({
+                "name": "Follower arm",
+                "device_id": "follower-device",
+            }),
+            (
+                "/home/alex/Blacknode/devices/default/hardware/"
+                ".blacknode-hardware/devices/follower/auth.token"
+            ): token,
+        }
+
+        class Sftp:
+            def file(self, path, _mode):
+                return io.StringIO(files[path])
+
+            def close(self):
+                return None
+
+        connection = SimpleNamespace(
+            client=SimpleNamespace(open_sftp=lambda: Sftp()),
+            fingerprint="SHA256:trusted-device-key",
+            close=lambda: None,
+        )
+        commands = []
+
+        def fake_run(_connection, command, **_kwargs):
+            commands.append(command)
+            return (
+                "__BLACKNODE_HARDWARE_PAIRINGS__="
+                + json.dumps({
+                    "services": [{
+                        "service_name": "blacknode-hardware-follower.service",
+                        "working_directory": (
+                            "/home/alex/Blacknode/devices/default/hardware"
+                        ),
+                        "port": 8765,
+                        "config_path": (
+                            "/home/alex/Blacknode/devices/default/hardware/"
+                            ".blacknode-hardware/devices/follower/device.json"
+                        ),
+                        "token_path": (
+                            "/home/alex/Blacknode/devices/default/hardware/"
+                            ".blacknode-hardware/devices/follower/auth.token"
+                        ),
+                        "active": True,
+                    }],
+                })
+            )
+
+        with (
+            patch.object(device_installer, "_connect", return_value=connection),
+            patch.object(device_installer, "_run", side_effect=fake_run),
+        ):
+            result = device_installer.discover_hardware_pairings(
+                host="192.168.1.87",
+                port=22,
+                username="alex",
+                password="ssh-password",
+                host_fingerprint="SHA256:trusted-device-key",
+                expected_hardware_dir=(
+                    "~/Blacknode/devices/default/hardware"
+                ),
+            )
+
+        self.assertEqual(result["discovered"], 1)
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["pairings"], [{
+            "service_name": "blacknode-hardware-follower.service",
+            "port": 8765,
+            "name": "Follower arm",
+            "device_id": "follower-device",
+            "token": token,
+            "active": True,
+        }])
+        self.assertNotIn(token, commands[0])
+        self.assertIn("systemctl\", \"cat\"", commands[0])
+        remote_python = commands[0].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+        compile(remote_python, "<hardware-pairing-discovery>", "exec")
+
     def test_reinstall_of_incomplete_instance_uses_next_available_port(self):
         class RemoteFile(io.StringIO):
             def __enter__(self):
@@ -942,6 +1029,88 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         self.assertIsNone(hardware.requests[0][2])
         self.assertEqual(hardware.requests[1][2], f"Bearer {hardware.token}")
+
+    def test_managed_device_can_discover_and_pair_hardware_without_exposing_token(self):
+        runtime_token = "runtime-pairing-token-1234567890"
+        hardware_token = "hardware-pairing-token-1234567890"
+        host = server._device_registry.pair_host(
+            name="alex-desktop",
+            runtime_url="http://192.168.1.87:8766",
+            runtime_token=runtime_token,
+            manifest={
+                "service": "blacknode-runtime",
+                "protocol_version": 1,
+                "device_id": "alex-desktop",
+            },
+            managed_runtime={
+                "ssh_host": "192.168.1.87",
+                "ssh_port": 22,
+                "ssh_username": "alex",
+                "host_fingerprint": "SHA256:trusted-device-key",
+                "instance_id": "default",
+                "runtime_port": 8766,
+                "service_name": "blacknode-runtime.service",
+                "install_root": "~/Blacknode/devices/default",
+                "runtime_dir": "~/Blacknode/devices/default/runtime",
+                "packages_dir": "~/Blacknode/devices/default/runtime/packages",
+                "stack_mode": "isolated",
+                "hardware_dir": "~/Blacknode/devices/default/hardware",
+            },
+        )
+        hardware = _HardwareService(
+            hardware_token,
+            status_overrides={"device_id": "follower-device"},
+        )
+        discovery = {
+            "discovered": 1,
+            "errors": [],
+            "pairings": [{
+                "service_name": "blacknode-hardware-follower.service",
+                "port": 8765,
+                "name": "Follower arm",
+                "device_id": "follower-device",
+                "token": hardware_token,
+                "active": True,
+            }],
+        }
+
+        with (
+            patch.object(
+                server,
+                "discover_hardware_pairings",
+                return_value=discovery,
+            ) as discover,
+            patch(
+                "device_registry.urllib.request.urlopen",
+                side_effect=hardware,
+            ),
+        ):
+            response = self.client.post(
+                f"/device-hosts/{host['id']}/robots/discover",
+                json={"password": "ssh-password"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["robots"][0]["name"], "Follower arm")
+        self.assertEqual(
+            response.json()["robots"][0]["base_url"],
+            "http://192.168.1.87:8765",
+        )
+        self.assertNotIn(hardware_token, response.text)
+        self.assertNotIn("ssh-password", response.text)
+        discover.assert_called_once_with(
+            host="192.168.1.87",
+            port=22,
+            username="alex",
+            password="ssh-password",
+            host_fingerprint="SHA256:trusted-device-key",
+            expected_hardware_dir="~/Blacknode/devices/default/hardware",
+        )
+        saved = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            saved["devices"]["follower-device"]["token"],
+            hardware_token,
+        )
 
     def test_pairing_stores_and_checks_a_separate_runtime_token(self):
         hardware = _HardwareService("hardware-token")

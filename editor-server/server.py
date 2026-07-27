@@ -56,6 +56,7 @@ from blacknode.workflow import validate_workflow as validate_bn_workflow
 from device_installer import (
     control_runtime,
     DeviceInstallError,
+    discover_hardware_pairings,
     inspect_managed_service_updates,
     inspect_runtime,
     install_runtime,
@@ -459,6 +460,9 @@ class ConfigureDeviceHostManagementReq(InspectDeviceHostReq):
     pass
 
 class UninstallDeviceHostReq(BaseModel):
+    password: str
+
+class DiscoverHostRobotsReq(BaseModel):
     password: str
 
 class RuntimeLifecycleReq(BaseModel):
@@ -4788,6 +4792,125 @@ def pair_host_robot(host_id: str, req: PairHostRobotReq):
         "robot": device,
         "status": status,
         "runtime": _device_host_runtime_status(host_id),
+    }
+
+
+@app.post("/device-hosts/{host_id}/robots/discover")
+def discover_and_pair_host_robots(host_id: str, req: DiscoverHostRobotsReq):
+    try:
+        host = _device_registry.get_host_public(host_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if host is None:
+        raise HTTPException(404, "Device not found")
+    managed = host.get("managed_runtime")
+    if not isinstance(managed, dict):
+        raise HTTPException(
+            409,
+            "Enable verified SSH controls before finding installed robots.",
+        )
+    if str(managed.get("management_mode") or "") == "local":
+        raise HTTPException(
+            409,
+            "Use the local Hardware package controls for this computer.",
+        )
+    if not str(req.password or ""):
+        raise HTTPException(
+            400,
+            "Enter the device SSH password to find installed robots.",
+        )
+    try:
+        discovered = discover_hardware_pairings(
+            host=str(managed.get("ssh_host") or ""),
+            port=int(managed.get("ssh_port") or 22),
+            username=str(managed.get("ssh_username") or ""),
+            password=req.password,
+            host_fingerprint=str(managed.get("host_fingerprint") or ""),
+            expected_hardware_dir=str(managed.get("hardware_dir") or ""),
+        )
+    except DeviceInstallError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    runtime_url = urllib.parse.urlsplit(str(host.get("runtime_url") or ""))
+    runtime_hostname = str(runtime_url.hostname or "")
+    if not runtime_hostname:
+        raise HTTPException(409, "The paired Runtime URL has no hostname.")
+    service_host = (
+        f"[{runtime_hostname}]" if ":" in runtime_hostname else runtime_hostname
+    )
+    scheme = runtime_url.scheme or "http"
+    attached: list[dict[str, Any]] = []
+    statuses: dict[str, dict[str, Any]] = {}
+    errors = [
+        str(value)
+        for value in discovered.get("errors", [])
+        if str(value).strip()
+    ]
+    for pairing in discovered.get("pairings", []):
+        if not isinstance(pairing, dict):
+            continue
+        service_name = str(
+            pairing.get("service_name") or "Robot Hardware service"
+        )
+        if not pairing.get("active"):
+            errors.append(
+                f"{service_name}: service is installed but not running."
+            )
+            continue
+        try:
+            service_port = int(pairing.get("port") or 0)
+            client = HardwareDeviceClient(
+                f"{scheme}://{service_host}:{service_port}",
+                str(pairing.get("token") or ""),
+            )
+            status = client.validate_pairing()
+            configured_device_id = str(pairing.get("device_id") or "")
+            actual_device_id = str(status.get("device_id") or "")
+            if configured_device_id and actual_device_id != configured_device_id:
+                raise DeviceRegistryError(
+                    f"returned robot '{actual_device_id}', expected "
+                    f"'{configured_device_id}' from its saved configuration"
+                )
+            robot = _device_registry.pair(
+                name=str(pairing.get("name") or ""),
+                base_url=client.base_url,
+                token=str(pairing.get("token") or ""),
+                host_id=host_id,
+                status=status,
+            )
+            attached.append(robot)
+            statuses[str(robot["id"])] = status
+        except (DeviceRegistryError, ValueError) as exc:
+            errors.append(f"{service_name}: {exc}")
+
+    if not attached:
+        if int(discovered.get("discovered") or 0) == 0:
+            detail = (
+                "No installed Robot Hardware services were found in this device "
+                "stack. Connect and configure the robot, install its Hardware "
+                "service, then press Find and attach robots again."
+            )
+        else:
+            detail = (
+                "Installed Robot Hardware services were found, but none could be "
+                "paired. " + " ".join(errors)
+            )
+        raise HTTPException(409, detail)
+    summary = (
+        f"Attached {len(attached)} installed robot"
+        f"{'s' if len(attached) != 1 else ''} securely over verified SSH."
+    )
+    if errors:
+        summary += (
+            f" {len(errors)} service"
+            f"{'s' if len(errors) != 1 else ''} need attention."
+        )
+    return {
+        "ok": True,
+        "robots": attached,
+        "statuses": statuses,
+        "errors": errors,
+        "summary": summary,
     }
 
 
