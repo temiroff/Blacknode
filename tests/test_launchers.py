@@ -36,6 +36,19 @@ def test_launchers_stream_extension_dependency_setup_output():
     assert 'PYTHONPATH="$ROOT_DIR/python" "$PYTHON_BIN" -m blacknode.cli packages setup --missing' in shell
 
 
+def test_windows_launcher_waits_for_backend_port_cleanup_before_starting():
+    powershell = (ROOT / "start.ps1").read_text(encoding="utf-8")
+
+    stop = "Stop-PortListener -Port $BackendPort"
+    wait = "Wait-PortFree -Port $BackendPort"
+    start = 'Write-Step "[1/2] Starting Python server'
+
+    assert stop in powershell
+    assert wait in powershell
+    assert powershell.index(stop) < powershell.index(wait) < powershell.index(start)
+    assert 'throw "Python server port is busy."' in powershell
+
+
 def test_windows_markdown_launch_commands_are_powershell_explicit():
     markdown_files = [ROOT / "README.md", *ROOT.joinpath("docs").rglob("*.md")]
     markdown_files.extend([
