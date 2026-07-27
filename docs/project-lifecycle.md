@@ -75,6 +75,25 @@ runtime service, configures runtime port `8766` in UFW when UFW is active, and
 pairs the runtime with the editor. The SSH password remains in memory for that
 setup request and is not saved.
 
+Managed Linux installations use one visible root per stable Runtime instance:
+
+```text
+~/Blacknode/devices/<instance-id>/
+  install.json
+  runtime/
+    packages/
+  hardware/
+  secrets/
+```
+
+The Runtime, its synchronized workflow packages, and an isolated Robot Hardware
+checkout therefore have one ownership boundary that the Devices panel can show
+and uninstall precisely. Multiple robots attached to the same Runtime share its
+`runtime/packages/` store. A separate complete stack receives another stable
+instance directory. Device display-name changes do not rename these paths.
+Legacy `~/blacknode-runtime`, `~/blacknode-runtimes`, and Hardware checkout
+locations remain discoverable and manageable.
+
 When another robot needs complete separation on the same Linux computer,
 choose **Install a complete isolated robot stack** during the SSH review. The
 new stack receives separate Runtime and Robot Hardware repositories,

@@ -126,7 +126,9 @@ export interface ComputeDevice {
     instance_id: string
     runtime_port: number
     service_name: string
+    install_root?: string
     runtime_dir: string
+    packages_dir?: string
     stack_mode?: 'runtime_only' | 'isolated'
     hardware_dir?: string
     hardware_port?: number
@@ -154,7 +156,9 @@ export interface SshDeviceProbe {
 
 export interface SshRuntimeInstance {
   instance_id: string
+  install_root?: string
   runtime_dir: string
+  packages_dir?: string
   service_name: string
   port: number
   repository: boolean
@@ -487,7 +491,9 @@ export interface InstallComputeDeviceResult {
     instance_id: string
     runtime_port: number
     service_name: string
+    install_root?: string
     runtime_dir: string
+    packages_dir?: string
     stack_mode?: 'runtime_only' | 'isolated'
     hardware_dir?: string
     management_mode?: 'ssh' | 'local'

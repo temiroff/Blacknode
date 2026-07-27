@@ -473,7 +473,9 @@ class DeviceRegistry:
                         "instance_id",
                         "runtime_port",
                         "service_name",
+                        "install_root",
                         "runtime_dir",
+                        "packages_dir",
                         "stack_mode",
                         "hardware_dir",
                         "hardware_port",
@@ -593,7 +595,9 @@ class DeviceRegistry:
             "instance_id",
             "runtime_port",
             "service_name",
+            "install_root",
             "runtime_dir",
+            "packages_dir",
             "stack_mode",
             "hardware_dir",
             "hardware_port",
@@ -617,6 +621,8 @@ class DeviceRegistry:
         }
         required_keys = allowed_keys - {
             "stack_mode",
+            "install_root",
+            "packages_dir",
             "hardware_dir",
             "hardware_port",
             "hardware_service_name",

@@ -207,8 +207,11 @@ def host_environment():
     }
 
 ids = {"default"}
-side_root = home / "blacknode-runtimes"
-if side_root.is_dir():
+organized_root = home / "Blacknode" / "devices"
+legacy_side_root = home / "blacknode-runtimes"
+for side_root in (organized_root, legacy_side_root):
+    if not side_root.is_dir():
+        continue
     ids.update(
         path.name
         for path in side_root.iterdir()
@@ -222,16 +225,22 @@ for unit_path in glob.glob("/etc/systemd/system/blacknode-runtime-*.service"):
 
 instances = []
 for instance in sorted(ids, key=lambda value: (value != "default", value)):
+    organized_stack = organized_root / instance
+    organized_repo = organized_stack / "runtime"
+    organized_token = organized_stack / "secrets" / "runtime.auth.token"
     if instance == "default":
-        repo = home / "blacknode-runtime"
+        legacy_repo = home / "blacknode-runtime"
         unit = "blacknode-runtime.service"
         fallback_port = 8766
-        fallback_token = home / ".blacknode" / "runtime.auth.token"
+        legacy_token = home / ".blacknode" / "runtime.auth.token"
     else:
-        repo = side_root / instance
+        legacy_repo = legacy_side_root / instance
         unit = f"blacknode-runtime-{instance}.service"
         fallback_port = 0
-        fallback_token = home / ".blacknode" / "runtimes" / f"{instance}.auth.token"
+        legacy_token = home / ".blacknode" / "runtimes" / f"{instance}.auth.token"
+    organized_present = organized_repo.exists() or organized_token.exists()
+    repo = organized_repo if organized_present else legacy_repo
+    fallback_token = organized_token if organized_present else legacy_token
     config_path = repo / ".blacknode-runtime" / "runtime.json"
     config = {}
     if config_path.is_file():
@@ -275,7 +284,9 @@ for instance in sorted(ids, key=lambda value: (value != "default", value)):
         error = "The runtime is not running."
     instances.append({
         "instance_id": instance,
+        "install_root": str(organized_stack) if organized_present else "",
         "runtime_dir": str(repo),
+        "packages_dir": str(repo / "packages"),
         "service_name": unit,
         "port": port,
         "repository": (repo / ".git").is_dir(),
@@ -741,7 +752,9 @@ def install_runtime(
                     "instance_id": selected_instance,
                     "runtime_port": runtime_port,
                     "service_name": str(existing.get("service_name") or ""),
+                    "install_root": str(existing.get("install_root") or ""),
                     "runtime_dir": str(existing.get("runtime_dir") or ""),
+                    "packages_dir": str(existing.get("packages_dir") or ""),
                     "stack_mode": "runtime_only",
                     "hardware_dir": "",
                 }
@@ -780,22 +793,24 @@ instance="$2"
 runtime_port="$3"
 token_source="$4"
 remove_old_port="$5"
+[[ "$instance" == "default" || "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || {
+  echo "Invalid Blacknode runtime instance."
+  exit 2
+}
+stack_root="$HOME/Blacknode/devices/$instance"
+runtime_dir="$stack_root/runtime"
+token_file="$stack_root/secrets/runtime.auth.token"
+hardware_dir="$stack_root/hardware"
 if [[ "$instance" == "default" ]]; then
-  runtime_dir="$HOME/blacknode-runtime"
-  token_file="$HOME/.blacknode/runtime.auth.token"
   service_name="blacknode-runtime.service"
   service_instance=""
-  hardware_dir="$HOME/blacknode-hardware"
+  legacy_runtime_dir="$HOME/blacknode-runtime"
+  legacy_token_file="$HOME/.blacknode/runtime.auth.token"
 else
-  [[ "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || {
-    echo "Invalid Blacknode runtime instance."
-    exit 2
-  }
-  runtime_dir="$HOME/blacknode-runtimes/$instance"
-  token_file="$HOME/.blacknode/runtimes/$instance.auth.token"
   service_name="blacknode-runtime-$instance.service"
   service_instance="$instance"
-  hardware_dir="$HOME/blacknode-hardware-instances/$instance"
+  legacy_runtime_dir="$HOME/blacknode-runtimes/$instance"
+  legacy_token_file="$HOME/.blacknode/runtimes/$instance.auth.token"
 fi
 active_sibling_services=()
 if [[ "$action" == "side_by_side" || "$action" == "isolated_stack" ]] \
@@ -834,12 +849,16 @@ cleanup_failed_install() {
 }
 trap cleanup_failed_install EXIT
 case "$runtime_dir" in
-  "$HOME/blacknode-runtime"|"$HOME/blacknode-runtimes/"*) ;;
+  "$HOME/Blacknode/devices/"*/runtime) ;;
   *) echo "Unsafe runtime directory."; exit 2 ;;
 esac
 case "$hardware_dir" in
-  "$HOME/blacknode-hardware"|"$HOME/blacknode-hardware-instances/"*) ;;
+  "$HOME/Blacknode/devices/"*/hardware) ;;
   *) echo "Unsafe Hardware directory."; exit 2 ;;
+esac
+case "$legacy_runtime_dir" in
+  "$HOME/blacknode-runtime"|"$HOME/blacknode-runtimes/"*) ;;
+  *) echo "Unsafe legacy Runtime directory."; exit 2 ;;
 esac
 token_dir="$(dirname -- "$token_file")"
 progress 14 "Preparing the selected runtime"
@@ -861,6 +880,8 @@ if [[ "$action" == "replace" ]]; then
   fi
   rm -rf -- "$runtime_dir"
   rm -f -- "$token_file"
+  rm -rf -- "$legacy_runtime_dir"
+  rm -f -- "$legacy_token_file"
 elif [[ -e "$runtime_dir" ]]; then
   echo "The selected runtime directory already exists. Inspect the device again."
   exit 3
@@ -1004,6 +1025,23 @@ if command -v ufw >/dev/null 2>&1 \
     sudo ufw allow "$default_port/tcp" comment "Blacknode runtime" >/dev/null
   fi
 fi
+python3 - "$stack_root/install.json" "$instance" "$runtime_dir" "$hardware_dir" \
+  "$service_name" "$action" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+manifest_path.parent.mkdir(parents=True, exist_ok=True)
+manifest_path.write_text(json.dumps({
+    "layout_version": 1,
+    "instance_id": sys.argv[2],
+    "runtime_dir": sys.argv[3],
+    "packages_dir": str(Path(sys.argv[3]) / "packages"),
+    "hardware_dir": sys.argv[4] if sys.argv[6] == "isolated_stack" else "",
+    "runtime_service": sys.argv[5],
+}, indent=2) + "\n", encoding="utf-8")
+PY
 install_complete=true
 progress 96 "Verifying the runtime service"
 """
@@ -1061,18 +1099,16 @@ progress 96 "Verifying the runtime service"
             "instance_id": selected_instance,
             "runtime_port": runtime_port,
             "service_name": service_name,
-            "runtime_dir": (
-                "~/blacknode-runtime"
-                if selected_instance == "default"
-                else f"~/blacknode-runtimes/{selected_instance}"
-            ),
+            "install_root": f"~/Blacknode/devices/{selected_instance}",
+            "runtime_dir": f"~/Blacknode/devices/{selected_instance}/runtime",
+            "packages_dir": f"~/Blacknode/devices/{selected_instance}/runtime/packages",
             "stack_mode": (
                 "isolated"
                 if clean_action == "isolated_stack"
                 else "runtime_only"
             ),
             "hardware_dir": (
-                f"~/blacknode-hardware-instances/{selected_instance}"
+                f"~/Blacknode/devices/{selected_instance}/hardware"
                 if clean_action == "isolated_stack"
                 else ""
             ),
@@ -1176,22 +1212,26 @@ for target in targets:
     print(f"{int(target['port'])}\t{str(target.get('device_id') or '')}")
 PY
 )
+organized_stack="$HOME/Blacknode/devices/$instance"
+organized_runtime_dir="$organized_stack/runtime"
+organized_hardware_dir="$organized_stack/hardware"
 if [[ "$instance" == "default" ]]; then
-  runtime_dir="$HOME/blacknode-runtime"
+  legacy_runtime_dir="$HOME/blacknode-runtime"
+  legacy_hardware_dir="$HOME/blacknode-hardware"
   runtime_service="blacknode-runtime.service"
 else
   [[ "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || {
     echo "Invalid Blacknode runtime instance."
     exit 2
   }
-  runtime_dir="$HOME/blacknode-runtimes/$instance"
+  legacy_runtime_dir="$HOME/blacknode-runtimes/$instance"
+  legacy_hardware_dir="$HOME/blacknode-hardware-instances/$instance"
   runtime_service="blacknode-runtime-$instance.service"
 fi
-if [[ "$stack_mode" == "isolated" ]]; then
-  hardware_repo="$HOME/blacknode-hardware-instances/$instance"
-else
-  hardware_repo="$HOME/blacknode-hardware"
-fi
+runtime_dir="$legacy_runtime_dir"
+[[ ! -d "$organized_runtime_dir" ]] || runtime_dir="$organized_runtime_dir"
+hardware_repo="$legacy_hardware_dir"
+[[ ! -d "$organized_hardware_dir" ]] || hardware_repo="$organized_hardware_dir"
 
 package_version() {
   python3 - "$1" <<'PY'
@@ -1729,12 +1769,14 @@ MARKER = "__BLACKNODE_UPDATE_CHECK__="
 request = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
 home = Path.home()
 instance = request["instance_id"]
+organized_runtime = home / "Blacknode" / "devices" / instance / "runtime"
 if instance == "default":
-    runtime_dir = home / "blacknode-runtime"
+    legacy_runtime = home / "blacknode-runtime"
     runtime_service = "blacknode-runtime.service"
 else:
-    runtime_dir = home / "blacknode-runtimes" / instance
+    legacy_runtime = home / "blacknode-runtimes" / instance
     runtime_service = f"blacknode-runtime-{{instance}}.service"
+runtime_dir = organized_runtime if organized_runtime.is_dir() else legacy_runtime
 
 def command(args, timeout=30):
     try:
@@ -2306,19 +2348,34 @@ progress() {
 instance="$1"
 runtime_port="$2"
 stack_mode="$3"
+stack_root="$HOME/Blacknode/devices/$instance"
+organized_runtime_dir="$stack_root/runtime"
+organized_token_file="$stack_root/secrets/runtime.auth.token"
+organized_hardware_dir="$stack_root/hardware"
 if [[ "$instance" == "default" ]]; then
-  runtime_dir="$HOME/blacknode-runtime"
-  token_file="$HOME/.blacknode/runtime.auth.token"
+  legacy_runtime_dir="$HOME/blacknode-runtime"
+  legacy_token_file="$HOME/.blacknode/runtime.auth.token"
+  legacy_hardware_dir="$HOME/blacknode-hardware"
   service_name="blacknode-runtime.service"
 else
   [[ "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || exit 2
-  runtime_dir="$HOME/blacknode-runtimes/$instance"
-  token_file="$HOME/.blacknode/runtimes/$instance.auth.token"
+  legacy_runtime_dir="$HOME/blacknode-runtimes/$instance"
+  legacy_token_file="$HOME/.blacknode/runtimes/$instance.auth.token"
+  legacy_hardware_dir="$HOME/blacknode-hardware-instances/$instance"
   service_name="blacknode-runtime-$instance.service"
 fi
-hardware_dir="$HOME/blacknode-hardware-instances/$instance"
+runtime_dir="$legacy_runtime_dir"
+token_file="$legacy_token_file"
+if [[ -d "$organized_runtime_dir" || -f "$organized_token_file" ]]; then
+  runtime_dir="$organized_runtime_dir"
+  token_file="$organized_token_file"
+fi
+hardware_dir="$legacy_hardware_dir"
+[[ ! -d "$organized_hardware_dir" ]] || hardware_dir="$organized_hardware_dir"
 case "$runtime_dir" in
-  "$HOME/blacknode-runtime"|"$HOME/blacknode-runtimes/"*) ;;
+  "$HOME/Blacknode/devices/"*/runtime|\
+  "$HOME/blacknode-runtime"|\
+  "$HOME/blacknode-runtimes/"*) ;;
   *) echo "Unsafe runtime directory."; exit 2 ;;
 esac
 progress 20 "Stopping Runtime service"
@@ -2329,6 +2386,7 @@ sudo rm -f -- "/etc/systemd/system/$service_name"
 sudo systemctl daemon-reload
 if [[ "$stack_mode" == "isolated" ]]; then
   case "$hardware_dir" in
+    "$HOME/Blacknode/devices/"*/hardware|\
     "$HOME/blacknode-hardware-instances/"*) ;;
     *) echo "Unsafe Hardware directory."; exit 2 ;;
   esac
@@ -2373,6 +2431,11 @@ if command -v ufw >/dev/null 2>&1 \
 fi
 rm -rf -- "$runtime_dir"
 rm -f -- "$token_file"
+if [[ "$runtime_dir" == "$organized_runtime_dir" ]]; then
+  rm -f -- "$stack_root/install.json"
+  rmdir -- "$stack_root/secrets" "$stack_root" "$HOME/Blacknode/devices" \
+    "$HOME/Blacknode" >/dev/null 2>&1 || true
+fi
 progress 94 "Finalizing uninstall"
 """
     try:

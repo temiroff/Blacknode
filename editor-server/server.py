@@ -3115,7 +3115,9 @@ def _install_local_device_host_payload(
                 "instance_id",
                 "runtime_port",
                 "service_name",
+                "install_root",
                 "runtime_dir",
+                "packages_dir",
                 "stack_mode",
                 "hardware_dir",
                 "hardware_port",
@@ -3131,6 +3133,7 @@ def _install_local_device_host_payload(
                 "log_path",
                 "owned_install",
             )
+            if key in installed
         },
     )
     if progress is not None:
@@ -3244,7 +3247,9 @@ def _install_device_host_payload(
             "instance_id": installed["instance_id"],
             "runtime_port": runtime_port,
             "service_name": installed["service_name"],
+            "install_root": installed.get("install_root", ""),
             "runtime_dir": installed["runtime_dir"],
+            "packages_dir": installed.get("packages_dir", ""),
             "stack_mode": installed.get("stack_mode", "runtime_only"),
             "hardware_dir": installed.get("hardware_dir", ""),
         },
@@ -3405,7 +3410,9 @@ def configure_device_host_management(
         "instance_id": str(instance.get("instance_id") or ""),
         "runtime_port": runtime_port,
         "service_name": str(instance.get("service_name") or ""),
+        "install_root": str(instance.get("install_root") or ""),
         "runtime_dir": str(instance.get("runtime_dir") or ""),
+        "packages_dir": str(instance.get("packages_dir") or ""),
     }
     if not all(
         management.get(key)

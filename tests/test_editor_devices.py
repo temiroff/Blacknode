@@ -475,13 +475,24 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn("sock.bind((\"0.0.0.0\", candidate))", script)
         self.assertIn("'blacknode-runtime*.service' 'blacknode-hardware*.service'", script)
         self.assertIn('sudo systemctl start "$sibling_service"', script)
-        self.assertIn('hardware_dir="$HOME/blacknode-hardware-instances/$instance"', script)
+        self.assertIn('stack_root="$HOME/Blacknode/devices/$instance"', script)
+        self.assertIn('runtime_dir="$stack_root/runtime"', script)
+        self.assertIn('hardware_dir="$stack_root/hardware"', script)
+        self.assertIn('"packages_dir": str(Path(sys.argv[3]) / "packages")', script)
         self.assertIn('BLACKNODE_HARDWARE_INSTANCE="$service_instance"', script)
         self.assertIn("does not support isolated stacks yet", script)
         self.assertNotIn("keep_sudo_alive", script)
 
         self.assertIn(
             "fallback_port = 0",
+            device_installer._INSPECTION_SCRIPT,
+        )
+        self.assertIn(
+            'organized_root = home / "Blacknode" / "devices"',
+            device_installer._INSPECTION_SCRIPT,
+        )
+        self.assertIn(
+            'legacy_side_root = home / "blacknode-runtimes"',
             device_installer._INSPECTION_SCRIPT,
         )
 
@@ -1472,7 +1483,9 @@ class EditorDeviceApiTests(unittest.TestCase):
             "instance_id": "default",
             "runtime_port": 8766,
             "service_name": "blacknode-runtime.service",
-            "runtime_dir": "~/blacknode-runtime",
+            "install_root": "~/Blacknode/devices/default",
+            "runtime_dir": "~/Blacknode/devices/default/runtime",
+            "packages_dir": "~/Blacknode/devices/default/runtime/packages",
         }
         host = {
             "id": "robot-computer",
@@ -1634,7 +1647,9 @@ class EditorDeviceApiTests(unittest.TestCase):
             "instance_id": "default",
             "runtime_port": 8766,
             "service_name": "blacknode-runtime.service",
-            "runtime_dir": "~/blacknode-runtime",
+            "install_root": "~/Blacknode/devices/default",
+            "runtime_dir": "~/Blacknode/devices/default/runtime",
+            "packages_dir": "~/Blacknode/devices/default/runtime/packages",
         }
         with (
             patch.object(server, "install_runtime", return_value=install_result),
@@ -1661,6 +1676,14 @@ class EditorDeviceApiTests(unittest.TestCase):
         managed = response.json()["device"]["managed_runtime"]
         self.assertEqual(managed["instance_id"], "default")
         self.assertEqual(managed["runtime_port"], 8766)
+        self.assertEqual(
+            managed["install_root"],
+            "~/Blacknode/devices/default",
+        )
+        self.assertEqual(
+            managed["packages_dir"],
+            "~/Blacknode/devices/default/runtime/packages",
+        )
 
     def test_automatic_install_stream_reports_progress_and_finishes_pairing(self):
         runtime = _HardwareService("generated-runtime-token")
