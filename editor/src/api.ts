@@ -325,6 +325,8 @@ export interface RobotTelemetryJoint {
   name: string
   position: number
   velocity: number
+  lower_limit?: number
+  upper_limit?: number
 }
 
 export interface RobotTelemetrySample {
@@ -337,6 +339,7 @@ export interface RobotTelemetrySample {
     id: string
     name: string
     state: string
+    motion_armed?: boolean
   }
   available: boolean
   stale: boolean
