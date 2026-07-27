@@ -743,7 +743,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(result["runtime_port"], 8769)
         self.assertIn("replace instance-2 8768", commands[0])
 
-    def test_isolated_stack_uninstall_streams_remote_cleanup_progress(self):
+    def test_default_isolated_stack_uninstall_streams_remote_cleanup_progress(self):
         uploaded = []
 
         class RemoteFile(io.StringIO):
@@ -772,8 +772,8 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         inspection = {
             "instances": [{
-                "instance_id": "instance-2",
-                "port": 8768,
+                "instance_id": "default",
+                "port": 8766,
                 "healthy": True,
             }],
         }
@@ -798,13 +798,14 @@ class EditorDeviceApiTests(unittest.TestCase):
                 username="robot",
                 password="ssh-password",
                 host_fingerprint="SHA256:trusted-device-key",
-                instance_id="instance-2",
-                runtime_port=8768,
+                instance_id="default",
+                runtime_port=8766,
                 stack_mode="isolated",
                 hardware_ports=[8765, 8767],
                 progress=progress.append,
             )
 
+        self.assertEqual(result["instance_id"], "default")
         self.assertEqual(result["stack_mode"], "isolated")
         self.assertTrue(any(item["progress"] == 60 for item in progress))
         self.assertEqual(result["hardware_ports"], [8765, 8767])
