@@ -4971,6 +4971,51 @@ def _workflow_motion_controls(workflow: dict[str, Any]) -> list[dict[str, str]]:
     return controls
 
 
+def _disarm_workflow_motion_controls(workflow: dict[str, Any]) -> list[str]:
+    """Force remotely controlled motion gates off in the deployed snapshot."""
+    node_meta = workflow.get("node_meta")
+    if not isinstance(node_meta, dict):
+        return []
+    controlled_ids = {
+        str(node_id)
+        for node_id, meta in node_meta.items()
+        if isinstance(meta, dict) and str(meta.get("type") or "") == "ROS2LeaderFollower"
+    }
+    if not controlled_ids:
+        return []
+    for node_id in controlled_ids:
+        meta = node_meta.get(node_id)
+        if not isinstance(meta, dict):
+            continue
+        params = meta.setdefault("params", {})
+        if isinstance(params, dict):
+            params["armed"] = False
+
+    safe_edges: list[Any] = []
+    for edge in workflow.get("edges") or []:
+        if not isinstance(edge, dict):
+            safe_edges.append(edge)
+            continue
+        target_id = str(edge.get("to") or "")
+        target_port = str(edge.get("to_port") or "")
+        if target_id not in controlled_ids or target_port != "armed":
+            safe_edges.append(edge)
+            continue
+        source = node_meta.get(str(edge.get("from") or ""))
+        if isinstance(source, dict) and str(source.get("type") or "") == "Bool":
+            params = source.setdefault("params", {})
+            if isinstance(params, dict):
+                params["value"] = False
+            safe_edges.append(edge)
+        # Dynamic armed inputs are omitted from physical deployments. The
+        # deployment-owned control topic becomes the only live arm path.
+    workflow["edges"] = safe_edges
+    metadata = workflow.setdefault("metadata", {})
+    if isinstance(metadata, dict):
+        metadata["deployment_motion_default"] = "disarmed"
+    return sorted(controlled_ids)
+
+
 def _workflow_calibration_selection(
     workflow: dict[str, Any],
 ) -> dict[str, str] | None:
@@ -6181,6 +6226,7 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
         }
         if hardware_is_leased:
             result["deployment_lease"] = deployment
+            result["armed"] = bool(deployment.get("motion_armed"))
             connection_present = status.get("connection_present")
             presence_reported = isinstance(connection_present, bool)
             result["connected"] = bool(connection_present) if presence_reported else False
@@ -6214,7 +6260,6 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
                     telemetry_torque = telemetry_payload.get("torque_enabled")
                     if isinstance(telemetry_torque, bool):
                         result["torque_enabled"] = telemetry_torque
-                        result["armed"] = telemetry_torque
             except (DeviceRegistryError, AttributeError, TypeError) as exc:
                 telemetry_message = str(exc)
             result.pop("error", None)
@@ -6655,6 +6700,7 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
 
     try:
         _bind_robot_to_device(workflow, preflight.get("status") or {})
+        _disarm_workflow_motion_controls(workflow)
         workflow["entrypoint"] = resolve_entrypoint(workflow)
         script = export_workflow_python(workflow)
     except (WorkflowRunError, ValueError) as exc:

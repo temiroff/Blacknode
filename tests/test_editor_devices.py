@@ -3047,7 +3047,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(payload["connection_state"], "connected")
         self.assertTrue(payload["connection_reported"])
         self.assertTrue(payload["torque_enabled"])
-        self.assertTrue(payload["armed"])
+        self.assertFalse(payload["armed"])
         self.assertEqual(payload["deployment_lease"]["state"], "running")
 
     def test_device_status_uses_noninvasive_serial_presence_during_deployment(self):
@@ -4012,6 +4012,52 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "run_id": "so-arm follower",
                 "topic": "/blacknode/leader_follower/so_arm_follower/control",
             }],
+        )
+
+    def test_remote_leader_follower_export_is_forced_disarmed(self):
+        workflow = _workflow([])
+        workflow["edges"] = [
+            {
+                "from": "armed",
+                "from_port": "value",
+                "to": "follow",
+                "to_port": "armed",
+            },
+            {
+                "from": "dynamic",
+                "from_port": "value",
+                "to": "follow",
+                "to_port": "armed",
+            },
+        ]
+        workflow["node_meta"].update({
+            "armed": {
+                "id": "armed",
+                "type": "Bool",
+                "params": {"value": True},
+            },
+            "dynamic": {
+                "id": "dynamic",
+                "type": "PythonFn",
+                "params": {},
+            },
+            "follow": {
+                "id": "follow",
+                "type": "ROS2LeaderFollower",
+                "params": {"armed": True},
+            },
+        })
+
+        controlled = server._disarm_workflow_motion_controls(workflow)
+
+        self.assertEqual(controlled, ["follow"])
+        self.assertFalse(workflow["node_meta"]["armed"]["params"]["value"])
+        self.assertFalse(workflow["node_meta"]["follow"]["params"]["armed"])
+        self.assertEqual(len(workflow["edges"]), 1)
+        self.assertEqual(workflow["edges"][0]["from"], "armed")
+        self.assertEqual(
+            workflow["metadata"]["deployment_motion_default"],
+            "disarmed",
         )
 
     def test_send_and_run_replaces_and_removes_older_target_deployments(self):

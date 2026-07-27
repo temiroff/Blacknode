@@ -1172,7 +1172,7 @@ html[data-theme="dark"] .bn-brand-logo {
 }
 
 .bn-local-package-versions small {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: .05em;
   line-height: 1;
@@ -2308,6 +2308,331 @@ button.bn-compute-device-card:active:not(:disabled) {
   flex: 1 1 120px;
 }
 
+.bn-device-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin: 10px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+}
+
+.bn-device-overview-item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  padding: 7px;
+  border-radius: 5px;
+  background: var(--lift);
+}
+
+.bn-device-overview-toggle {
+  width: 100%;
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bn-device-overview-toggle:hover,
+.bn-device-overview-toggle.is-expanded {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  background: color-mix(in srgb, var(--accent) 7%, var(--lift));
+}
+
+.bn-device-overview-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.bn-device-overview-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 3px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+.bn-device-overview-item.is-checking .bn-device-overview-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+  animation: bn-runtime-check-pulse .8s ease-in-out infinite alternate;
+}
+
+.bn-device-overview-item.is-attention .bn-device-overview-dot,
+.bn-device-overview-item.is-warning .bn-device-overview-dot,
+.bn-device-overview-item.is-unavailable .bn-device-overview-dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+.bn-device-overview-item.is-error .bn-device-overview-dot {
+  background: var(--err);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 14%, transparent);
+}
+
+.bn-device-overview-item small,
+.bn-device-overview-item strong,
+.bn-device-overview-item span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-device-overview-item small {
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.bn-device-overview-item strong {
+  margin-top: 2px;
+  color: var(--tx1);
+  font-size: 12px;
+}
+
+.bn-device-overview-item span {
+  margin-top: 2px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-device-overview-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding-top: 1px;
+}
+
+.bn-device-health-alert {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  margin: 0 10px 10px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 62%, var(--line2));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 8%, var(--panel));
+}
+
+.bn-device-health-alert.is-error {
+  border-color: color-mix(in srgb, var(--err) 68%, var(--line2));
+  background: color-mix(in srgb, var(--err) 8%, var(--panel));
+}
+
+.bn-device-health-alert.is-warning .bn-device-overview-dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+.bn-device-health-alert.is-error .bn-device-overview-dot {
+  background: var(--err);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 14%, transparent);
+}
+
+.bn-device-health-alert strong,
+.bn-device-health-alert span {
+  display: block;
+}
+
+.bn-device-health-alert strong {
+  color: var(--tx1);
+  font-size: 12px;
+}
+
+.bn-device-health-alert span {
+  margin-top: 2px;
+  color: var(--tx2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bn-device-ros-details {
+  margin: 0 10px 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--tx2);
+  font-size: 11px;
+}
+
+.bn-device-ros-details-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bn-device-ros-details-head > div > span {
+  display: block;
+  margin-top: 2px;
+  color: var(--tx3);
+}
+
+.bn-device-ros-details strong {
+  color: var(--tx1);
+  font-size: 12px;
+}
+
+.bn-ros-robot-paths {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.bn-ros-robot-path {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--lift);
+}
+
+.bn-ros-robot-path.is-ready {
+  border-color: color-mix(in srgb, var(--ok) 48%, var(--line));
+}
+
+.bn-ros-robot-path.is-attention {
+  border-color: color-mix(in srgb, var(--err) 55%, var(--line));
+}
+
+.bn-ros-robot-path > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bn-ros-robot-path > div > span {
+  color: var(--tx3);
+}
+
+.bn-ros-robot-path.is-ready > div > span {
+  color: var(--ok);
+}
+
+.bn-ros-robot-path.is-attention > div > span {
+  color: var(--err);
+}
+
+.bn-ros-robot-path dl {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0 0;
+}
+
+.bn-ros-robot-path dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+  gap: 7px;
+}
+
+.bn-ros-robot-path dt,
+.bn-ros-robot-path dd {
+  margin: 0;
+}
+
+.bn-ros-robot-path dt {
+  color: var(--tx3);
+}
+
+.bn-ros-robot-path dd {
+  color: var(--tx2);
+  text-align: right;
+}
+
+.bn-ros-internals-note {
+  margin: 9px 0 0;
+  color: var(--tx3);
+  line-height: 1.45;
+}
+
+.bn-ros-advanced {
+  margin-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.bn-ros-advanced > summary {
+  padding-top: 8px;
+  color: var(--tx2);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.bn-ros-advanced > summary:hover {
+  color: var(--accent);
+}
+
+.bn-ros-graph-section {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.bn-ros-graph-section h4 {
+  margin: 0 0 6px;
+  color: var(--tx1);
+  font-size: 11px;
+}
+
+.bn-ros-graph-section.is-warning {
+  color: var(--warn);
+}
+
+.bn-ros-graph-section.is-warning ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.bn-ros-graph-list {
+  display: grid;
+  gap: 3px;
+  max-height: 180px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.bn-ros-graph-list li {
+  min-width: 0;
+  padding: 5px 7px;
+  border-radius: 4px;
+  background: var(--lift);
+}
+
+.bn-ros-graph-list code {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--tx1);
+  font-size: 11px;
+}
+
+.bn-ros-graph-list.is-topics li > span {
+  display: block;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  color: var(--tx3);
+}
+
+.bn-ros-graph-list:not(.is-topics) li > span {
+  display: block;
+  margin-top: 2px;
+  color: var(--warn);
+}
+
 .bn-runtime-check-result {
   display: flex;
   align-items: flex-start;
@@ -2934,6 +3259,31 @@ button.bn-compute-device-card:active:not(:disabled) {
 
 .bn-device-card-summary:hover {
   background: var(--hover);
+}
+
+.bn-device-card-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--lift) 82%, var(--panel));
+}
+
+.bn-device-card-quick-actions > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--tx3);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-device-card-quick-actions .bn-device-action-button {
+  min-height: 28px;
+  flex: 0 0 auto;
+  padding: 4px 8px;
 }
 
 .bn-device-card-summary:focus-visible {

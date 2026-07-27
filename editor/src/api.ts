@@ -659,6 +659,25 @@ export interface RemoteDeployment {
   updated_at: string
 }
 
+export interface RemoteRos2Diagnostics {
+  ok: boolean
+  available: boolean
+  checked_at: string
+  summary: string
+  nodes: string[]
+  stale_nodes?: string[]
+  topics: string[]
+  services: string[]
+  topic_details: Array<{
+    topic: string
+    ok: boolean
+    stdout: string
+    stderr: string
+    error: string
+  }>
+  warnings: string[]
+}
+
 export interface WorkflowSnapshot {
   kind?: string
   schema_version?: number
@@ -1527,23 +1546,7 @@ export const api = {
       20000,
     ),
   remoteRos2Diagnostics: (deviceId: string) =>
-    req<{
-      ok: boolean
-      available: boolean
-      checked_at: string
-      summary: string
-      nodes: string[]
-      topics: string[]
-      services: string[]
-      topic_details: Array<{
-        topic: string
-        ok: boolean
-        stdout: string
-        stderr: string
-        error: string
-      }>
-      warnings: string[]
-    }>(
+    req<RemoteRos2Diagnostics>(
       'GET',
       `/devices/${encodeURIComponent(deviceId)}/ros2-diagnostics`,
       undefined,
