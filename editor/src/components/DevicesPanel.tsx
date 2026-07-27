@@ -2292,6 +2292,13 @@ export default function DevicesPanel() {
                   </button>
                 </div>
               </div>
+              {!selectedDeviceManagedLocally && (
+                <div className="bn-local-package-check-help">
+                  To check updates, enter the SSH password and press
+                  {' '}
+                  <strong>Check updates</strong>.
+                </div>
+              )}
               <div className="bn-local-package-summary">
                 <SoftwarePackageSummaryCard
                   label="Runtime package"
@@ -3639,10 +3646,16 @@ function SoftwarePackageSummaryCard({
       <div className="bn-local-package-card-head">
         <div>
           <strong>{label}</strong>
-          <span>Current {currentVersion}</span>
-          <span className={latestVersion ? '' : 'is-not-checked'}>
-            Latest {latestVersion ?? 'not checked'}
-          </span>
+          <div className="bn-local-package-versions">
+            <span className="is-current">
+              <small>Current</small>
+              <b>{currentVersion}</b>
+            </span>
+            <span className={latestVersion ? 'is-latest' : 'is-latest is-not-checked'}>
+              <small>Latest</small>
+              <b>{latestVersion ?? 'Not checked'}</b>
+            </span>
+          </div>
         </div>
         <span className={`bn-local-package-state is-${statusTone}`}>
           <i aria-hidden="true" />
@@ -3658,7 +3671,7 @@ function SoftwarePackageSummaryCard({
           disabled={busy}
           onClick={onCheckLatest}
         >
-          {busy ? 'Checking versions…' : 'Check latest version'}
+          {busy ? 'Checking versions…' : 'Check updates'}
         </button>
       ) : updateAvailable ? (
         <div className="bn-local-package-update-available">

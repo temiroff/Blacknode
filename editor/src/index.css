@@ -1073,6 +1073,20 @@ html[data-theme="dark"] .bn-brand-logo {
   gap: 8px;
 }
 
+.bn-local-package-check-help {
+  margin-top: 7px;
+  padding: 7px 9px;
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--tx2);
+  font-size: 12px;
+}
+
+.bn-local-package-check-help strong {
+  color: var(--accent);
+}
+
 .bn-local-package-password {
   display: flex;
   min-width: 230px;
@@ -1140,15 +1154,52 @@ html[data-theme="dark"] .bn-brand-logo {
   display: block;
 }
 
-.bn-local-package-card-head > div > span {
-  margin-top: 2px;
-  color: var(--tx3);
-  font-family: var(--font-mono);
+.bn-local-package-versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
 }
 
-.bn-local-package-card-head > div > span.is-not-checked {
+.bn-local-package-versions > span {
+  display: inline-flex;
+  min-width: 92px;
+  padding: 5px 7px;
+  border: 1px solid;
+  border-radius: 5px;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.bn-local-package-versions small {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.bn-local-package-versions b {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.bn-local-package-versions .is-current {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line2));
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  color: var(--ok);
+}
+
+.bn-local-package-versions .is-latest {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line2));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.bn-local-package-versions .is-latest.is-not-checked {
+  border-color: color-mix(in srgb, var(--warn) 50%, var(--line2));
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
   color: var(--warn);
-  font-weight: 700;
 }
 
 .bn-local-package-check-latest {
