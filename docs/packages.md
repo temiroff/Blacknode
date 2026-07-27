@@ -66,6 +66,13 @@ Update clean package checkouts with:
 blacknode packages update --all
 ```
 
+For a managed remote device, **Devices → Software packages → Update Runtime**
+and **Update all** also refresh every extension package already installed in
+that Runtime. Blacknode stops active deployments, disarms attached robots,
+updates the service and clean package checkouts, reloads Runtime, and verifies
+the resulting package manifest. Deployments remain stopped and disarmed until
+the operator explicitly starts and arms them.
+
 The update command is intentionally conservative: it fetches and fast-forwards
 only packages with no local edits and no local commits ahead of upstream. Dirty,
 ahead, diverged, non-git, and non-folder packages are reported and skipped so a
