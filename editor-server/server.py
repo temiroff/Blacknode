@@ -561,6 +561,7 @@ def _stop_active_cook() -> None:
 
 _RUNTIME_MODULES = {
     "ros2": "blacknode.pkg.blacknode_ros2.ros2_runtime",
+    "ros2_live": "blacknode.pkg.blacknode_skills.follow.leader_follower_runtime",
     "joint_control": "blacknode.pkg.blacknode_controllers.joint_control.adapters.ros2.joint_motion",
     "vision": "blacknode.pkg.blacknode_perception.cv2_runtime",
     "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
@@ -580,6 +581,11 @@ _RUNTIME_REGISTRY_ANCHORS = {
     "joint_control": "ROS2ManualMove",
 }
 
+_RUNTIME_CALLABLE_ALIASES = {
+    ("ros2_live", "runtime_status"): "leader_follower_runtime_status",
+    ("ros2_live", "stop_runtime_services"): "stop_leader_follower_services",
+}
+
 
 def _runtime_module(module_name: str):
     module = sys.modules.get(module_name)
@@ -592,13 +598,22 @@ def _runtime_module(module_name: str):
 
 
 def _runtime_callable(label: str, module_name: str, name: str):
+    callable_name = _RUNTIME_CALLABLE_ALIASES.get((label, name), name)
     anchor_name = _RUNTIME_REGISTRY_ANCHORS.get(label)
     anchor = _NODE_REGISTRY.get(anchor_name) if anchor_name else None
-    candidate = getattr(anchor, "__globals__", {}).get(name) if anchor is not None else None
+    candidate = (
+        getattr(anchor, "__globals__", {}).get(callable_name)
+        if anchor is not None
+        else None
+    )
     if callable(candidate):
         return candidate
     runtime = _runtime_module(module_name)
-    candidate = getattr(runtime, name, None) if runtime is not None else None
+    candidate = (
+        getattr(runtime, callable_name, None)
+        if runtime is not None
+        else None
+    )
     return candidate if callable(candidate) else None
 
 
@@ -614,7 +629,18 @@ def _runtime_module_status(label: str, module_name: str) -> dict[str, Any]:
             "report": f"{label} runtime is not loaded",
         }
     try:
-        return dict(status_fn())
+        status = status_fn()
+        if isinstance(status, list):
+            return {
+                "ok": True,
+                "active": bool(status),
+                "streams": [],
+                "managed_runs": [
+                    item for item in status if isinstance(item, dict)
+                ],
+                "detached_count": 0,
+            }
+        return dict(status)
     except Exception as exc:
         return {"ok": False, "active": False, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -664,7 +690,11 @@ def _stop_runtime_module(label: str, module_name: str) -> dict[str, Any]:
             "report": f"{label} runtime is not loaded",
         }
     try:
-        return dict(stop_fn())
+        result = dict(stop_fn())
+        stopped = result.get("stopped")
+        if isinstance(stopped, (int, float)):
+            result["stopped"] = {"managed_runs": int(stopped)}
+        return result
     except Exception as exc:
         return {
             "ok": False,
@@ -4485,12 +4515,29 @@ def _control_robot_lifecycle_payload(
         }
 
     if action == "pause":
-        report(20, "Checking for an active deployment")
+        report(20, "Stopping every deployment targeting this robot")
+        stopped_deployments: list[str] = []
         try:
             status = _deployment_aware_device_status(device_id)
             lease = status.get("deployment_lease")
+            runtime_client = _runtime_client_or_404(device_id)
+            deployment_ids = {
+                str(item.get("id") or "")
+                for item in (
+                    runtime_client.list_deployments().get("deployments") or []
+                )
+                if (
+                    isinstance(item, dict)
+                    and str(item.get("state") or "") == "running"
+                    and str(item.get("target_device_id") or "") == device_id
+                    and str(item.get("id") or "")
+                )
+            }
             if isinstance(lease, dict) and lease.get("id"):
-                _runtime_client_or_404(device_id).stop_deployment(str(lease["id"]))
+                deployment_ids.add(str(lease["id"]))
+            for deployment_id in sorted(deployment_ids):
+                runtime_client.stop_deployment(deployment_id)
+                stopped_deployments.append(deployment_id)
         except (DeviceRegistryError, HTTPException, KeyError) as exc:
             detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
             warnings.append(
@@ -4531,6 +4578,9 @@ def _control_robot_lifecycle_payload(
         "ok": True,
         "action": action,
         "status": status,
+        "stopped_deployments": (
+            stopped_deployments if action == "pause" else []
+        ),
         "warnings": warnings,
         "summary": summary,
     }
@@ -6074,6 +6124,14 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
     if active:
         owner = active[0]
         result = dict(status)
+        conflicting_deployments = [
+            {
+                "id": str(item.get("id") or ""),
+                "name": str(item.get("name") or item.get("id") or "Deployment"),
+                "state": "running",
+            }
+            for item in active
+        ]
         deployment = {
             "id": str(owner.get("id") or ""),
             "name": str(owner.get("name") or owner.get("id") or "Deployment"),
@@ -6141,6 +6199,13 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
             result["notice"] = (
                 f"Deployment '{owner.get('name') or owner.get('id')}' is running, "
                 "but the hardware service does not report that it owns motion control."
+            )
+        if len(conflicting_deployments) > 1:
+            result["conflicting_deployments"] = conflicting_deployments
+            result["notice"] = (
+                f"Safety conflict: {len(conflicting_deployments)} deployments are "
+                f"running for this robot. Pause the robot to stop all of them. "
+                + str(result.get("notice") or "")
             )
         return result
 
@@ -6451,6 +6516,70 @@ def _remote_deployment_owner(
     }
 
 
+def _target_deployment_records(
+    runtime_client,
+    device_id: str,
+    *,
+    exclude_id: str = "",
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in (
+            runtime_client.list_deployments().get("deployments") or []
+        )
+        if (
+            isinstance(item, dict)
+            and str(item.get("target_device_id") or "") == device_id
+            and str(item.get("id") or "")
+            and str(item.get("id") or "") != exclude_id
+        )
+    ]
+
+
+def _start_replacing_device_deployment(
+    device_id: str,
+    runtime_client,
+    deployment_id: str,
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    superseded = _target_deployment_records(
+        runtime_client,
+        device_id,
+        exclude_id=deployment_id,
+    )
+    for item in superseded:
+        if str(item.get("state") or "") == "running":
+            runtime_client.stop_deployment(str(item["id"]))
+
+    _require_device_safe_to_start(device_id)
+    _set_device_deployment_lease(device_id, leased=True)
+    try:
+        deployment = runtime_client.start_deployment(deployment_id)
+    except Exception:
+        _set_device_deployment_lease(device_id, leased=False)
+        raise
+
+    superseded_ids = {
+        str(item.get("id") or "")
+        for item in superseded
+        if str(item.get("id") or "")
+    }
+    superseded_ids.update(
+        str(item)
+        for item in (deployment.get("superseded_deployment_ids") or [])
+        if str(item)
+    )
+    cleanup_warnings: list[str] = []
+    for old_id in sorted(superseded_ids):
+        try:
+            runtime_client.delete_deployment(old_id)
+        except DeviceRegistryError as exc:
+            cleanup_warnings.append(
+                f"Replacement started, but superseded deployment "
+                f"'{old_id}' could not be removed: {exc}"
+            )
+    return deployment, sorted(superseded_ids), cleanup_warnings
+
+
 @app.post("/devices/{device_id}/deployments")
 def stage_device_deployment(device_id: str, req: RemoteDeployReq):
     deployment_owner = _remote_deployment_owner(device_id, req)
@@ -6563,20 +6692,26 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
                     "Target package synchronization did not provide " + "; ".join(details),
                 )
         deployment = client.stage_deployment(payload)
+        superseded_deployments: list[str] = []
+        cleanup_warnings: list[str] = []
         if req.start:
-            _require_device_safe_to_start(device_id)
-            _set_device_deployment_lease(device_id, leased=True)
-            try:
-                deployment = client.start_deployment(str(deployment["id"]))
-            except Exception:
-                _set_device_deployment_lease(device_id, leased=False)
-                raise
+            (
+                deployment,
+                superseded_deployments,
+                cleanup_warnings,
+            ) = _start_replacing_device_deployment(
+                device_id,
+                client,
+                str(deployment["id"]),
+            )
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {
         "deployment": deployment,
         "workflow_hash": current_hash,
         "started": bool(req.start),
+        "superseded_deployments": superseded_deployments,
+        "cleanup_warnings": cleanup_warnings,
     }
 
 
@@ -6588,25 +6723,41 @@ def get_device_deployment(device_id: str, deployment_id: str):
 @app.post("/devices/{device_id}/deployments/{deployment_id}/start")
 def start_device_deployment(device_id: str, deployment_id: str):
     _require_targeted_deployment(device_id, deployment_id)
-    _require_device_safe_to_start(device_id)
-    _set_device_deployment_lease(device_id, leased=True)
     try:
-        return _runtime_client_or_404(device_id).start_deployment(deployment_id)
-    except Exception as exc:
-        _set_device_deployment_lease(device_id, leased=False)
-        if isinstance(exc, DeviceRegistryError):
-            raise HTTPException(502, str(exc)) from exc
-        raise
+        deployment, superseded, cleanup_warnings = (
+            _start_replacing_device_deployment(
+                device_id,
+                _runtime_client_or_404(device_id),
+                deployment_id,
+            )
+        )
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {
+        **deployment,
+        "superseded_deployments": superseded,
+        "cleanup_warnings": cleanup_warnings,
+    }
 
 
 @app.post("/devices/{device_id}/deployments/{deployment_id}/stop")
 def stop_device_deployment(device_id: str, deployment_id: str):
     _require_targeted_deployment(device_id, deployment_id)
     try:
-        deployment = _runtime_client_or_404(device_id).stop_deployment(deployment_id)
+        runtime_client = _runtime_client_or_404(device_id)
+        deployment = runtime_client.stop_deployment(deployment_id)
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
-    _set_device_deployment_lease(device_id, leased=False)
+    remaining = _target_deployment_records(
+        runtime_client,
+        device_id,
+        exclude_id=deployment_id,
+    )
+    if not any(
+        str(item.get("state") or "") == "running"
+        for item in remaining
+    ):
+        _set_device_deployment_lease(device_id, leased=False)
     return deployment
 
 
@@ -6617,23 +6768,38 @@ def rollback_device_deployment(
     req: RemoteRollbackReq,
 ):
     _require_targeted_deployment(device_id, deployment_id)
-    if req.start:
-        _require_device_safe_to_start(device_id)
-        _set_device_deployment_lease(device_id, leased=True)
     try:
-        deployment = _runtime_client_or_404(device_id).rollback_deployment(
+        runtime_client = _runtime_client_or_404(device_id)
+        deployment = runtime_client.rollback_deployment(
             deployment_id,
-            start=req.start,
+            start=False,
         )
-    except Exception as exc:
         if req.start:
+            deployment, superseded, cleanup_warnings = (
+                _start_replacing_device_deployment(
+                    device_id,
+                    runtime_client,
+                    deployment_id,
+                )
+            )
+            return {
+                **deployment,
+                "superseded_deployments": superseded,
+                "cleanup_warnings": cleanup_warnings,
+            }
+        remaining = _target_deployment_records(
+            runtime_client,
+            device_id,
+            exclude_id=deployment_id,
+        )
+        if not any(
+            str(item.get("state") or "") == "running"
+            for item in remaining
+        ):
             _set_device_deployment_lease(device_id, leased=False)
-        if isinstance(exc, DeviceRegistryError):
-            raise HTTPException(502, str(exc)) from exc
-        raise
-    if not req.start:
-        _set_device_deployment_lease(device_id, leased=False)
-    return deployment
+        return deployment
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 @app.get("/devices/{device_id}/deployments/{deployment_id}/logs")

@@ -1434,7 +1434,13 @@ export const api = {
     projectId?: string,
     workflowSlug?: string,
   ) =>
-    req<{ deployment: RemoteDeployment; workflow_hash: string; started: boolean }>(
+    req<{
+      deployment: RemoteDeployment
+      workflow_hash: string
+      started: boolean
+      superseded_deployments: string[]
+      cleanup_warnings: string[]
+    }>(
       'POST',
       `/devices/${encodeURIComponent(deviceId)}/deployments`,
       {
