@@ -1066,6 +1066,13 @@ html[data-theme="dark"] .bn-brand-logo {
   color: var(--tx3);
 }
 
+.bn-local-package-summary-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 8px;
+}
+
 .bn-local-package-password {
   display: flex;
   min-width: 230px;
@@ -3466,6 +3473,11 @@ button.bn-device-fact {
 
 @container devices-panel (max-width: 700px) {
   .bn-local-package-summary-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bn-local-package-summary-actions {
     align-items: stretch;
     flex-direction: column;
   }

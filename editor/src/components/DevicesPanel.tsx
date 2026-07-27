@@ -418,10 +418,38 @@ export default function DevicesPanel() {
   const checkedRuntimeComponents = checkedSoftwareComponents.filter(
     component => component.kind === 'runtime',
   )
+  const checkedRuntimeInstallation = checkedRuntimeComponents.find(component => (
+    component.installed.version !== 'unknown'
+    && component.latest.version !== 'unknown'
+  )) ?? checkedRuntimeComponents[0]
   const checkedHardwareInstallation = checkedHardwareComponents.find(component => (
     component.installed.version !== 'unknown'
     && component.latest.version !== 'unknown'
   )) ?? checkedHardwareComponents[0]
+  const runtimeCurrentVersion = (
+    checkedRuntimeInstallation?.installed.version
+    && checkedRuntimeInstallation.installed.version !== 'unknown'
+  )
+    ? `v${checkedRuntimeInstallation.installed.version}`
+    : selectedRuntimeVersion
+  const runtimeLatestVersion = (
+    checkedRuntimeInstallation?.latest.version
+    && checkedRuntimeInstallation.latest.version !== 'unknown'
+  )
+    ? `v${checkedRuntimeInstallation.latest.version}`
+    : null
+  const hardwareCurrentVersion = (
+    checkedHardwareInstallation?.installed.version
+    && checkedHardwareInstallation.installed.version !== 'unknown'
+  )
+    ? `v${checkedHardwareInstallation.installed.version}`
+    : selectedHardwareVersionLabel
+  const hardwareLatestVersion = (
+    checkedHardwareInstallation?.latest.version
+    && checkedHardwareInstallation.latest.version !== 'unknown'
+  )
+    ? `v${checkedHardwareInstallation.latest.version}`
+    : null
   const updatedSoftwareComponents = updateReport?.update.components ?? []
   const updatedRuntimeComponents = updatedSoftwareComponents.filter(
     component => component.kind === 'runtime',
@@ -892,7 +920,6 @@ export default function DevicesPanel() {
   const checkDevice = async (device: ComputeDevice) => {
     setShowUpdateForm(false)
     setUpdatePassword('')
-    setUpdateCheckReport(null)
     setUpdateReport(null)
     setBusy(true)
     setError(null)
@@ -1161,7 +1188,6 @@ export default function DevicesPanel() {
     setBusy(true)
     setError(null)
     setUpdateReport(null)
-    setUpdateCheckReport(null)
     setShowDirtySourceHelp(false)
     setActionProgress(previous => ({
       ...previous,
@@ -2240,25 +2266,36 @@ export default function DevicesPanel() {
                     Runtime and Hardware use the same package controls on every device.
                   </span>
                 </div>
-                {!selectedDeviceManagedLocally && (
-                  <label className="bn-local-package-password">
-                    <span>SSH password · never saved</span>
-                    <input
-                      type="password"
-                      value={updatePassword}
-                      onChange={event => setUpdatePassword(event.target.value)}
-                      autoComplete="current-password"
-                      placeholder="Required for package actions"
-                    />
-                  </label>
-                )}
+                <div className="bn-local-package-summary-actions">
+                  {!selectedDeviceManagedLocally && (
+                    <label className="bn-local-package-password">
+                      <span>SSH password · never saved</span>
+                      <input
+                        type="password"
+                        value={updatePassword}
+                        onChange={event => setUpdatePassword(event.target.value)}
+                        autoComplete="current-password"
+                        placeholder="Required for package actions"
+                      />
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    className="bn-device-action-button"
+                    disabled={busy}
+                    onClick={() => void checkDeviceSoftware(selectedDevice)}
+                  >
+                    {busy ? 'Checking…' : 'Check updates'}
+                  </button>
+                </div>
               </div>
               <div className="bn-local-package-summary">
                 <SoftwarePackageSummaryCard
                   label="Runtime package"
                   path={selectedDevice.managed_runtime?.runtime_dir || selectedDevice.runtime_url}
                   state={selectedRuntimePackageState}
-                  version={selectedRuntimeVersion}
+                  currentVersion={runtimeCurrentVersion}
+                  latestVersion={runtimeLatestVersion}
                   installed={selectedDeviceState?.runtime?.installed !== false}
                   updateAvailable={checkedRuntimeComponents.some(
                     component => component.update_available,
@@ -2305,7 +2342,8 @@ export default function DevicesPanel() {
                           selectedDevice.robots.length === 1 ? '' : 's'
                         }`}
                     state={selectedHardwarePackageState}
-                    version={selectedHardwareVersionLabel}
+                    currentVersion={hardwareCurrentVersion}
+                    latestVersion={hardwareLatestVersion}
                     installed={
                       selectedDeviceManagedLocally
                         ? selectedDeviceState?.runtime?.hardware?.installed !== false
@@ -3531,7 +3569,8 @@ function SoftwarePackageSummaryCard({
   path,
   detail,
   state,
-  version,
+  currentVersion,
+  latestVersion,
   installed,
   updateAvailable,
   busy,
@@ -3548,7 +3587,8 @@ function SoftwarePackageSummaryCard({
   path: string
   detail?: string
   state: string
-  version: string
+  currentVersion: string
+  latestVersion: string | null
   installed: boolean
   updateAvailable: boolean
   busy: boolean
@@ -3591,7 +3631,8 @@ function SoftwarePackageSummaryCard({
       <div className="bn-local-package-card-head">
         <div>
           <strong>{label}</strong>
-          <span>{version}</span>
+          <span>Current {currentVersion}</span>
+          <span>Latest {latestVersion ?? 'not checked'}</span>
         </div>
         <span className={`bn-local-package-state is-${statusTone}`}>
           <i aria-hidden="true" />
