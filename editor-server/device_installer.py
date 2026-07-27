@@ -2081,12 +2081,12 @@ def control_runtime(
             connection,
             (
                 "sudo -S -p '' -v"
-                f" && sudo systemctl {systemd_action} {service_name}"
-                f' && state="$(sudo systemctl is-active {service_name} || true)"'
+                f" && sudo -S -p '' systemctl {systemd_action} {service_name}"
+                f' && state="$(sudo -S -p \'\' systemctl is-active {service_name} || true)"'
                 ' && printf "%s\\n" "$state"'
                 f' && [ "$state" = "{"inactive" if clean_action == "pause" else "active"}" ]'
             ),
-            stdin_text=password + "\n",
+            stdin_text=_sudo_input(password),
             timeout=60.0,
         )
         state = output.strip().splitlines()[-1] if output.strip() else ""

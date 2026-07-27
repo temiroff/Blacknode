@@ -2882,6 +2882,21 @@ export default function DevicesPanel() {
                   >
                     {busy ? 'Checking…' : 'Check updates'}
                   </button>
+                  {!selectedDeviceManagedLocally && (
+                    <button
+                      type="button"
+                      className="bn-device-action-button is-primary"
+                      disabled={busy || !updatePassword}
+                      title="Update Runtime, all installed workflow packages, and Hardware"
+                      onClick={() => void updateDevice(
+                        selectedDevice,
+                        'all',
+                        'update',
+                      )}
+                    >
+                      Update all
+                    </button>
+                  )}
                 </div>
               </div>
               {!selectedDeviceManagedLocally && (
@@ -3675,27 +3690,6 @@ export default function DevicesPanel() {
                   {updateCheckReport.warnings.map(warning => (
                     <span key={warning}>{warning}</span>
                   ))}
-                </div>
-              )}
-              {!selectedDeviceManagedLocally
-                && checkedRuntimeComponents.length > 0
-                && checkedHardwareComponents.length > 0 && (
-                <div className="bn-device-update-report-actions">
-                  <button
-                    type="button"
-                    className="bn-device-action-button"
-                    disabled={
-                      busy
-                      || !updatePassword
-                      || checkedSoftwareComponents.some(
-                        component => component.dirty || Boolean(component.error),
-                      )
-                    }
-                    title="Update Runtime, installed workflow packages, and Hardware together"
-                    onClick={() => void updateDevice(selectedDevice, 'all')}
-                  >
-                    Update all
-                  </button>
                 </div>
               )}
             </section>
