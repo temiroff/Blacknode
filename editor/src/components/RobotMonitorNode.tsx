@@ -101,7 +101,7 @@ export default function RobotMonitorNode({ id, data, selected }: NodeProps<NodeD
   )
 }
 
-function RobotLiveMonitor({
+export function RobotLiveMonitor({
   robotId,
   robotName,
   emptyMessage,

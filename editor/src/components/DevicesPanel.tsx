@@ -15,6 +15,7 @@ import {
   type SshRuntimeInspection,
 } from '../api'
 import { useStore } from '../store'
+import { RobotLiveMonitor } from './RobotMonitorNode'
 
 type RobotState = {
   status?: HardwareDeviceStatus
@@ -4447,10 +4448,6 @@ export default function DevicesPanel() {
                   'blacknode:open-panel',
                   { detail: { tab: 'deployments', deviceId: robot.id } },
                 ))}
-                onMonitor={() => window.dispatchEvent(new CustomEvent(
-                  'blacknode:monitor-robot',
-                  { detail: { robotId: robot.id, robotName: robot.name } },
-                ))}
                 onStopDeployment={deploymentId => stopDeployment(robot, deploymentId)}
                 onStartDeployment={(deploymentId, deploymentName) => (
                   restartDeployment(robot, deploymentId, deploymentName)
@@ -4693,7 +4690,6 @@ function RobotRow({
   onRename,
   onRemove,
   onDeploy,
-  onMonitor,
   onStopDeployment,
   onStartDeployment,
   onSetDeploymentMotion,
@@ -4714,7 +4710,6 @@ function RobotRow({
   onRename: () => void
   onRemove: () => void
   onDeploy: () => void
-  onMonitor: () => void
   onStopDeployment: (deploymentId: string) => void
   onStartDeployment: (deploymentId: string, deploymentName: string) => void
   onSetDeploymentMotion: (
@@ -4731,6 +4726,7 @@ function RobotRow({
   onRestartService: (password: string) => Promise<boolean>
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [showMonitor, setShowMonitor] = useState(false)
   const [showRestart, setShowRestart] = useState(false)
   const [showTorqueDetails, setShowTorqueDetails] = useState(false)
   const [restartPassword, setRestartPassword] = useState('')
@@ -5073,11 +5069,12 @@ function RobotRow({
             </button>
             <button
               type="button"
-              onClick={onMonitor}
+              onClick={() => setShowMonitor(current => !current)}
               className="bn-device-action-button"
-              title="Open or focus this robot's live monitor node on the canvas"
+              aria-expanded={showMonitor}
+              title="Show live telemetry inside this robot card"
             >
-              Monitor
+              {showMonitor ? 'Hide monitor' : 'Monitor'}
             </button>
             {runningDeployment?.id && (
               <button
@@ -5119,6 +5116,15 @@ function RobotRow({
               {inactiveDeployment ? 'Deployment details' : 'Stop deployment'}
             </button>
           </div>
+          {showMonitor && (
+            <div className="bn-device-inline-monitor">
+              <RobotLiveMonitor
+                robotId={robot.id}
+                robotName={robot.name}
+                emptyMessage=""
+              />
+            </div>
+          )}
           <div className="bn-run-detail-actions bn-robot-card-actions is-secondary">
             <button
               onClick={onRefresh}

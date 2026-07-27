@@ -3462,6 +3462,17 @@ button.bn-compute-device-card:active:not(:disabled) {
   text-align: center;
 }
 
+.bn-device-inline-monitor {
+  margin-top: 9px;
+  overflow: hidden;
+  border: 1px solid #00d2ff;
+  border-radius: 8px;
+}
+
+.bn-device-inline-monitor .bn-robot-monitor-node-panel {
+  border-radius: 8px;
+}
+
 .bn-robot-monitor {
   margin-top: 10px;
   overflow: hidden;
