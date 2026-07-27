@@ -1146,6 +1146,45 @@ html[data-theme="dark"] .bn-brand-logo {
   font-family: var(--font-mono);
 }
 
+.bn-local-package-card-head > div > span.is-not-checked {
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.bn-local-package-check-latest {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 65%, var(--line2));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.bn-local-package-check-latest:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 24%, var(--panel));
+}
+
+.bn-local-package-check-latest:disabled {
+  cursor: default;
+  opacity: .6;
+}
+
+.bn-local-package-version-current {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--line2));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+  color: var(--ok);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .bn-local-package-state {
   display: inline-flex;
   flex: 0 0 auto;
@@ -1186,12 +1225,11 @@ html[data-theme="dark"] .bn-brand-logo {
 .bn-local-package-card > code {
   display: block;
   margin-top: 8px;
-  overflow: hidden;
   color: var(--tx3);
   font-family: var(--font-mono);
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .bn-local-package-card > small {
@@ -1202,10 +1240,16 @@ html[data-theme="dark"] .bn-brand-logo {
 }
 
 .bn-local-package-update-available {
-  margin-top: 7px;
+  margin-top: 8px;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line2));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 850;
+  letter-spacing: .02em;
+  text-transform: uppercase;
 }
 
 .bn-local-package-actions {

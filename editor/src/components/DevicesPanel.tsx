@@ -450,6 +450,9 @@ export default function DevicesPanel() {
   )
     ? `v${checkedHardwareInstallation.latest.version}`
     : null
+  const remoteHardwareServices = selectedDevice?.robots
+    .map(robot => `${robot.name}: ${robot.base_url}`)
+    .join('\n') || ''
   const updatedSoftwareComponents = updateReport?.update.components ?? []
   const updatedRuntimeComponents = updatedSoftwareComponents.filter(
     component => component.kind === 'runtime',
@@ -2301,6 +2304,7 @@ export default function DevicesPanel() {
                     component => component.update_available,
                   )}
                   busy={busy}
+                  onCheckLatest={() => void checkDeviceSoftware(selectedDevice)}
                   onRunStop={action => (
                     selectedDeviceManagedLocally
                       ? void manageLocalPackage(selectedDevice, 'runtime', action)
@@ -2334,13 +2338,14 @@ export default function DevicesPanel() {
                     label="Hardware package"
                     path={
                       selectedDevice.managed_runtime.hardware_dir
-                      || 'Remote Hardware package path not reported'
+                      || remoteHardwareServices
+                      || 'No Hardware services attached'
                     }
                     detail={selectedDeviceManagedLocally
                       ? `Port ${selectedDevice.managed_runtime.hardware_port || 8765}`
-                      : `${selectedDevice.robots.length} robot service${
+                      : `${selectedDevice.robots.length} Hardware service${
                           selectedDevice.robots.length === 1 ? '' : 's'
-                        }`}
+                        } on ${runtimeHostname(selectedDevice.runtime_url)}`}
                     state={selectedHardwarePackageState}
                     currentVersion={hardwareCurrentVersion}
                     latestVersion={hardwareLatestVersion}
@@ -2354,6 +2359,7 @@ export default function DevicesPanel() {
                     }
                     updateAvailable={checkedHardwareHasUpdate}
                     busy={busy}
+                    onCheckLatest={() => void checkDeviceSoftware(selectedDevice)}
                     runStopEnabled={
                       selectedDeviceManagedLocally || selectedDevice.robots.length > 0
                     }
@@ -3574,6 +3580,7 @@ function SoftwarePackageSummaryCard({
   installed,
   updateAvailable,
   busy,
+  onCheckLatest,
   runStopEnabled = true,
   restartEnabled = true,
   deleteEnabled = true,
@@ -3592,6 +3599,7 @@ function SoftwarePackageSummaryCard({
   installed: boolean
   updateAvailable: boolean
   busy: boolean
+  onCheckLatest: () => void
   runStopEnabled?: boolean
   restartEnabled?: boolean
   deleteEnabled?: boolean
@@ -3632,7 +3640,9 @@ function SoftwarePackageSummaryCard({
         <div>
           <strong>{label}</strong>
           <span>Current {currentVersion}</span>
-          <span>Latest {latestVersion ?? 'not checked'}</span>
+          <span className={latestVersion ? '' : 'is-not-checked'}>
+            Latest {latestVersion ?? 'not checked'}
+          </span>
         </div>
         <span className={`bn-local-package-state is-${statusTone}`}>
           <i aria-hidden="true" />
@@ -3641,8 +3651,23 @@ function SoftwarePackageSummaryCard({
       </div>
       <code title={path}>{path}</code>
       {detail && <small>{detail}</small>}
-      {updateAvailable && (
-        <div className="bn-local-package-update-available">Update available</div>
+      {!latestVersion ? (
+        <button
+          type="button"
+          className="bn-local-package-check-latest"
+          disabled={busy}
+          onClick={onCheckLatest}
+        >
+          {busy ? 'Checking versions…' : 'Check latest version'}
+        </button>
+      ) : updateAvailable ? (
+        <div className="bn-local-package-update-available">
+          Update available · {latestVersion}
+        </div>
+      ) : (
+        <div className="bn-local-package-version-current">
+          Current version installed
+        </div>
       )}
       <div className="bn-local-package-actions">
         <button
