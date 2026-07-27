@@ -383,6 +383,40 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "line-one\nline-two",
             )
 
+    def test_runtime_control_uses_password_stdin_for_every_sudo(self):
+        commands = []
+        stdin_values = []
+        connection = SimpleNamespace(close=lambda: None)
+
+        def fake_run(_connection, command, **kwargs):
+            commands.append(command)
+            stdin_values.append(kwargs.get("stdin_text"))
+            return "inactive\n"
+
+        with (
+            patch.object(device_installer, "_connect", return_value=connection),
+            patch.object(device_installer, "_run", side_effect=fake_run),
+        ):
+            result = device_installer.control_runtime(
+                host="192.168.1.87",
+                port=22,
+                username="alex",
+                password="ssh-password",
+                host_fingerprint="SHA256:trusted-device-key",
+                instance_id="default",
+                action="pause",
+            )
+
+        self.assertEqual(result["state"], "inactive")
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0].count("sudo -S -p ''"), 3)
+        self.assertNotIn(" && sudo systemctl", commands[0])
+        self.assertNotIn("$(sudo systemctl", commands[0])
+        self.assertEqual(
+            stdin_values,
+            [device_installer._sudo_input("ssh-password")],
+        )
+
     def test_ssh_authentication_failure_is_clear_and_non_mutating(self):
         class AuthenticationException(Exception):
             pass
