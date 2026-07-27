@@ -556,6 +556,23 @@ export default function DeploymentsPanel({
       || preflight.workflow.name
       || DEFAULT_DEPLOYMENT_NAME
     )
+    const replacements = remoteDeployments.filter(deployment => (
+      deployment.id !== existing?.id
+      && deployment.target_device_id === selectedDeviceId
+    ))
+    if (
+      start
+      && replacements.length > 0
+      && !window.confirm(
+        `Replace ${replacements.length} existing deployment${
+          replacements.length === 1 ? '' : 's'
+        } for "${selectedRobot?.name || selectedDeviceId}"? Blacknode will stop ${
+          replacements.some(deployment => deployment.state === 'running')
+            ? 'the running workflow'
+            : 'any running workflow'
+        }, start "${name}", then remove the superseded deployment records.`,
+      )
+    ) return
     setBusy(true)
     setRemoteAction(start ? 'send-run' : 'send')
     setRemoteNotice(null)
@@ -574,7 +591,17 @@ export default function DeploymentsPanel({
       await refreshRemote()
       setRemoteNotice(
         start
-          ? `"${name}" was sent to ${selectedComputeDevice?.name || 'the compute device'} and started for ${selectedRobot?.name || 'the selected robot'}.`
+          ? `"${name}" was sent to ${selectedComputeDevice?.name || 'the compute device'} and started for ${selectedRobot?.name || 'the selected robot'}.${
+            (result.superseded_deployments?.length ?? 0) > 0
+              ? ` Replaced ${result.superseded_deployments.length} previous deployment${
+                result.superseded_deployments.length === 1 ? '' : 's'
+              }.`
+              : ''
+          }${
+            (result.cleanup_warnings?.length ?? 0) > 0
+              ? ` ${result.cleanup_warnings.join(' ')}`
+              : ''
+          }`
           : `"${name}" was sent to ${selectedComputeDevice?.name || 'the compute device'} for ${selectedRobot?.name || 'the selected robot'} and is ready to start.`,
       )
     } catch (err) {
@@ -590,6 +617,26 @@ export default function DeploymentsPanel({
     if (!window.confirm(`Delete remote deployment "${deployment.name}"?`)) return
     await actRemote(() => api.deleteRemoteDeployment(selectedDeviceId, deployment.id))
     setRemoteOpenId(current => current === deployment.id ? null : current)
+  }
+
+  const startRemote = async (deployment: RemoteDeployment) => {
+    if (!selectedDeviceId) return
+    const replacements = remoteDeployments.filter(item => (
+      item.id !== deployment.id
+      && item.target_device_id === selectedDeviceId
+    ))
+    if (
+      replacements.length > 0
+      && !window.confirm(
+        `Run "${deployment.name}" and replace ${replacements.length} other deployment${
+          replacements.length === 1 ? '' : 's'
+        } for this robot? Superseded deployment records will be removed after the replacement starts.`,
+      )
+    ) return
+    await actRemote(() => api.startRemoteDeployment(
+      selectedDeviceId,
+      deployment.id,
+    ))
   }
 
   const remoteRunning = remoteDeployments.filter(d => d.state === 'running').length
@@ -1059,7 +1106,13 @@ export default function DeploymentsPanel({
                       {remoteAction === 'send' ? 'Sending…' : 'Send to robot'}
                     </button>
                     <button onClick={() => stageRemote(true)} disabled={busy} style={primaryButton}>
-                      {remoteAction === 'send-run' ? 'Sending & starting…' : 'Send & run on robot'}
+                      {remoteAction === 'send-run'
+                        ? 'Sending & starting…'
+                        : remoteDeployments.some(deployment => (
+                          deployment.target_device_id === selectedDeviceId
+                        ))
+                          ? 'Send & replace on robot'
+                          : 'Send & run on robot'}
                     </button>
                   </>
                 )}
@@ -1115,9 +1168,7 @@ export default function DeploymentsPanel({
               current === deployment.id ? null : deployment.id
             ))}
             onStage={() => stageRemote(false, deployment)}
-            onStart={() => actRemote(() => (
-              api.startRemoteDeployment(selectedDeviceId, deployment.id)
-            ))}
+            onStart={() => startRemote(deployment)}
             onStop={() => actRemote(() => (
               api.stopRemoteDeployment(selectedDeviceId, deployment.id)
             ))}

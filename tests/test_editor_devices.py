@@ -2351,6 +2351,40 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertTrue(status.json()["paused"])
         self.assertFalse(resumed.json()["status"]["paused"])
 
+    def test_robot_pause_stops_every_running_deployment_for_that_robot(self):
+        hardware = _HardwareService()
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            robot = self.client.post("/devices", json={
+                "name": "Follower",
+                "base_url": "http://192.168.1.87:8767",
+                "token": hardware.token,
+            }).json()["device"]
+            for deployment_id in ("follower-old", "follower-new"):
+                hardware.runtime_deployments[deployment_id] = {
+                    "id": deployment_id,
+                    "name": deployment_id,
+                    "state": "running",
+                    "target_device_id": robot["id"],
+                }
+
+            paused = self.client.post(
+                f"/devices/{robot['id']}/lifecycle",
+                json={"action": "pause"},
+            )
+
+        self.assertEqual(paused.status_code, 200)
+        self.assertEqual(
+            set(paused.json()["stopped_deployments"]),
+            {"follower-old", "follower-new"},
+        )
+        self.assertEqual(
+            {
+                item["state"]
+                for item in hardware.runtime_deployments.values()
+            },
+            {"stopped"},
+        )
+
     def test_robot_pause_still_disarms_when_deployment_runtime_is_unreachable(self):
         hardware = _HardwareService(status_overrides={
             "deployment_lease": {
@@ -3907,6 +3941,60 @@ class EditorDeviceApiTests(unittest.TestCase):
             device_id,
         )
         self.assertFalse(stage_request[3]["manifest"]["telemetry_required"])
+
+    def test_send_and_run_replaces_and_removes_older_target_deployments(self):
+        hardware = _HardwareService()
+        workflow = _workflow([])
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            device_id = self.client.post("/devices", json={
+                "name": "Follower",
+                "base_url": "http://192.168.1.87:8767",
+                "token": hardware.token,
+            }).json()["device"]["id"]
+            hardware.runtime_deployments["follower-old"] = {
+                "id": "follower-old",
+                "name": "Follower old",
+                "state": "running",
+                "target_device_id": device_id,
+            }
+            with patch.object(server, "_workflow_payload", return_value=workflow):
+                preflight = self.client.post(
+                    f"/devices/{device_id}/deployment-preflight",
+                    json={},
+                ).json()
+                response = self.client.post(
+                    f"/devices/{device_id}/deployments",
+                    json={
+                        "name": "Follower replacement",
+                        "workflow_hash": preflight["workflow"]["hash"],
+                        "start": True,
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["superseded_deployments"], ["follower-old"])
+        self.assertEqual(payload["cleanup_warnings"], [])
+        self.assertNotIn("follower-old", hardware.runtime_deployments)
+        self.assertEqual(payload["deployment"]["state"], "running")
+        replacement_id = payload["deployment"]["id"]
+        self.assertEqual(
+            set(hardware.runtime_deployments),
+            {replacement_id},
+        )
+        deployment_requests = [
+            (method, path)
+            for method, path, _auth, _body in hardware.requests
+            if path.startswith("/deployments/")
+        ]
+        self.assertIn(
+            ("POST", "/deployments/follower-old/stop"),
+            deployment_requests,
+        )
+        self.assertIn(
+            ("DELETE", "/deployments/follower-old"),
+            deployment_requests,
+        )
 
     def test_robot_deployment_manifest_requires_fresh_telemetry(self):
         workflow = _workflow(["joint_group", "position_feedback"])
