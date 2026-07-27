@@ -282,6 +282,33 @@ class RuntimeDeviceClient(HardwareDeviceClient):
         query = urllib.parse.urlencode({"stream": stream})
         return self._request("GET", f"{endpoint}/telemetry?{query}")
 
+    def deployment_workflow(
+        self,
+        deployment_id: str,
+        *,
+        revision: str = "",
+    ) -> dict[str, Any]:
+        endpoint = f"{self._deployment_endpoint(deployment_id)}/workflow"
+        if revision:
+            endpoint += "?" + urllib.parse.urlencode({"revision": revision})
+        return self._request("GET", endpoint)
+
+    def set_deployment_motion_armed(
+        self,
+        deployment_id: str,
+        *,
+        armed: bool,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"{self._deployment_endpoint(deployment_id)}/control",
+            payload={"command": "arm" if armed else "disarm"},
+            timeout=15.0,
+        )
+
+    def ros2_diagnostics(self) -> dict[str, Any]:
+        return self._request("GET", "/diagnostics/ros2", timeout=90.0)
+
     def delete_deployment(self, deployment_id: str) -> dict[str, Any]:
         return self._request("DELETE", self._deployment_endpoint(deployment_id))
 

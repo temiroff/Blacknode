@@ -151,6 +151,10 @@ class PythonRoundTripTests(unittest.TestCase):
         self.assertIn("_stop_blacknode_runtime_services()", script)
         self.assertIn("blacknode.pkg.blacknode_robot.robot", script)
         self.assertIn(
+            "blacknode.pkg.blacknode_skills.follow.leader_follower_runtime",
+            script,
+        )
+        self.assertIn(
             "blacknode.pkg.blacknode_controllers.joint_control.adapters.ros2.joint_motion",
             script,
         )

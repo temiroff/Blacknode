@@ -69,6 +69,7 @@ class _HardwareService:
             **(status_overrides or {}),
         }
         self.runtime_deployments: dict[str, dict] = {}
+        self.runtime_workflows: dict[str, dict] = {}
         self.runtime_telemetry: dict[str, dict] = {}
         self.runtime_packages = [
             {"name": "blacknode-runtime", "version": "0.2.0"},
@@ -82,6 +83,9 @@ class _HardwareService:
             "package_sync_v1",
             "component_sync_v1",
             "deployment_ownership_v1",
+            "deployment_workflow_v1",
+            "deployment_motion_control_v1",
+            "ros2_diagnostics_v1",
         ]
         self.torque_readback_available = torque_readback_available
 
@@ -166,6 +170,21 @@ class _HardwareService:
                 "already_present": [],
                 "messages": [],
             })
+        if path == "/diagnostics/ros2":
+            return _JsonResponse({
+                "ok": True,
+                "available": True,
+                "checked_at": "2026-07-27T00:00:00+00:00",
+                "summary": "Found 2 nodes, 2 topics, and 1 service.",
+                "nodes": ["/leader", "/follower"],
+                "topics": [
+                    "/leader/joint_states [sensor_msgs/msg/JointState]",
+                    "/follower/joint_states [sensor_msgs/msg/JointState]",
+                ],
+                "services": ["/leader/get_parameters"],
+                "topic_details": [],
+                "warnings": [],
+            })
         if path == "/deployments":
             if request.method == "GET":
                 return _JsonResponse({
@@ -202,10 +221,16 @@ class _HardwareService:
                 "pid": None,
                 "exit_code": None,
                 "error": "",
+                "motion_armed": False,
+                "motion_control_count": len(
+                    body.get("manifest", {}).get("motion_controls") or []
+                ),
                 "created_at": "2026-07-23T00:00:00+00:00",
                 "updated_at": "2026-07-23T00:00:01+00:00",
             }
             self.runtime_deployments[deployment_id] = record
+            if isinstance(body.get("workflow"), dict):
+                self.runtime_workflows[deployment_id] = body["workflow"]
             return _JsonResponse(record)
         if path.startswith("/deployments/"):
             parts = path.strip("/").split("/")
@@ -224,6 +249,13 @@ class _HardwareService:
                     "stale": True,
                     "message": "Waiting for telemetry.",
                 }))
+            if request.method == "GET" and action == "workflow":
+                return _JsonResponse({
+                    "id": deployment_id,
+                    "revision": record["active_revision"] or record["staged_revision"],
+                    "source": "snapshot",
+                    "workflow": self.runtime_workflows[deployment_id],
+                })
             if request.method == "GET" and not action:
                 return _JsonResponse(record)
             if request.method == "DELETE" and not action:
@@ -235,6 +267,17 @@ class _HardwareService:
                 record.update(state="stopped", pid=None)
             elif action == "rollback":
                 record.update(state="staged", pid=None)
+            elif action == "control":
+                armed = body.get("command") == "arm"
+                record["motion_armed"] = armed
+                return _JsonResponse({
+                    "ok": True,
+                    "id": deployment_id,
+                    "armed": armed,
+                    "topic": "/blacknode/leader_follower/test/control",
+                    "node_id": "follow",
+                    "deployment": record,
+                })
             else:
                 raise AssertionError(f"Unexpected fake deployment action: {action}")
             return _JsonResponse(record)
@@ -2956,6 +2999,8 @@ class EditorDeviceApiTests(unittest.TestCase):
             "id": "leader-live",
             "name": "Leader live",
             "state": "running",
+            "motion_armed": False,
+            "motion_control_count": 0,
         })
         self.assertFalse(payload["connected"])
         self.assertEqual(payload["connection_state"], "disconnected")
@@ -2992,7 +3037,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             hardware.runtime_telemetry["leader-live"] = {
                 "available": True,
                 "stale": False,
-                "payload": {"connected": True},
+                "payload": {"connected": True, "torque_enabled": True},
             }
             response = self.client.get(f"/devices/{paired['id']}/status")
 
@@ -3001,6 +3046,8 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertTrue(payload["connected"])
         self.assertEqual(payload["connection_state"], "connected")
         self.assertTrue(payload["connection_reported"])
+        self.assertTrue(payload["torque_enabled"])
+        self.assertTrue(payload["armed"])
         self.assertEqual(payload["deployment_lease"]["state"], "running")
 
     def test_device_status_uses_noninvasive_serial_presence_during_deployment(self):
@@ -3058,6 +3105,8 @@ class EditorDeviceApiTests(unittest.TestCase):
             "id": "leader-monitor",
             "name": "Leader monitor",
             "state": "running",
+            "motion_armed": False,
+            "motion_control_count": 0,
         })
         self.assertNotIn("deployment_lease", payload)
         self.assertIn("does not report that it owns motion control", payload["notice"])
@@ -3925,6 +3974,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             if item[0] == "POST" and item[1] == "/deployments"
         )
         self.assertIn("from __future__ import annotations", stage_request[3]["script"])
+        self.assertEqual(stage_request[3]["workflow"], workflow)
         self.assertEqual(
             stage_request[3]["manifest"]["workflow_hash"],
             preflight["workflow"]["hash"],
@@ -3941,6 +3991,28 @@ class EditorDeviceApiTests(unittest.TestCase):
             device_id,
         )
         self.assertFalse(stage_request[3]["manifest"]["telemetry_required"])
+
+    def test_leader_follower_deployment_declares_one_remote_armed_gate(self):
+        workflow = _workflow([])
+        workflow["node_meta"]["follow"] = {
+            "id": "follow",
+            "type": "ROS2LeaderFollower",
+            "params": {
+                "run_id": "so-arm follower",
+                "control_topic": "",
+                "armed": False,
+            },
+        }
+
+        self.assertEqual(
+            server._workflow_motion_controls(workflow),
+            [{
+                "kind": "ros2_leader_follower",
+                "node_id": "follow",
+                "run_id": "so-arm follower",
+                "topic": "/blacknode/leader_follower/so_arm_follower/control",
+            }],
+        )
 
     def test_send_and_run_replaces_and_removes_older_target_deployments(self):
         hardware = _HardwareService()
@@ -4245,6 +4317,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             "created_at": "2026-07-23T00:00:00+00:00",
             "updated_at": "2026-07-23T00:00:01+00:00",
         }
+        hardware.runtime_workflows["camera-workflow-a1b2c3d4"] = _workflow([])
         deployment_id = "camera-workflow-a1b2c3d4"
         with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
             device_id = self.client.post("/devices", json={
@@ -4255,6 +4328,16 @@ class EditorDeviceApiTests(unittest.TestCase):
             listed = self.client.get(f"/devices/{device_id}/deployments")
             started = self.client.post(
                 f"/devices/{device_id}/deployments/{deployment_id}/start",
+            )
+            captured = self.client.get(
+                f"/devices/{device_id}/deployments/{deployment_id}/workflow",
+            )
+            armed = self.client.post(
+                f"/devices/{device_id}/deployments/{deployment_id}/motion",
+                json={"armed": True},
+            )
+            diagnostics = self.client.get(
+                f"/devices/{device_id}/ros2-diagnostics",
             )
             logs = self.client.get(
                 f"/devices/{device_id}/deployments/{deployment_id}/logs",
@@ -4269,6 +4352,9 @@ class EditorDeviceApiTests(unittest.TestCase):
 
         self.assertEqual(listed.json()["deployments"][0]["id"], deployment_id)
         self.assertEqual(started.json()["state"], "running")
+        self.assertEqual(captured.json()["workflow"]["name"], "Device preflight")
+        self.assertTrue(armed.json()["armed"])
+        self.assertIn("2 nodes", diagnostics.json()["summary"])
         self.assertEqual(logs.json()["logs"], "remote output\n")
         self.assertEqual(stopped.json()["state"], "stopped")
         self.assertEqual(rolled_back.json()["state"], "staged")

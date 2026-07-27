@@ -119,6 +119,7 @@ export default function DeploymentsPanel({
   const [remoteDeploymentName, setRemoteDeploymentName] = useState('')
   const [remoteAction, setRemoteAction] = useState<'send' | 'send-run' | null>(null)
   const [remoteNotice, setRemoteNotice] = useState<string | null>(null)
+  const [rosDiagnostics, setRosDiagnostics] = useState('')
   const stopRuntimeServices = useStore(s => s.stopRuntimeServices)
   const tabs = useStore(s => s.tabs)
   const activeTabId = useStore(s => s.activeTabId)
@@ -145,6 +146,7 @@ export default function DeploymentsPanel({
       }
     : null
   const switchTab = useStore(s => s.switchTab)
+  const openGraphAsTab = useStore(s => s.openGraphAsTab)
   const workflowRevision = useStore(s => s.workflowRevision)
   const workflowMetadata = useStore(s => s.workflowMetadata)
   const setWorkflowRequirements = useStore(s => s.setWorkflowRequirements)
@@ -637,6 +639,89 @@ export default function DeploymentsPanel({
       selectedDeviceId,
       deployment.id,
     ))
+  }
+
+  const openRemoteWorkflow = async (deployment: RemoteDeployment) => {
+    if (!selectedDeviceId) return
+    setBusy(true)
+    setError(null)
+    try {
+      const captured = await api.remoteDeploymentWorkflow(
+        selectedDeviceId,
+        deployment.id,
+      )
+      const workflow = captured.workflow
+      await openGraphAsTab(
+        `${workflow.name || deployment.name} · deployed ${captured.revision.slice(0, 8)}`,
+        {
+          nodes: Object.values(workflow.node_meta ?? {}),
+          edges: workflow.edges ?? [],
+          metadata: workflow.metadata ?? {},
+        },
+      )
+      setRemoteNotice(
+        `Opened deployed revision ${captured.revision} as a new editable tab.`,
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const setRemoteMotion = async (
+    deployment: RemoteDeployment,
+    armed: boolean,
+  ) => {
+    if (!selectedDeviceId) return
+    const prompt = armed
+      ? `ARM follower motion for "${deployment.name}"? Keep the leader torque-released, support both arms, and clear the workspace before continuing.`
+      : `Disarm follower motion for "${deployment.name}" and release follower torque? Support the follower arm first.`
+    if (!window.confirm(prompt)) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.setRemoteDeploymentMotion(
+        selectedDeviceId,
+        deployment.id,
+        armed,
+      )
+      await refreshRemote()
+      setRemoteNotice(
+        armed
+          ? `"${deployment.name}" is armed. The follower controller will move only after fresh leader/follower state and safety limits pass.`
+          : `"${deployment.name}" is disarmed and follower torque release was requested.`,
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const runRosDiagnostics = async () => {
+    if (!selectedDeviceId) return
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await api.remoteRos2Diagnostics(selectedDeviceId)
+      const detail = result.topic_details.map(item => (
+        `\n=== ${item.topic} ===\n${item.stdout || item.error || item.stderr || 'No endpoint details.'}`
+      )).join('\n')
+      setRosDiagnostics([
+        result.summary,
+        ...(result.warnings ?? []).map(warning => `WARNING: ${warning}`),
+        '\nNodes:',
+        ...(result.nodes ?? []),
+        '\nTopics:',
+        ...(result.topics ?? []),
+        detail,
+      ].join('\n'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const remoteRunning = remoteDeployments.filter(d => d.state === 'running').length
@@ -1145,10 +1230,21 @@ export default function DeploymentsPanel({
             {remoteDeployments.length} total · {remoteRunning} running
           </span>
         </div>
-        <button onClick={() => actRemote(refreshRemote)} disabled={busy || !selectedDeviceId} style={miniButton}>
-          Refresh
-        </button>
+        <div className="bn-run-detail-actions">
+          <button
+            onClick={runRosDiagnostics}
+            disabled={busy || !selectedDeviceId}
+            style={miniButton}
+            title="Read ROS 2 nodes, topics, services, publishers, and subscribers from the target Runtime"
+          >
+            ROS 2 diagnostics
+          </button>
+          <button onClick={() => actRemote(refreshRemote)} disabled={busy || !selectedDeviceId} style={miniButton}>
+            Refresh
+          </button>
+        </div>
       </div>
+      {rosDiagnostics && <pre style={logStyle}>{rosDiagnostics}</pre>}
       <div className="bn-runs-list bn-card-list bn-remote-deployment-list">
         {selectedDeviceId && remoteDeployments.length === 0 && (
           <div className="bn-runs-empty">
@@ -1168,7 +1264,9 @@ export default function DeploymentsPanel({
               current === deployment.id ? null : deployment.id
             ))}
             onStage={() => stageRemote(false, deployment)}
+            onOpenWorkflow={() => openRemoteWorkflow(deployment)}
             onStart={() => startRemote(deployment)}
+            onSetMotion={armed => setRemoteMotion(deployment, armed)}
             onStop={() => actRemote(() => (
               api.stopRemoteDeployment(selectedDeviceId, deployment.id)
             ))}
@@ -1259,7 +1357,9 @@ function RemoteDeploymentRow({
   log,
   onToggle,
   onStage,
+  onOpenWorkflow,
   onStart,
+  onSetMotion,
   onStop,
   onRollback,
   onDelete,
@@ -1271,7 +1371,9 @@ function RemoteDeploymentRow({
   log: string
   onToggle: () => void
   onStage: () => void
+  onOpenWorkflow: () => void
   onStart: () => void
+  onSetMotion: (armed: boolean) => void
   onStop: () => void
   onRollback: () => void
   onDelete: () => void
@@ -1286,6 +1388,7 @@ function RemoteDeploymentRow({
     `staged ${deployment.staged_revision}`,
     deployment.active_revision ? `active ${deployment.active_revision}` : null,
     deployment.pid ? `pid ${deployment.pid}` : null,
+    isRunning ? (deployment.motion_armed ? 'motion armed' : 'motion disarmed') : null,
   ].filter(Boolean) as string[]
 
   return (
@@ -1319,6 +1422,21 @@ function RemoteDeploymentRow({
             {isRunning
               ? <button onClick={onStop} disabled={busy} style={miniButton}>Stop</button>
               : <button onClick={onStart} disabled={busy} style={primaryButton}>Run</button>}
+            <button onClick={onOpenWorkflow} disabled={busy} style={miniButton}>
+              Open deployed graph
+            </button>
+            {isRunning && Number(deployment.motion_control_count || 0) === 1 && (
+              <button
+                onClick={() => onSetMotion(!deployment.motion_armed)}
+                disabled={busy}
+                style={deployment.motion_armed ? miniButton : primaryButton}
+                title={deployment.motion_armed
+                  ? 'Disarm the follower controller and request torque release'
+                  : 'Explicitly arm the follower controller after safety confirmation'}
+              >
+                {deployment.motion_armed ? 'Disarm follower' : 'Arm follower'}
+              </button>
+            )}
             <button
               onClick={onStage}
               disabled={busy || !canStage || isRunning}
