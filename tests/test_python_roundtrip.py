@@ -149,6 +149,12 @@ class PythonRoundTripTests(unittest.TestCase):
         self.assertIn("'ROS2ImageStream'", script)
         self.assertIn("Press Ctrl-C to stop streams", script)
         self.assertIn("_stop_blacknode_runtime_services()", script)
+        self.assertIn("blacknode.pkg.blacknode_robot.robot", script)
+        self.assertIn(
+            "blacknode.pkg.blacknode_controllers.joint_control.adapters.ros2.joint_motion",
+            script,
+        )
+        self.assertIn("signal.signal(signal.SIGTERM, _raise_blacknode_stop)", script)
         self.assertIn("_hold_live_runtime_if_needed()", script)
 
     def test_class_export_is_runnable_and_importable(self):

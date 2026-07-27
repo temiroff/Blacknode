@@ -3906,6 +3906,22 @@ class EditorDeviceApiTests(unittest.TestCase):
             stage_request[3]["manifest"]["target_device_id"],
             device_id,
         )
+        self.assertFalse(stage_request[3]["manifest"]["telemetry_required"])
+
+    def test_robot_deployment_manifest_requires_fresh_telemetry(self):
+        workflow = _workflow(["joint_group", "position_feedback"])
+
+        self.assertTrue(server._workflow_requires_deployment_telemetry(workflow))
+
+        robot_node_workflow = _workflow([])
+        robot_node_workflow["node_meta"]["robot"] = {
+            "id": "robot",
+            "type": "Robot",
+            "params": {},
+        }
+        self.assertTrue(
+            server._workflow_requires_deployment_telemetry(robot_node_workflow)
+        )
 
     def test_project_owned_deployment_requires_linked_workflow_and_device(self):
         hardware = _HardwareService()

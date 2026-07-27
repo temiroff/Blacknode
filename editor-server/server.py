@@ -4858,6 +4858,29 @@ def _workflow_required_capabilities(workflow: dict[str, Any]) -> list[str]:
     })
 
 
+def _workflow_requires_deployment_telemetry(workflow: dict[str, Any]) -> bool:
+    robot_capabilities = {
+        "joint_group",
+        "position_feedback",
+        "servo_bus",
+    }
+    if robot_capabilities.intersection(_workflow_required_capabilities(workflow)):
+        return True
+    robot_node_types = {
+        "Robot",
+        "RobotDriverLauncher",
+        "ROS2JointSliders",
+        "ROS2LeaderFollower",
+        "ROS2ManualMove",
+        "ROS2SetJoint",
+    }
+    return any(
+        isinstance(meta, dict)
+        and str(meta.get("type") or "") in robot_node_types
+        for meta in (workflow.get("node_meta") or {}).values()
+    )
+
+
 def _workflow_calibration_selection(
     workflow: dict[str, Any],
 ) -> dict[str, str] | None:
@@ -6483,6 +6506,7 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
             "entrypoint": dict(workflow["entrypoint"]),
             "node_count": len(workflow.get("node_meta") or {}),
             "required_capabilities": _workflow_required_capabilities(workflow),
+            "telemetry_required": _workflow_requires_deployment_telemetry(workflow),
             "required_packages": _workflow_target_packages(workflow),
             "package_requirements": _workflow_target_package_specs(workflow),
             "blacknode_version": str(getattr(bn, "__version__", "")),

@@ -487,6 +487,10 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "capabilities",
                     "default": True,
                     "node_types": [
+                        "RobotCapabilityBinding",
+                        "RobotCapabilityInspect",
+                        "RobotCapabilityList",
+                        "RobotCapabilityProfile",
                         "RobotConnectionDashboard",
                         "RobotDiscovery",
                         "RobotMonitor",
@@ -505,6 +509,10 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "node_types": [
                 "Robot",
                 "RobotCalibrationRecorder",
+                "RobotCapabilityBinding",
+                "RobotCapabilityInspect",
+                "RobotCapabilityList",
+                "RobotCapabilityProfile",
                 "RobotConnectionDashboard",
                 "RobotDefinition",
                 "RobotDiscovery",

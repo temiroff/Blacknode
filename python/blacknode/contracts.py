@@ -81,6 +81,8 @@ SHIPPING_KINDS: dict[str, str] = {
 NEW_KINDS: dict[str, str] = {
     # Physical system
     "blacknode.robot-profile": "assembly identity, capabilities, driver and calibration references",
+    "blacknode.robot-capability-binding": "semantic capability to replaceable provider binding",
+    "blacknode.robot-capability-status": "normalized provider availability and health for one robot capability",
     "blacknode.mobile-base": "drive model, limits, command/state endpoints, and footprint",
     "blacknode.robot-model": "links, joints, frame names, geometry artifact, and controller mappings",
     "blacknode.sensor": "physical identity, frame, calibration, transport, health, and stream handle",
@@ -129,12 +131,51 @@ def _stream_fields(frame: str, sequence: int) -> dict[str, Any]:
 
 def robot_profile(
     profile_id: str, *, capabilities: list[str] | None = None,
+    capability_bindings: dict[str, Any] | None = None,
+    hardware_identity: dict[str, Any] | None = None,
     driver: dict[str, Any] | None = None, units: str = "radians",
 ) -> dict[str, Any]:
     return {
         "kind": "blacknode.robot-profile", "schema_version": 1,
-        "profile_id": profile_id, "capabilities": list(capabilities or []),
+        "profile_id": profile_id, "id": profile_id,
+        "capabilities": list(capabilities or []),
+        "capability_bindings": dict(capability_bindings or {}),
+        "hardware_identity": dict(hardware_identity or {}),
         "driver": dict(driver or {}), "units": units,
+    }
+
+
+def robot_capability_binding(
+    capability: str, *, provider_package: str, provider_component: str,
+    provider_adapter: str = "", configuration: dict[str, Any] | None = None,
+    hardware_identity: dict[str, Any] | None = None, required: bool = True,
+) -> dict[str, Any]:
+    return {
+        "kind": "blacknode.robot-capability-binding", "schema_version": 1,
+        "capability": capability,
+        "provider": {
+            "package": provider_package,
+            "component": provider_component,
+            "adapter": provider_adapter,
+        },
+        "configuration": dict(configuration or {}),
+        "hardware_identity": dict(hardware_identity or {}),
+        "required": required,
+    }
+
+
+def robot_capability_status(
+    capability: str, *, state: str, provider: dict[str, Any] | None = None,
+    required: bool = True, reason: str = "", hardware_identity: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    valid_states = {"available", "unavailable", "unhealthy"}
+    if state not in valid_states:
+        raise ValueError(f"unsupported robot capability state: {state!r}")
+    return {
+        "kind": "blacknode.robot-capability-status", "schema_version": 1,
+        "capability": capability, "state": state, "available": state == "available",
+        "provider": dict(provider or {}), "required": required, "reason": reason,
+        "hardware_identity": dict(hardware_identity or {}), "checked_at": _now_iso(),
     }
 
 

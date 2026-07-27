@@ -26,7 +26,25 @@ def test_shipping_kind_has_a_known_owner(kind):
 def _constructors():
     p = c.pose("map", position=(1.0, 2.0, 0.0))
     return {
-        "blacknode.robot-profile": c.robot_profile("r1", capabilities=["mobile-base"], driver={"hardware_id": "x"}),
+        "blacknode.robot-profile": c.robot_profile(
+            "r1",
+            capabilities=["mobile-base"],
+            capability_bindings={"mobile-base": {"provider": {"package": "blacknode-controllers"}}},
+            hardware_identity={"id": "robot-1"},
+            driver={"hardware_id": "x"},
+        ),
+        "blacknode.robot-capability-binding": c.robot_capability_binding(
+            "mobile-base",
+            provider_package="blacknode-controllers",
+            provider_component="mobile-base",
+            provider_adapter="ros2",
+        ),
+        "blacknode.robot-capability-status": c.robot_capability_status(
+            "mobile-base",
+            state="unavailable",
+            provider={"package": "blacknode-controllers", "component": "mobile-base"},
+            reason="provider is not installed",
+        ),
         "blacknode.mobile-base": c.mobile_base(
             "differential", max_linear_velocity=1.0, max_angular_velocity=1.5, footprint_m=(0.4, 0.3),
         ),
@@ -94,3 +112,8 @@ def test_manipulation_status_rejects_unknown_state():
 def test_estop_state_only_timestamps_when_latched():
     assert c.estop_state(latched=False)["triggered_at"] == ""
     assert c.estop_state(latched=True)["triggered_at"] != ""
+
+
+def test_robot_capability_status_rejects_unknown_state():
+    with pytest.raises(ValueError):
+        c.robot_capability_status("camera", state="unknown")
