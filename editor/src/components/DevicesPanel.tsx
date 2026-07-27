@@ -1360,7 +1360,7 @@ export default function DevicesPanel() {
           : device.managed_runtime?.owned_install
             ? `Delete and uninstall "${device.name}" from this computer? This stops its Runtime, permanently deletes the editor-created installation folder and attached robot registrations, and removes this device card.`
             : `Uninstall "${device.name}" from this computer? This stops its Runtime, removes its editor-managed configuration and attached robot registrations, preserves the existing source checkout, and removes this device card.`
-        : `Delete and uninstall "${device.name}" from the remote computer? This stops its Runtime and permanently deletes its service, Runtime files, workflow packages, token, firewall rule, attached robot registrations, and this device card.`,
+        : `Delete device "${device.name}" from the remote computer? This stops its Runtime and deployments, then permanently deletes its Runtime files, workflow packages, token, service, firewall rule, attached Robot Hardware services and unused Hardware files, robot registrations, and this device card. System ROS 2, Docker, and other device stacks are preserved.`,
     )) return
     setBusy(true)
     setError(null)
@@ -2929,9 +2929,7 @@ export default function DevicesPanel() {
                         {selectedDeviceManagedLocally
                           && !selectedDevice.managed_runtime?.owned_install
                           ? 'Uninstall local services'
-                          : selectedStackIsIsolated
-                            ? 'Delete robot stack'
-                            : 'Delete Runtime installation'}
+                          : 'Delete device'}
                       </button>
                     </>
                   )}
@@ -4192,12 +4190,12 @@ export default function DevicesPanel() {
                     selectedDeviceManagedLocally
                       && !selectedDevice.managed_runtime?.owned_install
                       ? 'Uninstall this managed '
-                      : 'Delete and uninstall this managed '
+                      : 'Delete this '
                   }
                   {
-                    selectedDeviceManagedLocally || selectedStackIsIsolated
+                    selectedDeviceManagedLocally
                       ? 'robot stack'
-                      : 'runtime'
+                      : 'device'
                   }
                 </strong>
                 <span>
@@ -4205,10 +4203,7 @@ export default function DevicesPanel() {
                     ? selectedDevice.managed_runtime.hardware_dir
                       ? `Stops the local Runtime on port ${selectedDevice.managed_runtime.runtime_port} and Robot Hardware on port ${selectedDevice.managed_runtime.hardware_port}.`
                       : `Stops the local Runtime on port ${selectedDevice.managed_runtime.runtime_port}.`
-                    : `Stops ${selectedDevice.managed_runtime.service_name}, removes ${selectedDevice.managed_runtime.runtime_dir}, its packages, token and port ${selectedDevice.managed_runtime.runtime_port} firewall rule.${selectedDevice.managed_runtime.install_root ? ` The empty ${selectedDevice.managed_runtime.install_root} stack folder is also removed.` : ''}`}
-                  {selectedStackIsIsolated
-                    ? ` Its instance-scoped Robot Hardware services and ${selectedDevice.managed_runtime.hardware_dir} are also removed.`
-                    : ''}
+                    : `Stops ${selectedDevice.managed_runtime.service_name} and its deployments; deletes ${selectedDevice.managed_runtime.runtime_dir}, its workflow packages, token, service and port ${selectedDevice.managed_runtime.runtime_port} firewall rule; and deletes this device's ${selectedDevice.robots.length} Robot Hardware service${selectedDevice.robots.length === 1 ? '' : 's'} plus Hardware files when no other device uses them.${selectedDevice.managed_runtime.install_root ? ` The empty ${selectedDevice.managed_runtime.install_root} stack folder is also removed.` : ''}`}
                   {selectedDeviceManagedLocally
                     ? selectedDevice.managed_runtime.hardware_dir
                       ? selectedDevice.managed_runtime.owned_install
@@ -4218,7 +4213,7 @@ export default function DevicesPanel() {
                       : selectedDevice.managed_runtime.owned_install
                         ? ' The editor-created installation folder is removed.'
                         : ' The existing source checkout is preserved.'
-                    : ' Other stacks on this computer stay untouched.'}
+                    : ' System ROS 2, Docker, and other device stacks on this computer stay untouched.'}
                 </span>
               </div>
               {!selectedDeviceManagedLocally && (
@@ -4255,7 +4250,7 @@ export default function DevicesPanel() {
                     : selectedDeviceManagedLocally
                       && !selectedDevice.managed_runtime?.owned_install
                       ? 'Uninstall services and forget device'
-                      : 'Delete files, uninstall, and forget device'}
+                      : 'Delete device'}
                 </button>
               </div>
             </form>

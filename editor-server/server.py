@@ -4708,6 +4708,18 @@ def _uninstall_device_host_payload(
         if str(managed.get("management_mode") or "") == "local":
             result = uninstall_local_runtime(managed, progress=progress)
         else:
+            hardware_ports: set[int] = set()
+            for robot in host.get("robots", []):
+                if not isinstance(robot, dict):
+                    continue
+                try:
+                    hardware_port = urllib.parse.urlsplit(
+                        str(robot.get("base_url") or "")
+                    ).port
+                except ValueError:
+                    continue
+                if hardware_port is not None:
+                    hardware_ports.add(int(hardware_port))
             result = uninstall_runtime(
                 host=str(managed.get("ssh_host") or ""),
                 port=int(managed.get("ssh_port") or 22),
@@ -4717,6 +4729,7 @@ def _uninstall_device_host_payload(
                 instance_id=str(managed.get("instance_id") or "default"),
                 runtime_port=int(managed.get("runtime_port") or 0),
                 stack_mode=str(managed.get("stack_mode") or "runtime_only"),
+                hardware_ports=sorted(hardware_ports),
                 progress=progress,
             )
         report(97, "Removing the saved device registration")
@@ -4732,10 +4745,8 @@ def _uninstall_device_host_payload(
             summary = "Local robot stack deleted"
         else:
             summary = "Local Runtime installation deleted"
-    elif str(managed.get("stack_mode") or "runtime_only") == "isolated":
-        summary = "Isolated robot stack deleted"
     else:
-        summary = "Runtime installation deleted"
+        summary = "Device deleted"
     report(100, summary)
     return {
         "ok": True,
