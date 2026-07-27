@@ -2365,6 +2365,11 @@ button.bn-compute-device-card:active:not(:disabled) {
   animation: bn-runtime-check-pulse .8s ease-in-out infinite alternate;
 }
 
+.bn-device-overview-item.is-unchecked .bn-device-overview-dot {
+  background: var(--tx3);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tx3) 14%, transparent);
+}
+
 .bn-device-overview-item.is-attention .bn-device-overview-dot,
 .bn-device-overview-item.is-warning .bn-device-overview-dot,
 .bn-device-overview-item.is-unavailable .bn-device-overview-dot {
@@ -2412,6 +2417,14 @@ button.bn-compute-device-card:active:not(:disabled) {
   flex-wrap: wrap;
   gap: 7px;
   padding-top: 1px;
+}
+
+.bn-device-check-progress {
+  margin: 0 10px 10px;
+}
+
+.bn-device-check-progress .bn-device-action-progress {
+  margin: 0;
 }
 
 .bn-device-health-alert {

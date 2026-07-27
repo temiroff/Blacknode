@@ -28,7 +28,13 @@ type DeviceState = {
   checkedAt?: number
 }
 
-type RosHealthState = 'checking' | 'healthy' | 'warning' | 'error' | 'unavailable'
+type RosHealthState =
+  | 'unchecked'
+  | 'checking'
+  | 'healthy'
+  | 'warning'
+  | 'error'
+  | 'unavailable'
 
 type RosHealth = {
   state: RosHealthState
@@ -226,7 +232,13 @@ function RosRobotPathCard({
     <div className={`bn-ros-robot-path${ready ? ' is-ready' : countsAvailable ? ' is-attention' : ''}`}>
       <div>
         <strong>{role === 'leader' ? 'Leader' : 'Follower'}</strong>
-        <span>{ready ? 'Connected' : countsAvailable ? 'Missing endpoint' : 'Checking endpoints'}</span>
+        <span>
+          {ready
+            ? 'Endpoints present'
+            : countsAvailable
+              ? 'Missing endpoint'
+              : 'Endpoint counts unavailable'}
+        </span>
       </div>
       <dl>
         <div>
@@ -318,7 +330,7 @@ function summarizeRosHealth(
     state,
     checking: false,
     summary: state === 'healthy'
-      ? 'ROS 2 graph healthy'
+      ? 'ROS 2 endpoints connected'
       : state === 'warning'
         ? 'ROS 2 is running with warnings'
         : 'ROS 2 needs attention',
@@ -405,6 +417,20 @@ export default function DevicesPanel() {
       state: robotStates[robot.id],
     }))
     : []
+  const selectedRunningDeployments = selectedRobotChecks.flatMap(({ state }) => {
+    const deployment = state?.status?.deployment_lease
+      ?? state?.status?.running_deployment
+    return deployment ? [deployment] : []
+  })
+  const selectedMotionControllers = selectedRunningDeployments.filter(
+    deployment => Number(deployment.motion_control_count || 0) > 0,
+  )
+  const selectedArmedMotionControllers = selectedMotionControllers.filter(
+    deployment => deployment.motion_armed === true,
+  )
+  const selectedMotionDisarmed = (
+    selectedMotionControllers.length > selectedArmedMotionControllers.length
+  )
   const selectedHardwareSiblingDevices = (
     selectedDevice?.managed_runtime
     && !selectedDeviceManagedLocally
@@ -739,9 +765,21 @@ export default function DevicesPanel() {
       robotStates[robot.id]?.status?.deployment_lease
       || robotStates[robot.id]?.status?.running_deployment,
     )),
+    reportProgress = true,
   ) => {
-    if (device.robots.length === 0 || rosChecksInFlight.current.has(device.id)) return
+    if (device.robots.length === 0 || rosChecksInFlight.current.has(device.id)) {
+      return undefined
+    }
     rosChecksInFlight.current.add(device.id)
+    if (reportProgress) {
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: {
+          progress: 10,
+          message: 'Checking live ROS 2 endpoints',
+        },
+      }))
+    }
     setRosHealthByDevice(previous => ({
       ...previous,
       [device.id]: {
@@ -754,10 +792,21 @@ export default function DevicesPanel() {
     }))
     try {
       const diagnostics = await api.remoteRos2Diagnostics(device.robots[0].id)
+      const health = summarizeRosHealth(diagnostics, expectController)
       setRosHealthByDevice(previous => ({
         ...previous,
-        [device.id]: summarizeRosHealth(diagnostics, expectController),
+        [device.id]: health,
       }))
+      if (reportProgress) {
+        setActionProgress(previous => ({
+          ...previous,
+          [device.id]: {
+            progress: 100,
+            message: `${health.summary} · check complete`,
+          },
+        }))
+      }
+      return health
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason)
       setRosHealthByDevice(previous => ({
@@ -770,6 +819,16 @@ export default function DevicesPanel() {
           checkedAt: Date.now(),
         },
       }))
+      if (reportProgress) {
+        setActionProgress(previous => ({
+          ...previous,
+          [device.id]: {
+            progress: 0,
+            message: `ROS 2 check failed: ${message}`,
+          },
+        }))
+      }
+      return undefined
     } finally {
       rosChecksInFlight.current.delete(device.id)
     }
@@ -813,14 +872,10 @@ export default function DevicesPanel() {
           : null
       ))
       await Promise.all(result.devices.map(async device => {
-        const [, statuses] = await Promise.all([
+        await Promise.all([
           refreshDevice(device),
           Promise.all(device.robots.map(refreshRobot)),
         ])
-        const expectController = statuses.some(status => Boolean(
-          status?.deployment_lease || status?.running_deployment,
-        ))
-        await checkRosHealth(device, expectController)
       }))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -830,14 +885,6 @@ export default function DevicesPanel() {
   useEffect(() => {
     void refresh()
   }, [])
-
-  useEffect(() => {
-    if (!selectedDevice || selectedDevice.robots.length === 0) return
-    const timer = window.setInterval(() => {
-      void checkRosHealth(selectedDevice)
-    }, 30000)
-    return () => window.clearInterval(timer)
-  }, [selectedDeviceId])
 
   useEffect(() => {
     if (!showDeviceForm || setupMode !== 'local' || localInstallDir) return
@@ -1198,14 +1245,37 @@ export default function DevicesPanel() {
     setUpdateReport(null)
     setBusy(true)
     setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [device.id]: {
+        progress: 10,
+        message: 'Checking Runtime and robot services',
+      },
+    }))
     try {
       const [, statuses] = await Promise.all([
         refreshDevice(device),
         Promise.all(device.robots.map(refreshRobot)),
       ])
-      await checkRosHealth(device, statuses.some(status => Boolean(
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: {
+          progress: 60,
+          message: 'Checking ROS 2 endpoints and motion path',
+        },
+      }))
+      const rosHealth = await checkRosHealth(device, statuses.some(status => Boolean(
         status?.deployment_lease || status?.running_deployment,
-      )))
+      )), false)
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: {
+          progress: rosHealth ? 100 : 0,
+          message: rosHealth
+            ? 'Device check complete · review motion and ROS 2 results'
+            : 'Device check failed: ROS 2 diagnostics did not complete',
+        },
+      }))
     } finally {
       setBusy(false)
     }
@@ -2649,7 +2719,7 @@ export default function DevicesPanel() {
                     : selectedDevice.paused || selectedDeviceState?.runtime?.paused
                       ? 'Paused'
                       : selectedDeviceReady
-                        ? 'Running'
+                        ? 'Services online'
                         : 'Needs attention'}
                 </strong>
                 <span>Runtime {selectedRuntimeVersion}</span>
@@ -2658,7 +2728,7 @@ export default function DevicesPanel() {
             <button
               type="button"
               className={`bn-device-overview-item bn-device-overview-toggle is-${
-                selectedRosHealth?.state ?? 'checking'
+                selectedRosHealth?.state ?? 'unchecked'
               }${showRosDetails ? ' is-expanded' : ''}`}
               onClick={() => setShowRosDetails(current => !current)}
               aria-expanded={showRosDetails}
@@ -2670,23 +2740,27 @@ export default function DevicesPanel() {
                 <small>ROS 2</small>
                 <strong>
                   {selectedRosHealth?.state === 'healthy'
-                    ? 'Healthy'
+                    ? 'Endpoints ready'
                     : selectedRosHealth?.state === 'warning'
                       ? 'Warning'
                       : selectedRosHealth?.state === 'error'
                         ? 'Needs attention'
                         : selectedRosHealth?.state === 'unavailable'
-                          ? 'Unavailable'
-                          : 'Checking'}
+                        ? 'Unavailable'
+                          : selectedRosHealth?.state === 'checking'
+                            ? 'Checking'
+                            : 'Not checked'}
                 </strong>
                 <span>
                   {selectedRosHealth?.checking && selectedRosHealth.state !== 'checking'
                     ? `Rechecking · ${selectedRosHealth.summary}`
-                    : selectedRosHealth?.summary ?? 'Waiting for diagnostics'}
+                    : selectedRosHealth?.summary ?? 'Press Check device to inspect ROS 2'}
                 </span>
               </div>
             </button>
-            <div className="bn-device-overview-item">
+            <div className={`bn-device-overview-item${
+              selectedMotionDisarmed ? ' is-attention' : ''
+            }`}>
               <span className="bn-device-overview-dot" aria-hidden="true" />
               <div>
                 <small>Robots</small>
@@ -2695,15 +2769,13 @@ export default function DevicesPanel() {
                   /{selectedDevice.robots.length} connected
                 </strong>
                 <span>
-                  {selectedRobotChecks.filter(item => (
-                    item.state?.status?.deployment_lease
-                    || item.state?.status?.running_deployment
-                  )).length} running deployment{
-                    selectedRobotChecks.filter(item => (
-                      item.state?.status?.deployment_lease
-                      || item.state?.status?.running_deployment
-                    )).length === 1 ? '' : 's'
-                  }
+                  {selectedMotionControllers.length > 0
+                    ? selectedMotionDisarmed
+                      ? 'Follower motion disarmed'
+                      : 'Follower motion armed'
+                    : `${selectedRunningDeployments.length} running deployment${
+                      selectedRunningDeployments.length === 1 ? '' : 's'
+                    }`}
                 </span>
               </div>
             </div>
@@ -2714,7 +2786,9 @@ export default function DevicesPanel() {
                 disabled={busy || selectedDeviceChecking || selectedRosHealth?.checking}
                 className="bn-device-action-button is-primary"
               >
-                {selectedDeviceChecking ? 'Checking…' : 'Check now'}
+                {selectedDeviceChecking || selectedRosHealth?.checking
+                  ? 'Checking…'
+                  : 'Check device'}
               </button>
               {selectedDevice.managed_runtime && (
                 <button
@@ -2736,6 +2810,12 @@ export default function DevicesPanel() {
               </button>
             </div>
           </div>
+
+          {actionProgress[selectedDevice.id] && !showUninstallForm && (
+            <div className="bn-device-check-progress">
+              <LifecycleProgress value={actionProgress[selectedDevice.id]} />
+            </div>
+          )}
 
           {selectedRosHealth
             && (selectedRosHealth.state === 'warning' || selectedRosHealth.state === 'error')
@@ -2798,6 +2878,10 @@ export default function DevicesPanel() {
                   role="follower"
                 />
               </div>
+              <p className="bn-ros-internals-note">
+                This check verifies ROS 2 endpoints. Robot motion also requires a running
+                deployment, fresh data, and an explicitly armed follower.
+              </p>
               <p className="bn-ros-internals-note">
                 ROS internals: {selectedRosHealth.diagnostics.nodes.length} nodes,{' '}
                 {selectedRosHealth.diagnostics.topics.length} topics, and{' '}
@@ -3236,10 +3320,6 @@ export default function DevicesPanel() {
                 </button>
               </div>
             </form>
-          )}
-
-          {actionProgress[selectedDevice.id] && !showUninstallForm && (
-            <LifecycleProgress value={actionProgress[selectedDevice.id]} />
           )}
 
           {/* Superseded by the always-visible package cards above. */}
@@ -4094,10 +4174,7 @@ export default function DevicesPanel() {
                 sshUsername={selectedDevice.managed_runtime?.ssh_username}
                 busy={busy}
                 onRefresh={() => {
-                  void refreshRobot(robot).then(status => checkRosHealth(
-                    selectedDevice,
-                    Boolean(status?.deployment_lease || status?.running_deployment),
-                  ))
+                  void refreshRobot(robot)
                 }}
                 onRename={() => renameRobot(robot)}
                 onRemove={() => removeRobot(robot)}
@@ -4446,14 +4523,16 @@ function RobotRow({
         ? 'var(--tx2)'
       : 'var(--tx3)'
   const rosLabel = rosHealth?.state === 'healthy'
-    ? 'HEALTHY'
+    ? 'ENDPOINTS'
     : rosHealth?.state === 'warning'
       ? 'WARNING'
       : rosHealth?.state === 'error'
         ? 'ATTENTION'
         : rosHealth?.state === 'unavailable'
           ? 'UNAVAILABLE'
-          : 'CHECKING'
+          : rosHealth?.state === 'checking'
+            ? 'CHECKING'
+            : 'NOT CHECKED'
   const rosColor = rosHealth?.state === 'healthy'
     ? 'var(--ok)'
     : rosHealth?.state === 'warning'
