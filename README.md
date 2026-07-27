@@ -142,10 +142,34 @@ service scripts in the new checkout when instance isolation support is needed
 and verifies that runtimes and robot services which were already active remain
 active after the side-by-side setup.
 
+For full separation on one Linux computer, choose **Install a complete
+isolated robot stack**. Blacknode creates a separate Runtime checkout and
+service plus a separate Robot Hardware checkout, Python environment,
+configuration, calibration state, token store, service namespace, and port
+allocation. The Hardware environment starts empty. Connect the new robot,
+follow the instance-scoped command shown on its device card, and attach the
+resulting Hardware pairing details. Existing stacks and robots remain active
+and unchanged.
+
+To use the editor computer as the deployment target, choose **Add device →
+Local computer**, select the local stack installation folder, and press **Add
+local computer**. Blacknode downloads or reuses separate Runtime and Robot
+Hardware checkouts, creates separate Python environments and authentication,
+selects loopback ports, starts both services, verifies their authenticated safe
+state, and pairs the Runtime automatically. Robot Hardware begins disconnected
+and disarmed while it waits for a physical robot configuration. The local
+computer then uses the same deployment, logs, monitoring, project, and Robot
+Hardware screens as a remote computer. Blacknode can pause, resume, and
+uninstall both managed processes directly. Editor-created checkout folders are
+removed during uninstall; existing source checkouts are preserved.
+
 Runtime instances installed through the editor retain only their non-secret SSH
 management identity. **Uninstall runtime** asks for the SSH password again,
-removes the selected instance and its UFW rule, and leaves other runtime
-instances on the computer untouched. **Remove from editor** deletes only the
+shows live cleanup progress, removes the selected instance and its UFW rule,
+and leaves other runtime instances on the computer untouched. Uninstalling a
+complete isolated stack also removes only its instance-scoped Hardware services
+and checkout.
+**Remove from editor** deletes only the
 local registration. **Pause device** first stops active deployments, stops and
 disarms attached robots, then stops that runtime service. **Resume device**
 starts the service and reconnects robot monitoring while keeping motion
@@ -165,9 +189,21 @@ password, resolves the exact hardware systemd unit from that robot's saved
 hardware port, and restarts only that unit. Restart is blocked while a
 deployment is active or the robot is armed. Blacknode then verifies that the
 same authenticated robot returned and keeps motion disarmed.
-**Check device** checks the Runtime and every attached Robot Hardware service
-together. SSH-managed computers also expose one **Runtime + Robot Hardware**
-panel.
+**Check device** groups installed software into one **Software packages** row
+that reports the Runtime and Hardware versions together. If either package
+service cannot be reached, that row identifies the affected service. Attached
+physical robots remain separate rows and report connected, disconnected,
+unknown, unreachable, or still checking, so software health and physical robot
+connection remain visible independently.
+SSH-managed computers also expose one
+**Runtime + Robot Hardware** panel.
+On a local computer, **Software packages** opens separate Runtime and Hardware
+package cards. Each card shows installed and latest versions plus its running or
+stopped state. **Run** and **Stop** control only that package. **Update** advances
+and reinstalls only that clean checkout; **Reinstall** repairs its environment;
+**Delete** removes its installed environment while preserving source and
+configuration for recovery. Device checks are read-only and never start a
+stopped package.
 Its read-only version check compares installed and latest upstream versions
 and commits for both repositories, includes the version reported by each live
 service, and states whether each service is current or has an update. **Update
@@ -179,8 +215,10 @@ Hardware** independently, so a valid Runtime update remains available when a
 Robot Hardware service needs attention. Runtime has its own installation row.
 Robot Hardware has one shared installation row because every robot service on
 that compute device uses the same checkout and environment; a compact status
-line identifies the robot services that were verified. **Restart Robot
-Hardware** remains a per-robot action.
+line identifies the robot services that were verified. A Runtime instance with
+no attached robots identifies the sibling Runtime card that owns Robot Hardware
+on the same managed computer and links to that card. **Restart Robot Hardware**
+remains a per-robot action.
 Unknown versions and service-resolution errors expose **Repair Runtime** or
 **Repair Robot Hardware**. When an authenticated Robot Hardware process was
 started manually from the trusted checkout, Repair Robot Hardware verifies and stops only
@@ -193,7 +231,9 @@ changes remain blocked. When every selected commit is current, the
 matching control becomes **Reinstall
 Runtime + Robot Hardware** and repairs the current package environments before
 restarting and verifying the services. Local source changes block either
-operation and are never overwritten.
+operation and are never overwritten. The Runtime row exposes **Resolve local
+changes** with the verified SSH target, checkout directory, and read-only Git
+inspection commands.
 Updating does not switch off physical actuator power; a torque warning remains
 visible when the updated hardware service reads an enabled servo torque
 register. When no deployment is running, the robot card offers an explicitly
@@ -209,7 +249,7 @@ dashboards and fleet consumers, while the editor monitor uses the authenticated
 device connection directly. Deployed monitoring requires Runtime 0.3.9 or
 newer and `blacknode-drivers` 0.2.1 or newer; restart a running deployment after
 updating so it receives the new telemetry channel.
-Devices initially paired manually can use **Enable SSH controls** later.
+Remote devices initially paired manually can use **Enable SSH controls** later.
 Blacknode confirms the SSH host key and enables management only when the
 installed systemd runtime matches the pairing's exact port and runtime device
 identity. The SSH password remains request-only.
@@ -260,10 +300,13 @@ cannot be deployed accidentally.
 
 Remote deployments appear below the preflight report. Expand one to view its
 device log and use **Run**, **Stop**, **Stage update**, or **Rollback**.
-The robot card also distinguishes a running deployment from a stopped, staged,
-exited, or failed deployment that remains stored on its Runtime. A stored
-deployment exposes **Restart deployment** and **Deployment details**, so a
-Runtime or Hardware reinstall does not require sending the same workflow again.
+The robot card reports hardware connection and deployment status independently.
+Connection shows **Connected**, **Disconnected**, **Checking**, **Unknown**, or
+**Unreachable**. Deployment shows **Active**, **Inactive**, **Completed**,
+**Failed**, or **None**. An inactive, completed, or failed deployment remains
+available on its Runtime and exposes **Restart deployment** and **Deployment
+details**, so a Runtime or Hardware reinstall does not require sending the same
+workflow again.
 **Stage update** uploads the currently validated graph as another revision of
 that deployment. **Rollback** selects the previous revision without starting
 it; use **Run** after checking its state. A running deployment must be stopped

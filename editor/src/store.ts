@@ -330,6 +330,7 @@ function reactNodeType(typeName: string): string {
   if (SUBGRAPH_NODE_TYPES.has(typeName)) return 'subnetnode'
   if (typeName === 'SubnetInput') return 'subnetinput'
   if (typeName === 'SubnetOutput') return 'subnetoutput'
+  if (typeName === 'RobotMonitor') return 'robotmonitor'
   return OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode'
 }
 
@@ -386,6 +387,7 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'ROS2VisualDashboard' ? { style: { width: 840, height: 760 } } : {}),
     ...(meta.type === 'ROS2Run' ? { style: { width: 520, height: 360 } } : {}),
     ...(meta.type === 'ROS2MotionDashboard' ? { style: { width: 860, height: 720 } } : {}),
+    ...(meta.type === 'RobotMonitor' ? { style: { width: 760 } } : {}),
   }
 }
 

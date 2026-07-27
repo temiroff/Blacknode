@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import {
   api,
-  deviceMonitorSocketUrl,
   type ComputeDevice,
   type DeviceActionProgress,
   type DeviceInstallProgress,
@@ -10,8 +9,6 @@ import {
   type HardwareDeviceStatus,
   type ManagedServiceUpdateCheckResult,
   type ManagedServiceUpdateResult,
-  type RobotTelemetryJoint,
-  type RobotTelemetrySample,
   type SshDeviceProbe,
   type SshRuntimeInspection,
 } from '../api'
@@ -30,9 +27,25 @@ type DeviceState = {
   checkedAt?: number
 }
 
-type RuntimeInstallAction = 'install' | 'reuse' | 'replace' | 'side_by_side'
+type ServiceCheckState =
+  | 'checking'
+  | 'connected'
+  | 'awaiting'
+  | 'stopped'
+  | 'disconnected'
+  | 'unknown'
+  | 'unreachable'
+  | 'unchecked'
+
+type RuntimeInstallAction =
+  | 'install'
+  | 'reuse'
+  | 'replace'
+  | 'side_by_side'
+  | 'isolated_stack'
 
 const DEFAULT_RUNTIME_URL = 'http://192.168.1.87:8766'
+const LOCAL_RUNTIME_URL = 'http://127.0.0.1:8766'
 const DEFAULT_SSH_HOST = '192.168.1.87'
 const FIRST_HARDWARE_PORT = 8765
 const RUNTIME_PORT = 8766
@@ -92,6 +105,15 @@ function runtimeHostname(runtimeUrl: string): string {
   }
 }
 
+function isLocalRuntimeUrl(runtimeUrl: string): boolean {
+  try {
+    const hostname = new URL(runtimeUrl).hostname.toLowerCase()
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1'
+  } catch {
+    return false
+  }
+}
+
 function urlPort(url: string): number | null {
   try {
     const parsed = new URL(url)
@@ -117,9 +139,10 @@ export default function DevicesPanel() {
   const [knownHardwareVersions, setKnownHardwareVersions] = useState<Record<string, string>>({})
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [showDeviceForm, setShowDeviceForm] = useState(false)
-  const [setupMode, setSetupMode] = useState<'automatic' | 'manual'>('automatic')
-  const [deviceName, setDeviceName] = useState('')
-  const [runtimeUrl, setRuntimeUrl] = useState(DEFAULT_RUNTIME_URL)
+  const [setupMode, setSetupMode] = useState<'local' | 'automatic' | 'manual'>('local')
+  const [deviceName, setDeviceName] = useState('Local computer')
+  const [localInstallDir, setLocalInstallDir] = useState('')
+  const [runtimeUrl, setRuntimeUrl] = useState(LOCAL_RUNTIME_URL)
   const [runtimeToken, setRuntimeToken] = useState('')
   const [sshHost, setSshHost] = useState(DEFAULT_SSH_HOST)
   const [sshPort, setSshPort] = useState(22)
@@ -137,6 +160,8 @@ export default function DevicesPanel() {
   const [updatePassword, setUpdatePassword] = useState('')
   const [updateCheckReport, setUpdateCheckReport] = useState<ManagedServiceUpdateCheckResult | null>(null)
   const [updateReport, setUpdateReport] = useState<ManagedServiceUpdateResult | null>(null)
+  const [showDirtySourceHelp, setShowDirtySourceHelp] = useState(false)
+  const showLegacyPackageManager = false as boolean
   const [showUninstallForm, setShowUninstallForm] = useState(false)
   const [uninstallPassword, setUninstallPassword] = useState('')
   const [showSshManagement, setShowSshManagement] = useState(false)
@@ -154,6 +179,15 @@ export default function DevicesPanel() {
   const [linkedProjectName, setLinkedProjectName] = useState('')
 
   const selectedDevice = devices.find(device => device.id === selectedDeviceId) ?? null
+  const selectedDeviceIsLocal = Boolean(
+    selectedDevice && isLocalRuntimeUrl(selectedDevice.runtime_url),
+  )
+  const selectedDeviceManagedLocally = (
+    selectedDevice?.managed_runtime?.management_mode === 'local'
+  )
+  const selectedStackIsIsolated = (
+    selectedDevice?.managed_runtime?.stack_mode === 'isolated'
+  )
   const selectedDeviceState = selectedDevice
     ? deviceStates[selectedDevice.id]
     : undefined
@@ -163,41 +197,205 @@ export default function DevicesPanel() {
       state: robotStates[robot.id],
     }))
     : []
+  const selectedHardwareSiblingDevices = (
+    selectedDevice?.managed_runtime
+    && !selectedDeviceManagedLocally
+    && !selectedStackIsIsolated
+  )
+    ? devices.filter(device => {
+      const selectedManagement = selectedDevice.managed_runtime
+      const candidateManagement = device.managed_runtime
+      if (
+        !selectedManagement
+        || !candidateManagement
+        || candidateManagement.stack_mode === 'isolated'
+      ) return false
+      return (
+        device.id !== selectedDevice.id
+        && device.robots.length > 0
+        && candidateManagement.ssh_host === selectedManagement.ssh_host
+        && candidateManagement.ssh_port === selectedManagement.ssh_port
+        && candidateManagement.ssh_username === selectedManagement.ssh_username
+        && candidateManagement.host_fingerprint === selectedManagement.host_fingerprint
+      )
+    })
+    : []
   const selectedDeviceChecking = Boolean(
     selectedDeviceState?.loading
     || selectedRobotChecks.some(item => item.state?.loading),
   )
+  const selectedManagedHardwareInstalled = Boolean(
+    selectedDevice?.managed_runtime?.hardware_dir,
+  )
+  const selectedManagedHardwareReady = (
+    !selectedManagedHardwareInstalled
+    || selectedDeviceState?.runtime?.hardware?.ok === true
+  )
   const selectedHardwareReady = selectedRobotChecks.every(item => Boolean(
     item.state?.status
     && !item.state.error
-    && (
-      item.state.status.connected
-      || item.state.status.leased_to_deployment
-      || item.state.status.deployment_lease
-    ),
+    && item.state.status.connected,
   ))
   const selectedDeviceReady = Boolean(
     selectedDeviceState?.runtime?.ok
+    && selectedManagedHardwareReady
     && selectedHardwareReady,
   )
-  const selectedServiceVersions = selectedDevice
-    ? [
-      `Runtime ${
-        selectedDeviceState?.runtime?.manifest?.runtime_version
-          ? `v${selectedDeviceState.runtime.manifest.runtime_version}`
-          : 'version not reported'
-      }`,
-      ...selectedRobotChecks.map(({ robot, state }) => (
-        `${robot.name} Hardware ${
-          state?.status?.software_version
-            ? `v${state.status.software_version}`
-            : robot.software_version
-              ? `v${robot.software_version} (last verified)`
-            : 'version not reported'
+  const selectedRuntimeVersionValue = (
+    selectedDeviceState?.runtime?.manifest?.runtime_version
+    || selectedDeviceState?.runtime?.installed_version
+  )
+  const selectedRuntimeVersion = (
+    selectedRuntimeVersionValue
+    && selectedRuntimeVersionValue !== 'unknown'
+  )
+    ? `v${selectedRuntimeVersionValue}`
+    : 'version not reported'
+  const selectedHardwareVersion = (
+    selectedDeviceState?.runtime?.hardware?.status?.software_version
+    || selectedDeviceState?.runtime?.hardware?.installed_version
+    || selectedRobotChecks.find(item => item.state?.status?.software_version)
+      ?.state?.status?.software_version
+    || selectedDevice?.robots.find(robot => robot.software_version)?.software_version
+  )
+  const selectedHardwareVersionLabel = selectedHardwareVersion
+    ? `v${selectedHardwareVersion}`
+    : 'version not reported'
+  const selectedHardwarePackageState = selectedDeviceState?.loading
+    ? 'checking'
+    : selectedDeviceManagedLocally
+      ? selectedDeviceState?.runtime?.hardware?.state || 'unchecked'
+      : selectedDevice?.managed_runtime?.hardware_state === 'stopped'
+        ? 'stopped'
+      : selectedDevice?.managed_runtime?.hardware_state === 'running'
+        ? 'running'
+      : selectedRobotChecks.some(item => item.state?.loading)
+        ? 'checking'
+        : selectedRobotChecks.some(item => item.state?.error)
+          ? 'unreachable'
+          : selectedRobotChecks.some(item => item.state?.status)
+            ? 'running'
+            : selectedDevice?.robots.length
+              ? 'unchecked'
+              : 'unavailable'
+  const selectedRuntimePackageState = selectedDeviceState?.loading
+    ? 'checking'
+    : selectedDeviceState?.runtime?.state
+      || (selectedDeviceState?.runtime?.paused || selectedDevice?.paused
+        ? 'stopped'
+        : selectedDeviceState?.runtime?.ok === true
+          ? 'running'
+          : selectedDeviceState?.runtime
+            ? 'unreachable'
+            : 'unchecked')
+  const selectedAttachedHardwareServiceFailed = selectedRobotChecks.some(item => (
+    Boolean(item.state?.error)
+    || Boolean(item.state?.checkedAt && !item.state?.status)
+  ))
+  const selectedPackageCheckState: ServiceCheckState = selectedDeviceState?.loading
+    ? 'checking'
+    : selectedDeviceState?.runtime?.state === 'stopped'
+      ? 'stopped'
+    : selectedDeviceState?.runtime?.ok !== true
+      ? selectedDeviceState?.runtime
+        ? 'unreachable'
+        : 'unchecked'
+      : selectedManagedHardwareInstalled
+        && selectedDeviceState.runtime.hardware?.state === 'stopped'
+        ? 'stopped'
+        : selectedManagedHardwareInstalled
+        && selectedDeviceState.runtime.hardware?.ok !== true
+        ? 'unreachable'
+        : selectedAttachedHardwareServiceFailed
+          ? 'unreachable'
+          : 'connected'
+  const selectedPackageCheckDetail = selectedDeviceState?.loading
+    ? 'Checking Runtime and Hardware package services'
+    : selectedDeviceState?.runtime?.state === 'stopped'
+      ? `Runtime ${selectedRuntimeVersion} · service stopped · Hardware ${selectedHardwareVersionLabel}`
+    : selectedDeviceState?.runtime?.ok !== true
+      ? `Runtime service unreachable${
+          selectedDeviceState?.runtime?.error
+            ? ` · ${selectedDeviceState.runtime.error}`
+            : ''
         }`
-      )),
+      : selectedManagedHardwareInstalled
+        && selectedDeviceState.runtime.hardware?.state === 'stopped'
+        ? `Runtime ${selectedRuntimeVersion} · Hardware ${selectedHardwareVersionLabel} · service stopped`
+        : selectedManagedHardwareInstalled
+        && selectedDeviceState.runtime.hardware?.ok !== true
+        ? `Runtime ${selectedRuntimeVersion} · Hardware service unreachable${
+            selectedDeviceState.runtime.hardware?.error
+              ? ` · ${selectedDeviceState.runtime.hardware.error}`
+              : ''
+          }`
+        : selectedAttachedHardwareServiceFailed
+          ? `Runtime ${selectedRuntimeVersion} · Hardware service unreachable`
+          : `Runtime ${selectedRuntimeVersion} · Hardware ${selectedHardwareVersionLabel}`
+  const selectedServiceChecks: Array<{
+    id: string
+    name: string
+    kind: 'Software package' | 'Robot hardware'
+    state: ServiceCheckState
+    detail: string
+  }> = selectedDevice
+    ? [
+      {
+        id: `packages:${selectedDevice.id}`,
+        name: 'Software packages',
+        kind: 'Software package',
+        state: selectedPackageCheckState,
+        detail: selectedPackageCheckDetail,
+      },
+      ...selectedRobotChecks.map(({ robot, state }) => {
+        const checkState: ServiceCheckState = state?.loading
+          ? 'checking'
+          : state?.error || (!state?.status && state?.checkedAt)
+            ? 'unreachable'
+            : state?.status?.connected
+              ? 'connected'
+              : state?.status
+                ? 'disconnected'
+                : 'unchecked'
+        const version = state?.status?.software_version
+          ? `v${state.status.software_version}`
+          : robot.software_version
+            ? `v${robot.software_version} (last verified)`
+            : 'version not reported'
+        const detail = checkState === 'checking'
+          ? `Contacting ${robot.base_url}`
+          : checkState === 'connected'
+            ? `Robot Hardware ${version}`
+            : checkState === 'disconnected'
+              ? state?.status?.error || `Robot Hardware ${version} · hardware provider reports disconnected`
+              : checkState === 'unreachable'
+                  ? state?.error || 'Robot Hardware service is unreachable.'
+                  : 'Robot Hardware has not been checked yet.'
+        return {
+          id: `robot:${robot.id}`,
+          name: robot.name,
+          kind: 'Robot hardware' as const,
+          state: checkState,
+          detail,
+        }
+      }),
     ]
     : []
+  const selectedCheckStarted = selectedServiceChecks.some(
+    service => service.state !== 'unchecked',
+  )
+  const selectedCheckHasFailure = selectedServiceChecks.some(
+    service => service.state === 'disconnected' || service.state === 'unreachable',
+  )
+  const selectedCheckHasStopped = selectedServiceChecks.some(
+    service => service.state === 'stopped',
+  )
+  const selectedCheckHasUnknown = selectedServiceChecks.some(
+    service => service.state === 'unknown',
+  )
+  const selectedReadyChecks = selectedServiceChecks.filter(
+    service => service.state === 'connected' || service.state === 'awaiting',
+  ).length
   const selectedLastChecked = Math.max(
     selectedDeviceState?.checkedAt ?? 0,
     ...selectedRobotChecks.map(item => item.state?.checkedAt ?? 0),
@@ -339,6 +537,13 @@ export default function DevicesPanel() {
   }, [])
 
   useEffect(() => {
+    if (!showDeviceForm || setupMode !== 'local' || localInstallDir) return
+    void api.localComputeDeviceInstallDefaults()
+      .then(result => setLocalInstallDir(result.install_dir))
+      .catch(reason => setError(reason instanceof Error ? reason.message : String(reason)))
+  }, [showDeviceForm, setupMode, localInstallDir])
+
+  useEffect(() => {
     const timers = Object.entries(actionProgress).flatMap(([id, value]) => {
       const failed = (
         value.progress <= 0
@@ -359,7 +564,9 @@ export default function DevicesPanel() {
 
   const resetDeviceForm = () => {
     setShowDeviceForm(false)
-    setDeviceName('')
+    setSetupMode('local')
+    setDeviceName('Local computer')
+    setRuntimeUrl(LOCAL_RUNTIME_URL)
     setRuntimeToken('')
     setSshPassword('')
     setSshProbe(null)
@@ -367,6 +574,24 @@ export default function DevicesPanel() {
     setInstallAction('install')
     setInstallInstanceId('default')
     setInstallProgress(null)
+  }
+
+  const selectSetupMode = (mode: 'local' | 'automatic' | 'manual') => {
+    const previousMode = setupMode
+    setSetupMode(mode)
+    setError(null)
+    setInstallProgress(null)
+    if (mode === 'local') {
+      setRuntimeUrl(LOCAL_RUNTIME_URL)
+      if (!deviceName.trim() || deviceName === 'Local computer') {
+        setDeviceName('Local computer')
+      }
+      return
+    }
+    if (previousMode === 'local') {
+      if (runtimeUrl === LOCAL_RUNTIME_URL) setRuntimeUrl(DEFAULT_RUNTIME_URL)
+      if (deviceName === 'Local computer') setDeviceName('')
+    }
   }
 
   const manualPair = async (event: FormEvent) => {
@@ -378,6 +603,44 @@ export default function DevicesPanel() {
         deviceName.trim(),
         runtimeUrl.trim(),
         runtimeToken.trim(),
+      )
+      resetDeviceForm()
+      setSelectedDeviceId(result.device.id)
+      await refresh()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const browseLocalInstallDir = async () => {
+    setError(null)
+    try {
+      const result = await api.pickDirectory(
+        localInstallDir,
+        'Choose the Blacknode local stack installation folder',
+      )
+      if (!result.cancelled && result.selected) setLocalInstallDir(result.selected)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  const installLocalComputer = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!localInstallDir.trim()) {
+      setError('Choose the local stack installation folder.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setInstallProgress({ progress: 1, message: 'Starting local robot stack installation' })
+    try {
+      const result = await api.installLocalComputeDevice(
+        deviceName.trim() || 'Local computer',
+        localInstallDir.trim(),
+        setInstallProgress,
       )
       resetDeviceForm()
       setSelectedDeviceId(result.device.id)
@@ -572,23 +835,55 @@ export default function DevicesPanel() {
   }
 
   const uninstallDevice = async (device: ComputeDevice) => {
-    if (!uninstallPassword) {
+    const managedLocally = device.managed_runtime?.management_mode === 'local'
+    if (!managedLocally && !uninstallPassword) {
       setError('Enter the SSH password to uninstall this managed runtime.')
       return
     }
     if (!window.confirm(
-      `Uninstall "${device.name}" from the remote computer? This stops its runtime, removes its service, files, token, firewall rule, attached robot registrations, and this device card.`,
+      managedLocally
+        ? device.managed_runtime?.hardware_dir
+          ? device.managed_runtime?.owned_install && device.managed_runtime?.hardware_owned_install
+            ? `Uninstall "${device.name}" from this computer? This stops Runtime and Robot Hardware, removes both editor-created installation folders and attached robot registrations, and removes this device card.`
+            : `Uninstall "${device.name}" from this computer? This stops Runtime and Robot Hardware, removes their editor-managed configuration and attached robot registrations, preserves existing source checkouts, and removes this device card.`
+          : device.managed_runtime?.owned_install
+            ? `Uninstall "${device.name}" from this computer? This stops its Runtime, removes the editor-created installation folder and attached robot registrations, and removes this device card.`
+            : `Uninstall "${device.name}" from this computer? This stops its Runtime, removes its editor-managed configuration and attached robot registrations, preserves the existing source checkout, and removes this device card.`
+        : `Uninstall "${device.name}" from the remote computer? This stops its runtime, removes its service, files, token, firewall rule, attached robot registrations, and this device card.`,
     )) return
     setBusy(true)
     setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [device.id]: {
+        progress: 1,
+        message: 'Starting managed device uninstall',
+      },
+    }))
     try {
-      await api.uninstallComputeDevice(device.id, uninstallPassword)
+      const result = await api.uninstallComputeDevice(
+        device.id,
+        uninstallPassword,
+        progress => setActionProgress(previous => ({
+          ...previous,
+          [device.id]: progress,
+        })),
+      )
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: { progress: 100, message: result.summary },
+      }))
       setShowUninstallForm(false)
       setUninstallPassword('')
       setSelectedDeviceId(null)
       await refresh()
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: { progress: 0, message: `Uninstall failed: ${message}` },
+      }))
+      setError(message)
     } finally {
       setBusy(false)
     }
@@ -669,8 +964,14 @@ export default function DevicesPanel() {
     }
   }
 
-  const controlDevice = async (device: ComputeDevice, action: 'pause' | 'resume') => {
-    if (!runtimeControlPassword) {
+  const controlDevice = async (
+    device: ComputeDevice,
+    action: 'pause' | 'resume',
+    passwordOverride?: string,
+  ) => {
+    const managedLocally = device.managed_runtime?.management_mode === 'local'
+    const password = passwordOverride ?? runtimeControlPassword
+    if (!managedLocally && !password) {
       setError(`Enter the SSH password to ${action} this managed device.`)
       return
     }
@@ -690,7 +991,7 @@ export default function DevicesPanel() {
       const result = await api.controlComputeDevice(
         device.id,
         action,
-        runtimeControlPassword,
+        managedLocally ? '' : password,
         progress => setActionProgress(previous => ({
           ...previous,
           [device.id]: progress,
@@ -723,8 +1024,10 @@ export default function DevicesPanel() {
   const updateDevice = async (
     device: ComputeDevice,
     scope: 'all' | 'runtime' | 'hardware',
+    requestedOperation: 'update' | 'reinstall' | null = null,
   ) => {
-    if (!updatePassword) {
+    const managedLocally = device.managed_runtime?.management_mode === 'local'
+    if (!managedLocally && !updatePassword) {
       setError('Enter the SSH password to update this managed device.')
       return
     }
@@ -734,17 +1037,25 @@ export default function DevicesPanel() {
     const selectedUpdatesAvailable = selectedComponents.some(
       component => component.update_available,
     )
-    const operation = selectedUpdatesAvailable ? 'Update' : 'Reinstall'
+    const operation = requestedOperation
+      ?? (selectedUpdatesAvailable ? 'update' : 'reinstall')
+    const operationLabel = operation === 'update' ? 'Update' : 'Reinstall'
     const hardwareServiceCount = device.robots.length
-    const targetLabel = scope === 'all'
-      ? 'Runtime + Robot Hardware'
-      : scope === 'runtime'
-        ? 'Runtime'
-        : `shared Robot Hardware installation used by ${hardwareServiceCount} robot service${
-          hardwareServiceCount === 1 ? '' : 's'
-        }`
+    const targetLabel = managedLocally
+      ? scope === 'all'
+        ? 'Runtime + Hardware packages'
+        : scope === 'runtime'
+          ? 'Runtime package'
+          : 'Hardware package'
+      : scope === 'all'
+        ? 'Runtime + Robot Hardware'
+        : scope === 'runtime'
+          ? 'Runtime'
+          : `${device.managed_runtime?.stack_mode === 'isolated' ? 'isolated' : 'shared'} Robot Hardware installation used by ${hardwareServiceCount} robot service${
+            hardwareServiceCount === 1 ? '' : 's'
+          }`
     if (!window.confirm(
-      `${operation} ${targetLabel} on "${device.name}"? Running deployments will stop and robots will return with Blacknode motion disarmed. This action does not switch off physical actuator power.`,
+      `${operationLabel} ${targetLabel} on "${device.name}"? Running deployments will stop and robots will return with Blacknode motion disarmed. This action does not switch off physical actuator power.`,
     )) return
     setBusy(true)
     setError(null)
@@ -753,20 +1064,23 @@ export default function DevicesPanel() {
       ...previous,
       [device.id]: {
         progress: 1,
-        message: scope === 'runtime'
-          ? 'Preparing Runtime update'
-          : scope === 'hardware'
-            ? `Preparing shared Robot Hardware update for ${hardwareServiceCount} robot service${
-              hardwareServiceCount === 1 ? '' : 's'
-            }`
-            : 'Preparing Runtime + Robot Hardware update',
+        message: managedLocally
+          ? `Preparing ${targetLabel}`
+          : scope === 'runtime'
+            ? 'Preparing Runtime update'
+            : scope === 'hardware'
+              ? `Preparing shared Robot Hardware update for ${hardwareServiceCount} robot service${
+                hardwareServiceCount === 1 ? '' : 's'
+              }`
+              : 'Preparing Runtime + Robot Hardware update',
       },
     }))
     try {
       const result = await api.updateComputeDevice(
         device.id,
-        updatePassword,
+        managedLocally ? '' : updatePassword,
         scope,
+        operation,
         progress => setActionProgress(previous => ({
           ...previous,
           [device.id]: progress,
@@ -788,7 +1102,7 @@ export default function DevicesPanel() {
       try {
         const refreshedCheck = await api.checkComputeDeviceUpdates(
           device.id,
-          updatePassword,
+          managedLocally ? '' : updatePassword,
           progress => setActionProgress(previous => ({
             ...previous,
             [device.id]: progress,
@@ -839,7 +1153,8 @@ export default function DevicesPanel() {
   }
 
   const checkDeviceSoftware = async (device: ComputeDevice) => {
-    if (!updatePassword) {
+    const managedLocally = device.managed_runtime?.management_mode === 'local'
+    if (!managedLocally && !updatePassword) {
       setError('Enter the SSH password to compare installed and latest versions.')
       return
     }
@@ -847,6 +1162,7 @@ export default function DevicesPanel() {
     setError(null)
     setUpdateReport(null)
     setUpdateCheckReport(null)
+    setShowDirtySourceHelp(false)
     setActionProgress(previous => ({
       ...previous,
       [device.id]: { progress: 1, message: 'Checking Runtime + Robot Hardware versions' },
@@ -854,7 +1170,7 @@ export default function DevicesPanel() {
     try {
       const result = await api.checkComputeDeviceUpdates(
         device.id,
-        updatePassword,
+        managedLocally ? '' : updatePassword,
         progress => setActionProgress(previous => ({
           ...previous,
           [device.id]: progress,
@@ -881,6 +1197,172 @@ export default function DevicesPanel() {
       setActionProgress(previous => ({
         ...previous,
         [device.id]: { progress: 0, message: `Version check failed: ${message}` },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const manageLocalPackage = async (
+    device: ComputeDevice,
+    kind: 'runtime' | 'hardware',
+    action: 'run' | 'stop' | 'restart' | 'delete',
+  ) => {
+    const packageName = kind === 'runtime' ? 'Runtime package' : 'Hardware package'
+    if (action === 'delete' && !window.confirm(
+      `Delete the installed ${packageName} environment? Its service will stop. The source checkout and configuration are preserved so Reinstall can restore it.`,
+    )) return
+    setBusy(true)
+    setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [device.id]: {
+        progress: 1,
+        message: `${
+          action === 'run'
+            ? 'Starting'
+            : action === 'stop'
+              ? 'Stopping'
+              : action === 'restart'
+                ? 'Restarting'
+                : 'Deleting'
+        } ${packageName}`,
+      },
+    }))
+    try {
+      const result = await api.manageLocalPackage(
+        device.id,
+        kind,
+        action,
+        progress => setActionProgress(previous => ({
+          ...previous,
+          [device.id]: progress,
+        })),
+      )
+      setDeviceStates(previous => ({
+        ...previous,
+        [device.id]: {
+          runtime: result.runtime,
+          loading: false,
+          checkedAt: Date.now(),
+        },
+      }))
+      await refreshDevice(device)
+      await checkDeviceSoftware(device)
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: { progress: 0, message: `${packageName} action failed: ${message}` },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const manageRemoteHardwarePackage = async (
+    device: ComputeDevice,
+    action: 'run' | 'stop' | 'restart',
+  ) => {
+    if (!updatePassword) {
+      setError(`Enter the SSH password to ${action} the Hardware package.`)
+      return
+    }
+    if (device.robots.length === 0) {
+      setError('Attach a robot before controlling the remote Hardware package.')
+      return
+    }
+    if ((action === 'stop' || action === 'restart') && !window.confirm(
+      `${action === 'stop' ? 'Stop' : 'Restart'} the remote Hardware package on "${device.name}"? Active deployments will stop and every robot will be disarmed first.`,
+    )) return
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await api.manageRemoteHardwarePackage(
+        device.id,
+        action,
+        updatePassword,
+        progress => setActionProgress(previous => ({
+          ...previous,
+          [device.id]: progress,
+        })),
+      )
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: { progress: 100, message: result.summary },
+      }))
+      await refresh()
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: { progress: 0, message: `Hardware package action failed: ${message}` },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const restartRemotePackage = async (
+    device: ComputeDevice,
+    kind: 'runtime' | 'hardware',
+  ) => {
+    if (kind === 'hardware') {
+      await manageRemoteHardwarePackage(device, 'restart')
+      return
+    }
+    if (!updatePassword) {
+      setError(`Enter the SSH password to restart the ${kind} package.`)
+      return
+    }
+    const label = 'Runtime package'
+    if (!window.confirm(
+      `Restart the remote ${label} on "${device.name}"? Running deployments will stop and robots must return disarmed.`,
+    )) return
+    setBusy(true)
+    setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [device.id]: { progress: 5, message: `Restarting remote ${label}` },
+    }))
+    try {
+      await api.controlComputeDevice(
+          device.id,
+          'pause',
+          updatePassword,
+          progress => setActionProgress(previous => ({
+            ...previous,
+            [device.id]: {
+              progress: Math.min(48, Math.max(5, Math.round(progress.progress * 0.48))),
+              message: progress.message,
+            },
+          })),
+      )
+      await api.controlComputeDevice(
+          device.id,
+          'resume',
+          updatePassword,
+          progress => setActionProgress(previous => ({
+            ...previous,
+            [device.id]: {
+              progress: 50 + Math.round(progress.progress * 0.5),
+              message: progress.message,
+            },
+          })),
+      )
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: { progress: 100, message: `${label} restarted` },
+      }))
+      await refresh()
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: { progress: 0, message: `${label} restart failed: ${message}` },
       }))
       setError(message)
     } finally {
@@ -994,19 +1476,19 @@ export default function DevicesPanel() {
     }
   }
 
-  const restartStoredDeployment = async (
+  const restartDeployment = async (
     robot: HardwareDevice,
     deploymentId: string,
     deploymentName: string,
   ) => {
     if (!window.confirm(
-      `Restart stored deployment "${deploymentName}" on "${robot.name}"? Blacknode will recheck the robot safety state before starting it.`,
+      `Restart deployment "${deploymentName}" on "${robot.name}"? Blacknode will recheck the robot safety state before starting it.`,
     )) return
     setBusy(true)
     setError(null)
     setActionProgress(previous => ({
       ...previous,
-      [robot.id]: { progress: 10, message: 'Restarting stored deployment' },
+      [robot.id]: { progress: 10, message: 'Restarting deployment' },
     }))
     try {
       await api.startRemoteDeployment(robot.id, deploymentId)
@@ -1095,7 +1577,13 @@ export default function DevicesPanel() {
       {showDeviceForm && (
         <form
           className="bn-device-form"
-          onSubmit={setupMode === 'automatic' ? automaticInstall : manualPair}
+          onSubmit={
+            setupMode === 'automatic'
+              ? automaticInstall
+              : setupMode === 'local'
+                ? installLocalComputer
+                : manualPair
+          }
         >
           <div className="bn-device-form-title">Add a compute device</div>
           <p className="bn-device-help">
@@ -1104,23 +1592,24 @@ export default function DevicesPanel() {
           <div className="bn-device-mode-tabs" role="tablist" aria-label="Device setup method">
             <button
               type="button"
-              className={setupMode === 'automatic' ? 'is-active' : ''}
-              onClick={() => {
-                setSetupMode('automatic')
-                setError(null)
-              }}
+              className={setupMode === 'local' ? 'is-active' : ''}
+              onClick={() => selectSetupMode('local')}
             >
-              Automatic SSH
+              Local computer
+            </button>
+            <button
+              type="button"
+              className={setupMode === 'automatic' ? 'is-active' : ''}
+              onClick={() => selectSetupMode('automatic')}
+            >
+              Remote SSH
             </button>
             <button
               type="button"
               className={setupMode === 'manual' ? 'is-active' : ''}
-              onClick={() => {
-                setSetupMode('manual')
-                setError(null)
-              }}
+              onClick={() => selectSetupMode('manual')}
             >
-              Pair manually
+              Remote Manual
             </button>
           </div>
           <label>
@@ -1405,9 +1894,74 @@ export default function DevicesPanel() {
                         </span>
                       </label>
                     )}
+                    <label className={installAction === 'isolated_stack' ? 'is-selected' : ''}>
+                      <input
+                        type="radio"
+                        name="runtime-install-action"
+                        checked={installAction === 'isolated_stack'}
+                        onChange={() => {
+                          setInstallAction('isolated_stack')
+                          setInstallInstanceId(sshInspection.suggested_instance_id)
+                        }}
+                      />
+                      <span>
+                        <strong>Install a complete isolated robot stack</strong>
+                        <small>
+                          Creates {sshInspection.suggested_instance_id} with separate Runtime
+                          and Robot Hardware directories, environments, tokens, state, services,
+                          and ports. Existing stacks remain untouched.
+                        </small>
+                      </span>
+                    </label>
                   </div>
                 </div>
               )}
+            </>
+          ) : setupMode === 'local' ? (
+            <>
+              <div className="bn-device-setup-step">
+                <span className="bn-device-setup-number">1</span>
+                <div>
+                  <strong>Install a local robot stack</strong>
+                  <p>
+                    Choose one folder. Blacknode installs the Runtime package and Hardware
+                    package in separate subfolders and environments, configures
+                    authentication, starts both services, and adds this computer.
+                  </p>
+                </div>
+              </div>
+              <div className="bn-device-local-capabilities" role="note">
+                <strong>Same Blacknode workspace</strong>
+                <span>
+                  Deployments, logs, live monitoring, projects, and attached robots use the
+                  same device APIs as a remote computer.
+                </span>
+                <small>
+                  Robot Hardware starts authenticated, disconnected, and disarmed while it
+                  waits for a physical robot configuration. Tokens stay on this computer.
+                </small>
+              </div>
+              <label>
+                <span>Local stack installation folder</span>
+                <div className="bn-device-path-field">
+                  <input
+                    value={localInstallDir}
+                    onChange={event => setLocalInstallDir(event.target.value)}
+                    placeholder="Choose a folder for the Blacknode stack"
+                    required
+                    spellCheck={false}
+                    disabled={busy}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void browseLocalInstallDir()}
+                    disabled={busy}
+                    style={miniButton}
+                  >
+                    Browse
+                  </button>
+                </div>
+              </label>
             </>
           ) : (
             <>
@@ -1447,7 +2001,7 @@ export default function DevicesPanel() {
             </>
           )}
 
-          {installProgress && setupMode === 'automatic' && (
+          {installProgress && (setupMode === 'automatic' || setupMode === 'local') && (
             <div
               className="bn-device-install-progress"
               role="progressbar"
@@ -1473,16 +2027,26 @@ export default function DevicesPanel() {
                 {busy ? 'Checking…' : 'Check connection'}
               </button>
             ) : (
-              <button type="submit" disabled={busy} style={primaryButton}>
+              <button
+                type="submit"
+                disabled={busy || (setupMode === 'local' && !localInstallDir.trim())}
+                style={primaryButton}
+              >
                 {busy
                   ? setupMode === 'automatic'
                     ? sshInspection ? installAction === 'reuse' ? 'Pairing…' : 'Installing…' : 'Inspecting…'
-                    : 'Pairing…'
+                    : setupMode === 'local' ? 'Installing…' : 'Pairing…'
                   : setupMode === 'automatic'
                     ? sshInspection
-                      ? installAction === 'reuse' ? 'Pair existing runtime' : installAction === 'replace' ? 'Reinstall runtime' : 'Install runtime'
+                      ? installAction === 'reuse'
+                        ? 'Pair existing runtime'
+                        : installAction === 'replace'
+                          ? 'Reinstall runtime'
+                          : installAction === 'isolated_stack'
+                            ? 'Install isolated stack'
+                            : 'Install runtime'
                       : 'Confirm and inspect'
-                    : 'Pair runtime'}
+                    : setupMode === 'local' ? 'Add local computer' : 'Pair runtime'}
               </button>
             )}
           </div>
@@ -1539,6 +2103,7 @@ export default function DevicesPanel() {
                   setUpdateReport(null)
                   setShowDeviceForm(false)
                   setShowRobotForm(false)
+                  setShowSshManagement(false)
                 }}
               />
             ))}
@@ -1580,16 +2145,21 @@ export default function DevicesPanel() {
           <div className="bn-compute-device-detail-head">
             <div className="bn-compute-device-identity">
               <strong>{selectedDevice.name}</strong>
+              {selectedDeviceIsLocal
+                ? <span>Local computer · loopback connection</span>
+                : selectedStackIsIsolated
+                  ? <span>Complete isolated robot stack</span>
+                  : null}
               <code>{selectedDevice.runtime_url}</code>
             </div>
             <div className="bn-run-detail-actions bn-device-header-actions">
               <button
                 onClick={() => void checkDevice(selectedDevice)}
-                disabled={busy || selectedDeviceState?.loading}
-                className={`bn-device-action-button bn-runtime-check-button${selectedDeviceState?.loading ? ' is-checking' : ''}`}
+                disabled={busy || selectedDeviceChecking}
+                className={`bn-device-action-button bn-runtime-check-button${selectedDeviceChecking ? ' is-checking' : ''}`}
                 title="Check the runtime and every attached robot hardware service"
               >
-                {selectedDeviceState?.loading ? 'Checking device…' : 'Check device'}
+                {selectedDeviceChecking ? 'Checking device…' : 'Check device'}
               </button>
               <button
                 onClick={() => renameDevice(selectedDevice)}
@@ -1598,7 +2168,7 @@ export default function DevicesPanel() {
               >
                 Rename
               </button>
-              {!selectedDevice.managed_runtime && (
+              {!selectedDevice.managed_runtime && !selectedDeviceIsLocal && (
                 <button
                   onClick={() => openSshManagement(selectedDevice)}
                   disabled={busy}
@@ -1617,29 +2187,23 @@ export default function DevicesPanel() {
                 <>
                   <button
                     onClick={() => {
-                      setShowRuntimeControl(current => !current)
-                      setShowUpdateForm(false)
-                      setShowUninstallForm(false)
-                      setRuntimeControlPassword('')
-                      setError(null)
+                      if (selectedDeviceManagedLocally) {
+                        void controlDevice(
+                          selectedDevice,
+                          selectedDevice.paused ? 'resume' : 'pause',
+                        )
+                      } else {
+                        setShowRuntimeControl(current => !current)
+                        setShowUpdateForm(false)
+                        setShowUninstallForm(false)
+                        setRuntimeControlPassword('')
+                        setError(null)
+                      }
                     }}
                     disabled={busy}
                     className={`bn-device-action-button${selectedDevice.paused ? ' is-primary' : ''}`}
                   >
                     {selectedDevice.paused ? 'Resume device' : 'Pause device'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowUpdateForm(current => !current)
-                      setShowRuntimeControl(false)
-                      setShowUninstallForm(false)
-                      setUpdatePassword('')
-                      setError(null)
-                    }}
-                    disabled={busy}
-                    className={`bn-device-action-button${showUpdateForm ? ' is-active' : ''}`}
-                  >
-                    Runtime + Robot Hardware
                   </button>
                   <button
                     onClick={() => {
@@ -1652,7 +2216,7 @@ export default function DevicesPanel() {
                     disabled={busy}
                     className="bn-device-action-button is-danger"
                   >
-                    Uninstall runtime
+                    {selectedDeviceManagedLocally ? 'Uninstall local stack' : 'Uninstall runtime'}
                   </button>
                 </>
               )}
@@ -1667,7 +2231,136 @@ export default function DevicesPanel() {
             </div>
           </div>
 
-          {showSshManagement && !selectedDevice.managed_runtime && (
+          {selectedDevice.managed_runtime && (
+            <div className="bn-device-local-note" role="note">
+              <div className="bn-local-package-summary-head">
+                <div>
+                  <strong>Software packages</strong>
+                  <span>
+                    Runtime and Hardware use the same package controls on every device.
+                  </span>
+                </div>
+                {!selectedDeviceManagedLocally && (
+                  <label className="bn-local-package-password">
+                    <span>SSH password · never saved</span>
+                    <input
+                      type="password"
+                      value={updatePassword}
+                      onChange={event => setUpdatePassword(event.target.value)}
+                      autoComplete="current-password"
+                      placeholder="Required for package actions"
+                    />
+                  </label>
+                )}
+              </div>
+              <div className="bn-local-package-summary">
+                <SoftwarePackageSummaryCard
+                  label="Runtime package"
+                  path={selectedDevice.managed_runtime?.runtime_dir || selectedDevice.runtime_url}
+                  state={selectedRuntimePackageState}
+                  version={selectedRuntimeVersion}
+                  installed={selectedDeviceState?.runtime?.installed !== false}
+                  updateAvailable={checkedRuntimeComponents.some(
+                    component => component.update_available,
+                  )}
+                  busy={busy}
+                  onRunStop={action => (
+                    selectedDeviceManagedLocally
+                      ? void manageLocalPackage(selectedDevice, 'runtime', action)
+                      : void controlDevice(
+                          selectedDevice,
+                          action === 'run' ? 'resume' : 'pause',
+                          updatePassword,
+                        )
+                  )}
+                  onRestart={() => (
+                    selectedDeviceManagedLocally
+                      ? void manageLocalPackage(selectedDevice, 'runtime', 'restart')
+                      : void restartRemotePackage(selectedDevice, 'runtime')
+                  )}
+                  onUpdate={() => void updateDevice(selectedDevice, 'runtime', 'update')}
+                  onReinstall={() => void updateDevice(
+                    selectedDevice,
+                    'runtime',
+                    'reinstall',
+                  )}
+                  deleteEnabled={selectedDeviceManagedLocally}
+                  onDelete={() => {
+                    if (selectedDeviceManagedLocally) {
+                      void manageLocalPackage(selectedDevice, 'runtime', 'delete')
+                    }
+                  }}
+                />
+                {selectedDevice.managed_runtime?.hardware_dir
+                  || !selectedDeviceManagedLocally ? (
+                  <SoftwarePackageSummaryCard
+                    label="Hardware package"
+                    path={
+                      selectedDevice.managed_runtime.hardware_dir
+                      || 'Remote Hardware package path not reported'
+                    }
+                    detail={selectedDeviceManagedLocally
+                      ? `Port ${selectedDevice.managed_runtime.hardware_port || 8765}`
+                      : `${selectedDevice.robots.length} robot service${
+                          selectedDevice.robots.length === 1 ? '' : 's'
+                        }`}
+                    state={selectedHardwarePackageState}
+                    version={selectedHardwareVersionLabel}
+                    installed={
+                      selectedDeviceManagedLocally
+                        ? selectedDeviceState?.runtime?.hardware?.installed !== false
+                        : Boolean(
+                            selectedDevice.managed_runtime.hardware_dir
+                            || selectedDevice.robots.length,
+                          )
+                    }
+                    updateAvailable={checkedHardwareHasUpdate}
+                    busy={busy}
+                    runStopEnabled={
+                      selectedDeviceManagedLocally || selectedDevice.robots.length > 0
+                    }
+                    onRunStop={action => (
+                      selectedDeviceManagedLocally
+                        ? void manageLocalPackage(selectedDevice, 'hardware', action)
+                        : void manageRemoteHardwarePackage(selectedDevice, action)
+                    )}
+                    restartEnabled={
+                      selectedDeviceManagedLocally || selectedDevice.robots.length > 0
+                    }
+                    onRestart={() => (
+                      selectedDeviceManagedLocally
+                        ? void manageLocalPackage(selectedDevice, 'hardware', 'restart')
+                        : void restartRemotePackage(selectedDevice, 'hardware')
+                    )}
+                    onUpdate={() => void updateDevice(selectedDevice, 'hardware', 'update')}
+                    onReinstall={() => void updateDevice(
+                      selectedDevice,
+                      'hardware',
+                      'reinstall',
+                    )}
+                    deleteEnabled={selectedDeviceManagedLocally}
+                    onDelete={() => {
+                      if (selectedDeviceManagedLocally) {
+                        void manageLocalPackage(selectedDevice, 'hardware', 'delete')
+                      }
+                    }}
+                  />
+                ) : (
+                  <div className="bn-local-package-missing">
+                    <strong>Hardware package</strong>
+                    <span>Reinstall the local stack to add this package.</span>
+                  </div>
+                )}
+              </div>
+              <span>
+                {selectedDeviceManagedLocally
+                  ? 'Hardware remains disconnected and motion stays disarmed until a physical robot is configured. Device checks, deployments, logs, and monitoring use the loopback connection.'
+                  : 'Remote package actions use the verified SSH identity. Hardware restarts require every attached robot to be stopped and disarmed.'}
+              </span>
+            </div>
+          )}
+
+          {showSshManagement && !selectedDevice.managed_runtime && !selectedDeviceIsLocal && (
             <form
               className="bn-runtime-uninstall bn-ssh-management-form"
               onSubmit={event => void configureSshManagement(event, selectedDevice)}
@@ -1829,7 +2522,7 @@ export default function DevicesPanel() {
             </form>
           )}
 
-          {showRuntimeControl && selectedDevice.managed_runtime && (
+          {showRuntimeControl && selectedDevice.managed_runtime && !selectedDeviceManagedLocally && (
             <form
               className="bn-runtime-uninstall"
               onSubmit={event => {
@@ -1880,11 +2573,12 @@ export default function DevicesPanel() {
             </form>
           )}
 
-          {actionProgress[selectedDevice.id] && (
+          {actionProgress[selectedDevice.id] && !showUninstallForm && (
             <LifecycleProgress value={actionProgress[selectedDevice.id]} />
           )}
 
-          {showUpdateForm && selectedDevice.managed_runtime && (
+          {/* Superseded by the always-visible package cards above. */}
+          {showUpdateForm && selectedDevice.managed_runtime && showLegacyPackageManager && (
             <form
               className="bn-runtime-uninstall bn-device-update-form"
               onSubmit={event => {
@@ -1893,34 +2587,36 @@ export default function DevicesPanel() {
               }}
             >
               <div>
-                <strong>Runtime + Robot Hardware</strong>
+                <strong>Software packages</strong>
                 <span>
-                  Checks the Blacknode Runtime repository and every Blacknode Hardware
-                  repository used by this device. Installed, latest, and live-reported
-                  versions are shown together first. Current versions can also be
-                  reinstalled when you want to repair the environments and restart services.
+                  Shows the Runtime and Hardware packages separately with their installed
+                  and latest versions. Each local package can be run, stopped, restarted,
+                  updated, reinstalled, or deleted independently.
                 </span>
               </div>
-              <label className="bn-device-update-password">
-                <span>
-                  <strong>SSH password</strong>
-                  <small>
-                    {selectedDevice.managed_runtime.ssh_username} · verified device · never saved
-                  </small>
-                </span>
-                <input
-                  type="password"
-                  value={updatePassword}
-                  onChange={event => setUpdatePassword(event.target.value)}
-                  autoComplete="current-password"
-                  placeholder="Enter SSH password"
-                  spellCheck={false}
-                  required
-                />
-              </label>
+              {!selectedDeviceManagedLocally && (
+                <label className="bn-device-update-password">
+                  <span>
+                    <strong>SSH password</strong>
+                    <small>
+                      {selectedDevice.managed_runtime.ssh_username} · verified device · never saved
+                    </small>
+                  </span>
+                  <input
+                    type="password"
+                    value={updatePassword}
+                    onChange={event => setUpdatePassword(event.target.value)}
+                    autoComplete="current-password"
+                    placeholder="Enter SSH password"
+                    spellCheck={false}
+                    required
+                  />
+                </label>
+              )}
               <div className="bn-device-update-caution">
-                Checking versions is read-only. Updating stops deployments and restarts
-                robot monitoring disarmed. Physical servo torque may remain enabled.
+                Checking versions never starts a stopped package. Updating or reinstalling
+                preserves that package's running or stopped state. Deleting removes its
+                installed environment while preserving source and configuration.
               </div>
               <div className="bn-device-form-actions">
                 <button
@@ -1940,14 +2636,21 @@ export default function DevicesPanel() {
             </form>
           )}
 
-          {updateCheckReport && (
-            <section className="bn-device-update-report" aria-label="Runtime and Robot Hardware version report">
+          {showUpdateForm && updateCheckReport && showLegacyPackageManager && (
+            <section className="bn-device-update-report" aria-label="Runtime and Hardware package version report">
               <div className="bn-device-update-report-head">
                 <div>
-                  <strong>Runtime + Robot Hardware version report</strong>
+                  <strong>
+                    {checkedHardwareComponents.length
+                      ? 'Runtime + Hardware package version report'
+                      : 'Runtime package version report'}
+                  </strong>
                   <span>{updateCheckReport.summary}</span>
                 </div>
-                <span>{updateCheckReport.check.components.length} services checked</span>
+                <span>
+                  {updateCheckReport.check.components.length} service
+                  {updateCheckReport.check.components.length === 1 ? '' : 's'} checked
+                </span>
               </div>
               <div className="bn-device-update-components">
                 {checkedRuntimeComponents.map(component => (
@@ -1956,7 +2659,7 @@ export default function DevicesPanel() {
                     key={`check-${component.kind}-${component.service_name}-${component.port}`}
                   >
                     <div>
-                      <strong>Runtime</strong>
+                      <strong>Runtime package</strong>
                       <code>{component.service_name} · port {component.port}</code>
                     </div>
                     <div className="bn-device-update-version">
@@ -1993,44 +2696,144 @@ export default function DevicesPanel() {
                         className={`bn-device-action-button${
                           component.update_available ? ' is-primary' : ''
                         }`}
-                        disabled={busy || component.dirty || !updatePassword}
+                        disabled={
+                          busy
+                          || (!component.dirty && !selectedDeviceManagedLocally && !updatePassword)
+                        }
                         title={component.dirty
-                          ? 'Local source changes must be resolved before reinstalling'
+                          ? 'Show how to preserve or remove local source changes before updating'
                           : component.error
-                            ? 'Attempt to repair and reinstall Runtime'
+                            ? 'Attempt to repair and reinstall the Runtime package'
                             : component.update_available
-                              ? 'Update Runtime'
-                              : 'Reinstall current Runtime'}
-                        onClick={() => void updateDevice(selectedDevice, 'runtime')}
+                              ? 'Update Runtime package'
+                              : 'Reinstall current Runtime package'}
+                        onClick={() => {
+                          if (component.dirty) {
+                            setShowDirtySourceHelp(current => !current)
+                          } else {
+                            void updateDevice(
+                              selectedDevice,
+                              'runtime',
+                              component.environment_installed === false
+                                ? 'reinstall'
+                                : component.update_available
+                                  ? 'update'
+                                  : 'reinstall',
+                            )
+                          }
+                        }}
                       >
                         {busy
                           ? 'Working…'
+                          : component.dirty
+                            ? showDirtySourceHelp
+                              ? 'Hide repair steps'
+                              : 'Resolve local changes'
                           : component.error
+                            || component.environment_installed === false
                             || component.installed.version === 'unknown'
                             || component.latest.version === 'unknown'
-                            ? 'Repair Runtime'
+                            ? 'Repair Runtime package'
                             : component.update_available
-                              ? 'Update Runtime'
-                              : 'Reinstall Runtime'}
+                              ? 'Update Runtime package'
+                              : 'Reinstall Runtime package'}
                       </button>
+                      {selectedDeviceManagedLocally && (
+                        <>
+                          <button
+                            type="button"
+                            className="bn-device-action-button"
+                            disabled={busy || (
+                              component.state !== 'running'
+                              && component.state !== 'unreachable'
+                              && component.environment_installed === false
+                            )}
+                            onClick={() => void manageLocalPackage(
+                              selectedDevice,
+                              'runtime',
+                              component.state === 'running' || component.state === 'unreachable'
+                                ? 'stop'
+                                : 'run',
+                            )}
+                          >
+                            {component.state === 'running' || component.state === 'unreachable'
+                              ? 'Stop'
+                              : 'Run'}
+                          </button>
+                          <button
+                            type="button"
+                            className="bn-device-action-button"
+                            disabled={
+                              busy
+                              || component.environment_installed === false
+                              || (
+                                component.state !== 'running'
+                                && component.state !== 'unreachable'
+                              )
+                            }
+                            title="Restart only the local Runtime package service"
+                            onClick={() => void manageLocalPackage(
+                              selectedDevice,
+                              'runtime',
+                              'restart',
+                            )}
+                          >
+                            Restart
+                          </button>
+                          <button
+                            type="button"
+                            className="bn-device-action-button is-danger"
+                            disabled={busy || component.environment_installed === false}
+                            onClick={() => void manageLocalPackage(
+                              selectedDevice,
+                              'runtime',
+                              'delete',
+                            )}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
                     </div>
                     <small>
-                      Live service reports {component.reported_version || 'version unavailable'}
+                      Service {component.state}
+                      {' · '}reports {component.reported_version || 'version unavailable'}
                     </small>
                     {component.error && (
                       <small className="bn-device-update-component-error">
                         {component.error}
                       </small>
                     )}
+                    {component.dirty && showDirtySourceHelp && (
+                      <div className="bn-device-update-dirty-help">
+                        <strong>Preserve or remove the local edits first</strong>
+                        <span>
+                          Blacknode keeps checkout changes intact. Connect over SSH,
+                          inspect the edits, then commit or stash work you need before
+                          checking versions again.
+                        </span>
+                        <code>
+                          ssh {selectedDevice.managed_runtime?.ssh_username}
+                          @{selectedDevice.managed_runtime?.ssh_host}
+                        </code>
+                        <code>
+                          cd {selectedDevice.managed_runtime?.runtime_dir}
+                        </code>
+                        <code>git status --short &amp;&amp; git diff</code>
+                      </div>
+                    )}
                   </div>
                 ))}
                 {checkedHardwareInstallation && (
                   <div className="bn-device-update-component" key="check-hardware-shared">
                     <div>
-                      <strong>Robot Hardware</strong>
+                      <strong>Hardware package</strong>
                       <code>
-                        Shared installation · {checkedHardwareComponents.length} robot
-                        {' '}service{checkedHardwareComponents.length === 1 ? '' : 's'}
+                        {selectedDeviceManagedLocally
+                          ? `Local package · service ${checkedHardwareInstallation.state}`
+                          : `${selectedStackIsIsolated ? 'Isolated' : 'Shared'} installation · ${
+                            checkedHardwareComponents.length
+                          } robot service${checkedHardwareComponents.length === 1 ? '' : 's'}`}
                       </code>
                     </div>
                     <div className="bn-device-update-version">
@@ -2067,32 +2870,111 @@ export default function DevicesPanel() {
                         className={`bn-device-action-button${
                           checkedHardwareHasUpdate ? ' is-primary' : ''
                         }`}
-                        disabled={busy || !updatePassword || checkedHardwareIsDirty}
-                        title={`Updates the shared Robot Hardware installation and restarts ${
-                          checkedHardwareComponents.length
-                        } robot service${checkedHardwareComponents.length === 1 ? '' : 's'}`}
-                        onClick={() => void updateDevice(selectedDevice, 'hardware')}
+                        disabled={
+                          busy
+                          || checkedHardwareIsDirty
+                          || (!selectedDeviceManagedLocally && !updatePassword)
+                        }
+                        title={selectedDeviceManagedLocally
+                          ? 'Update or reinstall only the local Hardware package'
+                          : `Updates the shared Robot Hardware installation and restarts ${
+                            checkedHardwareComponents.length
+                          } robot service${checkedHardwareComponents.length === 1 ? '' : 's'}`}
+                        onClick={() => void updateDevice(
+                          selectedDevice,
+                          'hardware',
+                          checkedHardwareInstallation.environment_installed === false
+                            ? 'reinstall'
+                            : checkedHardwareHasUpdate
+                              ? 'update'
+                              : 'reinstall',
+                        )}
                       >
                         {busy
                           ? 'Working…'
                           : checkedHardwareNeedsRepair
-                            ? 'Repair Robot Hardware'
+                            || checkedHardwareInstallation.environment_installed === false
+                            ? 'Repair Hardware package'
                             : checkedHardwareHasUpdate
-                              ? 'Update Robot Hardware'
-                              : 'Reinstall Robot Hardware'}
+                              ? 'Update Hardware package'
+                              : 'Reinstall Hardware package'}
                       </button>
+                      {selectedDeviceManagedLocally && (
+                        <>
+                          <button
+                            type="button"
+                            className="bn-device-action-button"
+                            disabled={busy || (
+                              checkedHardwareInstallation.state !== 'running'
+                              && checkedHardwareInstallation.state !== 'unreachable'
+                              && checkedHardwareInstallation.environment_installed === false
+                            )}
+                            onClick={() => void manageLocalPackage(
+                              selectedDevice,
+                              'hardware',
+                              checkedHardwareInstallation.state === 'running'
+                                || checkedHardwareInstallation.state === 'unreachable'
+                                ? 'stop'
+                                : 'run',
+                            )}
+                          >
+                            {checkedHardwareInstallation.state === 'running'
+                              || checkedHardwareInstallation.state === 'unreachable'
+                              ? 'Stop'
+                              : 'Run'}
+                          </button>
+                          <button
+                            type="button"
+                            className="bn-device-action-button"
+                            disabled={
+                              busy
+                              || checkedHardwareInstallation.environment_installed === false
+                              || (
+                                checkedHardwareInstallation.state !== 'running'
+                                && checkedHardwareInstallation.state !== 'unreachable'
+                              )
+                            }
+                            title="Restart only the local Hardware package service"
+                            onClick={() => void manageLocalPackage(
+                              selectedDevice,
+                              'hardware',
+                              'restart',
+                            )}
+                          >
+                            Restart
+                          </button>
+                          <button
+                            type="button"
+                            className="bn-device-action-button is-danger"
+                            disabled={
+                              busy
+                              || checkedHardwareInstallation.environment_installed === false
+                            }
+                            onClick={() => void manageLocalPackage(
+                              selectedDevice,
+                              'hardware',
+                              'delete',
+                            )}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
                     </div>
                     <small>
-                      Robot services:{' '}
-                      {checkedHardwareComponents.map(component => (
-                        `${robotNameForPort(component.port)} (port ${component.port}) — ${
-                          component.error
-                            ? 'attention'
-                            : formatVersion(
-                              component.reported_version || component.installed.version,
-                            )
+                      {selectedDeviceManagedLocally
+                        ? `Service reports ${
+                          checkedHardwareInstallation.reported_version || 'version unavailable'
                         }`
-                      )).join(' · ')}
+                        : `Robot services: ${checkedHardwareComponents.map(component => (
+                          `${robotNameForPort(component.port)} (port ${component.port}) — ${
+                            component.error
+                              ? 'attention'
+                              : formatVersion(
+                                component.reported_version || component.installed.version,
+                              )
+                          }`
+                        )).join(' · ')}`}
                     </small>
                     {checkedHardwareComponents
                       .filter(component => Boolean(component.error))
@@ -2106,6 +2988,37 @@ export default function DevicesPanel() {
                       ))}
                   </div>
                 )}
+                {checkedHardwareComponents.length === 0 && (
+                  <div className="bn-device-update-empty">
+                    <div>
+                      <strong>No physical robot is attached to this Runtime</strong>
+                      <span>
+                        {selectedHardwareSiblingDevices.length
+                          ? `The Hardware package on this computer is managed under ${
+                            selectedHardwareSiblingDevices.map(device => device.name).join(', ')
+                          }. Open that Runtime card to check or repair its shared package installation.`
+                          : 'Attach a robot before checking or repairing the Hardware package.'}
+                      </span>
+                    </div>
+                    {selectedHardwareSiblingDevices.map(device => (
+                      <button
+                        type="button"
+                        className="bn-device-action-button"
+                        key={`open-hardware-${device.id}`}
+                        onClick={() => {
+                          setSelectedDeviceId(device.id)
+                          setUpdateCheckReport(null)
+                          setUpdateReport(null)
+                          setShowDirtySourceHelp(false)
+                          setUpdatePassword('')
+                          setShowUpdateForm(true)
+                        }}
+                      >
+                        Open {device.name} packages
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               {updateCheckReport.warnings.length > 0 && (
                 <div className="bn-device-update-warnings">
@@ -2114,33 +3027,37 @@ export default function DevicesPanel() {
                   ))}
                 </div>
               )}
-              <div className="bn-device-update-report-actions">
-                <button
-                  type="button"
-                  className="bn-device-action-button"
-                  disabled={
-                    busy
-                    || !updatePassword
-                    || checkedSoftwareComponents.some(
-                      component => component.dirty || Boolean(component.error),
-                    )
-                  }
-                  title="Update or reinstall Runtime and the shared Robot Hardware installation together"
-                  onClick={() => void updateDevice(selectedDevice, 'all')}
-                >
-                  {checkedSoftwareComponents.some(component => component.update_available)
-                    ? 'Update all'
-                    : 'Reinstall all'}
-                </button>
-              </div>
+              {!selectedDeviceManagedLocally
+                && checkedRuntimeComponents.length > 0
+                && checkedHardwareComponents.length > 0 && (
+                <div className="bn-device-update-report-actions">
+                  <button
+                    type="button"
+                    className="bn-device-action-button"
+                    disabled={
+                      busy
+                      || !updatePassword
+                      || checkedSoftwareComponents.some(
+                        component => component.dirty || Boolean(component.error),
+                      )
+                    }
+                    title="Update or reinstall the Runtime and Hardware packages together"
+                    onClick={() => void updateDevice(selectedDevice, 'all')}
+                  >
+                    {checkedSoftwareComponents.some(component => component.update_available)
+                      ? 'Update all'
+                      : 'Reinstall all'}
+                  </button>
+                </div>
+              )}
             </section>
           )}
 
-          {updateReport && (
-            <section className="bn-device-update-report" aria-label="Runtime and Hardware update report">
+          {showUpdateForm && updateReport && showLegacyPackageManager && (
+            <section className="bn-device-update-report" aria-label="Runtime and Hardware package update report">
               <div className="bn-device-update-report-head">
                 <div>
-                  <strong>Runtime + Robot Hardware update report</strong>
+                  <strong>Runtime + Hardware package update report</strong>
                   <span>{updateReport.summary}</span>
                 </div>
                 <span>{updateReport.update.components.length} services checked</span>
@@ -2152,7 +3069,7 @@ export default function DevicesPanel() {
                     key={`${component.kind}-${component.service_name}-${component.port}`}
                   >
                     <div>
-                      <strong>Runtime</strong>
+                      <strong>Runtime package</strong>
                       <code>{component.service_name} · port {component.port}</code>
                     </div>
                     <div className="bn-device-update-version is-result">
@@ -2195,7 +3112,7 @@ export default function DevicesPanel() {
                 {updatedHardwareInstallation && (
                   <div className="bn-device-update-component" key="hardware-shared-result">
                     <div>
-                      <strong>Robot Hardware</strong>
+                      <strong>Hardware package</strong>
                       <code>
                         Shared installation · {updatedHardwareComponents.length} robot
                         {' '}service{updatedHardwareComponents.length === 1 ? '' : 's'}
@@ -2272,24 +3189,50 @@ export default function DevicesPanel() {
               }}
             >
               <div>
-                <strong>Uninstall this managed runtime</strong>
+                <strong>
+                  Uninstall this managed {
+                    selectedDeviceManagedLocally || selectedStackIsIsolated
+                      ? 'robot stack'
+                      : 'runtime'
+                  }
+                </strong>
                 <span>
-                  Stops {selectedDevice.managed_runtime.service_name}, removes only
-                  {' '}{selectedDevice.managed_runtime.runtime_dir}, its token and port
-                  {' '}{selectedDevice.managed_runtime.runtime_port} firewall rule. Other runtime
-                  instances on this computer stay untouched.
+                  {selectedDeviceManagedLocally
+                    ? selectedDevice.managed_runtime.hardware_dir
+                      ? `Stops the local Runtime on port ${selectedDevice.managed_runtime.runtime_port} and Robot Hardware on port ${selectedDevice.managed_runtime.hardware_port}.`
+                      : `Stops the local Runtime on port ${selectedDevice.managed_runtime.runtime_port}.`
+                    : `Stops ${selectedDevice.managed_runtime.service_name}, removes only ${selectedDevice.managed_runtime.runtime_dir}, its token and port ${selectedDevice.managed_runtime.runtime_port} firewall rule.`}
+                  {selectedStackIsIsolated
+                    ? ` Its instance-scoped Robot Hardware services and ${selectedDevice.managed_runtime.hardware_dir} are also removed.`
+                    : ''}
+                  {selectedDeviceManagedLocally
+                    ? selectedDevice.managed_runtime.hardware_dir
+                      ? selectedDevice.managed_runtime.owned_install
+                        && selectedDevice.managed_runtime.hardware_owned_install
+                        ? ' Both editor-created installation folders are removed.'
+                        : ' Existing source checkouts are preserved.'
+                      : selectedDevice.managed_runtime.owned_install
+                        ? ' The editor-created installation folder is removed.'
+                        : ' The existing source checkout is preserved.'
+                    : ' Other stacks on this computer stay untouched.'}
                 </span>
               </div>
-              <label>
-                <span>SSH password for {selectedDevice.managed_runtime.ssh_username}</span>
-                <input
-                  type="password"
-                  value={uninstallPassword}
-                  onChange={event => setUninstallPassword(event.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-              </label>
+              {!selectedDeviceManagedLocally && (
+                <label>
+                  <span>SSH password for {selectedDevice.managed_runtime.ssh_username}</span>
+                  <input
+                    type="password"
+                    value={uninstallPassword}
+                    onChange={event => setUninstallPassword(event.target.value)}
+                    autoComplete="current-password"
+                    disabled={busy}
+                    required
+                  />
+                </label>
+              )}
+              {actionProgress[selectedDevice.id] && (
+                <LifecycleProgress value={actionProgress[selectedDevice.id]} />
+              )}
               <div className="bn-device-form-actions">
                 <button
                   type="button"
@@ -2297,6 +3240,7 @@ export default function DevicesPanel() {
                     setShowUninstallForm(false)
                     setUninstallPassword('')
                   }}
+                  disabled={busy}
                   style={miniButton}
                 >
                   Cancel
@@ -2316,7 +3260,11 @@ export default function DevicesPanel() {
                   ? ' is-paused'
                 : selectedDeviceReady
                   ? ' is-ready'
-                  : ' is-error'
+                  : selectedCheckHasFailure
+                    ? ' is-error'
+                    : selectedCheckHasUnknown
+                      ? ' is-warning'
+                      : ''
             }`}
             role="status"
             aria-live="polite"
@@ -2329,20 +3277,50 @@ export default function DevicesPanel() {
                   : selectedDevice.paused || selectedDeviceState?.runtime?.paused
                     ? 'Device paused'
                   : selectedDeviceReady
-                    ? 'Device services connected'
-                    : 'Device needs attention'}
+                    ? 'Device services ready'
+                    : selectedCheckHasStopped
+                      ? 'Software package stopped'
+                    : selectedCheckHasFailure
+                      ? 'Device needs attention'
+                      : selectedCheckHasUnknown
+                        ? 'Connection status incomplete'
+                        : 'Device not checked'}
               </strong>
               <span>
                 {selectedDeviceChecking
-                  ? `Checking Runtime and ${selectedDevice.robots.length} Robot Hardware service${selectedDevice.robots.length === 1 ? '' : 's'}`
+                  ? `Checking installed package services and ${selectedDevice.robots.length} attached robot${selectedDevice.robots.length === 1 ? '' : 's'}`
                   : selectedDevice.paused || selectedDeviceState?.runtime?.paused
                     ? 'Deployments are stopped and attached robots are disarmed.'
-                  : selectedDeviceReady
-                    ? `${selectedServiceVersions.join(' · ')} · Last checked ${formatCheckedAt(selectedLastChecked)}`
-                    : selectedDeviceState?.runtime?.error
-                      || selectedRobotChecks.find(item => item.state?.error)?.state?.error
-                      || 'Run Check device to verify Runtime and attached Robot Hardware services.'}
+                    : selectedCheckStarted
+                      ? `${selectedReadyChecks}/${selectedServiceChecks.length} checks ready · Last checked ${formatCheckedAt(selectedLastChecked)}`
+                      : 'Run Check device to verify installed package services and attached robots.'}
               </span>
+              <div className="bn-runtime-check-services">
+                {selectedServiceChecks.map(service => (
+                  <div
+                    key={service.id}
+                    className={`bn-runtime-check-service is-${service.state}`}
+                  >
+                    <span className="bn-runtime-check-service-dot" aria-hidden="true" />
+                    <div>
+                      <strong>{service.name}</strong>
+                      <span>{service.kind} · {service.detail}</span>
+                    </div>
+                    <span className="bn-runtime-check-service-state">
+                      {service.state === 'unchecked'
+                        ? 'NOT CHECKED'
+                        : service.id.startsWith('packages:')
+                          && service.state === 'connected'
+                          ? 'READY'
+                        : service.state === 'stopped'
+                          ? 'STOPPED'
+                        : service.state === 'awaiting'
+                          ? 'AWAITING ROBOT'
+                          : service.state.toUpperCase()}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -2431,8 +3409,26 @@ export default function DevicesPanel() {
           <div className="bn-device-robot-list">
             {selectedDevice.robots.length === 0 && !showRobotForm && (
               <div className="bn-device-robot-empty">
-                This compute device is ready. Attach its physical robot to create a
-                deployment target.
+                {selectedStackIsIsolated && selectedDevice.managed_runtime ? (
+                  <>
+                    <strong>Isolated Hardware environment ready</strong>
+                    <span>
+                      Connect the new robot, install only that serial device into this
+                      stack, then attach the pairing details here.
+                    </span>
+                    <code>
+                      cd {selectedDevice.managed_runtime.hardware_dir}
+                    </code>
+                    <code>
+                      BLACKNODE_HARDWARE_INSTANCE={selectedDevice.managed_runtime.instance_id}
+                      {' '}BLACKNODE_RUNTIME_PORT={selectedDevice.managed_runtime.runtime_port}
+                      {' '}./configure.sh --all --install
+                      {' '}--serial-port /dev/serial/by-id/NEW_ROBOT
+                    </code>
+                  </>
+                ) : (
+                  'This compute device is ready. Attach its physical robot to create a deployment target.'
+                )}
               </div>
             )}
             {selectedDevice.robots.map(robot => (
@@ -2440,12 +3436,13 @@ export default function DevicesPanel() {
                 key={robot.id}
                 robot={robot}
                 state={robotStates[robot.id]}
-                runtimeReady={deviceStates[selectedDevice.id]?.runtime?.ok === true}
                 actionProgress={actionProgress[robot.id]}
                 installedSoftwareVersion={installedHardwareVersionForPort(
                   urlPort(robot.base_url),
                 )}
-                canRestartService={Boolean(selectedDevice.managed_runtime)}
+                canRestartService={Boolean(
+                  selectedDevice.managed_runtime && !selectedDeviceManagedLocally,
+                )}
                 sshUsername={selectedDevice.managed_runtime?.ssh_username}
                 busy={busy}
                 onRefresh={() => refreshRobot(robot)}
@@ -2455,9 +3452,13 @@ export default function DevicesPanel() {
                   'blacknode:open-panel',
                   { detail: { tab: 'deployments', deviceId: robot.id } },
                 ))}
+                onMonitor={() => window.dispatchEvent(new CustomEvent(
+                  'blacknode:monitor-robot',
+                  { detail: { robotId: robot.id, robotName: robot.name } },
+                ))}
                 onStopDeployment={deploymentId => stopDeployment(robot, deploymentId)}
                 onStartDeployment={(deploymentId, deploymentName) => (
-                  restartStoredDeployment(robot, deploymentId, deploymentName)
+                  restartDeployment(robot, deploymentId, deploymentName)
                 )}
                 onReleaseTorque={() => releaseRobotTorque(robot)}
                 onControl={action => controlRobot(robot, action)}
@@ -2484,8 +3485,25 @@ function ComputeDeviceCard({
 }) {
   const paused = Boolean(device.paused || state?.runtime?.paused)
   const ready = !paused && state?.runtime?.ok === true
-  const label = state?.loading ? 'CHECKING' : paused ? 'PAUSED' : ready ? 'READY' : 'ATTENTION'
-  const color = paused ? 'var(--tx3)' : ready ? 'var(--ok)' : state?.runtime ? 'var(--warn)' : 'var(--tx3)'
+  const stopped = !paused && state?.runtime?.state === 'stopped'
+  const local = isLocalRuntimeUrl(device.runtime_url)
+  const isolated = device.managed_runtime?.stack_mode === 'isolated'
+  const label = state?.loading
+    ? 'CHECKING'
+    : paused
+      ? 'PAUSED'
+      : stopped
+        ? 'STOPPED'
+        : ready
+          ? 'READY'
+          : 'ATTENTION'
+  const color = paused || stopped
+    ? 'var(--tx3)'
+    : ready
+      ? 'var(--ok)'
+      : state?.runtime
+        ? 'var(--warn)'
+        : 'var(--tx3)'
   return (
     <button
       type="button"
@@ -2495,6 +3513,9 @@ function ComputeDeviceCard({
       aria-pressed={selected}
     >
       <span className="bn-compute-device-card-top">
+        <span className="bn-compute-device-kind">
+          {local ? 'LOCAL' : isolated ? 'REMOTE · ISOLATED' : 'REMOTE'}
+        </span>
         <span className="bn-compute-device-status">{label}</span>
       </span>
       <span className="bn-compute-device-card-body">
@@ -2505,10 +3526,132 @@ function ComputeDeviceCard({
   )
 }
 
+function SoftwarePackageSummaryCard({
+  label,
+  path,
+  detail,
+  state,
+  version,
+  installed,
+  updateAvailable,
+  busy,
+  runStopEnabled = true,
+  restartEnabled = true,
+  deleteEnabled = true,
+  onRunStop,
+  onRestart,
+  onUpdate,
+  onReinstall,
+  onDelete,
+}: {
+  label: string
+  path: string
+  detail?: string
+  state: string
+  version: string
+  installed: boolean
+  updateAvailable: boolean
+  busy: boolean
+  runStopEnabled?: boolean
+  restartEnabled?: boolean
+  deleteEnabled?: boolean
+  onRunStop: (action: 'run' | 'stop') => void
+  onRestart: () => void
+  onUpdate: () => void
+  onReinstall: () => void
+  onDelete: () => void
+}) {
+  const normalizedState = String(state || 'unchecked').toLowerCase()
+  const running = ['running', 'unreachable', 'awaiting_device', 'configured'].includes(
+    normalizedState,
+  )
+  const statusLabel = normalizedState === 'checking'
+    ? 'CHECKING'
+    : running && normalizedState !== 'unreachable'
+      ? 'RUNNING'
+      : normalizedState === 'stopped'
+        ? 'STOPPED'
+        : normalizedState === 'unreachable'
+          ? 'UNREACHABLE'
+          : normalizedState === 'unavailable'
+            ? 'NOT INSTALLED'
+            : 'NOT CHECKED'
+  const statusTone = normalizedState === 'checking'
+    ? 'checking'
+    : running && normalizedState !== 'unreachable'
+      ? 'running'
+      : normalizedState === 'stopped'
+        ? 'stopped'
+        : normalizedState === 'unavailable'
+          ? 'missing'
+          : 'attention'
+
+  return (
+    <article className="bn-local-package-card">
+      <div className="bn-local-package-card-head">
+        <div>
+          <strong>{label}</strong>
+          <span>{version}</span>
+        </div>
+        <span className={`bn-local-package-state is-${statusTone}`}>
+          <i aria-hidden="true" />
+          {statusLabel}
+        </span>
+      </div>
+      <code title={path}>{path}</code>
+      {detail && <small>{detail}</small>}
+      {updateAvailable && (
+        <div className="bn-local-package-update-available">Update available</div>
+      )}
+      <div className="bn-local-package-actions">
+        <button
+          type="button"
+          className="bn-device-action-button"
+          disabled={busy || !installed || !runStopEnabled}
+          onClick={() => onRunStop(running ? 'stop' : 'run')}
+        >
+          {running ? 'Stop' : 'Run'}
+        </button>
+        <button
+          type="button"
+          className="bn-device-action-button"
+          disabled={busy || !installed || !running || !restartEnabled}
+          onClick={onRestart}
+        >
+          Restart
+        </button>
+        <button
+          type="button"
+          className={`bn-device-action-button${updateAvailable ? ' is-primary' : ''}`}
+          disabled={busy}
+          onClick={onUpdate}
+        >
+          Update
+        </button>
+        <button
+          type="button"
+          className="bn-device-action-button"
+          disabled={busy}
+          onClick={onReinstall}
+        >
+          Reinstall
+        </button>
+        <button
+          type="button"
+          className="bn-device-action-button is-danger"
+          disabled={busy || !installed || !deleteEnabled}
+          onClick={onDelete}
+        >
+          Delete
+        </button>
+      </div>
+    </article>
+  )
+}
+
 function RobotRow({
   robot,
   state,
-  runtimeReady,
   actionProgress,
   installedSoftwareVersion,
   canRestartService,
@@ -2518,6 +3661,7 @@ function RobotRow({
   onRename,
   onRemove,
   onDeploy,
+  onMonitor,
   onStopDeployment,
   onStartDeployment,
   onReleaseTorque,
@@ -2526,7 +3670,6 @@ function RobotRow({
 }: {
   robot: HardwareDevice
   state?: RobotState
-  runtimeReady: boolean
   actionProgress?: DeviceActionProgress
   installedSoftwareVersion: string
   canRestartService: boolean
@@ -2536,6 +3679,7 @@ function RobotRow({
   onRename: () => void
   onRemove: () => void
   onDeploy: () => void
+  onMonitor: () => void
   onStopDeployment: (deploymentId: string) => void
   onStartDeployment: (deploymentId: string, deploymentName: string) => void
   onReleaseTorque: () => void
@@ -2544,13 +3688,14 @@ function RobotRow({
 }) {
   const [expanded, setExpanded] = useState(false)
   const [showRestart, setShowRestart] = useState(false)
-  const [showMonitor, setShowMonitor] = useState(false)
   const [showTorqueDetails, setShowTorqueDetails] = useState(false)
   const [restartPassword, setRestartPassword] = useState('')
   const status = state?.status
   const deploymentLease = status?.deployment_lease
   const runningDeployment = deploymentLease ?? status?.running_deployment
-  const storedDeployment = runningDeployment ? undefined : status?.stored_deployment
+  const inactiveDeployment = runningDeployment
+    ? undefined
+    : status?.inactive_deployment ?? status?.stored_deployment
   const torqueReleaseSupported = Boolean(
     status?.service_features?.includes('torque_release_v1'),
   )
@@ -2560,56 +3705,58 @@ function RobotRow({
       : 'Robot Hardware did not receive a valid torque-register reading from every configured servo.')
   const mqttTelemetry = status?.telemetry?.sinks.find(sink => sink.name === 'mqtt')
   const paused = Boolean(robot.paused || status?.paused)
-  const leased = Boolean(status?.leased_to_deployment || deploymentLease)
   const connected = Boolean(status?.connected)
   const armed = Boolean(status?.armed)
-  const ready = !paused && !armed && runtimeReady && (connected || leased)
-  const color = paused
-    ? 'var(--tx3)'
-    : armed
-      ? 'var(--warn)'
-      : ready
-        ? 'var(--ok)'
-        : status
-          ? 'var(--warn)'
-          : 'var(--err)'
-  const label = state?.loading
-    ? 'CHECK'
-    : paused
-      ? 'PAUSED'
-    : deploymentLease
-      ? 'ACTIVE'
-      : runningDeployment
-        ? 'RUNNING'
-      : armed
-        ? 'ARMED'
-      : storedDeployment
-        ? 'STORED'
-      : ready
-        ? 'CONNECTED'
-        : 'OFF'
+  const connectionState = state?.loading
+    ? 'checking'
+    : !status
+      ? 'unreachable'
+      : connected
+        ? 'connected'
+        : 'disconnected'
+  const connectionLabel = {
+    checking: 'CHECKING',
+    connected: 'CONNECTED',
+    disconnected: 'DISCONNECTED',
+    unreachable: 'UNREACHABLE',
+  }[connectionState]
+  const connectionColor = {
+    checking: 'var(--accent)',
+    connected: 'var(--ok)',
+    disconnected: 'var(--err)',
+    unreachable: 'var(--err)',
+  }[connectionState]
+  const deploymentState = runningDeployment ? 'running' : inactiveDeployment?.state
+  const deploymentLabel = deploymentState === 'running'
+    ? 'ACTIVE'
+    : deploymentState === 'failed'
+      ? 'FAILED'
+      : deploymentState === 'exited'
+        ? 'COMPLETED'
+        : deploymentState
+          ? 'INACTIVE'
+          : 'NONE'
+  const deploymentColor = deploymentState === 'running'
+    ? 'var(--ok)'
+    : deploymentState === 'failed'
+      ? 'var(--err)'
+      : deploymentState === 'exited'
+        ? 'var(--tx2)'
+        : 'var(--tx3)'
   const summary = state?.loading
     ? 'Checking robot hardware…'
-    : paused
-      ? 'Stopped and disarmed'
-    : deploymentLease
-      ? `Deployment “${deploymentLease.name}” is running`
-      : runningDeployment
-        ? `Deployment “${runningDeployment.name}” is running · motion control not held`
-      : armed
-        ? 'Robot motion is armed'
-      : storedDeployment
-        ? `Deployment “${storedDeployment.name}” is stored · ${storedDeployment.state}`
-      : ready
-        ? 'Hardware monitoring connected · Blacknode motion disarmed'
-        : status
-          ? 'Robot needs attention'
-          : 'Robot Hardware service unavailable'
+    : !status
+      ? 'Robot Hardware service unreachable'
+      : connected
+        ? `Hardware connected · motion ${armed ? 'armed' : 'disarmed'}${paused ? ' · paused' : ''}`
+        : status.connection_reported === false && status.notice
+          ? status.notice
+          : `Hardware disconnected${paused ? ' · robot paused and disarmed' : ''}`
 
   return (
     <div
       className={`bn-run-row bn-device-card${expanded ? ' is-expanded' : ''}`}
-      style={{ '--run-status': color } as CSSProperties}
+      style={{ '--run-status': connectionColor } as CSSProperties}
     >
       <button
         type="button"
@@ -2622,7 +3769,22 @@ function RobotRow({
           <strong>{robot.name}</strong>
           <span>{summary}</span>
         </span>
-        <span className="bn-device-card-state">{label}</span>
+        <span className="bn-device-card-statuses">
+          <span
+            className="bn-device-card-state"
+            style={{ '--device-status-color': connectionColor } as CSSProperties}
+          >
+            <small>Connection</small>
+            {connectionLabel}
+          </span>
+          <span
+            className="bn-device-card-state"
+            style={{ '--device-status-color': deploymentColor } as CSSProperties}
+          >
+            <small>Deployment</small>
+            {deploymentLabel}
+          </span>
+        </span>
         <span className="bn-device-card-chevron" aria-hidden="true">›</span>
       </button>
       {expanded && (
@@ -2646,8 +3808,8 @@ function RobotRow({
                 ? ' is-active'
                 : runningDeployment
                   ? ' is-running'
-                  : storedDeployment
-                    ? ' is-stored'
+                  : inactiveDeployment
+                    ? ' is-inactive'
                     : ''
             }`}
             role="status"
@@ -2658,8 +3820,8 @@ function RobotRow({
                 ? status?.notice || `“${deploymentLease.name}” is running.`
                 : runningDeployment
                   ? status?.notice || `“${runningDeployment.name}” is running without motion control.`
-                : storedDeployment
-                  ? status?.notice || `“${storedDeployment.name}” remains stored on the Runtime and can be restarted.`
+                : inactiveDeployment
+                  ? status?.notice || `“${inactiveDeployment.name}” is ${inactiveDeployment.state} and can be restarted.`
                 : 'No deployment currently controls this robot.'}
             </span>
           </div>
@@ -2701,7 +3863,7 @@ function RobotRow({
                   ? `v${installedSoftwareVersion} (installed)`
                   : 'Not reported'}
             />
-            <DeviceFact label="Connection" value={connected || leased ? 'Connected' : 'Unavailable'} />
+            <DeviceFact label="Connection" value={connectionLabel} warn={!connected} />
             {mqttTelemetry && (
               <DeviceFact
                 label="MQTT telemetry"
@@ -2766,8 +3928,8 @@ function RobotRow({
           <div className="bn-run-detail-actions bn-robot-card-actions is-primary">
             <button
               onClick={() => {
-                if (storedDeployment?.id) {
-                  onStartDeployment(storedDeployment.id, storedDeployment.name)
+                if (inactiveDeployment?.id) {
+                  onStartDeployment(inactiveDeployment.id, inactiveDeployment.name)
                 } else {
                   onDeploy()
                 }
@@ -2776,21 +3938,21 @@ function RobotRow({
               className="bn-device-action-button is-primary"
               title={paused
                 ? `Resume this robot before ${
-                  storedDeployment ? 'restarting its stored deployment' : 'deploying a workflow'
+                  inactiveDeployment ? 'restarting its deployment' : 'deploying a workflow'
                 }`
-                : storedDeployment
-                  ? `Start the stored ${storedDeployment.state} deployment`
+                : inactiveDeployment
+                  ? `Start the ${inactiveDeployment.state} deployment`
                   : 'Open deployment setup and history for this robot'}
             >
-              {storedDeployment ? 'Restart deployment' : 'Deploy workflow'}
+              {inactiveDeployment ? 'Restart deployment' : 'Deploy workflow'}
             </button>
             <button
               type="button"
-              onClick={() => setShowMonitor(value => !value)}
-              className={`bn-device-action-button${showMonitor ? ' is-primary' : ''}`}
-              aria-pressed={showMonitor}
+              onClick={onMonitor}
+              className="bn-device-action-button"
+              title="Open or focus this robot's live monitor node on the canvas"
             >
-              {showMonitor ? 'Close monitor' : 'Monitor live'}
+              Monitor
             </button>
             <button
               onClick={() => onControl(paused ? 'resume' : 'pause')}
@@ -2803,22 +3965,21 @@ function RobotRow({
               onClick={() => {
                 if (runningDeployment?.id) {
                   onStopDeployment(runningDeployment.id)
-                } else if (storedDeployment) {
+                } else if (inactiveDeployment) {
                   onDeploy()
                 }
               }}
-              disabled={busy || state?.loading || (!runningDeployment?.id && !storedDeployment)}
+              disabled={busy || state?.loading || (!runningDeployment?.id && !inactiveDeployment)}
               title={runningDeployment?.id
                 ? 'Stop the workflow running on this robot'
-                : storedDeployment
-                  ? 'Open this robot’s stored deployment and revision history'
-                  : 'No deployment is stored on this robot'}
+                : inactiveDeployment
+                  ? 'Open this robot’s deployment and revision history'
+                  : 'No deployment exists for this robot'}
               className="bn-device-action-button"
             >
-              {storedDeployment ? 'Deployment details' : 'Stop deployment'}
+              {inactiveDeployment ? 'Deployment details' : 'Stop deployment'}
             </button>
           </div>
-          {showMonitor && <RobotMonitor robot={robot} />}
           <div className="bn-run-detail-actions bn-robot-card-actions is-secondary">
             <button
               onClick={onRefresh}
@@ -2904,228 +4065,6 @@ function RobotRow({
       )}
     </div>
   )
-}
-
-type JointTrace = {
-  position: number[]
-  velocity: number[]
-}
-
-function RobotMonitor({ robot }: { robot: HardwareDevice }) {
-  const [sample, setSample] = useState<RobotTelemetrySample | null>(null)
-  const [connection, setConnection] = useState<'connecting' | 'live' | 'offline'>('connecting')
-  const [traces, setTraces] = useState<Record<string, JointTrace>>({})
-  const previous = useRef<Record<string, { position: number; at: number }>>({})
-  const activeSource = useRef('')
-
-  useEffect(() => {
-    let stopped = false
-    let socket: WebSocket | null = null
-    let reconnectTimer: number | undefined
-
-    const connect = () => {
-      if (stopped) return
-      setConnection('connecting')
-      socket = new WebSocket(deviceMonitorSocketUrl(robot.id))
-      socket.onopen = () => setConnection('live')
-      socket.onmessage = event => {
-        let next: RobotTelemetrySample
-        try {
-          next = JSON.parse(String(event.data)) as RobotTelemetrySample
-        } catch {
-          return
-        }
-        const sourceKey = `${next.source || 'unknown'}:${next.source_label || ''}`
-        if (activeSource.current && activeSource.current !== sourceKey) {
-          previous.current = {}
-          setTraces({})
-        }
-        activeSource.current = sourceKey
-        const receivedAt = Date.now()
-        if (next.available && next.payload?.joints) {
-          const normalized = next.payload.joints.map(joint => {
-            const prior = previous.current[joint.name]
-            const elapsed = prior ? (receivedAt - prior.at) / 1000 : 0
-            const derivedVelocity = elapsed > 0
-              ? (joint.position - prior.position) / elapsed
-              : 0
-            previous.current[joint.name] = {
-              position: joint.position,
-              at: receivedAt,
-            }
-            return {
-              ...joint,
-              velocity: next.source === 'hardware'
-                ? derivedVelocity
-                : Number.isFinite(joint.velocity) ? joint.velocity : derivedVelocity,
-            }
-          })
-          next = {
-            ...next,
-            payload: {
-              ...next.payload,
-              joints: normalized,
-            },
-          }
-          setTraces(current => {
-            const updated = { ...current }
-            for (const joint of normalized) {
-              const trace = updated[joint.name] || { position: [], velocity: [] }
-              updated[joint.name] = {
-                position: [...trace.position, joint.position].slice(-80),
-                velocity: [...trace.velocity, joint.velocity].slice(-80),
-              }
-            }
-            return updated
-          })
-        }
-        setSample(next)
-      }
-      socket.onerror = () => socket?.close()
-      socket.onclose = () => {
-        if (stopped) return
-        setConnection('offline')
-        reconnectTimer = window.setTimeout(connect, 1200)
-      }
-    }
-
-    connect()
-    return () => {
-      stopped = true
-      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
-      socket?.close()
-    }
-  }, [robot.id])
-
-  const joints = sample?.payload?.joints || []
-  const sourceLabel = sample?.source === 'deployment'
-    ? `Deployed · ${sample.source_label || 'workflow'}`
-    : 'Local · Robot Hardware'
-  const torque = sample?.payload?.torque_enabled
-  const stateLabel = connection !== 'live'
-    ? connection
-    : sample?.stale
-      ? 'stale'
-      : sample?.available
-        ? 'live'
-        : 'waiting'
-
-  return (
-    <section className="bn-robot-monitor" aria-label={`Live monitoring for ${robot.name}`}>
-      <div className="bn-robot-monitor-head">
-        <div>
-          <span className={`bn-robot-monitor-pulse is-${stateLabel}`} aria-hidden="true" />
-          <div>
-            <strong>Live robot state</strong>
-            <span>{sourceLabel}</span>
-          </div>
-        </div>
-        <div className="bn-robot-monitor-status">
-          <span className={`is-${stateLabel}`}>{stateLabel.toUpperCase()}</span>
-          <span>
-            Torque {torque == null ? 'unknown' : torque ? 'on' : 'off'}
-          </span>
-        </div>
-      </div>
-
-      {!sample?.available || joints.length === 0 ? (
-        <div className="bn-robot-monitor-empty" role="status">
-          <strong>
-            {connection === 'connecting'
-              ? 'Connecting to robot…'
-              : connection === 'offline'
-                ? 'Reconnecting…'
-                : 'Waiting for joint state'}
-          </strong>
-          <span>
-            {sample?.message
-              || 'The monitor will start as soon as this robot reports joint positions.'}
-          </span>
-        </div>
-      ) : (
-        <>
-          <div className="bn-robot-monitor-meta">
-            <span>{joints.length} joints</span>
-            <span>{sample.payload?.position_unit || 'degree'}</span>
-            <span>
-              Updated {sample.received_at
-                ? new Date(sample.received_at).toLocaleTimeString()
-                : 'now'}
-            </span>
-          </div>
-          <div className="bn-robot-monitor-grid">
-            {joints.map(joint => (
-              <JointMonitorCard
-                key={joint.name}
-                joint={joint}
-                trace={traces[joint.name]}
-                positionUnit={sample.payload?.position_unit || 'degree'}
-                velocityUnit={sample.payload?.velocity_unit || 'degree/s'}
-              />
-            ))}
-          </div>
-        </>
-      )}
-    </section>
-  )
-}
-
-function JointMonitorCard({
-  joint,
-  trace,
-  positionUnit,
-  velocityUnit,
-}: {
-  joint: RobotTelemetryJoint
-  trace?: JointTrace
-  positionUnit: string
-  velocityUnit: string
-}) {
-  return (
-    <article className="bn-joint-monitor-card">
-      <div className="bn-joint-monitor-title">
-        <strong title={joint.name}>{joint.name.replace(/_/g, ' ')}</strong>
-        <span>{joint.position.toFixed(2)} {shortUnit(positionUnit)}</span>
-      </div>
-      <TelemetrySparkline values={trace?.position || []} />
-      <div className="bn-joint-monitor-speed">
-        <span>Speed</span>
-        <strong>{joint.velocity.toFixed(2)} {shortUnit(velocityUnit)}</strong>
-      </div>
-    </article>
-  )
-}
-
-function TelemetrySparkline({ values }: { values: number[] }) {
-  const width = 180
-  const height = 44
-  const finite = values.filter(Number.isFinite)
-  const minimum = finite.length ? Math.min(...finite) : 0
-  const maximum = finite.length ? Math.max(...finite) : 0
-  const range = Math.max(maximum - minimum, 0.001)
-  const points = finite.map((value, index) => {
-    const x = finite.length <= 1 ? width : index * width / (finite.length - 1)
-    const y = height - 4 - ((value - minimum) / range) * (height - 8)
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(' ')
-  return (
-    <svg
-      className="bn-joint-monitor-chart"
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      role="img"
-      aria-label="Recent joint position"
-    >
-      <line x1="0" y1={height / 2} x2={width} y2={height / 2} />
-      {points && <polyline points={points} />}
-    </svg>
-  )
-}
-
-function shortUnit(unit: string): string {
-  return unit
-    .replace('degree', '°')
-    .replace('/s', '/s')
 }
 
 function LifecycleProgress({

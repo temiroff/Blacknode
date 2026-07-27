@@ -70,6 +70,18 @@ from device_registry import (
     HardwareDeviceClient,
     RuntimeDeviceClient,
 )
+from local_runtime import (
+    LocalRuntimeError,
+    default_local_runtime_dir,
+    ensure_local_runtime,
+    inspect_local_hardware,
+    inspect_local_package_updates,
+    inspect_local_runtime,
+    install_local_runtime,
+    manage_local_package,
+    stop_local_runtime,
+    uninstall_local_runtime,
+)
 from artifact_store import ArtifactStore, ArtifactStoreError
 from project_store import ProjectStore, ProjectStoreError
 from run_store import RunStore
@@ -264,6 +276,7 @@ class NodeControlReq(BaseModel):
 
 class PickDirectoryReq(BaseModel):
     initial_path: str = ""
+    title: str = ""
 
 class DatasetTrimReq(BaseModel):
     token: str
@@ -438,6 +451,10 @@ class InstallDeviceHostReq(InspectDeviceHostReq):
     action: str = "install"
     instance_id: str = ""
 
+class InstallLocalDeviceHostReq(BaseModel):
+    name: str = "Local computer"
+    install_dir: str
+
 class ConfigureDeviceHostManagementReq(InspectDeviceHostReq):
     pass
 
@@ -451,6 +468,15 @@ class RuntimeLifecycleReq(BaseModel):
 class UpdateManagedDeviceReq(BaseModel):
     password: str
     scope: str = "all"
+    operation: str = "auto"
+
+
+class LocalPackageActionReq(BaseModel):
+    action: str
+
+class RemoteHardwarePackageActionReq(BaseModel):
+    action: str
+    password: str
 
 class RobotLifecycleReq(BaseModel):
     action: str
@@ -1591,7 +1617,7 @@ def control_node(node_id: str, req: NodeControlReq):
     return {"ok": True, "node_id": node_id, "outputs": outputs}
 
 
-def _pick_directory(initial_path: str = "") -> str:
+def _pick_directory(initial_path: str = "", title: str = "") -> str:
     try:
         import tkinter as tk
         from tkinter import filedialog
@@ -1607,7 +1633,7 @@ def _pick_directory(initial_path: str = "") -> str:
         root.update()
         return str(filedialog.askdirectory(
             parent=root,
-            title="Choose a folder that will contain Blacknode datasets",
+            title=str(title or "Choose a folder that will contain Blacknode datasets"),
             initialdir=str(initial),
             mustexist=True,
         ) or "")
@@ -1618,7 +1644,7 @@ def _pick_directory(initial_path: str = "") -> str:
 @app.post("/filesystem/pick-directory")
 def pick_directory(req: PickDirectoryReq):
     try:
-        selected = _pick_directory(req.initial_path)
+        selected = _pick_directory(req.initial_path, req.title)
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
     return {"selected": selected, "cancelled": not bool(selected)}
@@ -2916,9 +2942,63 @@ def _device_host_runtime_status(host_id: str) -> dict[str, Any]:
         return {
             "ok": False,
             "paused": True,
+            "state": "stopped",
             "runtime_url": host["runtime_url"],
             "error": "Runtime is paused.",
         }
+    managed = host.get("managed_runtime")
+    if (
+        isinstance(managed, dict)
+        and str(managed.get("management_mode") or "") == "local"
+    ):
+        managed_hardware: dict[str, Any] | None = None
+        if managed.get("hardware_dir"):
+            try:
+                managed_hardware = inspect_local_hardware(managed)
+            except LocalRuntimeError as exc:
+                managed_hardware = {
+                    "ok": False,
+                    "kind": "hardware",
+                    "state": "unavailable",
+                    "installed": False,
+                    "installed_version": "unknown",
+                    "service_url": (
+                        f"http://127.0.0.1:{int(managed.get('hardware_port') or 0)}"
+                    ),
+                    "service_name": str(
+                        managed.get("hardware_service_name")
+                        or "blacknode-hardware-local-awaiting-device"
+                    ),
+                    "error": str(exc),
+                }
+        try:
+            runtime_report = inspect_local_runtime(managed)
+        except LocalRuntimeError as exc:
+            runtime_report = {
+                "ok": False,
+                "kind": "runtime",
+                "state": "unavailable",
+                "installed": False,
+                "installed_version": "unknown",
+                "error": str(exc),
+            }
+        result = {
+            "ok": bool(runtime_report.get("ok")),
+            "runtime_url": host["runtime_url"],
+            "state": str(runtime_report.get("state") or "unavailable"),
+            "installed": bool(runtime_report.get("installed")),
+            "installed_version": str(
+                runtime_report.get("installed_version") or "unknown"
+            ),
+        }
+        manifest = runtime_report.get("manifest")
+        if isinstance(manifest, dict):
+            result["manifest"] = manifest
+        if runtime_report.get("error"):
+            result["error"] = str(runtime_report["error"])
+        if managed_hardware is not None:
+            result["hardware"] = managed_hardware
+        return result
     try:
         manifest = _device_registry.host_client(host_id).manifest()
         if (
@@ -2931,14 +3011,17 @@ def _device_host_runtime_status(host_id: str) -> dict[str, Any]:
     except (DeviceRegistryError, KeyError) as exc:
         return {
             "ok": False,
+            "state": "unreachable",
             "runtime_url": host["runtime_url"],
             "error": str(exc),
         }
-    return {
+    result = {
         "ok": True,
+        "state": "running",
         "runtime_url": host["runtime_url"],
         "manifest": manifest,
     }
+    return result
 
 
 @app.get("/device-hosts")
@@ -2966,6 +3049,105 @@ def pair_device_host(req: PairDeviceHostReq):
         "device": host,
         "runtime": _device_host_runtime_status(host["id"]),
     }
+
+
+@app.get("/device-hosts/local-install-defaults")
+def local_device_host_install_defaults():
+    return {"install_dir": str(default_local_runtime_dir())}
+
+
+def _install_local_device_host_payload(
+    req: InstallLocalDeviceHostReq,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    installed = install_local_runtime(
+        install_dir=req.install_dir,
+        core_root=Path(__file__).resolve().parents[1],
+        progress=progress,
+    )
+    if progress is not None:
+        progress({"progress": 98, "message": "Pairing the local Runtime"})
+    runtime_url = str(installed["runtime_url"])
+    runtime_token = str(installed["runtime_token"])
+    manifest = dict(installed["manifest"])
+    host = _device_registry.pair_host(
+        name=req.name,
+        runtime_url=runtime_url,
+        runtime_token=runtime_token,
+        manifest=manifest,
+        managed_runtime={
+            key: installed[key]
+            for key in (
+                "management_mode",
+                "instance_id",
+                "runtime_port",
+                "service_name",
+                "runtime_dir",
+                "stack_mode",
+                "hardware_dir",
+                "hardware_port",
+                "hardware_service_name",
+                "hardware_state",
+                "hardware_configured",
+                "hardware_pid_file",
+                "hardware_token_file",
+                "hardware_log_path",
+                "hardware_owned_install",
+                "config_path",
+                "pid_file",
+                "log_path",
+                "owned_install",
+            )
+        },
+    )
+    if progress is not None:
+        progress({"progress": 100, "message": "Local computer is ready"})
+    return {
+        "device": host,
+        "runtime": {
+            "ok": True,
+            "runtime_url": runtime_url,
+            "manifest": manifest,
+        },
+        "install": {
+            key: value
+            for key, value in installed.items()
+            if key not in {"runtime_token", "manifest"}
+        },
+    }
+
+
+@app.post("/device-hosts/local-install-stream")
+def install_local_device_host_stream(req: InstallLocalDeviceHostReq):
+    def event_stream():
+        events: queue.Queue[dict[str, Any]] = queue.Queue()
+
+        def worker() -> None:
+            try:
+                result = _install_local_device_host_payload(req, progress=events.put)
+                events.put({"type": "done", "result": result})
+            except (LocalRuntimeError, DeviceRegistryError) as exc:
+                events.put({"type": "error", "error": str(exc)})
+            except Exception as exc:
+                events.put({
+                    "type": "error",
+                    "error": f"Local Runtime installation failed: {exc}",
+                })
+
+        threading.Thread(
+            target=worker,
+            name="blacknode-local-runtime-install",
+            daemon=True,
+        ).start()
+        while True:
+            event = events.get()
+            if "type" not in event:
+                event = {"type": "progress", **event}
+            yield json.dumps(event, separators=(",", ":")) + "\n"
+            if event.get("type") in {"done", "error"}:
+                break
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
 @app.post("/device-hosts/ssh-probe")
@@ -3030,6 +3212,8 @@ def _install_device_host_payload(
             "runtime_port": runtime_port,
             "service_name": installed["service_name"],
             "runtime_dir": installed["runtime_dir"],
+            "stack_mode": installed.get("stack_mode", "runtime_only"),
+            "hardware_dir": installed.get("hardware_dir", ""),
         },
     )
     if progress is not None:
@@ -3326,15 +3510,22 @@ def _control_device_host_lifecycle_payload(
                 )
 
     report(70, f"{'Stopping' if action == 'pause' else 'Starting'} the runtime service")
-    runtime = control_runtime(
-        host=str(managed.get("ssh_host") or ""),
-        port=int(managed.get("ssh_port") or 22),
-        username=str(managed.get("ssh_username") or ""),
-        password=req.password,
-        host_fingerprint=str(managed.get("host_fingerprint") or ""),
-        instance_id=str(managed.get("instance_id") or "default"),
-        action=action,
-    )
+    if str(managed.get("management_mode") or "") == "local":
+        runtime = (
+            stop_local_runtime(managed)
+            if action == "pause"
+            else ensure_local_runtime(managed)
+        )
+    else:
+        runtime = control_runtime(
+            host=str(managed.get("ssh_host") or ""),
+            port=int(managed.get("ssh_port") or 22),
+            username=str(managed.get("ssh_username") or ""),
+            password=req.password,
+            host_fingerprint=str(managed.get("host_fingerprint") or ""),
+            instance_id=str(managed.get("instance_id") or "default"),
+            action=action,
+        )
 
     if action == "resume":
         robots = list(host.get("robots") or [])
@@ -3396,7 +3587,12 @@ def _lifecycle_stream(worker: Callable[[Callable[[dict[str, Any]], None]], dict[
                 events.put({"type": "done", "result": worker(events.put)})
             except HTTPException as exc:
                 events.put({"type": "error", "error": str(exc.detail)})
-            except (DeviceInstallError, DeviceRegistryError, KeyError) as exc:
+            except (
+                DeviceInstallError,
+                DeviceRegistryError,
+                LocalRuntimeError,
+                KeyError,
+            ) as exc:
                 events.put({"type": "error", "error": str(exc)})
             except Exception as exc:
                 events.put({"type": "error", "error": f"Lifecycle action failed: {exc}"})
@@ -3424,6 +3620,159 @@ def stream_device_host_lifecycle(host_id: str, req: RuntimeLifecycleReq):
     )
 
 
+def _manage_local_package_payload(
+    host_id: str,
+    kind: str,
+    req: LocalPackageActionReq,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    host = _device_registry.get_host_public(host_id)
+    if host is None:
+        raise HTTPException(404, "Device not found")
+    managed = host.get("managed_runtime")
+    if (
+        not isinstance(managed, dict)
+        or str(managed.get("management_mode") or "") != "local"
+    ):
+        raise HTTPException(409, "Package controls are available for local devices.")
+    clean_kind = str(kind or "").strip().lower()
+    clean_action = str(req.action or "").strip().lower()
+    result = manage_local_package(
+        managed,
+        kind=clean_kind,
+        action=clean_action,
+        core_root=Path(__file__).resolve().parents[1],
+        progress=progress,
+    )
+    return {
+        "ok": True,
+        "kind": clean_kind,
+        "action": clean_action,
+        "package": result,
+        "runtime": _device_host_runtime_status(host_id),
+    }
+
+
+@app.post("/device-hosts/{host_id}/local-packages/{kind}/action-stream")
+def stream_local_package_action(
+    host_id: str,
+    kind: str,
+    req: LocalPackageActionReq,
+):
+    return _lifecycle_stream(
+        lambda progress: _manage_local_package_payload(
+            host_id,
+            kind,
+            req,
+            progress,
+        )
+    )
+
+
+def _manage_remote_hardware_package_payload(
+    host_id: str,
+    req: RemoteHardwarePackageActionReq,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    def report(percent: int, message: str) -> None:
+        if progress is not None:
+            progress({"progress": percent, "message": message})
+
+    host = _device_registry.get_host_public(host_id)
+    if host is None:
+        raise HTTPException(404, "Device not found")
+    managed = host.get("managed_runtime")
+    if not isinstance(managed, dict) or str(managed.get("management_mode") or "") == "local":
+        raise HTTPException(409, "Remote Hardware package controls require verified SSH management.")
+    action = str(req.action or "").strip().lower()
+    if action not in {"run", "stop", "restart"}:
+        raise HTTPException(400, "Hardware package action must be run, stop, or restart.")
+    if not str(req.password or ""):
+        raise HTTPException(400, "Enter the SSH password to control the Hardware package.")
+    robots = list(host.get("robots") or [])
+    if not robots:
+        raise HTTPException(409, "Attach a robot before controlling the remote Hardware package.")
+
+    service_action = {"run": "start", "stop": "stop", "restart": "restart"}[action]
+    services: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for index, robot in enumerate(robots):
+        robot_id = str(robot.get("id") or "")
+        robot_name = str(robot.get("name") or robot_id or "Robot")
+        if not robot_id:
+            continue
+        if action in {"stop", "restart"}:
+            report(
+                5 + int(index * 35 / max(1, len(robots))),
+                f"Stopping deployments and disarming {robot_name}",
+            )
+            try:
+                _control_robot_lifecycle_payload(
+                    robot_id,
+                    RobotLifecycleReq(action="pause"),
+                )
+            except (DeviceRegistryError, HTTPException, KeyError) as exc:
+                detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+                raise HTTPException(
+                    409,
+                    f"{robot_name} could not confirm deployment stop and disarm before "
+                    f"service control: {detail}",
+                ) from exc
+        try:
+            hardware_port = urllib.parse.urlsplit(str(robot.get("base_url") or "")).port
+        except ValueError as exc:
+            raise HTTPException(409, f"{robot_name} has an invalid hardware service URL.") from exc
+        if not hardware_port:
+            raise HTTPException(409, f"{robot_name} has no hardware service port.")
+        report(
+            40 + int(index * 50 / max(1, len(robots))),
+            f"{'Stopping' if service_action == 'stop' else service_action.title() + 'ing'} "
+            f"{robot_name} Hardware service",
+        )
+        services.append(restart_hardware_service(
+            host=str(managed.get("ssh_host") or ""),
+            port=int(managed.get("ssh_port") or 22),
+            username=str(managed.get("ssh_username") or ""),
+            password=req.password,
+            host_fingerprint=str(managed.get("host_fingerprint") or ""),
+            hardware_port=hardware_port,
+            action=service_action,
+        ))
+        _device_registry.set_device_paused(robot_id, action == "stop")
+
+    hardware_state = "stopped" if action == "stop" else "running"
+    device = _device_registry.set_host_management(
+        host_id,
+        {**managed, "hardware_state": hardware_state},
+    )
+    summary = (
+        f"Hardware package {hardware_state} across {len(services)} robot service"
+        f"{'' if len(services) == 1 else 's'}; motion remains disarmed."
+    )
+    if warnings:
+        summary += f" Completed with {len(warnings)} safety warning{'' if len(warnings) == 1 else 's'}."
+    report(100, summary)
+    return {
+        "ok": True,
+        "action": action,
+        "state": hardware_state,
+        "services": services,
+        "device": device,
+        "warnings": warnings,
+        "summary": summary,
+    }
+
+
+@app.post("/device-hosts/{host_id}/hardware-package/action-stream")
+def stream_remote_hardware_package_action(
+    host_id: str,
+    req: RemoteHardwarePackageActionReq,
+):
+    return _lifecycle_stream(
+        lambda progress: _manage_remote_hardware_package_payload(host_id, req, progress)
+    )
+
+
 def _update_device_host_payload(
     host_id: str,
     req: UpdateManagedDeviceReq,
@@ -3436,8 +3785,6 @@ def _update_device_host_payload(
                 "message": str(message),
             })
 
-    if not str(req.password or ""):
-        raise HTTPException(400, "Enter the SSH password to update this device.")
     scope = str(req.scope or "all").strip().lower()
     if scope not in {"all", "runtime", "hardware"}:
         raise HTTPException(400, "Update scope must be all, runtime, or hardware.")
@@ -3450,6 +3797,106 @@ def _update_device_host_payload(
             409,
             "Enable SSH controls for this device before updating its services.",
         )
+    if str(managed.get("management_mode") or "") == "local":
+        operation = str(req.operation or "auto").strip().lower()
+        if operation not in {"auto", "update", "reinstall"}:
+            raise HTTPException(
+                400,
+                "Local package operation must be update or reinstall.",
+            )
+        before_report = inspect_local_package_updates(managed)
+        before_components = {
+            str(item.get("kind") or ""): item
+            for item in before_report.get("components") or []
+            if isinstance(item, dict)
+        }
+        kinds = ["runtime", "hardware"] if scope == "all" else [scope]
+        results: list[dict[str, Any]] = []
+        for index, kind in enumerate(kinds):
+            before = before_components.get(kind)
+            if before is None:
+                raise HTTPException(409, f"The local {kind.title()} package is unavailable.")
+            selected_operation = (
+                "update"
+                if operation == "auto" and before.get("update_available")
+                else "reinstall"
+                if operation == "auto"
+                else operation
+            )
+            report(
+                10 + int(index * 75 / max(1, len(kinds))),
+                f"{selected_operation.title()}ing the local {kind.title()} package",
+            )
+            package_result = manage_local_package(
+                managed,
+                kind=kind,
+                action=selected_operation,
+                core_root=Path(__file__).resolve().parents[1],
+                progress=lambda value, offset=index: report(
+                    10
+                    + int(offset * 75 / max(1, len(kinds)))
+                    + int(
+                        int(value.get("progress") or 0)
+                        * 70
+                        / max(1, len(kinds))
+                        / 100
+                    ),
+                    str(value.get("message") or "Managing local package"),
+                ),
+            )
+            results.append(package_result)
+        after_report = inspect_local_package_updates(managed)
+        after_components = {
+            str(item.get("kind") or ""): item
+            for item in after_report.get("components") or []
+            if isinstance(item, dict)
+        }
+        update_components: list[dict[str, Any]] = []
+        for kind in kinds:
+            before = before_components[kind]
+            after = after_components.get(kind, before)
+            update_components.append({
+                "kind": kind,
+                "service_name": str(after.get("service_name") or ""),
+                "port": int(after.get("port") or 0),
+                "before": dict(before.get("installed") or {}),
+                "after": dict(after.get("installed") or {}),
+                "reported_version": str(
+                    after.get("reported_version")
+                    or (after.get("installed") or {}).get("version")
+                    or "unknown"
+                ),
+                "changed": (
+                    (before.get("installed") or {}).get("commit")
+                    != (after.get("installed") or {}).get("commit")
+                ),
+                "state": str(after.get("state") or "unknown"),
+            })
+        device = _device_registry.get_host_public(host_id)
+        summary = (
+            f"Local {' + '.join(kind.title() for kind in kinds)} package "
+            f"{'operation' if len(kinds) == 1 else 'operations'} completed."
+        )
+        report(100, summary)
+        return {
+            "ok": True,
+            "scope": scope,
+            "device": device,
+            "update": {"ok": True, "components": update_components},
+            "runtime": (
+                inspect_local_runtime(managed).get("manifest")
+                if str(managed.get("runtime_dir") or "")
+                else {}
+            ) or {},
+            "robots": [],
+            "stopped_deployments": [],
+            "controlled_robots": [],
+            "warnings": [],
+            "summary": summary,
+            "packages": results,
+        }
+    if not str(req.password or ""):
+        raise HTTPException(400, "Enter the SSH password to update this device.")
 
     robots = list(host.get("robots") or [])
     hardware_ports: list[int] = []
@@ -3564,6 +4011,7 @@ def _update_device_host_payload(
                 for hardware_port in selected_hardware_ports
             },
             include_runtime=include_runtime,
+            stack_mode=str(managed.get("stack_mode") or "runtime_only"),
             progress=lambda value: report(
                 15 + int(int(value.get("progress") or 0) * 0.75),
                 str(value.get("message") or "Updating managed services"),
@@ -3747,8 +4195,6 @@ def _check_device_host_updates_payload(
                 "message": str(message),
             })
 
-    if not str(req.password or ""):
-        raise HTTPException(400, "Enter the SSH password to check software versions.")
     host = _device_registry.get_host_public(host_id)
     if host is None:
         raise HTTPException(404, "Device not found")
@@ -3758,6 +4204,42 @@ def _check_device_host_updates_payload(
             409,
             "Enable SSH controls for this device before checking upstream versions.",
         )
+    if str(managed.get("management_mode") or "") == "local":
+        report(8, "Checking local Runtime and Hardware packages")
+        checked = inspect_local_package_updates(
+            managed,
+            progress=lambda value: report(
+                10 + int(int(value.get("progress") or 0) * 0.8),
+                str(value.get("message") or "Comparing package versions"),
+            ),
+        )
+        components = [
+            item for item in checked.get("components") or []
+            if isinstance(item, dict)
+        ]
+        available = sum(1 for item in components if item.get("update_available"))
+        blockers = sum(1 for item in components if item.get("error"))
+        if blockers:
+            summary = (
+                f"Checked {len(components)} packages; {blockers} "
+                f"{'needs' if blockers == 1 else 'need'} attention."
+            )
+        elif available:
+            summary = (
+                f"{available} of {len(components)} packages "
+                f"{'has' if available == 1 else 'have'} updates available."
+            )
+        else:
+            summary = f"All {len(components)} local packages are current."
+        report(100, summary)
+        return {
+            "ok": blockers == 0,
+            "check": checked,
+            "warnings": [],
+            "summary": summary,
+        }
+    if not str(req.password or ""):
+        raise HTTPException(400, "Enter the SSH password to check software versions.")
 
     robots = list(host.get("robots") or [])
     hardware_ports: list[int] = []
@@ -3838,19 +4320,31 @@ def _check_device_host_updates_payload(
         item for item in checked.get("components") or []
         if isinstance(item, dict)
     ]
+    includes_hardware = any(
+        item.get("kind") == "hardware" for item in components
+    )
+    target_label = "Runtime + Hardware" if includes_hardware else "Runtime"
     available = sum(1 for item in components if item.get("update_available"))
     blockers = sum(1 for item in components if item.get("error"))
     if blockers:
         summary = (
-            f"Checked {len(components)} services; {blockers} need attention before "
-            "Runtime + Hardware can be updated."
+            f"Checked {len(components)} service"
+            f"{'s' if len(components) != 1 else ''}; {blockers} "
+            f"{'needs' if blockers == 1 else 'need'} attention before "
+            f"{target_label} can be updated."
         )
     elif available:
         summary = (
-            f"{available} of {len(components)} services have updates available."
+            f"{available} of {len(components)} service"
+            f"{'s' if len(components) != 1 else ''} "
+            f"{'has' if len(components) == 1 else 'have'} updates available."
+        )
+    elif includes_hardware:
+        summary = (
+            f"Runtime + Hardware are current across {len(components)} services."
         )
     else:
-        summary = f"Runtime + Hardware are current across {len(components)} services."
+        summary = "Runtime is current."
     if warnings:
         summary += (
             f" {len(warnings)} live service check"
@@ -4042,8 +4536,19 @@ def _control_robot_lifecycle_payload(
     }
 
 
-@app.post("/device-hosts/{host_id}/uninstall")
-def uninstall_device_host(host_id: str, req: UninstallDeviceHostReq):
+def _uninstall_device_host_payload(
+    host_id: str,
+    req: UninstallDeviceHostReq,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    def report(percent: int, message: str) -> None:
+        if progress is not None:
+            progress({
+                "progress": max(0, min(100, int(percent))),
+                "message": str(message),
+            })
+
+    report(3, "Loading the managed device")
     try:
         host = _device_registry.get_host_public(host_id)
     except DeviceRegistryError as exc:
@@ -4058,25 +4563,57 @@ def uninstall_device_host(host_id: str, req: UninstallDeviceHostReq):
             "installation identity. Remove it from the editor or uninstall it on the device.",
         )
     try:
-        result = uninstall_runtime(
-            host=str(managed.get("ssh_host") or ""),
-            port=int(managed.get("ssh_port") or 22),
-            username=str(managed.get("ssh_username") or ""),
-            password=req.password,
-            host_fingerprint=str(managed.get("host_fingerprint") or ""),
-            instance_id=str(managed.get("instance_id") or "default"),
-            runtime_port=int(managed.get("runtime_port") or 0),
-        )
+        if str(managed.get("management_mode") or "") == "local":
+            result = uninstall_local_runtime(managed, progress=progress)
+        else:
+            result = uninstall_runtime(
+                host=str(managed.get("ssh_host") or ""),
+                port=int(managed.get("ssh_port") or 22),
+                username=str(managed.get("ssh_username") or ""),
+                password=req.password,
+                host_fingerprint=str(managed.get("host_fingerprint") or ""),
+                instance_id=str(managed.get("instance_id") or "default"),
+                runtime_port=int(managed.get("runtime_port") or 0),
+                stack_mode=str(managed.get("stack_mode") or "runtime_only"),
+                progress=progress,
+            )
+        report(97, "Removing the saved device registration")
         _device_registry.delete_host(host_id, cascade=True)
-    except DeviceInstallError as exc:
+    except (DeviceInstallError, LocalRuntimeError) as exc:
         raise HTTPException(400, str(exc)) from exc
     except DeviceRegistryError as exc:
         raise HTTPException(409, str(exc)) from exc
+    summary = (
+        (
+            "Local robot stack uninstalled"
+            if managed.get("hardware_dir")
+            else "Local Runtime uninstalled"
+        )
+        if str(managed.get("management_mode") or "") == "local"
+        else
+        "Isolated robot stack uninstalled"
+        if str(managed.get("stack_mode") or "runtime_only") == "isolated"
+        else "Runtime uninstalled"
+    )
+    report(100, summary)
     return {
         "ok": True,
         "id": host_id,
         "uninstall": result,
+        "summary": summary,
     }
+
+
+@app.post("/device-hosts/{host_id}/uninstall")
+def uninstall_device_host(host_id: str, req: UninstallDeviceHostReq):
+    return _uninstall_device_host_payload(host_id, req)
+
+
+@app.post("/device-hosts/{host_id}/uninstall-stream")
+def uninstall_device_host_stream(host_id: str, req: UninstallDeviceHostReq):
+    return _lifecycle_stream(
+        lambda progress: _uninstall_device_host_payload(host_id, req, progress)
+    )
 
 
 @app.post("/device-hosts/{host_id}/robots")
@@ -4152,11 +4689,13 @@ def _device_runtime_status(device_id: str) -> dict[str, Any]:
     except (DeviceRegistryError, KeyError) as exc:
         return {
             "ok": False,
+            "state": "unreachable",
             "runtime_url": device["runtime_url"],
             "error": str(exc),
         }
     return {
         "ok": True,
+        "state": "running",
         "runtime_url": device["runtime_url"],
         "manifest": manifest,
     }
@@ -5458,6 +5997,12 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
     """Report running deployments separately from physical motion ownership."""
     client = _paired_device_client(device_id)
     status = client.status()
+    status = {
+        **status,
+        "connection_state": (
+            "connected" if bool(status.get("connected")) else "disconnected"
+        ),
+    }
     saved_device = _device_registry.get_public(device_id)
     reported_version = str(status.get("software_version") or "").strip()
     saved_version = str((saved_device or {}).get("software_version") or "").strip()
@@ -5486,7 +6031,8 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
     )
 
     try:
-        payload = _device_registry.runtime_client(device_id).list_deployments()
+        runtime_client = _device_registry.runtime_client(device_id)
+        payload = runtime_client.list_deployments()
     except (DeviceRegistryError, KeyError, AttributeError, TypeError):
         return status
     deployments = [
@@ -5512,12 +6058,61 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
         }
         if hardware_is_leased:
             result["deployment_lease"] = deployment
-            result.pop("error", None)
-            result["notice"] = (
-                f"Running deployment '{owner.get('name') or owner.get('id')}' "
-                "controls this robot. Device checks are paused here to prevent "
-                "another process from opening the same hardware connection."
+            connection_present = status.get("connection_present")
+            presence_reported = isinstance(connection_present, bool)
+            result["connected"] = bool(connection_present) if presence_reported else False
+            result["connection_state"] = (
+                "connected" if result["connected"] else "disconnected"
             )
+            result["connection_reported"] = presence_reported
+            connection_source = "device_path" if presence_reported else ""
+            telemetry_message = ""
+            try:
+                telemetry = runtime_client.deployment_telemetry(deployment["id"])
+                telemetry_payload = telemetry.get("payload")
+                telemetry_message = str(telemetry.get("message") or "").strip()
+                telemetry_connected = (
+                    telemetry_payload.get("connected")
+                    if isinstance(telemetry_payload, dict)
+                    else None
+                )
+                if (
+                    bool(telemetry.get("available"))
+                    and not bool(telemetry.get("stale"))
+                    and isinstance(telemetry_connected, bool)
+                ):
+                    result["connected"] = telemetry_connected
+                    result["connection_reported"] = True
+                    result["connection_source"] = "deployment_telemetry"
+                    connection_source = "deployment_telemetry"
+                    result["connection_state"] = (
+                        "connected" if telemetry_connected else "disconnected"
+                    )
+            except (DeviceRegistryError, AttributeError, TypeError) as exc:
+                telemetry_message = str(exc)
+            result.pop("error", None)
+            if not result["connection_reported"]:
+                result["notice"] = (
+                    f"Running deployment '{owner.get('name') or owner.get('id')}' "
+                    "did not report a fresh hardware connection, so Blacknode treats "
+                    "the robot as disconnected."
+                    + (f" {telemetry_message}" if telemetry_message else "")
+                    + " Stop the deployment, then check the device to verify a "
+                    "physical disconnect."
+                )
+            elif connection_source == "device_path":
+                result["notice"] = (
+                    f"Running deployment '{owner.get('name') or owner.get('id')}' "
+                    f"controls this robot. Its configured serial device path is "
+                    f"{'present' if result['connected'] else 'missing'}; this check "
+                    "does not open or compete for the serial port."
+                )
+            else:
+                result["notice"] = (
+                    f"Running deployment '{owner.get('name') or owner.get('id')}' "
+                    "controls this robot. Connection state comes from its fresh "
+                    "deployment telemetry."
+                )
         else:
             result["running_deployment"] = deployment
             result["notice"] = (
@@ -5554,7 +6149,7 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
     if stored:
         deployment = stored[0]
         result = dict(status)
-        result["stored_deployment"] = {
+        inactive_deployment = {
             "id": str(deployment.get("id") or ""),
             "name": str(
                 deployment.get("name")
@@ -5563,15 +6158,31 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
             ),
             "state": str(deployment.get("state") or "stopped"),
         }
-        result["notice"] = (
-            f"Deployment '{deployment.get('name') or deployment.get('id')}' "
-            f"is stored on the Runtime in the "
-            f"{deployment.get('state') or 'stopped'} state"
-            + (
-                ". Resume this robot before restarting it."
-                if paused
-                else " and can be restarted."
+        # Keep the old field as a compatibility alias for existing clients.
+        result["inactive_deployment"] = inactive_deployment
+        result["stored_deployment"] = inactive_deployment
+        deployment_name = str(
+            deployment.get("name") or deployment.get("id") or "Deployment"
+        )
+        deployment_state = str(deployment.get("state") or "stopped")
+        state_detail = {
+            "stopped": "stopped",
+            "exited": "completed",
+            "failed": "failed",
+            "staged": "ready to start",
+        }.get(deployment_state, f"inactive ({deployment_state})")
+        next_action = (
+            "Resume this robot before restarting it."
+            if paused
+            else (
+                "Review its details before restarting it."
+                if deployment_state == "failed"
+                else "It can be restarted."
             )
+        )
+        result["notice"] = (
+            f"Deployment '{deployment_name}' is {state_detail} on the Runtime. "
+            f"{next_action}"
         )
         return result
 
