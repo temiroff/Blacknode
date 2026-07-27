@@ -479,7 +479,13 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn('stack_root="$HOME/Blacknode/devices/$instance"', script)
         self.assertIn('runtime_dir="$stack_root/runtime"', script)
         self.assertIn('hardware_dir="$stack_root/hardware"', script)
+        self.assertIn('"$action" == "install" || "$action" == "replace"', script)
+        self.assertIn('if [[ "$complete_stack" == true && ! -d "$hardware_dir" ]]', script)
         self.assertIn('"packages_dir": str(Path(sys.argv[3]) / "packages")', script)
+        self.assertIn(
+            'if sys.argv[6] in {"install", "replace", "isolated_stack"}',
+            script,
+        )
         self.assertIn('BLACKNODE_HARDWARE_INSTANCE="$service_instance"', script)
         self.assertIn("does not support isolated stacks yet", script)
         self.assertNotIn("keep_sudo_alive", script)
@@ -602,6 +608,81 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn("systemctl\", \"cat\"", commands[0])
         remote_python = commands[0].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
         compile(remote_python, "<hardware-pairing-discovery>", "exec")
+
+    def test_hardware_environment_can_be_added_to_runtime_only_device(self):
+        uploaded = []
+
+        class RemoteFile(io.StringIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                uploaded.append(self.getvalue())
+                self.close()
+                return False
+
+        class Sftp:
+            def file(self, _path, _mode):
+                return RemoteFile()
+
+            def chmod(self, _path, _mode):
+                return None
+
+            def close(self):
+                return None
+
+        connection = SimpleNamespace(
+            client=SimpleNamespace(open_sftp=lambda: Sftp()),
+            fingerprint="SHA256:trusted-device-key",
+            close=lambda: None,
+        )
+        commands = []
+        stdin_values = []
+        progress = []
+
+        def fake_run(_connection, command, **kwargs):
+            commands.append(command)
+            stdin_values.append(kwargs.get("stdin_text"))
+            if "on_output" in kwargs:
+                kwargs["on_output"](
+                    "__BLACKNODE_HARDWARE_INSTALL_PROGRESS__=50|"
+                    "Setting up the Robot Hardware environment"
+                )
+            return ""
+
+        with (
+            patch.object(device_installer, "_connect", return_value=connection),
+            patch.object(device_installer, "_run", side_effect=fake_run),
+        ):
+            result = device_installer.install_hardware_environment(
+                host="192.168.1.87",
+                port=22,
+                username="alex",
+                password="ssh-password",
+                host_fingerprint="SHA256:trusted-device-key",
+                instance_id="default",
+                progress=progress.append,
+            )
+
+        self.assertEqual(
+            result["hardware_dir"],
+            "~/Blacknode/devices/default/hardware",
+        )
+        self.assertEqual(result["stack_mode"], "isolated")
+        self.assertTrue(any(item["progress"] == 50 for item in progress))
+        self.assertIn("bash /tmp/blacknode-hardware-install-", commands[0])
+        self.assertEqual(stdin_values[0], "ssh-password\n" * 8)
+        self.assertNotIn("ssh-password", uploaded[0])
+        self.assertIn(
+            'hardware_dir="$stack_root/hardware"',
+            uploaded[0],
+        )
+        self.assertIn(
+            'BLACKNODE_HARDWARE_INSTANCE="$service_instance" ./setup_ubuntu.sh',
+            uploaded[0],
+        )
+        remote_python = uploaded[0].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+        compile(remote_python, "<hardware-environment-install>", "exec")
 
     def test_reinstall_of_incomplete_instance_uses_next_available_port(self):
         class RemoteFile(io.StringIO):
@@ -1110,6 +1191,84 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(
             saved["devices"]["follower-device"]["token"],
             hardware_token,
+        )
+
+    def test_runtime_only_device_can_install_managed_hardware_package(self):
+        managed = {
+            "ssh_host": "192.168.1.87",
+            "ssh_port": 22,
+            "ssh_username": "alex",
+            "host_fingerprint": "SHA256:trusted-device-key",
+            "instance_id": "default",
+            "runtime_port": 8766,
+            "service_name": "blacknode-runtime.service",
+            "install_root": "~/Blacknode/devices/default",
+            "runtime_dir": "~/Blacknode/devices/default/runtime",
+            "packages_dir": "~/Blacknode/devices/default/runtime/packages",
+            "stack_mode": "runtime_only",
+            "hardware_dir": "",
+        }
+        host = {
+            "id": "alex-computer",
+            "name": "alex-desktop",
+            "runtime_url": "http://192.168.1.87:8766",
+            "managed_runtime": managed,
+            "robots": [],
+        }
+        installed = {
+            "ok": True,
+            "instance_id": "default",
+            "hardware_dir": "~/Blacknode/devices/default/hardware",
+            "stack_mode": "isolated",
+        }
+        updated_host = {
+            **host,
+            "managed_runtime": {
+                **managed,
+                "hardware_dir": installed["hardware_dir"],
+                "stack_mode": "isolated",
+            },
+        }
+
+        with (
+            patch.object(
+                server._device_registry,
+                "get_host_public",
+                return_value=host,
+            ),
+            patch.object(
+                server,
+                "install_hardware_environment",
+                return_value=installed,
+            ) as install,
+            patch.object(
+                server._device_registry,
+                "set_host_management",
+                return_value=updated_host,
+            ) as save,
+        ):
+            result = server._install_device_host_hardware_payload(
+                host["id"],
+                server.DiscoverHostRobotsReq(password="ssh-password"),
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            result["device"]["managed_runtime"]["hardware_dir"],
+            "~/Blacknode/devices/default/hardware",
+        )
+        install.assert_called_once_with(
+            host="192.168.1.87",
+            port=22,
+            username="alex",
+            password="ssh-password",
+            host_fingerprint="SHA256:trusted-device-key",
+            instance_id="default",
+            progress=None,
+        )
+        self.assertEqual(
+            save.call_args.args[1]["stack_mode"],
+            "isolated",
         )
 
     def test_pairing_stores_and_checks_a_separate_runtime_token(self):

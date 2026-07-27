@@ -71,9 +71,10 @@ disarmed.
 For remote SSH setup, choose **Add device → Remote SSH** and enter the
 computer's IP address, username, and password. Blacknode first displays the
 SSH host-key fingerprint for confirmation. After confirmation it installs the
-runtime service, configures runtime port `8766` in UFW when UFW is active, and
-pairs the runtime with the editor. The SSH password remains in memory for that
-setup request and is not saved.
+Runtime and Robot Hardware packages, configures runtime port `8766` in UFW when
+UFW is active, and pairs the Runtime with the editor. The Hardware environment
+is ready for connected-robot configuration and starts with motion disarmed. The
+SSH password remains in memory for that setup request and is not saved.
 
 Managed Linux installations use one visible root per stable Runtime instance:
 
@@ -93,6 +94,10 @@ and uninstall precisely. Multiple robots attached to the same Runtime share its
 instance directory. Device display-name changes do not rename these paths.
 Legacy `~/blacknode-runtime`, `~/blacknode-runtimes`, and Hardware checkout
 locations remain discoverable and manageable.
+
+A Runtime-only managed device created by an older editor can add the organized
+Hardware checkout in place from **Attach robot → Install Hardware package**.
+This preserves the Runtime pairing and does not require deleting the device.
 
 **Delete device** stops the selected Runtime and its deployments, removes its
 Runtime checkout, synchronized workflow packages, secret, systemd service, and

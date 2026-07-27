@@ -861,6 +861,12 @@ PY"""
                         "token": token,
                         "active": bool(service.get("active")),
                     })
+                except FileNotFoundError:
+                    errors.append(
+                        f"{unit}: its saved Hardware package, configuration, or "
+                        "pairing token is missing. Reinstall the Hardware package "
+                        "and configure this robot again."
+                    )
                 except (
                     OSError,
                     UnicodeDecodeError,
@@ -882,6 +888,179 @@ PY"""
             "Could not read installed Robot Hardware pairing credentials."
         ) from exc
     finally:
+        connection.close()
+
+
+def install_hardware_environment(
+    *,
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    host_fingerprint: str,
+    instance_id: str,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Install the managed Hardware package beside an existing Runtime."""
+
+    def report(percent: int, message: str) -> None:
+        if progress is not None:
+            progress({
+                "progress": max(0, min(100, int(percent))),
+                "message": str(message),
+            })
+
+    selected_instance = _clean_instance_id(instance_id or "default")
+    expected = str(host_fingerprint or "").strip()
+    if not expected:
+        raise DeviceInstallError(
+            "Check the SSH connection and confirm its host fingerprint first."
+        )
+    report(5, "Connecting to the verified device")
+    connection = _connect(
+        host,
+        port,
+        username,
+        password,
+        expected_fingerprint=expected,
+        timeout=15.0,
+    )
+    script = r"""#!/usr/bin/env bash
+set -euo pipefail
+progress() {
+  echo "__BLACKNODE_HARDWARE_INSTALL_PROGRESS__=$1|$2"
+}
+sudo() {
+  command sudo -S -p '' "$@"
+}
+export -f sudo
+instance="$1"
+[[ "$instance" == "default" || "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || {
+  echo "Invalid Blacknode runtime instance."
+  exit 2
+}
+stack_root="$HOME/Blacknode/devices/$instance"
+runtime_dir="$stack_root/runtime"
+hardware_dir="$stack_root/hardware"
+service_instance=""
+[[ "$instance" == "default" ]] || service_instance="$instance"
+case "$hardware_dir" in
+  "$HOME/Blacknode/devices/"*/hardware) ;;
+  *) echo "Unsafe Hardware directory."; exit 2 ;;
+esac
+[[ -d "$runtime_dir/.git" && -f "$runtime_dir/pyproject.toml" ]] || {
+  echo "The organized Runtime installation is missing: $runtime_dir"
+  exit 3
+}
+created=false
+cleanup_failed_install() {
+  exit_code=$?
+  if [[ "$exit_code" -ne 0 && "$created" == true ]]; then
+    progress 0 "Cleaning the incomplete Hardware package"
+    rm -rf -- "$hardware_dir"
+  fi
+  exit "$exit_code"
+}
+trap cleanup_failed_install EXIT
+if [[ -e "$hardware_dir" ]]; then
+  [[ -d "$hardware_dir/.git" && -f "$hardware_dir/pyproject.toml" ]] || {
+    echo "The existing Hardware directory is not a valid package checkout:"
+    echo "  $hardware_dir"
+    exit 4
+  }
+  origin="$(git -C "$hardware_dir" remote get-url origin 2>/dev/null || true)"
+  [[ "$origin" =~ (github\.com[:/])temiroff/blacknode-hardware(\.git)?$ ]] || {
+    echo "The existing Hardware checkout has an unrecognized Git origin."
+    exit 4
+  }
+  progress 25 "Using the existing Robot Hardware package"
+else
+  progress 20 "Downloading the Robot Hardware package"
+  mkdir -p "$(dirname -- "$hardware_dir")"
+  git clone https://github.com/temiroff/blacknode-hardware.git "$hardware_dir"
+  created=true
+fi
+if ! grep -q 'BLACKNODE_HARDWARE_INSTANCE' "$hardware_dir/install-service.sh" \
+  || ! grep -q 'previous_working_directory' "$hardware_dir/install-service.sh"; then
+  echo "The downloaded Blacknode Hardware release does not support managed stacks yet."
+  exit 4
+fi
+progress 50 "Setting up the Robot Hardware environment"
+(
+  cd "$hardware_dir"
+  BLACKNODE_HARDWARE_INSTANCE="$service_instance" ./setup_ubuntu.sh
+)
+progress 88 "Recording the complete device stack"
+python3 - "$stack_root/install.json" "$instance" "$runtime_dir" "$hardware_dir" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+try:
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    payload = {
+        "layout_version": 1,
+        "instance_id": sys.argv[2],
+        "runtime_dir": sys.argv[3],
+        "packages_dir": str(Path(sys.argv[3]) / "packages"),
+    }
+payload["hardware_dir"] = sys.argv[4]
+manifest_path.parent.mkdir(parents=True, exist_ok=True)
+manifest_path.write_text(
+    json.dumps(payload, indent=2) + "\n",
+    encoding="utf-8",
+)
+PY
+created=false
+progress 100 "Robot Hardware package installed"
+"""
+    remote_script_path = (
+        f"/tmp/blacknode-hardware-install-{secrets.token_hex(8)}.sh"
+    )
+    try:
+        sftp = connection.client.open_sftp()
+        try:
+            with sftp.file(remote_script_path, "w") as remote_script:
+                remote_script.write(script)
+            sftp.chmod(remote_script_path, 0o700)
+        finally:
+            sftp.close()
+        _run(
+            connection,
+            f"bash {remote_script_path} {selected_instance}",
+            stdin_text=_sudo_input(password, attempts=8),
+            timeout=900.0,
+            on_output=lambda line: (
+                report(int(match.group(1)), match.group(2).strip())
+                if (
+                    match := re.match(
+                        r"^__BLACKNODE_HARDWARE_INSTALL_PROGRESS__="
+                        r"(\d{1,3})\|(.*)$",
+                        line.strip(),
+                    )
+                )
+                else None
+            ),
+        )
+        return {
+            "ok": True,
+            "instance_id": selected_instance,
+            "hardware_dir": (
+                f"~/Blacknode/devices/{selected_instance}/hardware"
+            ),
+            "stack_mode": "isolated",
+        }
+    finally:
+        try:
+            _run(
+                connection,
+                f"rm -f -- {remote_script_path}",
+                timeout=10.0,
+            )
+        except DeviceInstallError:
+            pass
         connection.close()
 
 
@@ -1055,6 +1234,11 @@ stack_root="$HOME/Blacknode/devices/$instance"
 runtime_dir="$stack_root/runtime"
 token_file="$stack_root/secrets/runtime.auth.token"
 hardware_dir="$stack_root/hardware"
+complete_stack=false
+if [[ "$action" == "install" || "$action" == "replace" \
+  || "$action" == "isolated_stack" ]]; then
+  complete_stack=true
+fi
 if [[ "$instance" == "default" ]]; then
   service_name="blacknode-runtime.service"
   service_instance=""
@@ -1116,7 +1300,8 @@ case "$legacy_runtime_dir" in
 esac
 token_dir="$(dirname -- "$token_file")"
 progress 14 "Preparing the selected runtime"
-if [[ "$action" == "isolated_stack" && -e "$hardware_dir" ]]; then
+if [[ "$complete_stack" == true && "$action" != "replace" \
+  && -e "$hardware_dir" ]]; then
   echo "The isolated Hardware directory already exists. Preserve or remove it before retrying:"
   echo "  $hardware_dir"
   exit 3
@@ -1234,8 +1419,8 @@ if [[ -n "$service_instance" ]]; then
   BLACKNODE_RUNTIME_INSTANCE="$service_instance" ./configure.sh \
     --device-id "$(hostname)-$service_instance"
 fi
-if [[ "$action" == "isolated_stack" ]]; then
-  progress 72 "Creating the isolated Robot Hardware environment"
+if [[ "$complete_stack" == true && ! -d "$hardware_dir" ]]; then
+  progress 72 "Installing the Robot Hardware package"
   mkdir -p "$(dirname -- "$hardware_dir")"
   cleanup_hardware=true
   git clone https://github.com/temiroff/blacknode-hardware.git "$hardware_dir"
@@ -1248,6 +1433,12 @@ if [[ "$action" == "isolated_stack" ]]; then
     cd "$hardware_dir"
     BLACKNODE_HARDWARE_INSTANCE="$service_instance" ./setup_ubuntu.sh
   )
+elif [[ "$complete_stack" == true ]]; then
+  [[ -d "$hardware_dir/.git" && -f "$hardware_dir/pyproject.toml" ]] || {
+    echo "The existing Hardware directory is not a valid package checkout:"
+    echo "  $hardware_dir"
+    exit 4
+  }
 fi
 progress 88 "Installing the runtime service"
 kill "$port_guard" >/dev/null 2>&1 || true
@@ -1292,7 +1483,11 @@ manifest_path.write_text(json.dumps({
     "instance_id": sys.argv[2],
     "runtime_dir": sys.argv[3],
     "packages_dir": str(Path(sys.argv[3]) / "packages"),
-    "hardware_dir": sys.argv[4] if sys.argv[6] == "isolated_stack" else "",
+    "hardware_dir": (
+        sys.argv[4]
+        if sys.argv[6] in {"install", "replace", "isolated_stack"}
+        else ""
+    ),
     "runtime_service": sys.argv[5],
 }, indent=2) + "\\n", encoding="utf-8")
 PY
@@ -1358,12 +1553,12 @@ progress 96 "Verifying the runtime service"
             "packages_dir": f"~/Blacknode/devices/{selected_instance}/runtime/packages",
             "stack_mode": (
                 "isolated"
-                if clean_action == "isolated_stack"
+                if clean_action in {"install", "replace", "isolated_stack"}
                 else "runtime_only"
             ),
             "hardware_dir": (
                 f"~/Blacknode/devices/{selected_instance}/hardware"
-                if clean_action == "isolated_stack"
+                if clean_action in {"install", "replace", "isolated_stack"}
                 else ""
             ),
         }

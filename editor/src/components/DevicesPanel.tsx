@@ -1343,6 +1343,54 @@ export default function DevicesPanel() {
     }
   }
 
+  const installDeviceHardware = async () => {
+    if (!selectedDevice) return
+    if (!robotDiscoveryPassword) {
+      setError('Enter the device SSH password to install Robot Hardware.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [selectedDevice.id]: {
+        progress: 5,
+        message: 'Preparing the managed Robot Hardware package',
+      },
+    }))
+    try {
+      const result = await api.installComputeDeviceHardware(
+        selectedDevice.id,
+        robotDiscoveryPassword,
+        progress => setActionProgress(previous => ({
+          ...previous,
+          [selectedDevice.id]: progress,
+        })),
+      )
+      setRobotDiscoveryPassword('')
+      setActionProgress(previous => ({
+        ...previous,
+        [selectedDevice.id]: {
+          progress: 100,
+          message: result.summary,
+        },
+      }))
+      await refresh()
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [selectedDevice.id]: {
+          progress: 0,
+          message: `Robot Hardware installation failed: ${message}`,
+        },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const addRobot = async (event: FormEvent) => {
     event.preventDefault()
     if (!selectedDevice) return
@@ -2657,8 +2705,11 @@ export default function DevicesPanel() {
                           }}
                         />
                         <span>
-                          <strong>Install Blacknode Runtime</strong>
-                          <small>Creates the default isolated service on port {sshInspection.suggested_port}.</small>
+                          <strong>Install complete robot device</strong>
+                          <small>
+                            Installs Runtime and Robot Hardware in the default managed
+                            stack on port {sshInspection.suggested_port}.
+                          </small>
                         </span>
                       </label>
                     )}
@@ -2682,25 +2733,27 @@ export default function DevicesPanel() {
                         </span>
                       </label>
                     )}
-                    <label className={installAction === 'isolated_stack' ? 'is-selected' : ''}>
-                      <input
-                        type="radio"
-                        name="runtime-install-action"
-                        checked={installAction === 'isolated_stack'}
-                        onChange={() => {
-                          setInstallAction('isolated_stack')
-                          setInstallInstanceId(sshInspection.suggested_instance_id)
-                        }}
-                      />
-                      <span>
-                        <strong>Install a complete isolated robot stack</strong>
-                        <small>
-                          Creates {sshInspection.suggested_instance_id} with separate Runtime
-                          and Robot Hardware directories, environments, tokens, state, services,
-                          and ports. Existing stacks remain untouched.
-                        </small>
-                      </span>
-                    </label>
+                    {sshInspection.instances.length > 0 && (
+                      <label className={installAction === 'isolated_stack' ? 'is-selected' : ''}>
+                        <input
+                          type="radio"
+                          name="runtime-install-action"
+                          checked={installAction === 'isolated_stack'}
+                          onChange={() => {
+                            setInstallAction('isolated_stack')
+                            setInstallInstanceId(sshInspection.suggested_instance_id)
+                          }}
+                        />
+                        <span>
+                          <strong>Install a complete isolated robot stack</strong>
+                          <small>
+                            Creates {sshInspection.suggested_instance_id} with separate Runtime
+                            and Robot Hardware directories, environments, tokens, state, services,
+                            and ports. Existing stacks remain untouched.
+                          </small>
+                        </span>
+                      </label>
+                    )}
                   </div>
                 </div>
               )}
@@ -2832,7 +2885,9 @@ export default function DevicesPanel() {
                           ? 'Reinstall runtime'
                           : installAction === 'isolated_stack'
                             ? 'Install isolated stack'
-                            : 'Install runtime'
+                            : installAction === 'install'
+                              ? 'Install robot device'
+                              : 'Install runtime'
                       : 'Confirm and inspect'
                     : setupMode === 'local' ? 'Add local computer' : 'Pair runtime'}
               </button>
@@ -4447,11 +4502,15 @@ export default function DevicesPanel() {
               </div>
               {selectedDevice.managed_runtime && !selectedDeviceManagedLocally && (
                 <div className="bn-device-local-note" role="note">
-                  <strong>Find installed robots automatically</strong>
+                  <strong>
+                    {selectedDevice.managed_runtime.hardware_dir
+                      ? 'Find installed robots automatically'
+                      : 'Install the Robot Hardware package'}
+                  </strong>
                   <span>
-                    Blacknode reads each installed Hardware service URL and pairing
-                    token through this device’s verified SSH connection. Tokens remain
-                    hidden and the SSH password is never saved.
+                    {selectedDevice.managed_runtime.hardware_dir
+                      ? 'Blacknode reads each installed Hardware service URL and pairing token through this device’s verified SSH connection. Tokens remain hidden and the SSH password is never saved.'
+                      : 'This Runtime-only device is missing its managed Hardware package. Install it beside Runtime before configuring and attaching a physical robot.'}
                   </span>
                   <label>
                     <span>Device SSH password</span>
@@ -4469,9 +4528,19 @@ export default function DevicesPanel() {
                     type="button"
                     className="bn-device-action-button is-primary"
                     disabled={busy || !robotDiscoveryPassword}
-                    onClick={() => void discoverAndAttachRobots()}
+                    onClick={() => (
+                      selectedDevice.managed_runtime?.hardware_dir
+                        ? void discoverAndAttachRobots()
+                        : void installDeviceHardware()
+                    )}
                   >
-                    {busy ? 'Finding robots…' : 'Find and attach robots'}
+                    {busy
+                      ? selectedDevice.managed_runtime.hardware_dir
+                        ? 'Finding robots…'
+                        : 'Installing Hardware…'
+                      : selectedDevice.managed_runtime.hardware_dir
+                        ? 'Find and attach robots'
+                        : 'Install Hardware package'}
                   </button>
                 </div>
               )}

@@ -1327,6 +1327,25 @@ export const api = {
       { password },
       60000,
     ),
+  installComputeDeviceHardware: (
+    hostId: string,
+    password: string,
+    onProgress: (progress: DeviceActionProgress) => void,
+  ) =>
+    streamDeviceAction<{
+      ok: boolean
+      device: ComputeDevice
+      install: {
+        instance_id: string
+        hardware_dir: string
+        stack_mode: 'isolated'
+      }
+      summary: string
+    }>(
+      `/device-hosts/${encodeURIComponent(hostId)}/hardware-package/install-stream`,
+      { password },
+      onProgress,
+    ),
   renameComputeDevice: (id: string, name: string) =>
     req<{ device: ComputeDevice }>(
       'PATCH',
