@@ -452,6 +452,10 @@ try {
     }
 
     Stop-PortListener -Port $BackendPort
+    if (-not (Wait-PortFree -Port $BackendPort)) {
+        Write-PortBusyError -Port $BackendPort
+        throw "Python server port is busy."
+    }
 
     Write-Step "[1/2] Starting Python server  (http://127.0.0.1:$BackendPort)"
     $script:BackendProcess = Start-HiddenProcess `
