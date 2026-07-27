@@ -1538,6 +1538,47 @@ export default function DevicesPanel() {
     }
   }
 
+  const setDeploymentMotion = async (
+    robot: HardwareDevice,
+    deploymentId: string,
+    deploymentName: string,
+    armed: boolean,
+  ) => {
+    const prompt = armed
+      ? `ARM follower motion for "${deploymentName}" on "${robot.name}"? Keep the leader torque-released, support both arms, and clear the workspace.`
+      : `Disarm follower motion for "${deploymentName}" on "${robot.name}" and release follower torque? Support the follower first.`
+    if (!window.confirm(prompt)) return
+    setBusy(true)
+    setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [robot.id]: {
+        progress: 25,
+        message: armed ? 'Arming follower deployment' : 'Disarming follower deployment',
+      },
+    }))
+    try {
+      await api.setRemoteDeploymentMotion(robot.id, deploymentId, armed)
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: {
+          progress: 100,
+          message: armed ? `"${deploymentName}" armed` : `"${deploymentName}" disarmed`,
+        },
+      }))
+      await refreshRobot(robot)
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: { progress: 0, message },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const releaseRobotTorque = async (robot: HardwareDevice) => {
     if (!window.confirm(
       `Release physical holding torque on "${robot.name}"? Support the robot first: its joints may move or drop as soon as torque is disabled.`,
@@ -3511,6 +3552,9 @@ export default function DevicesPanel() {
                 onStartDeployment={(deploymentId, deploymentName) => (
                   restartDeployment(robot, deploymentId, deploymentName)
                 )}
+                onSetDeploymentMotion={(deploymentId, deploymentName, armed) => (
+                  setDeploymentMotion(robot, deploymentId, deploymentName, armed)
+                )}
                 onReleaseTorque={() => releaseRobotTorque(robot)}
                 onControl={action => controlRobot(robot, action)}
                 onRestartService={password => controlRobot(robot, 'restart', password)}
@@ -3745,6 +3789,7 @@ function RobotRow({
   onMonitor,
   onStopDeployment,
   onStartDeployment,
+  onSetDeploymentMotion,
   onReleaseTorque,
   onControl,
   onRestartService,
@@ -3763,6 +3808,11 @@ function RobotRow({
   onMonitor: () => void
   onStopDeployment: (deploymentId: string) => void
   onStartDeployment: (deploymentId: string, deploymentName: string) => void
+  onSetDeploymentMotion: (
+    deploymentId: string,
+    deploymentName: string,
+    armed: boolean,
+  ) => void
   onReleaseTorque: () => void
   onControl: (action: 'pause' | 'resume') => void
   onRestartService: (password: string) => Promise<boolean>
@@ -4007,6 +4057,27 @@ function RobotRow({
             </div>
           )}
           <div className="bn-run-detail-actions bn-robot-card-actions is-primary">
+            {runningDeployment?.id
+              && Number(runningDeployment.motion_control_count || 0) === 1
+              && (
+                <button
+                  type="button"
+                  onClick={() => onSetDeploymentMotion(
+                    runningDeployment.id,
+                    runningDeployment.name,
+                    !runningDeployment.motion_armed,
+                  )}
+                  disabled={busy || state?.loading || paused}
+                  className={`bn-device-action-button${
+                    runningDeployment.motion_armed ? ' is-danger' : ' is-primary'
+                  }`}
+                  title={runningDeployment.motion_armed
+                    ? 'Disarm the follower controller and request torque release'
+                    : 'Explicitly arm the follower controller after safety confirmation'}
+                >
+                  {runningDeployment.motion_armed ? 'Disarm follower' : 'Arm follower'}
+                </button>
+              )}
             <button
               onClick={() => {
                 if (inactiveDeployment?.id) {

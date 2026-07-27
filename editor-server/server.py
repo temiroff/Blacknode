@@ -500,6 +500,9 @@ class RemoteDeployReq(BaseModel):
 class RemoteRollbackReq(BaseModel):
     start: bool = False
 
+class RemoteMotionControlReq(BaseModel):
+    armed: bool
+
 class DeviceRpcReq(BaseModel):
     jsonrpc: str = "2.0"
     id: Any = None
@@ -4931,6 +4934,43 @@ def _workflow_requires_deployment_telemetry(workflow: dict[str, Any]) -> bool:
     )
 
 
+def _leader_follower_control_topic(run_id: str, requested: str = "") -> str:
+    explicit = str(requested or "").strip()
+    if re.fullmatch(
+        r"/blacknode/leader_follower/[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*",
+        explicit,
+    ):
+        return explicit
+    segment = re.sub(
+        r"[^a-zA-Z0-9_]+",
+        "_",
+        str(run_id or "leader_follower"),
+    ).strip("_")
+    return f"/blacknode/leader_follower/{segment or 'leader_follower'}/control"
+
+
+def _workflow_motion_controls(workflow: dict[str, Any]) -> list[dict[str, str]]:
+    controls: list[dict[str, str]] = []
+    for node_id, meta in (workflow.get("node_meta") or {}).items():
+        if (
+            not isinstance(meta, dict)
+            or str(meta.get("type") or "") != "ROS2LeaderFollower"
+        ):
+            continue
+        params = meta.get("params") if isinstance(meta.get("params"), dict) else {}
+        run_id = str(params.get("run_id") or "leader_follower").strip()
+        controls.append({
+            "kind": "ros2_leader_follower",
+            "node_id": str(node_id),
+            "run_id": run_id,
+            "topic": _leader_follower_control_topic(
+                run_id,
+                str(params.get("control_topic") or ""),
+            ),
+        })
+    return controls
+
+
 def _workflow_calibration_selection(
     workflow: dict[str, Any],
 ) -> dict[str, str] | None:
@@ -6136,6 +6176,8 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
             "id": str(owner.get("id") or ""),
             "name": str(owner.get("name") or owner.get("id") or "Deployment"),
             "state": str(owner.get("state") or "running"),
+            "motion_armed": bool(owner.get("motion_armed")),
+            "motion_control_count": int(owner.get("motion_control_count") or 0),
         }
         if hardware_is_leased:
             result["deployment_lease"] = deployment
@@ -6169,6 +6211,10 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
                     result["connection_state"] = (
                         "connected" if telemetry_connected else "disconnected"
                     )
+                    telemetry_torque = telemetry_payload.get("torque_enabled")
+                    if isinstance(telemetry_torque, bool):
+                        result["torque_enabled"] = telemetry_torque
+                        result["armed"] = telemetry_torque
             except (DeviceRegistryError, AttributeError, TypeError) as exc:
                 telemetry_message = str(exc)
             result.pop("error", None)
@@ -6628,6 +6674,7 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
     payload: dict[str, Any] = {
         "name": name,
         "script": script,
+        "workflow": workflow,
         "manifest": {
             "schema_version": 1,
             "workflow_hash": current_hash,
@@ -6636,6 +6683,7 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
             "node_count": len(workflow.get("node_meta") or {}),
             "required_capabilities": _workflow_required_capabilities(workflow),
             "telemetry_required": _workflow_requires_deployment_telemetry(workflow),
+            "motion_controls": _workflow_motion_controls(workflow),
             "required_packages": _workflow_target_packages(workflow),
             "package_requirements": _workflow_target_package_specs(workflow),
             "blacknode_version": str(getattr(bn, "__version__", "")),
@@ -6718,6 +6766,71 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
 @app.get("/devices/{device_id}/deployments/{deployment_id}")
 def get_device_deployment(device_id: str, deployment_id: str):
     return _require_targeted_deployment(device_id, deployment_id)
+
+
+@app.get("/devices/{device_id}/deployments/{deployment_id}/workflow")
+def get_device_deployment_workflow(
+    device_id: str,
+    deployment_id: str,
+    revision: str = "",
+):
+    _require_targeted_deployment(device_id, deployment_id)
+    try:
+        return _runtime_client_or_404(device_id).deployment_workflow(
+            deployment_id,
+            revision=revision,
+        )
+    except DeviceRegistryError as exc:
+        detail = str(exc)
+        if "HTTP 404" in detail or "not found" in detail.casefold():
+            raise HTTPException(
+                409,
+                "This Runtime cannot return deployed graphs yet. Update "
+                "blacknode-runtime to 0.3.13 or newer, then try again.",
+            ) from exc
+        raise HTTPException(502, detail) from exc
+
+
+@app.post("/devices/{device_id}/deployments/{deployment_id}/motion")
+def control_device_deployment_motion(
+    device_id: str,
+    deployment_id: str,
+    req: RemoteMotionControlReq,
+):
+    deployment = _require_targeted_deployment(device_id, deployment_id)
+    if str(deployment.get("state") or "") != "running":
+        raise HTTPException(409, "Start the deployment before arming it.")
+    try:
+        result = _runtime_client_or_404(device_id).set_deployment_motion_armed(
+            deployment_id,
+            armed=req.armed,
+        )
+    except DeviceRegistryError as exc:
+        detail = str(exc)
+        if "HTTP 404" in detail or "not found" in detail.casefold():
+            raise HTTPException(
+                409,
+                "This Runtime cannot control a deployed armed gate yet. Update "
+                "blacknode-runtime to 0.3.13 or newer and stage the workflow again.",
+            ) from exc
+        raise HTTPException(502, detail) from exc
+    return result
+
+
+@app.get("/devices/{device_id}/ros2-diagnostics")
+def get_device_ros2_diagnostics(device_id: str):
+    try:
+        _device_registry.get_public(device_id)
+        return _runtime_client_or_404(device_id).ros2_diagnostics()
+    except DeviceRegistryError as exc:
+        detail = str(exc)
+        if "HTTP 404" in detail or "not found" in detail.casefold():
+            raise HTTPException(
+                409,
+                "This Runtime does not expose ROS 2 diagnostics yet. Update "
+                "blacknode-runtime to 0.3.13 or newer.",
+            ) from exc
+        raise HTTPException(502, detail) from exc
 
 
 @app.post("/devices/{device_id}/deployments/{deployment_id}/start")

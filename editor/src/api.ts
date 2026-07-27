@@ -279,11 +279,15 @@ export interface HardwareDeviceStatus {
     id: string
     name: string
     state: string
+    motion_armed?: boolean
+    motion_control_count?: number
   }
   running_deployment?: {
     id: string
     name: string
     state: string
+    motion_armed?: boolean
+    motion_control_count?: number
   }
   stored_deployment?: {
     id: string
@@ -649,6 +653,8 @@ export interface RemoteDeployment {
   pid: number | null
   exit_code: number | null
   error: string
+  motion_armed?: boolean
+  motion_control_count?: number
   created_at: string
   updated_at: string
 }
@@ -1480,6 +1486,68 @@ export const api = {
       `/devices/${encodeURIComponent(deviceId)}/deployments/${encodeURIComponent(deploymentId)}/logs`,
       undefined,
       10000,
+    ),
+  remoteDeploymentWorkflow: (deviceId: string, deploymentId: string, revision = '') =>
+    req<{
+      id: string
+      revision: string
+      source: 'snapshot' | 'generated_script'
+      workflow: {
+        kind: 'blacknode.workflow'
+        schema_version: number
+        name?: string
+        node_meta: Record<string, any>
+        edges: any[]
+        metadata?: WorkflowMetadata
+      }
+    }>(
+      'GET',
+      `/devices/${encodeURIComponent(deviceId)}/deployments/${encodeURIComponent(deploymentId)}/workflow${
+        revision ? `?revision=${encodeURIComponent(revision)}` : ''
+      }`,
+      undefined,
+      15000,
+    ),
+  setRemoteDeploymentMotion: (
+    deviceId: string,
+    deploymentId: string,
+    armed: boolean,
+  ) =>
+    req<{
+      ok: boolean
+      id: string
+      armed: boolean
+      topic: string
+      node_id: string
+      deployment: RemoteDeployment
+    }>(
+      'POST',
+      `/devices/${encodeURIComponent(deviceId)}/deployments/${encodeURIComponent(deploymentId)}/motion`,
+      { armed },
+      20000,
+    ),
+  remoteRos2Diagnostics: (deviceId: string) =>
+    req<{
+      ok: boolean
+      available: boolean
+      checked_at: string
+      summary: string
+      nodes: string[]
+      topics: string[]
+      services: string[]
+      topic_details: Array<{
+        topic: string
+        ok: boolean
+        stdout: string
+        stderr: string
+        error: string
+      }>
+      warnings: string[]
+    }>(
+      'GET',
+      `/devices/${encodeURIComponent(deviceId)}/ros2-diagnostics`,
+      undefined,
+      90000,
     ),
   deleteRemoteDeployment: (deviceId: string, deploymentId: string) =>
     req<{ ok: boolean; id: string }>(
