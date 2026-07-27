@@ -3664,24 +3664,26 @@ function SoftwarePackageSummaryCard({
       </div>
       <code title={path}>{path}</code>
       {detail && <small>{detail}</small>}
-      {!latestVersion ? (
-        <button
-          type="button"
-          className="bn-local-package-check-latest"
-          disabled={busy}
-          onClick={onCheckLatest}
-        >
-          {busy ? 'Checking versions…' : 'Check updates'}
-        </button>
-      ) : updateAvailable ? (
-        <div className="bn-local-package-update-available">
-          Update available · {latestVersion}
-        </div>
-      ) : (
-        <div className="bn-local-package-version-current">
-          Current version installed
-        </div>
-      )}
+      <div className="bn-local-package-version-action">
+        {!latestVersion ? (
+          <button
+            type="button"
+            className="bn-local-package-check-latest"
+            disabled={busy}
+            onClick={onCheckLatest}
+          >
+            {busy ? 'Checking versions…' : 'Check updates'}
+          </button>
+        ) : updateAvailable ? (
+          <div className="bn-local-package-update-available">
+            Update available · {latestVersion}
+          </div>
+        ) : (
+          <div className="bn-local-package-version-current">
+            Current version installed
+          </div>
+        )}
+      </div>
       <div className="bn-local-package-actions">
         <button
           type="button"
