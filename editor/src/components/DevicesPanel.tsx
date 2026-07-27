@@ -10,6 +10,7 @@ import {
   type ManagedServiceUpdateCheckResult,
   type ManagedServiceUpdateResult,
   type RemoteRos2Diagnostics,
+  type RobotTelemetrySample,
   type SshDeviceProbe,
   type SshRuntimeInspection,
 } from '../api'
@@ -17,6 +18,8 @@ import { useStore } from '../store'
 
 type RobotState = {
   status?: HardwareDeviceStatus
+  telemetry?: RobotTelemetrySample
+  telemetryError?: string
   error?: string
   loading?: boolean
   checkedAt?: number
@@ -43,6 +46,14 @@ type RosHealth = {
   issues: string[]
   checkedAt?: number
   diagnostics?: RemoteRos2Diagnostics
+}
+
+type DeviceCheckIssue = {
+  id: string
+  robotId?: string
+  title: string
+  detail: string
+  action: string
 }
 
 type ServiceCheckState =
@@ -340,6 +351,123 @@ function summarizeRosHealth(
   }
 }
 
+function deploymentForStatus(status?: HardwareDeviceStatus) {
+  return status?.deployment_lease ?? status?.running_deployment
+}
+
+function diagnoseDeviceMotion(
+  device: ComputeDevice,
+  statuses: Array<HardwareDeviceStatus | undefined>,
+  telemetry: Array<RobotTelemetrySample | undefined>,
+  telemetryErrors: Array<string | undefined>,
+): DeviceCheckIssue[] {
+  const issues: DeviceCheckIssue[] = []
+  let motionControllers = 0
+
+  device.robots.forEach((robot, index) => {
+    const status = statuses[index]
+    const sample = telemetry[index]
+    const sampleError = telemetryErrors[index]
+    const deployment = deploymentForStatus(status)
+    const controlsMotion = Number(deployment?.motion_control_count || 0) > 0
+    if (controlsMotion) motionControllers += 1
+
+    if (!status?.connected) {
+      issues.push({
+        id: `${robot.id}:connection`,
+        robotId: robot.id,
+        title: `${robot.name} is not connected`,
+        detail: status?.error || 'Robot Hardware did not report a live hardware connection.',
+        action: 'Check robot power, USB connection, and the configured serial device, then restart Robot Hardware.',
+      })
+      return
+    }
+    if (!deployment) {
+      issues.push({
+        id: `${robot.id}:deployment`,
+        robotId: robot.id,
+        title: `${robot.name} has no running deployment`,
+        detail: 'The hardware service is connected, but no workflow currently controls this robot.',
+        action: 'Start the intended deployment for this robot.',
+      })
+    }
+    if (sampleError || !sample) {
+      issues.push({
+        id: `${robot.id}:telemetry`,
+        robotId: robot.id,
+        title: `${robot.name} telemetry check failed`,
+        detail: sampleError || 'No telemetry sample was returned.',
+        action: 'Open Monitor and restart the deployment if live joint data does not appear.',
+      })
+      return
+    }
+    if (!sample.available || sample.stale) {
+      issues.push({
+        id: `${robot.id}:telemetry-stale`,
+        robotId: robot.id,
+        title: `${robot.name} joint telemetry is not fresh`,
+        detail: sample.message || 'The deployment is not producing a current robot-state sample.',
+        action: 'Restart the deployment and verify that joint positions update in Monitor.',
+      })
+    }
+    if (!sample.payload?.joints?.length) {
+      issues.push({
+        id: `${robot.id}:joints`,
+        robotId: robot.id,
+        title: `${robot.name} has no live joint positions`,
+        detail: sample.message || 'The hardware driver returned no joint samples.',
+        action: 'Check the serial bus and servo power, then restart Robot Hardware and the deployment.',
+      })
+    }
+
+    if (!controlsMotion) return
+    const driverError = sample.payload?.error?.trim()
+    if (driverError) {
+      const goalSeedFailure = driverError.match(
+        /could not seed Goal_Position for (.+?) \(servo id (\d+)\)/i,
+      )
+      issues.push({
+        id: `${robot.id}:driver`,
+        robotId: robot.id,
+        title: 'Follower torque could not enable',
+        detail: driverError,
+        action: goalSeedFailure
+          ? `Check power and the bus cable at ${goalSeedFailure[1]} (servo ID ${goalSeedFailure[2]}), then press Arm follower again.`
+          : 'Inspect the follower driver error, correct the hardware connection, then press Arm follower again.',
+      })
+    } else if (deployment?.motion_armed !== true) {
+      issues.push({
+        id: `${robot.id}:disarmed`,
+        robotId: robot.id,
+        title: 'Follower motion is disarmed',
+        detail: 'The deployment is running but commands are intentionally blocked.',
+        action: 'Support both arms, clear the workspace, then press Arm follower.',
+      })
+    } else if (sample.payload?.torque_enabled !== true) {
+      issues.push({
+        id: `${robot.id}:torque`,
+        robotId: robot.id,
+        title: 'Follower is armed but physical torque is off',
+        detail: 'The logical arm command did not receive torque confirmation from the follower driver.',
+        action: 'Check follower servo power and bus communication, then press Arm follower again.',
+      })
+    }
+  })
+
+  if (
+    device.robots.some((_robot, index) => Boolean(deploymentForStatus(statuses[index])))
+    && motionControllers === 0
+  ) {
+    issues.push({
+      id: `${device.id}:motion-controller`,
+      title: 'No follower motion controller is running',
+      detail: 'Running deployments are connected, but none owns a motion-control path.',
+      action: 'Start or redeploy the follower workflow that contains the leader-follower controller.',
+    })
+  }
+  return issues
+}
+
 export default function DevicesPanel() {
   const activeProject = useStore(state => state.activeProject)
   const setActiveProject = useStore(state => state.setActiveProject)
@@ -348,6 +476,9 @@ export default function DevicesPanel() {
   const [deviceStates, setDeviceStates] = useState<Record<string, DeviceState>>({})
   const [robotStates, setRobotStates] = useState<Record<string, RobotState>>({})
   const [rosHealthByDevice, setRosHealthByDevice] = useState<Record<string, RosHealth>>({})
+  const [checkIssuesByDevice, setCheckIssuesByDevice] = useState<
+    Record<string, DeviceCheckIssue[]>
+  >({})
   const [knownHardwareVersions, setKnownHardwareVersions] = useState<Record<string, string>>({})
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [showDeviceForm, setShowDeviceForm] = useState(false)
@@ -399,6 +530,9 @@ export default function DevicesPanel() {
   const selectedRosHealth = selectedDevice
     ? rosHealthByDevice[selectedDevice.id]
     : undefined
+  const selectedCheckIssues = selectedDevice
+    ? checkIssuesByDevice[selectedDevice.id] ?? []
+    : []
   const selectedDeviceIsLocal = Boolean(
     selectedDevice && isLocalRuntimeUrl(selectedDevice.runtime_url),
   )
@@ -756,6 +890,32 @@ export default function DevicesPanel() {
         },
       }))
       return undefined
+    }
+  }
+
+  const checkRobotTelemetry = async (robot: HardwareDevice) => {
+    try {
+      const telemetry = await api.deviceMonitor(robot.id)
+      setRobotStates(previous => ({
+        ...previous,
+        [robot.id]: {
+          ...previous[robot.id],
+          telemetry,
+          telemetryError: undefined,
+        },
+      }))
+      return { telemetry, error: undefined }
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setRobotStates(previous => ({
+        ...previous,
+        [robot.id]: {
+          ...previous[robot.id],
+          telemetry: undefined,
+          telemetryError: message,
+        },
+      }))
+      return { telemetry: undefined, error: message }
     }
   }
 
@@ -1245,6 +1405,10 @@ export default function DevicesPanel() {
     setUpdateReport(null)
     setBusy(true)
     setError(null)
+    setCheckIssuesByDevice(previous => ({
+      ...previous,
+      [device.id]: [],
+    }))
     setActionProgress(previous => ({
       ...previous,
       [device.id]: {
@@ -1260,7 +1424,27 @@ export default function DevicesPanel() {
       setActionProgress(previous => ({
         ...previous,
         [device.id]: {
-          progress: 60,
+          progress: 45,
+          message: 'Checking live joint telemetry and physical torque',
+        },
+      }))
+      const telemetryResults = await Promise.all(
+        device.robots.map(checkRobotTelemetry),
+      )
+      const motionIssues = diagnoseDeviceMotion(
+        device,
+        statuses,
+        telemetryResults.map(result => result.telemetry),
+        telemetryResults.map(result => result.error),
+      )
+      setCheckIssuesByDevice(previous => ({
+        ...previous,
+        [device.id]: motionIssues,
+      }))
+      setActionProgress(previous => ({
+        ...previous,
+        [device.id]: {
+          progress: 75,
           message: 'Checking ROS 2 endpoints and motion path',
         },
       }))
@@ -1272,7 +1456,11 @@ export default function DevicesPanel() {
         [device.id]: {
           progress: rosHealth ? 100 : 0,
           message: rosHealth
-            ? 'Device check complete · review motion and ROS 2 results'
+            ? motionIssues.length
+              ? `Device check found ${motionIssues.length} motion blocker${
+                motionIssues.length === 1 ? '' : 's'
+              }`
+              : 'Device check complete · no motion blockers found'
             : 'Device check failed: ROS 2 diagnostics did not complete',
         },
       }))
@@ -1883,6 +2071,35 @@ export default function DevicesPanel() {
     }
   }
 
+  const waitForFollowerTorque = async (
+    robot: HardwareDevice,
+    expected: boolean,
+  ): Promise<RobotTelemetrySample> => {
+    let lastSample: RobotTelemetrySample | undefined
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const result = await checkRobotTelemetry(robot)
+      lastSample = result.telemetry
+      const driverError = lastSample?.payload?.error?.trim()
+      if (driverError) {
+        throw new Error(`Follower driver blocked torque: ${driverError}`)
+      }
+      if (
+        lastSample
+        && lastSample.available
+        && !lastSample.stale
+        && lastSample.payload?.torque_enabled === expected
+      ) {
+        return lastSample
+      }
+      await new Promise(resolve => window.setTimeout(resolve, 500))
+    }
+    throw new Error(
+      expected
+        ? 'Follower did not confirm physical torque within 8 seconds.'
+        : 'Follower did not confirm torque release within 8 seconds.',
+    )
+  }
+
   const setDeploymentMotion = async (
     robot: HardwareDevice,
     deploymentId: string,
@@ -1907,16 +2124,39 @@ export default function DevicesPanel() {
       setActionProgress(previous => ({
         ...previous,
         [robot.id]: {
+          progress: 60,
+          message: armed
+            ? 'Waiting for physical follower torque confirmation'
+            : 'Waiting for follower torque release confirmation',
+        },
+      }))
+      await waitForFollowerTorque(robot, armed)
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: {
           progress: 100,
-          message: armed ? `"${deploymentName}" armed` : `"${deploymentName}" disarmed`,
+          message: armed
+            ? `"${deploymentName}" armed · physical torque confirmed`
+            : `"${deploymentName}" disarmed · torque released`,
         },
       }))
       await refreshRobot(robot)
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason)
+      if (armed) {
+        try {
+          await api.setRemoteDeploymentMotion(robot.id, deploymentId, false)
+        } catch {
+          // Keep the original torque-confirmation failure visible.
+        }
+        await Promise.all([
+          refreshRobot(robot),
+          checkRobotTelemetry(robot),
+        ])
+      }
       setActionProgress(previous => ({
         ...previous,
-        [robot.id]: { progress: 0, message },
+        [robot.id]: { progress: 0, message: `Arm failed: ${message}` },
       }))
       setError(message)
     } finally {
@@ -2815,6 +3055,31 @@ export default function DevicesPanel() {
             <div className="bn-device-check-progress">
               <LifecycleProgress value={actionProgress[selectedDevice.id]} />
             </div>
+          )}
+
+          {selectedCheckIssues.length > 0 && (
+            <section className="bn-device-motion-diagnostics" role="alert">
+              <div className="bn-device-motion-diagnostics-head">
+                <span className="bn-device-overview-dot" aria-hidden="true" />
+                <div>
+                  <strong>Robot motion is blocked</strong>
+                  <span>
+                    Check device found {selectedCheckIssues.length} issue{
+                      selectedCheckIssues.length === 1 ? '' : 's'
+                    } that must be fixed before motion can work.
+                  </span>
+                </div>
+              </div>
+              <ol>
+                {selectedCheckIssues.map(issue => (
+                  <li key={issue.id}>
+                    <strong>{issue.title}</strong>
+                    <span>{issue.detail}</span>
+                    <small>Fix: {issue.action}</small>
+                  </li>
+                ))}
+              </ol>
+            </section>
           )}
 
           {selectedRosHealth

@@ -2427,6 +2427,65 @@ button.bn-compute-device-card:active:not(:disabled) {
   margin: 0;
 }
 
+.bn-device-motion-diagnostics {
+  margin: 0 10px 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--err) 68%, var(--line2));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--err) 8%, var(--panel));
+}
+
+.bn-device-motion-diagnostics-head {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+}
+
+.bn-device-motion-diagnostics-head .bn-device-overview-dot {
+  background: var(--err);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 14%, transparent);
+}
+
+.bn-device-motion-diagnostics strong,
+.bn-device-motion-diagnostics span,
+.bn-device-motion-diagnostics small {
+  display: block;
+}
+
+.bn-device-motion-diagnostics strong {
+  color: var(--tx1);
+  font-size: 12px;
+}
+
+.bn-device-motion-diagnostics span {
+  margin-top: 2px;
+  color: var(--tx2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bn-device-motion-diagnostics ol {
+  display: grid;
+  gap: 7px;
+  margin: 9px 0 0 17px;
+  padding: 0;
+}
+
+.bn-device-motion-diagnostics li {
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--err) 24%, var(--line));
+  border-radius: 5px;
+  background: var(--lift);
+}
+
+.bn-device-motion-diagnostics small {
+  margin-top: 5px;
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .bn-device-health-alert {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
