@@ -2776,8 +2776,6 @@ def uninstall_runtime(
     selected_stack_mode = str(stack_mode or "runtime_only").strip().lower()
     if selected_stack_mode not in {"runtime_only", "isolated"}:
         raise DeviceInstallError("The managed stack mode is invalid.")
-    if selected_stack_mode == "isolated" and selected_instance == "default":
-        raise DeviceInstallError("The default Runtime cannot own an isolated stack.")
     selected_port = int(runtime_port)
     if selected_port < 1 or selected_port > 65535:
         raise DeviceInstallError("The managed runtime port is invalid.")
