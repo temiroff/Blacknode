@@ -59,6 +59,7 @@ from device_installer import (
     discover_hardware_pairings,
     inspect_managed_service_updates,
     inspect_runtime,
+    install_hardware_environment,
     install_runtime,
     probe_device,
     restart_hardware_service,
@@ -4912,6 +4913,81 @@ def discover_and_pair_host_robots(host_id: str, req: DiscoverHostRobotsReq):
         "errors": errors,
         "summary": summary,
     }
+
+
+def _install_device_host_hardware_payload(
+    host_id: str,
+    req: DiscoverHostRobotsReq,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    try:
+        host = _device_registry.get_host_public(host_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if host is None:
+        raise HTTPException(404, "Device not found")
+    managed = host.get("managed_runtime")
+    if not isinstance(managed, dict):
+        raise HTTPException(
+            409,
+            "Enable verified SSH controls before installing Robot Hardware.",
+        )
+    if str(managed.get("management_mode") or "") == "local":
+        raise HTTPException(
+            409,
+            "Use the local Hardware package controls for this computer.",
+        )
+    if not str(req.password or ""):
+        raise HTTPException(
+            400,
+            "Enter the device SSH password to install Robot Hardware.",
+        )
+    try:
+        installed = install_hardware_environment(
+            host=str(managed.get("ssh_host") or ""),
+            port=int(managed.get("ssh_port") or 22),
+            username=str(managed.get("ssh_username") or ""),
+            password=req.password,
+            host_fingerprint=str(managed.get("host_fingerprint") or ""),
+            instance_id=str(managed.get("instance_id") or "default"),
+            progress=progress,
+        )
+        updated_management = {
+            **managed,
+            "hardware_dir": str(installed["hardware_dir"]),
+            "stack_mode": "isolated",
+        }
+        device = _device_registry.set_host_management(
+            host_id,
+            updated_management,
+        )
+    except DeviceInstallError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except DeviceRegistryError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {
+        "ok": True,
+        "device": device,
+        "install": installed,
+        "summary": (
+            "Robot Hardware package installed. Connect and configure a robot, "
+            "then use Find and attach robots."
+        ),
+    }
+
+
+@app.post("/device-hosts/{host_id}/hardware-package/install-stream")
+def install_device_host_hardware_stream(
+    host_id: str,
+    req: DiscoverHostRobotsReq,
+):
+    return _lifecycle_stream(
+        lambda progress: _install_device_host_hardware_payload(
+            host_id,
+            req,
+            progress,
+        )
+    )
 
 
 @app.patch("/device-hosts/{host_id}")
