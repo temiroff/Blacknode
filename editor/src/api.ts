@@ -1420,6 +1420,13 @@ export const api = {
     ),
   deviceStatus:     (id: string) =>
     req<HardwareDeviceStatus>('GET', `/devices/${encodeURIComponent(id)}/status`, undefined, 7000),
+  deviceMonitor:    (id: string) =>
+    req<RobotTelemetrySample>(
+      'GET',
+      `/devices/${encodeURIComponent(id)}/monitor`,
+      undefined,
+      7000,
+    ),
   controlRobot: (
     id: string,
     action: 'pause' | 'resume' | 'restart',
