@@ -4725,18 +4725,17 @@ def _uninstall_device_host_payload(
         raise HTTPException(400, str(exc)) from exc
     except DeviceRegistryError as exc:
         raise HTTPException(409, str(exc)) from exc
-    summary = (
-        (
-            "Local robot stack uninstalled"
-            if managed.get("hardware_dir")
-            else "Local Runtime uninstalled"
-        )
-        if str(managed.get("management_mode") or "") == "local"
-        else
-        "Isolated robot stack uninstalled"
-        if str(managed.get("stack_mode") or "runtime_only") == "isolated"
-        else "Runtime uninstalled"
-    )
+    if str(managed.get("management_mode") or "") == "local":
+        if result.get("source_preserved"):
+            summary = "Local services uninstalled; source checkout preserved"
+        elif managed.get("hardware_dir"):
+            summary = "Local robot stack deleted"
+        else:
+            summary = "Local Runtime installation deleted"
+    elif str(managed.get("stack_mode") or "runtime_only") == "isolated":
+        summary = "Isolated robot stack deleted"
+    else:
+        summary = "Runtime installation deleted"
     report(100, summary)
     return {
         "ok": True,

@@ -1613,7 +1613,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         ]
         self.assertEqual(
             uninstall_events[-1]["result"]["summary"],
-            "Local Runtime uninstalled",
+            "Local Runtime installation deleted",
         )
         self.assertTrue(uninstall.called)
         self.assertEqual(self.client.get("/device-hosts").json()["devices"], [])
@@ -2119,10 +2119,10 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(progress[-1], {
             "type": "progress",
             "progress": 100,
-            "message": "Isolated robot stack uninstalled",
+            "message": "Isolated robot stack deleted",
         })
         self.assertEqual(events[-1]["type"], "done")
-        self.assertEqual(events[-1]["result"]["summary"], "Isolated robot stack uninstalled")
+        self.assertEqual(events[-1]["result"]["summary"], "Isolated robot stack deleted")
         self.assertEqual(self.client.get("/device-hosts").json()["devices"], [])
 
     def test_device_can_be_renamed_without_repairing_or_exposing_tokens(self):

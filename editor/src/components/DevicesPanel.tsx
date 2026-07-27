@@ -1348,19 +1348,19 @@ export default function DevicesPanel() {
   const uninstallDevice = async (device: ComputeDevice) => {
     const managedLocally = device.managed_runtime?.management_mode === 'local'
     if (!managedLocally && !uninstallPassword) {
-      setError('Enter the SSH password to uninstall this managed runtime.')
+      setError('Enter the SSH password to delete this managed installation.')
       return
     }
     if (!window.confirm(
       managedLocally
         ? device.managed_runtime?.hardware_dir
           ? device.managed_runtime?.owned_install && device.managed_runtime?.hardware_owned_install
-            ? `Uninstall "${device.name}" from this computer? This stops Runtime and Robot Hardware, removes both editor-created installation folders and attached robot registrations, and removes this device card.`
+            ? `Delete and uninstall "${device.name}" from this computer? This stops Runtime and Robot Hardware, permanently deletes both editor-created installation folders and attached robot registrations, and removes this device card.`
             : `Uninstall "${device.name}" from this computer? This stops Runtime and Robot Hardware, removes their editor-managed configuration and attached robot registrations, preserves existing source checkouts, and removes this device card.`
           : device.managed_runtime?.owned_install
-            ? `Uninstall "${device.name}" from this computer? This stops its Runtime, removes the editor-created installation folder and attached robot registrations, and removes this device card.`
+            ? `Delete and uninstall "${device.name}" from this computer? This stops its Runtime, permanently deletes the editor-created installation folder and attached robot registrations, and removes this device card.`
             : `Uninstall "${device.name}" from this computer? This stops its Runtime, removes its editor-managed configuration and attached robot registrations, preserves the existing source checkout, and removes this device card.`
-        : `Uninstall "${device.name}" from the remote computer? This stops its runtime, removes its service, files, token, firewall rule, attached robot registrations, and this device card.`,
+        : `Delete and uninstall "${device.name}" from the remote computer? This stops its Runtime and permanently deletes its service, Runtime files, workflow packages, token, firewall rule, attached robot registrations, and this device card.`,
     )) return
     setBusy(true)
     setError(null)
@@ -1368,7 +1368,7 @@ export default function DevicesPanel() {
       ...previous,
       [device.id]: {
         progress: 1,
-        message: 'Starting managed device uninstall',
+        message: 'Starting managed installation deletion',
       },
     }))
     try {
@@ -1392,7 +1392,7 @@ export default function DevicesPanel() {
       const message = reason instanceof Error ? reason.message : String(reason)
       setActionProgress(previous => ({
         ...previous,
-        [device.id]: { progress: 0, message: `Uninstall failed: ${message}` },
+        [device.id]: { progress: 0, message: `Delete failed: ${message}` },
       }))
       setError(message)
     } finally {
@@ -2926,7 +2926,12 @@ export default function DevicesPanel() {
                         disabled={busy}
                         className="bn-device-action-button is-danger"
                       >
-                        {selectedDeviceManagedLocally ? 'Uninstall local stack' : 'Uninstall runtime'}
+                        {selectedDeviceManagedLocally
+                          && !selectedDevice.managed_runtime?.owned_install
+                          ? 'Uninstall local services'
+                          : selectedStackIsIsolated
+                            ? 'Delete robot stack'
+                            : 'Delete Runtime installation'}
                       </button>
                     </>
                   )}
@@ -4183,7 +4188,13 @@ export default function DevicesPanel() {
             >
               <div>
                 <strong>
-                  Uninstall this managed {
+                  {
+                    selectedDeviceManagedLocally
+                      && !selectedDevice.managed_runtime?.owned_install
+                      ? 'Uninstall this managed '
+                      : 'Delete and uninstall this managed '
+                  }
+                  {
                     selectedDeviceManagedLocally || selectedStackIsIsolated
                       ? 'robot stack'
                       : 'runtime'
@@ -4239,7 +4250,12 @@ export default function DevicesPanel() {
                   Cancel
                 </button>
                 <button type="submit" disabled={busy} style={dangerButton}>
-                  {busy ? 'Uninstalling…' : 'Uninstall and remove device'}
+                  {busy
+                    ? 'Deleting…'
+                    : selectedDeviceManagedLocally
+                      && !selectedDevice.managed_runtime?.owned_install
+                      ? 'Uninstall services and forget device'
+                      : 'Delete files, uninstall, and forget device'}
                 </button>
               </div>
             </form>
