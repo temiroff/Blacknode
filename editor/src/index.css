@@ -3811,6 +3811,23 @@ button.bn-compute-device-card:active:not(:disabled) {
   vector-effect: non-scaling-stroke;
 }
 
+.bn-joint-monitor-range {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: -1px 0 5px;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.bn-joint-monitor-range span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .bn-joint-monitor-speed span {
   color: var(--tx3);
   font-size: 11px;

@@ -219,7 +219,7 @@ export function RobotLiveMonitor({
         ? 'live'
         : 'waiting'
   const connected = sample?.payload?.connected
-  const armed = sample?.payload?.armed
+  const armed = sample?.payload?.armed ?? sample?.deployment?.motion_armed
   const torque = sample?.payload?.torque_enabled
   const battery = sample?.payload?.battery
 
@@ -376,13 +376,31 @@ function JointMonitorCard({
   positionUnit: string
   velocityUnit: string
 }) {
+  const lowerLimit = joint.lower_limit
+  const upperLimit = joint.upper_limit
+  const hasLimits = Number.isFinite(lowerLimit)
+    && Number.isFinite(upperLimit)
+    && Number(upperLimit) > Number(lowerLimit)
+  const unit = shortUnit(positionUnit)
+
   return (
     <article className="bn-joint-monitor-card">
       <div className="bn-joint-monitor-title">
         <strong title={joint.name}>{joint.name.replace(/_/g, ' ')}</strong>
-        <span>{joint.position.toFixed(2)} {shortUnit(positionUnit)}</span>
+        <span>{joint.position.toFixed(2)} {unit}</span>
       </div>
-      <TelemetrySparkline values={trace?.position || []} />
+      <TelemetrySparkline
+        values={trace?.position || []}
+        lowerLimit={lowerLimit}
+        upperLimit={upperLimit}
+      />
+      {hasLimits && (
+        <div className="bn-joint-monitor-range">
+          <span>{Number(lowerLimit).toFixed(0)} {unit}</span>
+          <span>Joint limits</span>
+          <span>{Number(upperLimit).toFixed(0)} {unit}</span>
+        </div>
+      )}
       <div className="bn-joint-monitor-speed">
         <span>Speed</span>
         <strong>{joint.velocity.toFixed(2)} {shortUnit(velocityUnit)}</strong>
@@ -391,16 +409,28 @@ function JointMonitorCard({
   )
 }
 
-function TelemetrySparkline({ values }: { values: number[] }) {
+function TelemetrySparkline({
+  values,
+  lowerLimit,
+  upperLimit,
+}: {
+  values: number[]
+  lowerLimit?: number
+  upperLimit?: number
+}) {
   const width = 180
   const height = 44
   const finite = values.filter(Number.isFinite)
-  const minimum = finite.length ? Math.min(...finite) : 0
-  const maximum = finite.length ? Math.max(...finite) : 0
+  const hasLimits = Number.isFinite(lowerLimit)
+    && Number.isFinite(upperLimit)
+    && Number(upperLimit) > Number(lowerLimit)
+  const minimum = hasLimits ? Number(lowerLimit) : finite.length ? Math.min(...finite) : 0
+  const maximum = hasLimits ? Number(upperLimit) : finite.length ? Math.max(...finite) : 0
   const range = Math.max(maximum - minimum, 0.001)
   const points = finite.map((value, index) => {
     const x = finite.length <= 1 ? width : index * width / (finite.length - 1)
-    const y = height - 4 - ((value - minimum) / range) * (height - 8)
+    const normalized = Math.min(1, Math.max(0, (value - minimum) / range))
+    const y = height - 4 - normalized * (height - 8)
     return `${x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
   return (
@@ -409,7 +439,9 @@ function TelemetrySparkline({ values }: { values: number[] }) {
       viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="none"
       role="img"
-      aria-label="Recent joint position"
+      aria-label={hasLimits
+        ? 'Recent joint position scaled to configured limits'
+        : 'Recent joint position'}
     >
       <line x1="0" y1={height / 2} x2={width} y2={height / 2} />
       {points && <polyline points={points} />}
