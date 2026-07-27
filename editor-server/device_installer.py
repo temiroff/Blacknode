@@ -2312,6 +2312,7 @@ def uninstall_runtime(
     instance_id: str,
     runtime_port: int,
     stack_mode: str = "runtime_only",
+    hardware_ports: list[int] | None = None,
     progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     def report(percent: int, message: str) -> None:
@@ -2331,6 +2332,15 @@ def uninstall_runtime(
     selected_port = int(runtime_port)
     if selected_port < 1 or selected_port > 65535:
         raise DeviceInstallError("The managed runtime port is invalid.")
+    selected_hardware_ports = sorted({
+        int(value)
+        for value in (hardware_ports or [])
+    })
+    if any(value < 1 or value > 65535 for value in selected_hardware_ports):
+        raise DeviceInstallError("A Robot Hardware port is invalid.")
+    hardware_ports_payload = base64.urlsafe_b64encode(
+        json.dumps(selected_hardware_ports, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
     connection = _connect(
         host,
         port,
@@ -2348,6 +2358,17 @@ progress() {
 instance="$1"
 runtime_port="$2"
 stack_mode="$3"
+hardware_ports_payload="$4"
+mapfile -t selected_hardware_ports < <(
+  python3 - "$hardware_ports_payload" <<'PY'
+import base64
+import json
+import sys
+
+for value in json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8")):
+    print(int(value))
+PY
+)
 stack_root="$HOME/Blacknode/devices/$instance"
 organized_runtime_dir="$stack_root/runtime"
 organized_token_file="$stack_root/secrets/runtime.auth.token"
@@ -2378,52 +2399,128 @@ case "$runtime_dir" in
   "$HOME/blacknode-runtimes/"*) ;;
   *) echo "Unsafe runtime directory."; exit 2 ;;
 esac
+list_hardware_units() {
+  {
+    systemctl list-unit-files 'blacknode-hardware*.service' --no-legend 2>/dev/null
+    systemctl list-units --all --type=service 'blacknode-hardware*.service' \\
+      --no-legend 2>/dev/null
+    find /etc/systemd/system /run/systemd/system -maxdepth 1 \\
+      -name 'blacknode-hardware*.service' -printf '%f\\n' 2>/dev/null
+  } | awk '{print $1}' | sort -u
+}
+hardware_unit_directory() {
+  local unit="$1"
+  local directory
+  directory="$(
+    systemctl show "$unit" --property=WorkingDirectory --value 2>/dev/null || true
+  )"
+  if [[ -z "$directory" ]]; then
+    directory="$(
+      systemctl cat "$unit" 2>/dev/null \\
+        | sed -nE 's/^WorkingDirectory=(.*)$/\\1/p' \\
+        | tail -n 1
+    )"
+  fi
+  printf '%s' "$directory"
+}
+hardware_unit_port() {
+  local unit="$1"
+  {
+    systemctl show "$unit" --property=ExecStart --value 2>/dev/null || true
+    systemctl cat "$unit" 2>/dev/null || true
+  } | sed -nE 's/.*--port[= ]"?([0-9]+).*/\\1/p' | tail -n 1
+}
+validate_hardware_directory() {
+  case "$1" in
+    "$HOME/Blacknode/devices/"*/hardware|\\
+    "$HOME/blacknode-hardware"|\\
+    "$HOME/blacknode-hardware-instances/"*) return 0 ;;
+    *) echo "Refusing to delete an unrecognized Robot Hardware directory: $1" >&2; return 1 ;;
+  esac
+}
+mapfile -t candidate_hardware_units < <(list_hardware_units)
+hardware_units=()
+declare -A hardware_directories=()
+if [[ "$stack_mode" == "isolated" ]]; then
+  validate_hardware_directory "$hardware_dir"
+  hardware_directories["$hardware_dir"]=1
+  for unit in "${candidate_hardware_units[@]}"; do
+    [[ "$unit" =~ ^blacknode-hardware([-.@][A-Za-z0-9_.@-]+)?\\.service$ ]] \\
+      || continue
+    directory="$(hardware_unit_directory "$unit")"
+    [[ "$directory" == "$hardware_dir" ]] || continue
+    hardware_units+=("$unit")
+  done
+else
+  if [[ "${#selected_hardware_ports[@]}" -gt 0 && -d "$hardware_dir" ]]; then
+    validate_hardware_directory "$hardware_dir"
+    hardware_directories["$hardware_dir"]=1
+  fi
+  for selected_hardware_port in "${selected_hardware_ports[@]}"; do
+    matches=()
+    for unit in "${candidate_hardware_units[@]}"; do
+      [[ "$unit" =~ ^blacknode-hardware([-.@][A-Za-z0-9_.@-]+)?\\.service$ ]] \\
+        || continue
+      [[ "$(hardware_unit_port "$unit")" == "$selected_hardware_port" ]] || continue
+      matches+=("$unit")
+    done
+    if [[ "${#matches[@]}" -gt 1 ]]; then
+      echo "Multiple Robot Hardware services match port $selected_hardware_port." >&2
+      exit 6
+    fi
+    [[ "${#matches[@]}" -eq 1 ]] || continue
+    unit="${matches[0]}"
+    directory="$(hardware_unit_directory "$unit")"
+    [[ -n "$directory" ]] || {
+      echo "$unit does not report its installation directory." >&2
+      exit 6
+    }
+    validate_hardware_directory "$directory"
+    hardware_units+=("$unit")
+    hardware_directories["$directory"]=1
+  done
+fi
 progress 20 "Stopping Runtime service"
 sudo systemctl stop "$service_name" >/dev/null 2>&1 || true
 sudo systemctl disable "$service_name" >/dev/null 2>&1 || true
 progress 35 "Removing Runtime service"
 sudo rm -f -- "/etc/systemd/system/$service_name"
 sudo systemctl daemon-reload
-if [[ "$stack_mode" == "isolated" ]]; then
-  case "$hardware_dir" in
-    "$HOME/Blacknode/devices/"*/hardware|\
-    "$HOME/blacknode-hardware-instances/"*) ;;
-    *) echo "Unsafe Hardware directory."; exit 2 ;;
-  esac
-  progress 48 "Finding isolated Robot Hardware services"
-  mapfile -t hardware_units < <(
-    {
-      systemctl list-unit-files 'blacknode-hardware*.service' --no-legend 2>/dev/null
-      systemctl list-units --all --type=service 'blacknode-hardware*.service' \
-        --no-legend 2>/dev/null
-    } | awk '{print $1}' | sort -u
-  )
+if [[ "${#hardware_units[@]}" -gt 0 ]]; then
+  progress 48 "Deleting Robot Hardware services"
   for hardware_unit in "${hardware_units[@]}"; do
-    [[ "$hardware_unit" =~ ^blacknode-hardware([-.@][A-Za-z0-9_.@-]+)?\\.service$ ]] \
-      || continue
-    working_directory="$(
-      systemctl show "$hardware_unit" --property=WorkingDirectory --value 2>/dev/null || true
-    )"
-    [[ "$working_directory" == "$hardware_dir" ]] || continue
-    progress 60 "Stopping isolated Robot Hardware services"
     hardware_port="$(
-      systemctl cat "$hardware_unit" 2>/dev/null \
-        | sed -nE 's/.*--port[= ]"?([0-9]+).*/\\1/p' \
-        | tail -n 1
+      hardware_unit_port "$hardware_unit"
     )"
     sudo systemctl stop "$hardware_unit" >/dev/null 2>&1 || true
     sudo systemctl disable "$hardware_unit" >/dev/null 2>&1 || true
-    sudo rm -f -- "/etc/systemd/system/$hardware_unit"
-    if [[ "$hardware_port" =~ ^[0-9]+$ ]] \
-      && command -v ufw >/dev/null 2>&1 \
+    sudo rm -f -- \\
+      "/etc/systemd/system/$hardware_unit" \\
+      "/run/systemd/system/$hardware_unit"
+    if [[ "$hardware_port" =~ ^[0-9]+$ ]] \\
+      && command -v ufw >/dev/null 2>&1 \\
       && sudo ufw status 2>/dev/null | grep -qi '^Status: active'; then
       sudo ufw --force delete allow "$hardware_port/tcp" >/dev/null 2>&1 || true
     fi
   done
-  progress 74 "Removing isolated Robot Hardware files"
   sudo systemctl daemon-reload
-  rm -rf -- "$hardware_dir"
 fi
+progress 70 "Deleting unused Robot Hardware files"
+mapfile -t remaining_hardware_units < <(list_hardware_units)
+for directory in "${!hardware_directories[@]}"; do
+  directory_in_use=false
+  for unit in "${remaining_hardware_units[@]}"; do
+    [[ "$unit" =~ ^blacknode-hardware([-.@][A-Za-z0-9_.@-]+)?\\.service$ ]] \\
+      || continue
+    if [[ "$(hardware_unit_directory "$unit")" == "$directory" ]]; then
+      directory_in_use=true
+      break
+    fi
+  done
+  if [[ "$directory_in_use" == false ]]; then
+    rm -rf -- "$directory"
+  fi
+done
 progress 84 "Removing Runtime files and firewall rule"
 if command -v ufw >/dev/null 2>&1 \
   && sudo ufw status 2>/dev/null | grep -qi '^Status: active'; then
@@ -2469,7 +2566,8 @@ progress 94 "Finalizing deletion"
             connection,
             (
                 f"sudo -S -p '' -v && bash {remote_script_path} "
-                f"{selected_instance} {selected_port} {selected_stack_mode}"
+                f"{selected_instance} {selected_port} {selected_stack_mode} "
+                f"{hardware_ports_payload}"
             ),
             stdin_text=password + "\n",
             timeout=120.0,
@@ -2482,6 +2580,7 @@ progress 94 "Finalizing deletion"
             "runtime_port": selected_port,
             "already_absent": not bool(existing),
             "stack_mode": selected_stack_mode,
+            "hardware_ports": selected_hardware_ports,
         }
     finally:
         try:

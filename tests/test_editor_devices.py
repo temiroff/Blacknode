@@ -613,19 +613,16 @@ class EditorDeviceApiTests(unittest.TestCase):
                 instance_id="instance-2",
                 runtime_port=8768,
                 stack_mode="isolated",
+                hardware_ports=[8765, 8767],
                 progress=progress.append,
             )
 
         self.assertEqual(result["stack_mode"], "isolated")
         self.assertTrue(any(item["progress"] == 60 for item in progress))
-        self.assertIn(
-            'progress 48 "Finding isolated Robot Hardware services"',
-            uploaded[0],
-        )
-        self.assertIn(
-            'progress 74 "Removing isolated Robot Hardware files"',
-            uploaded[0],
-        )
+        self.assertEqual(result["hardware_ports"], [8765, 8767])
+        self.assertIn('progress 48 "Deleting Robot Hardware services"', uploaded[0])
+        self.assertIn('progress 70 "Deleting unused Robot Hardware files"', uploaded[0])
+        self.assertIn('Refusing to delete an unrecognized Robot Hardware directory', uploaded[0])
         self.assertNotIn("ssh-password", uploaded[0])
 
     def test_robot_service_restart_resolves_exact_systemd_unit_by_port(self):
@@ -2042,6 +2039,17 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "instance_id": "instance-2",
             })
         host_id = installed.json()["device"]["id"]
+        hardware = _HardwareService()
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            attached = self.client.post(
+                f"/device-hosts/{host_id}/robots",
+                json={
+                    "name": "Follower",
+                    "base_url": "http://192.168.1.87:8765",
+                    "token": hardware.token,
+                },
+            )
+        self.assertEqual(attached.status_code, 200)
         with patch.object(server, "uninstall_runtime", return_value={
             "ok": True,
             "instance_id": "instance-2",
@@ -2065,6 +2073,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             instance_id="instance-2",
             runtime_port=8767,
             stack_mode="runtime_only",
+            hardware_ports=[8765],
             progress=None,
         )
 
@@ -2119,10 +2128,10 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(progress[-1], {
             "type": "progress",
             "progress": 100,
-            "message": "Isolated robot stack deleted",
+            "message": "Device deleted",
         })
         self.assertEqual(events[-1]["type"], "done")
-        self.assertEqual(events[-1]["result"]["summary"], "Isolated robot stack deleted")
+        self.assertEqual(events[-1]["result"]["summary"], "Device deleted")
         self.assertEqual(self.client.get("/device-hosts").json()["devices"], [])
 
     def test_device_can_be_renamed_without_repairing_or_exposing_tokens(self):

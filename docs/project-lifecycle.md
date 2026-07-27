@@ -94,6 +94,14 @@ instance directory. Device display-name changes do not rename these paths.
 Legacy `~/blacknode-runtime`, `~/blacknode-runtimes`, and Hardware checkout
 locations remain discoverable and manageable.
 
+**Delete device** stops the selected Runtime and its deployments, removes its
+Runtime checkout, synchronized workflow packages, secret, systemd service, and
+firewall rule, then removes the exact Robot Hardware services registered under
+that device. A Hardware checkout is deleted only when no remaining Hardware
+service uses it. The saved robot registrations and device card are removed
+last. Other Blacknode stacks, system ROS 2, Docker, and operating-system
+packages remain available.
+
 When another robot needs complete separation on the same Linux computer,
 choose **Install a complete isolated robot stack** during the SSH review. The
 new stack receives separate Runtime and Robot Hardware repositories,
