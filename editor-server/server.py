@@ -4080,6 +4080,13 @@ def _update_device_host_payload(
 
     report(92, "Verifying reported runtime and hardware versions")
     runtime_manifest: dict[str, Any] | None = None
+    extension_update: dict[str, Any] = {
+        "ok": True,
+        "installed": [],
+        "already_present": [],
+        "activated": [],
+        "messages": [],
+    }
     runtime_error = ""
     for _attempt in range(40):
         try:
@@ -4097,6 +4104,72 @@ def _update_device_host_payload(
         raise DeviceRegistryError(
             f"The runtime service updated but did not pass verification: {runtime_error}"
         )
+
+    if include_runtime:
+        extension_specs, extension_warnings = _runtime_extension_update_specs(
+            runtime_manifest
+        )
+        warnings.extend(extension_warnings)
+        if extension_specs:
+            if "package_refresh_v1" not in set(
+                runtime_manifest.get("features") or []
+            ):
+                raise DeviceRegistryError(
+                    "Runtime updated but does not support refreshing installed "
+                    "workflow packages. Install Runtime 0.3.15 or newer."
+                )
+            report(
+                93,
+                f"Updating {len(extension_specs)} installed workflow package"
+                f"{'s' if len(extension_specs) != 1 else ''}",
+            )
+            extension_update = _device_registry.host_client(
+                host_id
+            ).sync_packages(extension_specs)
+            if extension_update.get("ok") is not True:
+                raise DeviceRegistryError(
+                    "The Runtime updated, but its workflow packages did not."
+                )
+            # Package modules are imported into Runtime and deployment
+            # processes. Reload Runtime after refreshing the checkouts so every
+            # later deployment start sees one coherent package set.
+            report(95, "Reloading Runtime with updated workflow packages")
+            control_runtime(
+                host=str(managed.get("ssh_host") or ""),
+                port=int(managed.get("ssh_port") or 22),
+                username=str(managed.get("ssh_username") or ""),
+                password=req.password,
+                host_fingerprint=str(managed.get("host_fingerprint") or ""),
+                instance_id=str(managed.get("instance_id") or "default"),
+                action="pause",
+            )
+            control_runtime(
+                host=str(managed.get("ssh_host") or ""),
+                port=int(managed.get("ssh_port") or 22),
+                username=str(managed.get("ssh_username") or ""),
+                password=req.password,
+                host_fingerprint=str(managed.get("host_fingerprint") or ""),
+                instance_id=str(managed.get("instance_id") or "default"),
+                action="resume",
+            )
+            runtime_manifest = None
+            for _attempt in range(40):
+                try:
+                    candidate = _device_registry.host_client(host_id).manifest()
+                    if (
+                        candidate.get("service") == "blacknode-runtime"
+                        and candidate.get("protocol_version") == 1
+                    ):
+                        runtime_manifest = candidate
+                        break
+                except (DeviceRegistryError, KeyError) as exc:
+                    runtime_error = str(exc)
+                    time.sleep(0.25)
+            if runtime_manifest is None:
+                raise DeviceRegistryError(
+                    "Workflow packages updated, but Runtime did not return after "
+                    f"its package reload: {runtime_error}"
+                )
 
     verified_robots: list[dict[str, Any]] = []
     for robot in robots:
@@ -4189,6 +4262,14 @@ def _update_device_host_payload(
     summary += (
         "The runtime and robot monitoring are online, and Blacknode motion remains disarmed."
     )
+    refreshed_extensions = len(extension_update.get("already_present") or []) + len(
+        extension_update.get("installed") or []
+    )
+    if refreshed_extensions:
+        summary += (
+            f" Refreshed {refreshed_extensions} installed workflow package"
+            f"{'s' if refreshed_extensions != 1 else ''}."
+        )
     if warnings:
         summary += (
             f" Completed with {len(warnings)} warning"
@@ -4201,6 +4282,7 @@ def _update_device_host_payload(
         "device": device,
         "update": update,
         "runtime": runtime_manifest,
+        "extension_packages": extension_update,
         "robots": verified_robots,
         "stopped_deployments": stopped_deployments,
         "controlled_robots": controlled_robots,
@@ -5430,6 +5512,50 @@ def _package_git_source(path: str) -> str:
     if match:
         return f"https://{match.group(1)}/{match.group(2)}"
     return source
+
+
+def _runtime_extension_update_specs(
+    runtime_manifest: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Build latest-revision sync requests for installed extension packages."""
+    remote_package_names = {
+        str(item.get("name") or "")
+        for item in (runtime_manifest.get("packages") or [])
+        if (
+            isinstance(item, dict)
+            and str(item.get("name") or "").startswith("blacknode-")
+            and str(item.get("name") or "")
+            not in {"blacknode-runtime", "blacknode-hardware"}
+        )
+    }
+    local_packages = {
+        info.name: info
+        for info in installed_packages()
+    }
+    indexed_packages = package_index_payload().get("packages") or {}
+    specs: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for name in sorted(remote_package_names):
+        local = local_packages.get(name)
+        indexed = indexed_packages.get(name)
+        git_url = (
+            _package_git_source(str(local.path or ""))
+            if local is not None
+            else ""
+        )
+        if not git_url and isinstance(indexed, dict):
+            git_url = str(indexed.get("git_url") or "").strip()
+        if not git_url:
+            warnings.append(
+                f"{name} is installed on the Runtime but has no trusted update source."
+            )
+            continue
+        specs.append({
+            "name": name,
+            "git_url": git_url,
+            "update": True,
+        })
+    return specs, warnings
 
 
 def _workflow_target_package_specs(

@@ -81,6 +81,7 @@ class _HardwareService:
             "process_supervision_v1",
             "rollback_v1",
             "package_sync_v1",
+            "package_refresh_v1",
             "component_sync_v1",
             "deployment_ownership_v1",
             "deployment_workflow_v1",
@@ -143,6 +144,7 @@ class _HardwareService:
             })
         if path == "/packages/sync":
             installed = []
+            already_present = []
             package_index = server.package_index_payload()["packages"]
             for spec in body.get("packages", []):
                 name = spec["name"]
@@ -160,6 +162,8 @@ class _HardwareService:
                     installed.append(item)
                 elif spec.get("version"):
                     existing["version"] = spec["version"]
+                if existing is not None:
+                    already_present.append(dict(existing))
                 indexed = package_index.get(name) or {}
                 self.runtime_node_types = sorted(set(
                     self.runtime_node_types + list(indexed.get("node_types") or [])
@@ -167,7 +171,7 @@ class _HardwareService:
             return _JsonResponse({
                 "ok": True,
                 "installed": installed,
-                "already_present": [],
+                "already_present": already_present,
                 "messages": [],
             })
         if path == "/diagnostics/ros2":
@@ -2528,6 +2532,11 @@ class EditorDeviceApiTests(unittest.TestCase):
             "torque_enabled": False,
         })
         runtime = _HardwareService("runtime-token")
+        runtime.runtime_packages.append({
+            "name": "blacknode-skills",
+            "version": "0.2.2",
+            "source": "workspace",
+        })
         runtime.runtime_deployments["live"] = {
             "id": "live",
             "name": "Live workflow",
@@ -2589,6 +2598,28 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "update_managed_services",
                 return_value=update_result,
             ) as update,
+            patch.object(
+                server,
+                "_runtime_extension_update_specs",
+                return_value=([
+                    {
+                        "name": "blacknode-skills",
+                        "git_url": (
+                            "https://github.com/temiroff/blacknode-skills.git"
+                        ),
+                        "update": True,
+                    },
+                ], []),
+            ),
+            patch.object(
+                server,
+                "control_runtime",
+                return_value={
+                    "ok": True,
+                    "state": "active",
+                    "service_name": "blacknode-runtime.service",
+                },
+            ) as control,
         ):
             response = self.client.post(
                 f"/device-hosts/{host['id']}/update-stream",
@@ -2608,6 +2639,18 @@ class EditorDeviceApiTests(unittest.TestCase):
         update.assert_called_once()
         self.assertEqual(update.call_args.kwargs["hardware_ports"], [])
         self.assertTrue(update.call_args.kwargs["include_runtime"])
+        sync_request = next(
+            item
+            for item in runtime.requests
+            if item[0] == "POST" and item[1] == "/packages/sync"
+        )
+        self.assertEqual(sync_request[3]["packages"][0]["update"], True)
+        self.assertEqual(control.call_count, 2)
+        self.assertEqual(
+            result["extension_packages"]["already_present"][0]["name"],
+            "blacknode-skills",
+        )
+        self.assertIn("workflow package", result["summary"])
         self.assertNotIn("ssh-password", response.text)
 
     def test_managed_runtime_update_falls_back_to_verified_ssh_when_api_times_out(self):
@@ -2702,6 +2745,41 @@ class EditorDeviceApiTests(unittest.TestCase):
         update.assert_called_once()
         self.assertEqual(result["runtime"]["runtime_version"], "0.3.9")
         self.assertEqual(progress[-1]["progress"], 100)
+
+    def test_runtime_extension_update_specs_refresh_installed_packages(self):
+        package = SimpleNamespace(
+            name="blacknode-skills",
+            path=Path("packages/blacknode-skills"),
+        )
+        with (
+            patch.object(server, "installed_packages", return_value=[package]),
+            patch.object(
+                server,
+                "_package_git_source",
+                return_value="https://github.com/temiroff/blacknode-skills.git",
+            ),
+        ):
+            specs, warnings = server._runtime_extension_update_specs({
+                "packages": [
+                    {
+                        "name": "blacknode-runtime",
+                        "version": "0.3.15",
+                        "source": "runtime",
+                    },
+                    {
+                        "name": "blacknode-skills",
+                        "version": "0.2.3",
+                        "source": "workspace",
+                    },
+                ],
+            })
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(specs, [{
+            "name": "blacknode-skills",
+            "git_url": "https://github.com/temiroff/blacknode-skills.git",
+            "update": True,
+        }])
 
     def test_managed_update_check_reports_installed_latest_and_live_versions(self):
         hardware = _HardwareService(status_overrides={

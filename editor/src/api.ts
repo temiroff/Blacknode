@@ -228,6 +228,11 @@ export interface DeviceRuntimeStatus {
     protocol_version?: number
     runtime_version?: string
     device_id?: string
+    packages?: Array<{
+      name: string
+      version: string
+      source?: string
+    }>
     [key: string]: unknown
   }
   hardware?: {
@@ -406,6 +411,17 @@ export interface ManagedServiceUpdateResult {
   runtime: {
     runtime_version?: string
     [key: string]: unknown
+  }
+  extension_packages?: {
+    ok: boolean
+    installed: Array<{ name: string; version: string }>
+    already_present: Array<{ name: string; version: string }>
+    activated: Array<{
+      package: string
+      component: string
+      adapter: string
+    }>
+    messages: string[]
   }
   robots: Array<{
     id: string

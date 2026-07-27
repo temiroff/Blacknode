@@ -459,6 +459,12 @@ export default function DevicesPanel() {
   )
     ? `v${selectedRuntimeVersionValue}`
     : 'version not reported'
+  const selectedWorkflowPackages = (
+    selectedDeviceState?.runtime?.manifest?.packages ?? []
+  ).filter(item => (
+    item.name.startsWith('blacknode-')
+    && !['blacknode-runtime', 'blacknode-hardware'].includes(item.name)
+  ))
   const selectedHardwareVersion = (
     selectedDeviceState?.runtime?.hardware?.status?.software_version
     || selectedDeviceState?.runtime?.hardware?.installed_version
@@ -1347,9 +1353,9 @@ export default function DevicesPanel() {
           ? 'Runtime package'
           : 'Hardware package'
       : scope === 'all'
-        ? 'Runtime + Robot Hardware'
+        ? 'Runtime + workflow packages + Robot Hardware'
         : scope === 'runtime'
-          ? 'Runtime'
+          ? 'Runtime + installed workflow packages'
           : `${device.managed_runtime?.stack_mode === 'isolated' ? 'isolated' : 'shared'} Robot Hardware installation used by ${hardwareServiceCount} robot service${
             hardwareServiceCount === 1 ? '' : 's'
           }`
@@ -1366,12 +1372,12 @@ export default function DevicesPanel() {
         message: managedLocally
           ? `Preparing ${targetLabel}`
           : scope === 'runtime'
-            ? 'Preparing Runtime update'
+            ? 'Preparing Runtime + workflow package update'
             : scope === 'hardware'
               ? `Preparing shared Robot Hardware update for ${hardwareServiceCount} robot service${
                 hardwareServiceCount === 1 ? '' : 's'
               }`
-              : 'Preparing Runtime + Robot Hardware update',
+              : 'Preparing Runtime + workflow packages + Robot Hardware update',
       },
     }))
     try {
@@ -2850,7 +2856,9 @@ export default function DevicesPanel() {
                 <div>
                   <strong>Software packages</strong>
                   <span>
-                    Runtime and Hardware use the same package controls on every device.
+                    {selectedDeviceManagedLocally
+                      ? 'Runtime and Hardware use independent package controls.'
+                      : 'Updating Runtime also refreshes every installed workflow package.'}
                   </span>
                 </div>
                 <div className="bn-local-package-summary-actions">
@@ -2885,8 +2893,15 @@ export default function DevicesPanel() {
               )}
               <div className="bn-local-package-summary">
                 <SoftwarePackageSummaryCard
-                  label="Runtime package"
+                  label={selectedDeviceManagedLocally
+                    ? 'Runtime package'
+                    : 'Runtime + workflow packages'}
                   path={selectedDevice.managed_runtime?.runtime_dir || selectedDevice.runtime_url}
+                  detail={selectedDeviceManagedLocally
+                    ? undefined
+                    : `${selectedWorkflowPackages.length} installed workflow package${
+                        selectedWorkflowPackages.length === 1 ? '' : 's'
+                      } update with Runtime`}
                   state={selectedRuntimePackageState}
                   currentVersion={runtimeCurrentVersion}
                   latestVersion={runtimeLatestVersion}
@@ -3676,12 +3691,10 @@ export default function DevicesPanel() {
                         component => component.dirty || Boolean(component.error),
                       )
                     }
-                    title="Update or reinstall the Runtime and Hardware packages together"
+                    title="Update Runtime, installed workflow packages, and Hardware together"
                     onClick={() => void updateDevice(selectedDevice, 'all')}
                   >
-                    {checkedSoftwareComponents.some(component => component.update_available)
-                      ? 'Update all'
-                      : 'Reinstall all'}
+                    Update all
                   </button>
                 </div>
               )}
