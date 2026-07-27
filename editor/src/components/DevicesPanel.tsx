@@ -3264,9 +3264,14 @@ export default function DevicesPanel() {
                   path={selectedDevice.managed_runtime?.runtime_dir || selectedDevice.runtime_url}
                   detail={selectedDeviceManagedLocally
                     ? undefined
-                    : `${selectedWorkflowPackages.length} installed workflow package${
-                        selectedWorkflowPackages.length === 1 ? '' : 's'
-                      } update with Runtime`}
+                    : `Packages: ${
+                        selectedDevice.managed_runtime?.packages_dir
+                        || `${selectedDevice.managed_runtime?.runtime_dir}/packages`
+                      } · ${selectedWorkflowPackages.length
+                        ? selectedWorkflowPackages
+                          .map(item => `${item.name} v${item.version}`)
+                          .join(', ')
+                        : 'no workflow packages installed'}`}
                   state={selectedRuntimePackageState}
                   currentVersion={runtimeCurrentVersion}
                   latestVersion={runtimeLatestVersion}
@@ -4189,7 +4194,7 @@ export default function DevicesPanel() {
                     ? selectedDevice.managed_runtime.hardware_dir
                       ? `Stops the local Runtime on port ${selectedDevice.managed_runtime.runtime_port} and Robot Hardware on port ${selectedDevice.managed_runtime.hardware_port}.`
                       : `Stops the local Runtime on port ${selectedDevice.managed_runtime.runtime_port}.`
-                    : `Stops ${selectedDevice.managed_runtime.service_name}, removes only ${selectedDevice.managed_runtime.runtime_dir}, its token and port ${selectedDevice.managed_runtime.runtime_port} firewall rule.`}
+                    : `Stops ${selectedDevice.managed_runtime.service_name}, removes ${selectedDevice.managed_runtime.runtime_dir}, its packages, token and port ${selectedDevice.managed_runtime.runtime_port} firewall rule.${selectedDevice.managed_runtime.install_root ? ` The empty ${selectedDevice.managed_runtime.install_root} stack folder is also removed.` : ''}`}
                   {selectedStackIsIsolated
                     ? ` Its instance-scoped Robot Hardware services and ${selectedDevice.managed_runtime.hardware_dir} are also removed.`
                     : ''}

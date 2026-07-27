@@ -3819,7 +3819,7 @@ button.bn-compute-device-card:active:not(:disabled) {
   margin: -1px 0 5px;
   color: var(--tx3);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .bn-joint-monitor-range span:nth-child(2) {
