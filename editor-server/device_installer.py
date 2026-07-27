@@ -2436,7 +2436,7 @@ if [[ "$runtime_dir" == "$organized_runtime_dir" ]]; then
   rmdir -- "$stack_root/secrets" "$stack_root" "$HOME/Blacknode/devices" \
     "$HOME/Blacknode" >/dev/null 2>&1 || true
 fi
-progress 94 "Finalizing uninstall"
+progress 94 "Finalizing deletion"
 """
     try:
         report(10, "Inspecting the managed stack")
@@ -2447,7 +2447,7 @@ progress 94 "Finalizing uninstall"
             if discovered_port and discovered_port != selected_port:
                 raise DeviceInstallError(
                     "The runtime port changed since this device was installed. "
-                    "Inspect and pair it again before uninstalling."
+                    "Inspect and pair it again before deleting it."
                 )
         sftp = connection.client.open_sftp()
         try:
