@@ -6,6 +6,7 @@ import {
   type DeviceRobotProfile,
   type Deployment,
   type DeploymentPreflight,
+  type DeploymentPreflightCheck,
   type DeploymentPreflightStatus,
   type DeploymentState,
   type HardwareDevice,
@@ -150,6 +151,7 @@ export default function DeploymentsPanel({
   const workflowRevision = useStore(s => s.workflowRevision)
   const workflowMetadata = useStore(s => s.workflowMetadata)
   const setWorkflowRequirements = useStore(s => s.setWorkflowRequirements)
+  const loadNodeTypes = useStore(s => s.loadNodeTypes)
   const nodes = useStore(s => s.nodes)
   const nodeDefs = useStore(s => s.nodeDefs)
   const updateParam = useStore(s => s.updateParam)
@@ -159,6 +161,7 @@ export default function DeploymentsPanel({
   const [targetStatus, setTargetStatus] = useState<HardwareDeviceStatus | null>(null)
   const [requirementsBusy, setRequirementsBusy] = useState(false)
   const [profileBusyId, setProfileBusyId] = useState<string | null>(null)
+  const [dependencyRepairBusy, setDependencyRepairBusy] = useState(false)
 
   const requiredCapabilities = Array.isArray(workflowMetadata.required_capabilities)
     ? workflowMetadata.required_capabilities.map(String)
@@ -498,6 +501,55 @@ export default function DeploymentsPanel({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
+      setBusy(false)
+    }
+  }
+
+  const repairEditorDependencies = async (
+    check: DeploymentPreflightCheck,
+  ) => {
+    if (
+      !selectedDeviceId
+      || check.action !== 'enable_editor_dependencies'
+    ) return
+    const components = check.action_data?.components ?? []
+    const adapters = check.action_data?.adapters ?? []
+    if (components.length === 0 && adapters.length === 0) return
+
+    setBusy(true)
+    setDependencyRepairBusy(true)
+    setError(null)
+    setRemoteNotice(null)
+    try {
+      for (const requirement of components) {
+        await api.setPackageComponent(
+          requirement.package,
+          requirement.component,
+          true,
+        )
+      }
+      for (const requirement of adapters) {
+        await api.setPackageAdapter(
+          requirement.package,
+          requirement.component,
+          requirement.adapter,
+          true,
+        )
+      }
+      await api.reloadPackages()
+      await loadNodeTypes()
+      const result = await api.validateDeviceDeployment(selectedDeviceId)
+      setTargetStatus(result.status)
+      setPreflight(result)
+      setRemoteNotice(
+        result.ready
+          ? 'Required editor dependencies were enabled. Deployment is ready.'
+          : 'Available editor dependencies were enabled. Review the remaining preflight checks.',
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDependencyRepairBusy(false)
       setBusy(false)
     }
   }
@@ -1216,7 +1268,13 @@ export default function DeploymentsPanel({
         </div>
       </div>
 
-      {preflight && <PreflightResult result={preflight} />}
+      {preflight && (
+        <PreflightResult
+          result={preflight}
+          actionBusy={dependencyRepairBusy}
+          onAction={repairEditorDependencies}
+        />
+      )}
 
       <div className="bn-deployment-section-head">
         <div>
@@ -1325,7 +1383,15 @@ const PREFLIGHT_LABEL: Record<DeploymentPreflightStatus, string> = {
   pending: 'WAIT',
 }
 
-function PreflightResult({ result }: { result: DeploymentPreflight }) {
+function PreflightResult({
+  result,
+  actionBusy,
+  onAction,
+}: {
+  result: DeploymentPreflight
+  actionBusy: boolean
+  onAction: (check: DeploymentPreflightCheck) => void
+}) {
   return (
     <div className="bn-preflight">
       <div className={`bn-preflight-summary ${result.ready ? 'is-ready' : 'is-blocked'}`}>
@@ -1341,6 +1407,22 @@ function PreflightResult({ result }: { result: DeploymentPreflight }) {
             <div>
               <strong>{check.label}</strong>
               <span>{check.message}</span>
+              {check.action === 'enable_editor_dependencies' && (
+                <button
+                  type="button"
+                  className="bn-device-action-button is-primary"
+                  disabled={actionBusy}
+                  onClick={() => onAction(check)}
+                  style={{ ...miniButton, marginTop: 7 }}
+                >
+                  {actionBusy ? 'Enabling dependencies…' : (
+                    (check.action_data?.adapters?.length ?? 0) === 1
+                    && (check.action_data?.components?.length ?? 0) === 0
+                      ? 'Enable required adapter'
+                      : 'Fix editor dependencies'
+                  )}
+                </button>
+              )}
             </div>
           </div>
         ))}

@@ -4670,6 +4670,63 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn("blacknode-skills", target_runtime["message"])
         self.assertTrue(response.json()["ready"])
 
+    def test_preflight_returns_one_click_repair_for_disabled_editor_adapter(self):
+        hardware = _HardwareService()
+        dependency_report = {
+            "ok": False,
+            "code": "missing_adapters",
+            "message": (
+                "Required adapters need attention: "
+                "blacknode-drivers/feetech@ros2 (adapter is disabled)"
+            ),
+            "missing_packages": [],
+            "missing_components": [],
+            "missing_adapters": [{
+                "package": "blacknode-drivers",
+                "component": "feetech",
+                "adapter": "ros2",
+                "reason": "adapter is disabled",
+            }],
+        }
+
+        with (
+            patch("device_registry.urllib.request.urlopen", side_effect=hardware),
+            patch.object(
+                server,
+                "_workflow_dependency_report",
+                return_value=dependency_report,
+            ),
+        ):
+            device_id = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]["id"]
+            response = self.client.post(
+                f"/devices/{device_id}/deployment-preflight",
+                json={"workflow": _workflow([])},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        dependency_check = next(
+            item
+            for item in response.json()["checks"]
+            if item["id"] == "local_dependencies"
+        )
+        self.assertEqual(
+            dependency_check["action"],
+            "enable_editor_dependencies",
+        )
+        self.assertEqual(dependency_check["action_data"], {
+            "components": [],
+            "adapters": [{
+                "package": "blacknode-drivers",
+                "component": "feetech",
+                "adapter": "ros2",
+            }],
+        })
+        self.assertTrue(dependency_check["blocking"])
+
     def test_staging_auto_installs_extension_packages_before_upload(self):
         hardware = _HardwareService()
         workflow = _workflow([])
