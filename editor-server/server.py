@@ -6768,6 +6768,21 @@ def _device_deployment_attachments(device_id: str) -> list[dict[str, Any]]:
     return attachments
 
 
+def _ready_attachment_capabilities(device: dict[str, Any]) -> set[str]:
+    """Return enabled attachment capabilities proven ready by their latest check."""
+    return {
+        str(item.get("capability") or "").strip()
+        for item in (device.get("attachments") or [])
+        if (
+            isinstance(item, dict)
+            and item.get("enabled") is not False
+            and isinstance(item.get("last_check"), dict)
+            and item["last_check"].get("ok") is True
+            and str(item.get("capability") or "").strip()
+        )
+    }
+
+
 @app.post("/devices/{device_id}/deployment-preflight")
 def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
     try:
@@ -6966,7 +6981,7 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
         str(item)
         for item in (remote_status.get("capabilities") or [])
         if isinstance(item, str)
-    })
+    } | _ready_attachment_capabilities(device))
     if required_capabilities:
         missing_capabilities = sorted(set(required_capabilities) - set(available_capabilities))
         checks.append(_preflight_check(

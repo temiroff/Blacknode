@@ -156,6 +156,11 @@ runtime. Pairing and discovery keep physical motion disarmed.
 When a robot is added while a Project is active, Blacknode links that robot to
 the Project automatically.
 
+A successful attachment check makes that enabled attachment's stable
+capability, such as `camera`, available to deployment preflight. A stopped,
+missing, or unchecked attachment does not satisfy a workflow capability
+requirement.
+
 ## 3. Choose the workflow
 
 Return to the Project and select **Choose workflow**. Start with a tested
