@@ -604,7 +604,15 @@ export interface DeploymentPreflightCheck {
   status: DeploymentPreflightStatus
   message: string
   blocking: boolean
-  action?: 'activate_calibration' | 'select_calibration' | 'choose_matching_hardware'
+  action?:
+    | 'activate_calibration'
+    | 'select_calibration'
+    | 'choose_matching_hardware'
+    | 'enable_editor_dependencies'
+  action_data?: {
+    components?: Array<{ package: string; component: string }>
+    adapters?: Array<{ package: string; component: string; adapter: string }>
+  }
 }
 
 export interface DeploymentPreflight {

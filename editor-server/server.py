@@ -5243,6 +5243,7 @@ def _preflight_check(
     *,
     blocking: bool = False,
     action: str | None = None,
+    action_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     check = {
         "id": check_id,
@@ -5253,6 +5254,8 @@ def _preflight_check(
     }
     if action:
         check["action"] = action
+    if action_data:
+        check["action_data"] = action_data
     return check
 
 
@@ -6069,12 +6072,68 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
             "The editor can resolve every node and declared package requirement.",
         ))
     else:
+        component_repairs = sorted({
+            (
+                str(item.get("package") or ""),
+                str(item.get("component") or ""),
+            )
+            for item in dependencies.get("missing_components", [])
+            if (
+                isinstance(item, dict)
+                and str(item.get("reason") or "") == "component is disabled"
+                and str(item.get("package") or "")
+                and str(item.get("component") or "")
+            )
+        })
+        adapter_repairs = sorted({
+            (
+                str(item.get("package") or ""),
+                str(item.get("component") or ""),
+                str(item.get("adapter") or ""),
+            )
+            for item in dependencies.get("missing_adapters", [])
+            if (
+                isinstance(item, dict)
+                and str(item.get("reason") or "") in {
+                    "adapter is disabled",
+                    "parent component is disabled",
+                }
+                and str(item.get("package") or "")
+                and str(item.get("component") or "")
+                and str(item.get("adapter") or "")
+            )
+        })
+        dependency_action_data = {
+            "components": [
+                {"package": package, "component": component}
+                for package, component in component_repairs
+            ],
+            "adapters": [
+                {
+                    "package": package,
+                    "component": component,
+                    "adapter": adapter,
+                }
+                for package, component, adapter in adapter_repairs
+            ],
+        }
+        can_repair_dependencies = bool(component_repairs or adapter_repairs)
         checks.append(_preflight_check(
             "local_dependencies",
             "Editor dependencies",
             "fail",
             str(dependencies.get("message") or "Workflow dependencies are incomplete."),
             blocking=True,
+            action=(
+                "enable_editor_dependencies"
+                if can_repair_dependencies
+                else None
+            ),
+            action_data=(
+                dependency_action_data
+                if can_repair_dependencies
+                else None
+            ),
         ))
 
     try:
