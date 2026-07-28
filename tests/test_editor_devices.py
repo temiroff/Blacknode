@@ -4638,6 +4638,63 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertFalse(report["ready"])
         self.assertNotIn(hardware.token, response.text)
 
+    def test_deployment_preflight_accepts_a_ready_attachment_capability(self):
+        hardware = _HardwareService()
+        hardware.ros2_diagnostics_payload["topics"].append(
+            "/camera/image_raw [sensor_msgs/msg/Image]"
+        )
+        hardware.ros2_diagnostics_payload["topic_details"] = [{
+            "topic": "/camera/image_raw",
+            "ok": True,
+            "stdout": (
+                "Type: sensor_msgs/msg/Image\n\n"
+                "Publisher count: 1\n\nSubscription count: 0\n"
+            ),
+            "stderr": "",
+        }]
+        attachment = {
+            "attachment_id": "front_camera",
+            "display_name": "Front camera",
+            "attachment_type": "camera",
+            "capability": "camera",
+            "provider_package": "blacknode-perception",
+            "provider_component": "camera",
+            "provider_adapter": "ros2",
+            "provider_profile": "existing_topics",
+            "topic": "/camera/image_raw",
+            "message_type": "sensor_msgs/msg/Image",
+            "parent_frame": "base_link",
+            "frame_id": "camera_link",
+            "required": True,
+            "enabled": True,
+        }
+
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            device_id = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]["id"]
+            self.client.post(
+                f"/devices/{device_id}/attachments",
+                json=attachment,
+            )
+            checked = self.client.post(
+                f"/devices/{device_id}/attachments/front_camera/check",
+            )
+            response = self.client.post(
+                f"/devices/{device_id}/deployment-preflight",
+                json={"workflow": _workflow(["camera"])},
+            )
+
+        self.assertEqual(checked.status_code, 200)
+        self.assertTrue(checked.json()["check"]["ok"])
+        self.assertEqual(response.status_code, 200)
+        checks = {item["id"]: item for item in response.json()["checks"]}
+        self.assertEqual(checks["capabilities"]["status"], "pass")
+        self.assertFalse(checks["capabilities"]["blocking"])
+        self.assertIn("camera", checks["capabilities"]["message"])
+
     def test_selected_calibration_can_be_activated_and_satisfies_preflight(self):
         hardware = _HardwareService(status_overrides={
             "connection": {
