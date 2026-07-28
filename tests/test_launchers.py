@@ -66,6 +66,16 @@ def test_windows_launcher_reuses_healthy_services_and_hands_off_cleanly():
     assert 'Write-Step "Blacknode was restarted by another launcher."' in powershell
 
 
+def test_windows_starter_always_restarts_running_services():
+    batch = (ROOT / "start.bat").read_text(encoding="utf-8")
+
+    force_restart = 'set "BLACKNODE_FORCE_RESTART=1"'
+    launch = 'powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start.ps1"'
+
+    assert force_restart in batch
+    assert batch.index(force_restart) < batch.index(launch)
+
+
 def test_windows_markdown_launch_commands_are_powershell_explicit():
     markdown_files = [ROOT / "README.md", *ROOT.joinpath("docs").rglob("*.md")]
     markdown_files.extend([
