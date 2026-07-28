@@ -78,6 +78,30 @@ function parameterDisplayHint(nodeType: string, port: string): string {
   if (nodeType === 'Robot' && (port === 'require_hardware' || port === 'require_usb')) return 'Compatibility safety setting; normal Robot setup already checks the selected hardware.'
   return portDisplayHint(port, 'input')
 }
+
+const INSPECTOR_SECTION_ORDER = ['General', 'Execution', 'Calibration', 'Connection', 'Model'] as const
+type InspectorSection = typeof INSPECTOR_SECTION_ORDER[number]
+
+function inspectorSectionForInput(port: string): InspectorSection {
+  const normalized = port.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+  if (
+    normalized === 'profile'
+    || /(calibration|joint_limit|home_pose|safety_margin|extrinsic|offset)/.test(normalized)
+  ) return 'Calibration'
+  if (
+    /^(action|run_id|execution_id|job_id|command|mode)$/.test(normalized)
+    || /(timeout|retry|interval|rate_hz|max_fps)/.test(normalized)
+  ) return 'Execution'
+  if (
+    /(endpoint|host|url|topic|device_path|serial_port|socket|transport)/.test(normalized)
+    || normalized === 'port'
+  ) return 'Connection'
+  if (
+    /(model|prompt|provider|temperature|top_p|max_tokens|system_message)/.test(normalized)
+  ) return 'Model'
+  return 'General'
+}
+
 // Mirrors packages/blacknode-vision/nodes/vision.py's _PROVIDER_DEFAULT_ENDPOINTS
 // / _PROVIDER_DEFAULT_MODELS. A saved "model"/"endpoint_url" param that exactly
 // matches one of these is a placeholder left over from switching provider, not
@@ -449,11 +473,27 @@ export default function Inspector() {
   const panelContent = (() => {
     if (!node) {
       return (
-        <div style={{
+        <div className="bn-inspector-empty" style={{
           flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--tx3)', fontSize: 15, padding: 20, textAlign: 'center',
         }}>
-          Select a node on the canvas to view and edit its properties.
+          <p className="bn-inspector-empty-message">
+            Select a node on the canvas to view and edit its properties.
+          </p>
+          <div className="bn-inspector-empty-sections" aria-hidden="true">
+            {[
+              ['General', 'Name and trigger'],
+              ['Inputs', 'Node parameters'],
+              ['Outputs', 'Visible sockets'],
+              ['Documentation', 'Type reference'],
+            ].map(([title, detail]) => (
+              <div className="bn-inspector-empty-section" key={title}>
+                <span>{title}</span>
+                <small>{detail}</small>
+                <b>›</b>
+              </div>
+            ))}
+          </div>
         </div>
       )
     }
@@ -474,6 +514,12 @@ export default function Inspector() {
     const visibleInputs = propertyInputs.filter(inp =>
       !isAdvancedInput(data.type, inp) || showAdvanced || connectedPorts.has(inp)
     )
+    const inspectorInputSections = INSPECTOR_SECTION_ORDER
+      .map(title => ({
+        title,
+        inputs: visibleInputs.filter(input => inspectorSectionForInput(input) === title),
+      }))
+      .filter(section => section.inputs.length > 0)
     const inputPromoted = (port: string) => connectedPorts.has(port)
       || data.promoted_inputs == null || data.promoted_inputs.includes(port)
     const outputPromoted = (port: string) => connectedOutputPorts.has(port)
@@ -494,7 +540,7 @@ export default function Inspector() {
     return (
       <>
         {/* header */}
-        <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+        <div className="bn-inspector-node-header" style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
           <div style={{ color: 'var(--tx1)', fontWeight: 600, fontSize: 17, marginBottom: 4 }}>
             {data.type}
           </div>
@@ -526,7 +572,7 @@ export default function Inspector() {
         )}
 
         {/* params */}
-        <div style={{ padding: '12px 16px', flex: 1, overflowY: 'auto' }}>
+        <div className="bn-inspector-fields" style={{ padding: '12px 16px', flex: 1, overflowY: 'auto' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
             <button
               type="button"
@@ -560,14 +606,16 @@ export default function Inspector() {
             )}
           </div>
           {visibleInputs.length > 0 ? (
-            <>
-              <div style={{
-                color: 'var(--tx2)', fontSize: 14, fontWeight: 700,
-                letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10,
-              }}>
-                Parameters
-              </div>
-              {visibleInputs.map(inp => {
+            <div className="bn-inspector-input-sections">
+              {inspectorInputSections.map(section => (
+                <section className="bn-inspector-input-section" key={section.title}>
+                  <div className="bn-inspector-section-title" style={{
+                    color: 'var(--tx2)', fontSize: 14, fontWeight: 700,
+                    letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10,
+                  }}>
+                    {section.title}
+                  </div>
+                  {section.inputs.map(inp => {
                 const type = (data.input_types as Record<string, string>)?.[inp] ?? 'Any'
                 const def  = (data.input_defaults as Record<string, unknown>)?.[inp]
                           ?? nodeDefs[data.type]?.input_defaults?.[inp]
@@ -659,16 +707,18 @@ export default function Inspector() {
                     onChange={changeParam}
                   />
                 )
-              })}
-            </>
+                  })}
+                </section>
+              ))}
+            </div>
           ) : (
             <div style={{ color: 'var(--tx2)', fontSize: 15 }}>
               {data.type === 'ToolBox' ? 'No tools connected' : 'No inputs'}
             </div>
           )}
           {data.outputs.length > 0 && (
-            <div style={{ marginTop: 18 }}>
-              <div style={{
+            <div className="bn-inspector-output-section" style={{ marginTop: 18 }}>
+              <div className="bn-inspector-section-title" style={{
                 color: 'var(--tx2)', fontSize: 14, fontWeight: 700,
                 letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8,
               }}>
@@ -730,7 +780,7 @@ export default function Inspector() {
         )}
 
         {/* actions */}
-        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, flexShrink: 0 }}>
+        <div className="bn-inspector-actions" style={{ padding: '12px 16px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, flexShrink: 0 }}>
           {data.cooking ? (
             <button
               onClick={() => stopCook()}
@@ -762,7 +812,7 @@ export default function Inspector() {
 
       {/* ── Content panel ── */}
       {open && (
-        <div style={{
+        <div className="bn-inspector-panel" style={{
           width: panelWidth,
           height: `calc(100% - ${TOP_BAR_H}px)`,
           marginTop: TOP_BAR_H,
@@ -782,7 +832,7 @@ export default function Inspector() {
             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
           />
           {/* panel title */}
-          <div style={{
+          <div className="bn-panel-titlebar bn-inspector-titlebar" style={{
             height: TOP_BAR_H, padding: '0 14px',
             borderBottom: '1px solid var(--line)',
             display: 'flex', alignItems: 'center', flexShrink: 0,
@@ -799,7 +849,7 @@ export default function Inspector() {
       )}
 
       {/* ── Icon rail ── */}
-      <div style={{
+      <div className="bn-inspector-rail" style={{
         width: RAIL_W,
         background: 'var(--panel)',
         borderLeft: '1px solid var(--line)',
@@ -816,6 +866,7 @@ export default function Inspector() {
 
         {/* Parameters tab button */}
         <button
+          className={`bn-inspector-toggle${open ? ' is-open' : ''}`}
           onClick={() => setOpen(o => !o)}
           title="Properties"
           style={{

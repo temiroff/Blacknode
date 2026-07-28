@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import ReactFlow, {
   Background, Controls, MiniMap,
   BackgroundVariant, ReactFlowInstance, Edge, Connection, SelectionMode,
@@ -19,7 +19,7 @@ import SubgraphOutputNode from './components/SubgraphOutputNode'
 import NodePalette from './components/NodePalette'
 import Inspector from './components/Inspector'
 import NodeSearch from './components/NodeSearch'
-import { portsCompatible } from './portColors'
+import { portColor, portVisualColor, portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
 import { api, type FrameworkExportTarget, type WorkflowMetadata } from './api'
@@ -38,6 +38,29 @@ const NODE_TYPES = {
 }
 
 const TAB_H = 52  // workflow tab bar height
+const THEME_STORAGE_KEY = 'blacknode-theme'
+const UI_TEST_STORAGE_KEY = 'blacknode-ui-test'
+const NODE_DENSITY_STORAGE_KEY = 'blacknode-node-density'
+
+function loadDarkThemePreference() {
+  try {
+    return window.localStorage.getItem(THEME_STORAGE_KEY) !== 'light'
+  } catch {
+    return true
+  }
+}
+
+function loadUiTestPreference() {
+  return true
+}
+
+function loadNodeDensityPreference(): 'detailed' | 'compact' {
+  try {
+    return window.localStorage.getItem(NODE_DENSITY_STORAGE_KEY) === 'compact' ? 'compact' : 'detailed'
+  } catch {
+    return 'detailed'
+  }
+}
 
 const DEFAULT_FRAMEWORK_EXPORT_TARGETS: FrameworkExportTarget[] = [
   { id: 'python', label: 'Plain Python', description: 'Readable Blacknode Graph script.', extension: '.py' },
@@ -113,7 +136,7 @@ function nodeIdAtScreenPoint(point: { x: number; y: number }): string | null {
 
 export default function App() {
   const {
-    nodes, edges, nodeTypes, nodeDefs, serverOk, serverError, cookLog, cookActive, cookStatusHidden,
+    nodes, edges, nodeTypes, nodeDefs, selectedId, serverOk, serverError, cookLog, cookActive, cookStatusHidden,
     tabs, activeTabId, activeProject,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadApiKeyStatus, loadCustomModels, loadLearnedNodes, loadDriverStatus, loadRuntimeNodeOutputs, loadDrivers,
@@ -128,7 +151,15 @@ export default function App() {
   const rfInstance = useRef<ReactFlowInstance | null>(null)
   const pythonImportInput = useRef<HTMLInputElement | null>(null)
   const [search, setSearch] = useState<SearchState | null>(null)
-  const [isDark, setIsDark] = useState(true)
+  const [isDark, setIsDark] = useState(loadDarkThemePreference)
+  const [isUiTest, setIsUiTest] = useState(loadUiTestPreference)
+  const [nodeDensity, setNodeDensity] = useState<'detailed' | 'compact'>(loadNodeDensityPreference)
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null)
+  const [hoveredPort, setHoveredPort] = useState<{
+    nodeId: string
+    port: string
+    dir: 'input' | 'output'
+  } | null>(null)
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
   const [tabDraft, setTabDraft] = useState('')
   const [savingWorkflow, setSavingWorkflow] = useState(false)
@@ -164,9 +195,52 @@ export default function App() {
   const menuTab = tabMenu ? tabs.find(tab => tab.id === tabMenu.tabId) : null
   const pendingCloseTab = pendingClose ? tabs.find(tab => tab.id === pendingClose.tabId) : null
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light')
+  useLayoutEffect(() => {
+    const theme = isDark ? 'dark' : 'light'
+    document.documentElement.setAttribute('data-theme', theme)
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch {
+      // The selected theme still applies for this session when storage is unavailable.
+    }
   }, [isDark])
+
+  useLayoutEffect(() => {
+    if (isUiTest) {
+      document.documentElement.setAttribute('data-ui-test', 'refined')
+    } else {
+      document.documentElement.removeAttribute('data-ui-test')
+    }
+    try {
+      window.localStorage.setItem(UI_TEST_STORAGE_KEY, isUiTest ? 'refined' : 'standard')
+    } catch {
+      // The comparison mode still applies for this session when storage is unavailable.
+    }
+  }, [isUiTest])
+
+  useLayoutEffect(() => {
+    document.documentElement.setAttribute('data-node-density', isUiTest ? nodeDensity : 'detailed')
+    try {
+      window.localStorage.setItem(NODE_DENSITY_STORAGE_KEY, nodeDensity)
+    } catch {
+      // The density remains available for this editor session.
+    }
+  }, [isUiTest, nodeDensity])
+
+  useEffect(() => {
+    const onPortHover = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        nodeId?: string
+        port?: string
+        dir?: 'input' | 'output'
+      } | null>).detail
+      setHoveredPort(detail?.nodeId && detail.port && detail.dir
+        ? { nodeId: detail.nodeId, port: detail.port, dir: detail.dir }
+        : null)
+    }
+    window.addEventListener('blacknode:port-hover', onPortHover)
+    return () => window.removeEventListener('blacknode:port-hover', onPortHover)
+  }, [])
 
   useEffect(() => {
     return () => {
@@ -1114,6 +1188,10 @@ export default function App() {
     LIVE_STREAM_NODE_TYPES.has(n.data.type) &&
     n.data.portResults?.streaming === true
   )).length
+  const cameraStreamCount = nodes.filter(n => (
+    n.data.type.startsWith('Camera')
+    && n.data.portResults?.streaming === true
+  )).length
   const managedRunCount = nodes.filter(n => n.data.type === 'ROS2Run' && n.data.portResults?.running === true).length
   const controllerNodes = nodes.filter(n => (
     n.data.type === 'RobotFollow' || n.data.type === 'ROS2LeaderFollower'
@@ -1136,11 +1214,89 @@ export default function App() {
   const activelyUpdatingCount = liveStreamCount + managedRunCount + controllerCount + manualMoveCount + liveDashboardCount + liveOutputCount
   const lastRunNodeCount = Math.max(0, nodes.length - activelyUpdatingCount - blockedControllerCount - waitingControllerCount)
   const runtimeActive = liveStreamCount > 0 || managedRunCount > 0 || controllerRunningCount > 0 || manualMoveCount > 0
+  const visibleEdges = useMemo(() => {
+    const nodesById = new Map(nodes.map(node => [node.id, node]))
+    return edges.map(edge => {
+      const connected = !selectedId || edge.source === selectedId || edge.target === selectedId
+      const source = nodesById.get(edge.source)
+      const sourceActive = Boolean(
+        source?.data?.cooking
+        || source?.data?.replayStatus === 'running'
+        || source?.data?.replayStatus === 'model'
+        || source?.data?.replayStatus === 'tool'
+        || source?.data?.portResults?.streaming === true
+        || source?.data?.portResults?.running === true
+        || source?.data?.portResults?.live === true,
+      )
+      const portHovered = Boolean(hoveredPort && (
+        (
+          hoveredPort.dir === 'output'
+          && edge.source === hoveredPort.nodeId
+          && edge.sourceHandle === hoveredPort.port
+        )
+        || (
+          hoveredPort.dir === 'input'
+          && edge.target === hoveredPort.nodeId
+          && edge.targetHandle === hoveredPort.port
+        )
+      ))
+      const sourceType = String(source?.data?.output_types?.[edge.sourceHandle || ''] ?? 'Any')
+      const target = nodesById.get(edge.target)
+      const targetType = String(target?.data?.input_types?.[edge.targetHandle || ''] ?? 'Any')
+      const wireType = sourceType === 'Any' ? targetType : sourceType
+      return {
+        ...edge,
+        style: {
+          ...edge.style,
+          stroke: edge.style?.stroke ?? portColor(wireType),
+          '--bn-edge-color': portVisualColor(wireType),
+        } as React.CSSProperties,
+        className: [
+          edge.className,
+          selectedId ? (connected ? 'bn-edge-connected' : 'bn-edge-dimmed') : '',
+          sourceActive ? 'bn-edge-executing' : '',
+          edge.id === hoveredEdgeId ? 'bn-edge-hovered' : '',
+          portHovered ? 'bn-edge-port-hover' : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      }
+    })
+  }, [edges, hoveredEdgeId, hoveredPort, nodes, selectedId])
+  const visibleNodes = useMemo(() => {
+    const endpoints = new Set<string>()
+    if (hoveredEdgeId) {
+      const edge = edges.find(candidate => candidate.id === hoveredEdgeId)
+      if (edge) {
+        endpoints.add(edge.source)
+        endpoints.add(edge.target)
+      }
+    }
+    if (hoveredPort) {
+      endpoints.add(hoveredPort.nodeId)
+      for (const edge of edges) {
+        const matches = hoveredPort.dir === 'output'
+          ? edge.source === hoveredPort.nodeId && edge.sourceHandle === hoveredPort.port
+          : edge.target === hoveredPort.nodeId && edge.targetHandle === hoveredPort.port
+        if (matches) {
+          endpoints.add(edge.source)
+          endpoints.add(edge.target)
+        }
+      }
+    }
+    if (endpoints.size === 0) return nodes
+    return nodes.map(node => ({
+      ...node,
+      className: [node.className, endpoints.has(node.id) ? 'bn-wire-endpoint' : '']
+        .filter(Boolean)
+        .join(' '),
+    }))
+  }, [edges, hoveredEdgeId, hoveredPort, nodes])
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
+    <div className="bn-editor-shell" style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
       <NodePalette />
 
-      <div style={{ flex: 1, position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver} onMouseMove={trackMouseFlowPos}>
+      <div className="bn-editor-main" style={{ flex: 1, position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver} onMouseMove={trackMouseFlowPos}>
 
         {/* ── top bar ── */}
         <div className="bn-topbar" style={{
@@ -1164,101 +1320,147 @@ export default function App() {
           </div>
 
           <div className="bn-topbar-controls">
-          <select
-            className="bn-top-select"
-            value={exportingTarget}
-            onChange={e => void handleFrameworkExport(e.target.value)}
-            disabled={!serverOk || nodes.length === 0 || Boolean(exportingTarget)}
-            title="Export current graph"
-          >
-            <option value="">{exportingTarget ? 'Exporting...' : 'Export'}</option>
-            {frameworkExportTargets.map(target => (
-              <option key={target.id} value={target.id}>{target.label}</option>
-            ))}
-          </select>
+            <div className="bn-topbar-group bn-topbar-file-group" aria-label="File controls">
+              <span className="bn-topbar-group-label">File</span>
+              <select
+                className="bn-top-select"
+                value={exportingTarget}
+                onChange={e => void handleFrameworkExport(e.target.value)}
+                disabled={!serverOk || nodes.length === 0 || Boolean(exportingTarget)}
+                title="Export current graph"
+              >
+                <option value="">{exportingTarget ? 'Exporting...' : 'Export'}</option>
+                {frameworkExportTargets.map(target => (
+                  <option key={target.id} value={target.id}>{target.label}</option>
+                ))}
+              </select>
 
-          <input
-            ref={pythonImportInput}
-            type="file"
-            accept=".py,.json,application/json,text/x-python"
-            style={{ display: 'none' }}
-            onChange={handlePythonImport}
-          />
+              <input
+                ref={pythonImportInput}
+                type="file"
+                accept=".py,.json,application/json,text/x-python"
+                style={{ display: 'none' }}
+                onChange={handlePythonImport}
+              />
 
-          <button
-            className="bn-top-button"
-            onClick={() => pythonImportInput.current?.click()}
-            disabled={!serverOk || importingFile}
-            title="Import a workflow JSON, Python export, or LangGraph export"
-          >
-            {importingFile ? 'Importing...' : 'Import'}
-          </button>
+              <button
+                className="bn-top-button"
+                onClick={() => pythonImportInput.current?.click()}
+                disabled={!serverOk || importingFile}
+                title="Import a workflow JSON, Python export, or LangGraph export"
+              >
+                {importingFile ? 'Importing...' : 'Import'}
+              </button>
+            </div>
 
-          <button
-            className="bn-top-button bn-top-run-button"
-            onClick={() => (cookActive ? stopCook() : void handleRunGraph('once'))}
-            disabled={!serverOk || (!cookActive && nodes.length === 0)}
-            title={cookActive ? 'Stop the current evaluation' : 'Evaluate the graph once. Live-capable nodes return one snapshot and do not keep streaming.'}
-          >
-            {cookActive ? '■ Stop run' : '▶ Run once'}
-          </button>
+            <div className="bn-topbar-group bn-topbar-run-group" aria-label="Run controls">
+              <span className="bn-topbar-group-label">Run</span>
+              <button
+                className="bn-top-button bn-top-run-button"
+                onClick={() => (cookActive ? stopCook() : void handleRunGraph('once'))}
+                disabled={!serverOk || (!cookActive && nodes.length === 0)}
+                title={cookActive ? 'Stop the current evaluation' : 'Evaluate the graph once. Live-capable nodes return one snapshot and do not keep streaming.'}
+              >
+                {cookActive ? '■ Stop run' : '▶ Run once'}
+              </button>
 
-          <button
-            className="bn-top-button bn-top-run-button"
-            onClick={() => void handleRunGraph('live')}
-            disabled={!serverOk || cookActive || nodes.length === 0}
-            title={liveCapableCount > 0
-              ? `Start ${liveCapableCount} live-capable node${liveCapableCount === 1 ? '' : 's'}; evaluate the other ${runOnceNodeCount} node${runOnceNodeCount === 1 ? '' : 's'} once.`
-              : 'No live-capable nodes are present; this will run the graph once.'}
-          >
-            ● Go live
-          </button>
+              <button
+                className="bn-top-button bn-top-run-button"
+                onClick={() => void handleRunGraph('live')}
+                disabled={!serverOk || cookActive || nodes.length === 0}
+                title={liveCapableCount > 0
+                  ? `Start ${liveCapableCount} live-capable node${liveCapableCount === 1 ? '' : 's'}; evaluate the other ${runOnceNodeCount} node${runOnceNodeCount === 1 ? '' : 's'} once.`
+                  : 'No live-capable nodes are present; this will run the graph once.'}
+              >
+                ● Go live
+              </button>
 
-          {runtimeActive && (
+              {runtimeActive && (
+                <button
+                  className="bn-top-button bn-top-streaming-button"
+                  onClick={() => void handleStopRuntime()}
+                  disabled={!serverOk || runtimeStopPending}
+                  title={`Graph is mixed: ${liveCapableCount} live-capable node${liveCapableCount === 1 ? '' : 's'} and ${runOnceNodeCount} run-once node${runOnceNodeCount === 1 ? '' : 's'}. Stop active streams and ROS 2 processes.`}
+                >
+                  <span className="bn-top-live-dot" />
+                  <span>{runtimeStopPending
+                    ? 'Stopping...'
+                    : `LIVE · ${activelyUpdatingCount} updating${blockedControllerCount ? ` · ${blockedControllerCount} blocked` : ''}${waitingControllerCount ? ` · ${waitingControllerCount} waiting` : ''} · ${lastRunNodeCount} last-run`}</span>
+                  <span className="bn-top-streaming-stop">Stop</span>
+                </button>
+              )}
+
+              <button
+                className="bn-top-button"
+                onClick={handleResetRun}
+                title="Stop active work and clear any stuck running state"
+              >
+                Reset Run
+              </button>
+            </div>
+
+            <div className="bn-topbar-group bn-topbar-view-group" aria-label="View controls">
+              <span className="bn-topbar-group-label">View</span>
+              <button
+                className="bn-top-button"
+                onClick={() => void handleOrganize()}
+                title="Organize current graph"
+              >
+                Organize
+              </button>
+
+              <button
+                className="bn-top-button"
+                onClick={() => setIsDark(d => !d)}
+                title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                Theme
+              </button>
+
+              <button
+                className={`bn-top-button bn-ui-test-button${isUiTest ? ' is-active' : ''}`}
+                onClick={() => setIsUiTest(active => !active)}
+                title={isUiTest ? 'Return to the standard Blacknode interface' : 'Compare the refined UI experiment'}
+                aria-pressed={isUiTest}
+              >
+                UI Test
+              </button>
+
+              <span className="bn-node-density-controls" aria-label="Node detail level">
+                <button
+                  className={`bn-node-density-button${nodeDensity === 'compact' ? ' is-active' : ''}`}
+                  onClick={() => setNodeDensity('compact')}
+                  title="Show compact node cards for large workflows"
+                  aria-pressed={nodeDensity === 'compact'}
+                >
+                  Compact
+                </button>
+                <button
+                  className={`bn-node-density-button${nodeDensity === 'detailed' ? ' is-active' : ''}`}
+                  onClick={() => setNodeDensity('detailed')}
+                  title="Show full node controls, previews, and port labels"
+                  aria-pressed={nodeDensity === 'detailed'}
+                >
+                  Detailed
+                </button>
+              </span>
+
+              <button
+                className="bn-top-button"
+                onClick={() => void reset()}
+              >
+                Clear
+              </button>
+            </div>
+
             <button
-              className="bn-top-button bn-top-streaming-button"
-              onClick={() => void handleStopRuntime()}
-              disabled={!serverOk || runtimeStopPending}
-              title={`Graph is mixed: ${liveCapableCount} live-capable node${liveCapableCount === 1 ? '' : 's'} and ${runOnceNodeCount} run-once node${runOnceNodeCount === 1 ? '' : 's'}. Stop active streams and ROS 2 processes.`}
+              className="bn-top-button bn-top-save-button"
+              onClick={() => void handleSaveWorkflow()}
+              disabled={!activeTab || savingWorkflow}
+              title="Save active workflow"
             >
-              <span className="bn-top-live-dot" />
-              <span>{runtimeStopPending
-                ? 'Stopping...'
-                : `LIVE · ${activelyUpdatingCount} updating${blockedControllerCount ? ` · ${blockedControllerCount} blocked` : ''}${waitingControllerCount ? ` · ${waitingControllerCount} waiting` : ''} · ${lastRunNodeCount} last-run`}</span>
-              <span className="bn-top-streaming-stop">Stop</span>
+              {savingWorkflow ? 'Saving…' : saveOk ? 'Saved' : 'Save'}
             </button>
-          )}
-
-          <button
-            className="bn-top-button"
-            onClick={handleResetRun}
-            title="Stop active work and clear any stuck running state"
-          >
-            Reset Run
-          </button>
-
-          <button
-            className="bn-top-button"
-            onClick={() => void handleOrganize()}
-            title="Organize current graph"
-          >
-            Organize
-          </button>
-
-          <button
-            className="bn-top-button"
-            onClick={() => setIsDark(d => !d)}
-            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            Theme
-          </button>
-
-          <button
-            className="bn-top-button"
-            onClick={() => void reset()}
-          >
-            Clear
-          </button>
 
           <span className="bn-backend-status" style={{
             padding: '3px 10px',
@@ -1286,7 +1488,7 @@ export default function App() {
         </div>
 
         {/* ── workflow tab bar ── */}
-        <div style={{
+        <div className="bn-workflow-tabs" style={{
           position: 'absolute', top: topbarH, left: 0, right: 0, zIndex: 10,
           height: TAB_H,
           background: 'var(--tabbar)',
@@ -1327,6 +1529,7 @@ export default function App() {
             const editing = editingTabId === tab.id
             return (
               <div
+                className={`bn-workflow-tab${active ? ' is-active' : ''}`}
                 key={tab.id}
                 onClick={() => { setTabMenu(null); if (!editing) void switchTab(tab.id) }}
                 onMouseDown={e => { if (e.button === 2) openTabMenu(e, tab.id) }}
@@ -1441,6 +1644,7 @@ export default function App() {
           </button>
 
           <button
+            className="bn-tab-save-button"
             onClick={() => void handleSaveWorkflow()}
             disabled={!activeTab || savingWorkflow}
             title="Save active workflow"
@@ -1765,8 +1969,8 @@ export default function App() {
         })()}
 
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={visibleNodes}
+          edges={visibleEdges}
           nodeTypes={NODE_TYPES}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
@@ -1776,6 +1980,8 @@ export default function App() {
           onNodeDragStart={onNodeDragStart}
           onNodeDragStop={onNodeDragStop}
           onEdgeDoubleClick={onEdgeDoubleClick}
+          onEdgeMouseEnter={(_, edge) => setHoveredEdgeId(edge.id)}
+          onEdgeMouseLeave={() => setHoveredEdgeId(null)}
           onEdgeUpdateStart={onEdgeUpdateStart}
           onEdgeUpdate={onEdgeUpdate}
           onEdgeUpdateEnd={onEdgeUpdateEnd}
@@ -1818,7 +2024,80 @@ export default function App() {
           />
           <Controls />
           <MiniMap nodeColor={() => 'var(--lift)'} />
+          {nodes.length === 0 && (
+            <div className="bn-canvas-empty-state">
+              <div className="bn-canvas-empty-content">
+                <span className="bn-canvas-empty-mark" aria-hidden="true">+</span>
+                <h1>Create your first workflow</h1>
+                <p>Drag nodes from the sidebar or start with a reusable template.</p>
+                <div>
+                  <button
+                    type="button"
+                    className="bn-canvas-empty-primary"
+                    onClick={() => window.dispatchEvent(new CustomEvent('blacknode:open-panel', {
+                      detail: { tab: 'nodes' },
+                    }))}
+                  >
+                    Add node
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent('blacknode:open-panel', {
+                      detail: { tab: 'templates' },
+                    }))}
+                  >
+                    Browse templates
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </ReactFlow>
+
+        <div className="bn-execution-status-strip" role="status" aria-label="Blacknode execution status">
+          <span className={`bn-status-item ${serverOk ? 'is-active' : 'is-error'}`}>
+            <i />
+            Backend {serverOk ? 'connected' : 'offline'}
+          </span>
+          <span className={`bn-status-item ${cookActive || runtimeActive ? 'is-active' : 'is-muted'}`}>
+            <i />
+            {cookActive ? 'Evaluating graph' : runtimeActive ? 'Runtime live' : 'Runtime idle'}
+          </span>
+          <span className={`bn-status-item ${managedRunCount > 0 ? 'is-active' : 'is-muted'}`}>
+            <i />
+            ROS 2 {managedRunCount > 0 ? `${managedRunCount} active` : 'idle'}
+          </span>
+          <span className={`bn-status-item ${
+            blockedControllerCount > 0
+              ? 'is-error'
+              : controllerCount > 0
+                ? 'is-active'
+                : waitingControllerCount > 0
+                  ? 'is-warning'
+                  : 'is-muted'
+          }`}>
+            <i />
+            Robot {
+              blockedControllerCount > 0
+                ? `${blockedControllerCount} blocked`
+                : controllerCount > 0
+                  ? `${controllerCount} live`
+                  : waitingControllerCount > 0
+                    ? `${waitingControllerCount} waiting`
+                    : 'idle'
+            }
+          </span>
+          <span className={`bn-status-item ${cameraStreamCount > 0 ? 'is-active' : 'is-muted'}`}>
+            <i />
+            Camera {cameraStreamCount > 0 ? `${cameraStreamCount} streaming` : 'idle'}
+          </span>
+          <span className="bn-status-spacer" />
+          <span className="bn-status-metric">{nodes.length} nodes</span>
+          <span className="bn-status-metric">{edges.length} wires</span>
+          {liveStreamCount > cameraStreamCount && (
+            <span className="bn-status-metric">{liveStreamCount} streams</span>
+          )}
+        </div>
       </div>
 
       <Inspector />

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
-import { CATEGORIES } from '../categories'
+import BlacknodeLogo from './BlacknodeLogo'
+import { CATEGORIES, familyColor } from '../categories'
 import { CORE_GROUP, componentDisplayName, groupForPackage, packageGroupIndex } from '../packageGroups'
 import { freeCanvasSpot } from '../placement'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from '../pythonToolPresets'
@@ -17,6 +18,7 @@ import ScriptEditor from './ScriptEditor'
 import TemplateGallery from './TemplateGallery'
 import WorkflowManager from './WorkflowManager'
 import ProjectPanel from './ProjectPanel'
+import NodeGlyph from './NodeGlyph'
 
 // Curated ordering for the built-in categories; anything else sorts by name.
 const CATEGORY_ORDER = Object.keys(CATEGORIES)
@@ -408,13 +410,16 @@ export default function NodePalette() {
     if (nested && count === 0) {
       return (
         <div
+          className="bn-node-category is-empty is-nested"
           title="Declared by the package but not implemented yet"
           style={{
             display: 'flex', alignItems: 'center', gap: 7,
             padding: '4px 12px 4px 24px', color: 'var(--tx3)',
             fontFamily: 'var(--font-ui)', opacity: 0.5, cursor: 'default',
-          }}
+            '--bn-category-accent': familyColor(label, color),
+          } as React.CSSProperties}
         >
+          <span className="bn-node-category-strip" />
           <span style={{ width: 10 }} />
           <span style={{
             width: 5, height: 5, borderRadius: 2, flexShrink: 0,
@@ -432,6 +437,7 @@ export default function NodePalette() {
     }
     return (
       <button
+        className={`bn-node-category${nested ? ' is-nested' : ' is-root'}${open ? ' is-open' : ''}`}
         onClick={() => toggleGroup(key)}
         style={{
           width: '100%',
@@ -446,10 +452,12 @@ export default function NodePalette() {
           padding: nested ? '4px 12px 4px 24px' : '8px 12px',
           textAlign: 'left',
           fontFamily: 'var(--font-ui)',
-        }}
+          '--bn-category-accent': familyColor(label, color),
+        } as React.CSSProperties}
         onMouseEnter={e => { if (!open || nested) e.currentTarget.style.background = 'var(--hover)' }}
         onMouseLeave={e => { if (!open || nested) e.currentTarget.style.background = 'transparent' }}
       >
+        <span className="bn-node-category-strip" />
         <span style={{ width: 10, color: 'var(--tx3)', fontSize: 14, lineHeight: 1 }}>
           {open ? '-' : '+'}
         </span>
@@ -482,7 +490,7 @@ export default function NodePalette() {
     )
   }
 
-  const renderNodeItem = (type: string, color: string) => (
+  const renderNodeItem = (type: string, color: string, family: string) => (
     <div
       key={type}
       className={type === learnedNodeHighlight ? 'bn-node-palette-item bn-learned-node-pulse' : 'bn-node-palette-item'}
@@ -501,7 +509,8 @@ export default function NodePalette() {
         margin: '1px 6px',
         userSelect: 'none',
         borderLeft: '2px solid transparent',
-      }}
+        '--bn-category-accent': familyColor(family, color),
+      } as React.CSSProperties}
       onMouseEnter={e => {
         e.currentTarget.style.background = 'var(--hover)'
         e.currentTarget.style.color = 'var(--tx1)'
@@ -513,7 +522,8 @@ export default function NodePalette() {
         e.currentTarget.style.borderLeftColor = 'transparent'
       }}
     >
-      {type}
+      <NodeGlyph type={type} className="bn-node-palette-glyph" />
+      <span className="bn-node-palette-label">{type}</span>
     </div>
   )
 
@@ -578,7 +588,7 @@ export default function NodePalette() {
       )}
 
       {/* ── Icon rail ── */}
-      <div style={{
+      <div className="bn-primary-rail" style={{
         width: RAIL_W,
         background: 'var(--panel)',
         borderRight: '1px solid var(--line)',
@@ -587,7 +597,7 @@ export default function NodePalette() {
         alignItems: 'stretch',
         flexShrink: 0,
       }}>
-        <div style={{
+        <div className="bn-primary-rail-logo" style={{
           height: TOP_BAR_H,
           borderBottom: '1px solid var(--line)',
           display: 'flex',
@@ -595,24 +605,10 @@ export default function NodePalette() {
           justifyContent: 'center',
           flexShrink: 0,
         }}>
-          <span style={{
-            width: 34,
-            height: 30,
-            border: '1px solid var(--line2)',
-            borderRadius: 7,
-            color: 'var(--tx2)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: 'var(--font-ui)',
-            fontSize: 14,
-            fontWeight: 800,
-          }}>
-            BN
-          </span>
+          <BlacknodeLogo className="bn-rail-logo" label="Blacknode" />
         </div>
 
-        <div style={{
+        <div className="bn-primary-rail-items" style={{
           display: 'flex',
           flex: 1,
           minHeight: 0,
@@ -626,6 +622,7 @@ export default function NodePalette() {
             return (
               <button
                 key={tab.id}
+                className={`bn-rail-button${active ? ' is-active' : ''}`}
                 onClick={() => selectTab(tab.id)}
                 title={tab.label}
                 style={{
@@ -680,7 +677,7 @@ export default function NodePalette() {
 
       {/* ── Content panel ── */}
       {activeTab && (
-        <div style={{
+        <div className="bn-palette-panel" style={{
           width: panelWidth,
           height: `calc(100% - ${TOP_BAR_H}px)`,
           marginTop: TOP_BAR_H,
@@ -710,7 +707,7 @@ export default function NodePalette() {
           />
 
           {/* panel title */}
-          <div style={{
+          <div className="bn-panel-titlebar" style={{
             height: TOP_BAR_H,
             padding: '0 14px',
             borderBottom: '1px solid var(--line)',
@@ -734,11 +731,11 @@ export default function NodePalette() {
             </span>
           </div>
 
-          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div className="bn-palette-panel-content" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
             {/* ── NODES ── */}
             {activeTab === 'nodes' && (
-              <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+              <div className="bn-node-palette-groups" style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
                 {paletteGroups.map(group => (
                   <div key={group.name} style={{ marginBottom: 4 }}>
                     {renderGroupHeader(group.name, group.name, group.color, group.count)}
@@ -748,13 +745,13 @@ export default function NodePalette() {
                           nodes sit directly under it, above the real subgroups. */}
                       {group.subgroups
                         .filter(sub => sub.name === group.name)
-                        .flatMap(sub => sub.types.map(type => renderNodeItem(type, sub.color)))}
+                        .flatMap(sub => sub.types.map(type => renderNodeItem(type, sub.color, group.name)))}
                       {group.subgroups.filter(sub => sub.name !== group.name).map(sub => {
                         const subKey = `${group.name}/${sub.name}`
                         return (
                           <div key={subKey}>
                             {renderGroupHeader(subKey, sub.name, sub.color, sub.types.length, true)}
-                            {openGroups.has(subKey) && sub.types.map(type => renderNodeItem(type, sub.color))}
+                            {openGroups.has(subKey) && sub.types.map(type => renderNodeItem(type, sub.color, sub.name))}
                           </div>
                         )
                       })}

@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { useStore } from '../store'
 import NodeStatus from './NodeStatus'
 import type { NodeCookState } from '../types'
+import { nodeFamilyColor } from '../categories'
 import {
   HUGGING_FACE_API_KEY_PROVIDER,
   NVIDIA_API_KEY_PROVIDER,
@@ -62,9 +63,23 @@ export default function NodeFrame({
       : ''
   const credentialLabel = usesNvidiaKey ? 'NIM' : 'HF'
   const credentialConfigured = Boolean(credentialProvider && apiKeyStatus[credentialProvider]?.configured)
+  const executing = Boolean(
+    data.cooking
+    || data.replayStatus === 'running'
+    || data.replayStatus === 'model'
+    || data.replayStatus === 'tool',
+  )
+  const runtimeError = Boolean(data.cookError || data.replayStatus === 'error' || data.portResults?.ok === false)
+  const runtimeLive = Boolean(
+    data.portResults?.streaming === true
+    || data.portResults?.running === true
+    || data.portResults?.live === true,
+  )
+  const familyAccent = nodeFamilyColor(nodeType || '', color)
 
   return (
     <div
+      className={`bn-node-frame${selected ? ' is-selected' : ''}${data.replayFocused ? ' is-replay-focused' : ''}${executing ? ' is-executing' : ''}${runtimeError ? ' has-runtime-error' : ''}${runtimeLive ? ' is-runtime-live' : ''}`}
       data-bn-node-frame={id}
       onClick={() => selectNode(id)}
       onMouseEnter={onMouseEnter}
@@ -86,8 +101,9 @@ export default function NodeFrame({
         cursor: 'default',
         boxSizing: 'border-box',
         overflow: 'visible',
+        '--bn-node-accent': familyAccent,
         ...style,
-      }}
+      } as CSSProperties}
     >
       <NodeStatus data={data} />
       {driverName && (() => {

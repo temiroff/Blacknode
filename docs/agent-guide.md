@@ -157,6 +157,9 @@ Before creating a learned node:
 - set `requires_network=False` unless the code must reach the network
 - set a useful `category` so the node lands in the right palette group instead
   of the default `Learned`
+- use the canonical [Blacknode family color](design-language.md) when the
+  category belongs to Core, Agent, Robot, Perception, ROS 2, CUDA, Controllers,
+  Drivers, Output, or Values
 - generate only a `def run(...)` function and make sure its parameters match the
   declared input ports
 - after creation, call `list_learned_nodes`, use the learned node in the visual

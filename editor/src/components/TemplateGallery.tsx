@@ -9,10 +9,24 @@ import {
   type TemplateMeta,
 } from '../api'
 import { useStore } from '../store'
+import { familyColor, packageFamilyName } from '../categories'
+import NodeGlyph from './NodeGlyph'
 
 interface TemplateGalleryProps {
   initialQuery?: string
   openInNewTab?: boolean
+}
+
+function templateTags(template: TemplateMeta): string[] {
+  const tags = [
+    ...(template.categories ?? []).filter(category => category !== 'Custom'),
+    ...(template.required_packages ?? []).map(packageFamilyName),
+  ]
+  if (tags.length === 0 && template.group) tags.push(template.group)
+  return tags.filter((tag, index) => (
+    tag
+    && tags.findIndex(candidate => candidate.toLowerCase() === tag.toLowerCase()) === index
+  ))
 }
 
 export default function TemplateGallery({
@@ -29,6 +43,7 @@ export default function TemplateGallery({
   const [error, setError] = useState<string | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState(initialQuery)
+  const isUiTest = document.documentElement.dataset.uiTest === 'refined'
 
   useEffect(() => {
     setQuery(initialQuery)
@@ -62,6 +77,13 @@ export default function TemplateGallery({
       }))
       .filter(group => group.templates.length > 0)
   }, [query, templateGroups])
+
+  useEffect(() => {
+    if (!isUiTest || templateGroups.length === 0) return
+    setExpandedGroups(current => (
+      current.size > 0 ? current : new Set([templateGroups[0].name])
+    ))
+  }, [isUiTest, templateGroups])
 
   const toggleGroup = (name: string) => {
     setExpandedGroups(current => {
@@ -205,37 +227,43 @@ export default function TemplateGallery({
   }
 
   return (
-    <div style={{ padding: '10px 10px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto' }}>
-      <div style={{
+    <div className="bn-template-gallery" style={{ padding: '10px 10px', display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto' }}>
+      <div className="bn-template-intro" style={{
         color: 'var(--tx2)',
         fontSize: 14,
         padding: '2px 4px 8px',
         lineHeight: 1.5,
       }}>
         {openInNewTab
-          ? 'Choose a setup guide. It opens in a new workflow tab and keeps your deployment workflow unchanged.'
-          : 'One-click starter graphs. Loads into the canvas.'}
+          ? 'Browse reusable workflow setups. Each one opens in its own workflow tab.'
+          : 'Reusable workflow components, organized by capability.'}
       </div>
 
-      <input
-        type="search"
-        value={query}
-        onChange={event => setQuery(event.target.value)}
-        placeholder="Search templates or categories..."
-        aria-label="Search templates"
-        style={{
-          width: '100%',
-          minHeight: 38,
-          padding: '8px 10px',
-          color: 'var(--tx1)',
-          background: 'var(--lift)',
-          border: '1px solid var(--line2)',
-          borderRadius: 8,
-          outline: 'none',
-          fontFamily: 'var(--font-ui)',
-          fontSize: 14,
-        }}
-      />
+      <div className="bn-template-search">
+        <svg className="bn-template-search-icon" viewBox="0 0 20 20" aria-hidden="true">
+          <circle cx="8.5" cy="8.5" r="5.25" />
+          <path d="m12.4 12.4 4.1 4.1" />
+        </svg>
+        <input
+          type="search"
+          value={query}
+          onChange={event => setQuery(event.target.value)}
+          placeholder="Search templates or categories..."
+          aria-label="Search templates or categories"
+          style={{
+            width: '100%',
+            minHeight: 38,
+            padding: '8px 10px',
+            color: 'var(--tx1)',
+            background: 'var(--lift)',
+            border: '1px solid var(--line2)',
+            borderRadius: 8,
+            outline: 'none',
+            fontFamily: 'var(--font-ui)',
+            fontSize: 14,
+          }}
+        />
+      </div>
 
       {error && (
         <div style={{
@@ -264,9 +292,20 @@ export default function TemplateGallery({
 
       {filteredTemplateGroups.map(group => {
         const isExpanded = Boolean(query.trim()) || expandedGroups.has(group.name)
+        const visualColor = familyColor(group.name, group.color)
         return (
-          <section key={group.name} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <section
+            className={`bn-template-group${isExpanded ? ' is-expanded' : ''}`}
+            key={group.name}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              '--bn-template-accent': visualColor,
+            } as React.CSSProperties}
+          >
             <button
+              className="bn-template-group-button"
               type="button"
               aria-expanded={isExpanded}
               onClick={() => toggleGroup(group.name)}
@@ -286,11 +325,14 @@ export default function TemplateGallery({
                 textAlign: 'left',
               }}
             >
-              <span style={{ color: group.color, fontSize: 14, width: 12 }}>
+              <span className="bn-template-group-accent" style={{ color: group.color, fontSize: 14, width: 12 }}>
                 {isExpanded ? '▾' : '▸'}
               </span>
-              <span style={{ flex: 1, fontSize: 14, fontWeight: 650 }}>{group.name}</span>
-              <span style={{ color: 'var(--tx3)', fontSize: 13 }}>{group.templates.length}</span>
+              <NodeGlyph type={group.name} category={group.name} className="bn-template-group-glyph" />
+              <span className="bn-template-group-name" style={{ flex: 1, fontSize: 14, fontWeight: 650 }}>{group.name}</span>
+              <span className="bn-template-group-count" style={{ color: 'var(--tx3)', fontSize: 13 }}>
+                ({group.templates.length})
+              </span>
             </button>
             {isExpanded && group.templates.map(template => {
         const isLoading = loading === template.slug
@@ -299,8 +341,10 @@ export default function TemplateGallery({
         const isInstalling = installing?.slug === template.slug
         const isEnabling = enabling?.slug === template.slug
         const isBusy = isLoading || isInstalling || isEnabling
+        const tags = templateTags(template)
         return (
           <div
+            className={`bn-template-card${wasLoaded ? ' is-loaded' : ''}${dependencyError ? ' has-dependency-error' : ''}`}
             key={template.slug}
             style={{
               background: 'var(--lift)',
@@ -309,7 +353,8 @@ export default function TemplateGallery({
               padding: '10px 12px',
               cursor: isBusy ? 'default' : 'pointer',
               transition: 'border-color 0.2s',
-            }}
+              '--bn-template-accent': visualColor,
+            } as React.CSSProperties}
             onMouseEnter={e => {
               if (!isBusy && !dependencyError) (e.currentTarget as HTMLElement).style.borderColor = group.color
             }}
@@ -320,8 +365,9 @@ export default function TemplateGallery({
             }}
             onClick={() => !isBusy && loadTemplate(template)}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-              <span style={{
+            <div className="bn-template-card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+              <NodeGlyph type={template.name} category={group.name} className="bn-template-card-glyph" />
+              <span className="bn-template-card-title" style={{
                 color: group.color,
                 fontSize: 15,
                 fontWeight: 600,
@@ -331,7 +377,7 @@ export default function TemplateGallery({
               }}>
                 {template.name}
               </span>
-              <span style={{
+              <span className="bn-template-card-status" style={{
                 flex: '0 0 auto',
                 fontSize: 13,
                 color: dependencyError ? 'var(--warn)' : wasLoaded ? group.color : 'var(--tx3)',
@@ -347,10 +393,28 @@ export default function TemplateGallery({
                         ? 'needs setup'
                         : wasLoaded
                           ? 'loaded'
-                          : `${template.node_count} nodes`}
+                          : ''}
               </span>
             </div>
-            <div style={{ color: 'var(--tx2)', fontSize: 14, lineHeight: 1.4 }}>
+            <div className="bn-template-card-meta" title={[
+              ...(template.required_packages ?? []),
+              ...(template.required_capabilities ?? []),
+            ].join(' · ')}>
+              <span className="bn-template-node-count">{template.node_count} nodes</span>
+              {tags.slice(0, 3).map(tag => (
+                <span
+                  className="bn-template-tag"
+                  key={tag}
+                  style={{
+                    '--bn-tag-color': familyColor(tag, visualColor),
+                  } as React.CSSProperties}
+                >
+                  {tag}
+                </span>
+              ))}
+              {tags.length > 3 && <span className="bn-template-tag-more">+{tags.length - 3}</span>}
+            </div>
+            <div className="bn-template-card-description" style={{ color: 'var(--tx2)', fontSize: 14, lineHeight: 1.4 }}>
               {template.description}
             </div>
             {dependencyError && (

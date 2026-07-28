@@ -21,6 +21,7 @@ import {
 } from '../models'
 import { useQualifiedTypeLabel } from '../nodeTypeLabel'
 import NodeFrame from './NodeFrame'
+import NodeGlyph from './NodeGlyph'
 import type { NodeCookState } from '../types'
 
 interface NodeData extends NodeCookState {
@@ -160,6 +161,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
       data={data}
       selected={selected}
       color={color}
+      nodeType={data.type}
       style={{
         width: '100%',
         minWidth: 260,
@@ -173,7 +175,7 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         handleStyle={{ background: color, borderColor: color, width: 8, height: 8, borderRadius: 2 }}
       />
 
-      <div style={{
+      <div className="bn-node-header" style={{
         background: color,
         borderRadius: '8px 8px 0 0',
         padding: '5px 10px',
@@ -182,11 +184,13 @@ function ModelNode({ id, data, selected }: NodeProps<NodeData>) {
         justifyContent: 'space-between',
         gap: 8,
       }}>
+        <NodeGlyph type={data.type} className="bn-node-header-glyph" />
         <div style={{ minWidth: 0 }}>
-          <span style={{ display: 'block', fontWeight: 700, fontSize: 13, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em' }}>
+          <span className="bn-node-title" style={{ display: 'block', fontWeight: 700, fontSize: 13, fontFamily: 'var(--font-ui)', letterSpacing: '0.08em' }}>
             MODEL
           </span>
           <span
+            className="bn-node-type"
             title={`Node type ${data.type}`}
             style={{ fontSize: 11, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, whiteSpace: 'nowrap' }}
           >

@@ -21,6 +21,9 @@ export interface TemplateMeta {
   group_color: string
   saved_at: string
   node_count: number
+  categories: string[]
+  required_packages: string[]
+  required_capabilities: string[]
 }
 
 export interface MissingTemplatePackage {

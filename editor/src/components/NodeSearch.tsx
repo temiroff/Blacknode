@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { CATEGORIES } from '../categories'
+import { CATEGORIES, familyColor } from '../categories'
 import { PYTHON_TOOL_TYPES } from '../pythonToolPresets'
 import type { BnNodeDef } from '../types'
+import NodeGlyph from './NodeGlyph'
 
 interface Props {
   screenPos: { x: number; y: number }
@@ -19,10 +20,11 @@ interface SearchNode {
   type: string
   category: string
   color: string
+  accent: string
 }
 
 const KNOWN_NODES = Object.entries(CATEGORIES).flatMap(([cat, { color, nodes }]) =>
-  nodes.map(n => ({ type: n, category: cat, color }))
+  nodes.map(n => ({ type: n, category: cat, color, accent: familyColor(cat, color) }))
 )
 const KNOWN_BY_TYPE = new Map(KNOWN_NODES.map(n => [n.type, n]))
 
@@ -41,7 +43,8 @@ function buildNodeItems(
       const known = KNOWN_BY_TYPE.get(type)
       if (known) return known
       const category = nodeDefs?.[type]?.category || 'Custom'
-      return { type, category, color: CATEGORIES[category]?.color || 'var(--tx3)' }
+      const color = nodeDefs?.[type]?.color || CATEGORIES[category]?.color || 'var(--tx3)'
+      return { type, category, color, accent: familyColor(category, color) }
     })
 }
 
@@ -58,16 +61,20 @@ export default function NodeSearch({
 }: Props) {
   const [query, setQuery]   = useState('')
   const [cursor, setCursor] = useState(0)
+  const [categoryFilter, setCategoryFilter] = useState('')
   const inputRef            = useRef<HTMLInputElement>(null)
   const listRef             = useRef<HTMLDivElement>(null)
   const nodes               = buildNodeItems(nodeTypes, allowedTypes, nodeDefs)
 
-  const filtered = query.trim()
-    ? nodes.filter(n =>
-        n.type.toLowerCase().includes(query.toLowerCase()) ||
-        n.category.toLowerCase().includes(query.toLowerCase())
-      )
-    : nodes
+  const categories = Array.from(new Set(nodes.map(node => node.category)))
+  const filtered = nodes.filter(node => {
+    const matchesCategory = !categoryFilter || node.category === categoryFilter
+    const needle = query.trim().toLowerCase()
+    const matchesQuery = !needle
+      || node.type.toLowerCase().includes(needle)
+      || node.category.toLowerCase().includes(needle)
+    return matchesCategory && matchesQuery
+  })
 
   const safeCursor = Math.min(cursor, Math.max(filtered.length - 1, 0))
 
@@ -88,11 +95,11 @@ export default function NodeSearch({
     }
   }
 
-  const grouped: { cat: string; color: string; nodes: SearchNode[] }[] = []
+  const grouped: { cat: string; color: string; accent: string; nodes: SearchNode[] }[] = []
   for (const item of filtered) {
     const g = grouped.find(g => g.cat === item.category)
     if (g) g.nodes.push(item)
-    else grouped.push({ cat: item.category, color: item.color, nodes: [item] })
+    else grouped.push({ cat: item.category, color: item.color, accent: item.accent, nodes: [item] })
   }
 
   const flatItems = grouped.flatMap(g => g.nodes)
@@ -118,6 +125,7 @@ export default function NodeSearch({
       />
 
       <div
+        className="bn-node-search"
         style={{
           position: 'fixed',
           left, top,
@@ -174,6 +182,29 @@ export default function NodeSearch({
           />
         </div>
 
+        <div className="bn-node-search-filters" aria-label="Filter nodes by category">
+          <button
+            className={!categoryFilter ? 'is-active' : undefined}
+            onClick={() => { setCategoryFilter(''); setCursor(0) }}
+            style={{ '--bn-search-filter': 'var(--accent)' } as React.CSSProperties}
+          >
+            All
+          </button>
+          {categories.map(category => {
+            const categoryNode = nodes.find(node => node.category === category)
+            return (
+              <button
+                key={category}
+                className={categoryFilter === category ? 'is-active' : undefined}
+                onClick={() => { setCategoryFilter(category); setCursor(0) }}
+                style={{ '--bn-search-filter': categoryNode?.accent || 'var(--tx3)' } as React.CSSProperties}
+              >
+                {category}
+              </button>
+            )
+          })}
+        </div>
+
         {/* results */}
         <div ref={listRef} style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
           {grouped.length === 0 && (
@@ -187,9 +218,9 @@ export default function NodeSearch({
             </div>
           )}
 
-          {grouped.map(({ cat, color, nodes }) => (
+          {grouped.map(({ cat, color, accent, nodes }) => (
             <div key={cat}>
-              <div style={{
+              <div className="bn-node-search-group" style={{
                 padding: '8px 14px 4px',
                 color,
                 fontSize: 14,
@@ -199,8 +230,9 @@ export default function NodeSearch({
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6,
-              }}>
-                <div style={{ width: 6, height: 6, borderRadius: 2, background: color }} />
+                '--bn-search-accent': accent,
+              } as React.CSSProperties}>
+                <NodeGlyph type={cat} category={cat} className="bn-node-search-group-glyph" />
                 {cat}
               </div>
 
@@ -209,6 +241,7 @@ export default function NodeSearch({
                 const active = idx === safeCursor
                 return (
                   <div
+                    className={`bn-node-search-item${active ? ' is-active' : ''}`}
                     key={item.type}
                     data-idx={idx}
                     onMouseEnter={() => setCursor(idx)}
@@ -221,8 +254,10 @@ export default function NodeSearch({
                       background: active ? 'var(--hover)' : 'transparent',
                       cursor: 'pointer',
                       borderLeft: `2px solid ${active ? item.color : 'transparent'}`,
-                    }}
+                      '--bn-search-accent': item.accent,
+                    } as React.CSSProperties}
                   >
+                    <NodeGlyph type={item.type} category={item.category} className="bn-node-search-item-glyph" />
                     <span style={{
                       fontSize: 16,
                       fontWeight: active ? 500 : 400,

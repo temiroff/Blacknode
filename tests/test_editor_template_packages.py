@@ -157,5 +157,7 @@ def test_template_list_groups_core_and_package_templates(tmp_path: Path):
     templates = {template["slug"]: template for template in response.json()}
     assert templates["text-pipeline"]["group"] == "Core"
     assert templates["text-pipeline"]["group_color"] == "#6366f1"
+    assert templates["text-pipeline"]["required_packages"] == ["blacknode-cuda"]
     assert templates["motion-test"]["group"] == "Robot"
     assert templates["motion-test"]["group_color"] == "#14b8a6"
+    assert templates["motion-test"]["required_packages"] == ["blacknode-cuda"]

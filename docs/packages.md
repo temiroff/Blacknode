@@ -111,6 +111,10 @@ package category. Every group starts collapsed, its templates inherit the
 category color, and the search field filters across category names, template
 names, slugs, and descriptions.
 
+Official family categories use the canonical
+[Blacknode family colors](design-language.md) across node headers, templates,
+search filters, packages, and documentation.
+
 On a Blacknode workspace's first editor session, the editor opens this tab
 behind a one-time welcome message. The message directs robotics users to install
 the official packages their workflows require and lets core-graph users
@@ -444,7 +448,7 @@ requires-blacknode = ">=0.1.0"   # load is skipped (with a clear error) if too o
 
 [categories]
 # Palette categories this package introduces, with their header color.
-"ROS 2" = "#22314e"
+"ROS 2" = "#3b82f6"
 
 [dependencies]
 pip = ["pyyaml>=6"]            # informational; installed via requirements.txt

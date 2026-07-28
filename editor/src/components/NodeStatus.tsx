@@ -81,6 +81,7 @@ export default function NodeStatus({ data }: { data: NodeCookState }) {
 
   return (
     <div
+      className="bn-node-status-popover"
       title={`${title} - click to copy`}
       style={{
         position: 'absolute',
