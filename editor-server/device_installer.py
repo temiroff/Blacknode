@@ -22,6 +22,7 @@ _INSTANCE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 _INSPECTION_MARKER = "__BLACKNODE_RUNTIME_INSPECTION__="
 _HARDWARE_PAIRING_INSPECTION_MARKER = "__BLACKNODE_HARDWARE_PAIRINGS__="
 _HARDWARE_ADOPTION_MARKER = "__BLACKNODE_HARDWARE_ADOPTION__="
+_HARDWARE_CONFIGURATION_MARKER = "__BLACKNODE_HARDWARE_CONFIGURATION__="
 _UPDATE_REPORT_MARKER = "__BLACKNODE_UPDATE_REPORT__="
 _INSPECTION_SCRIPT = r"""python3 - <<'PY'
 import glob
@@ -1041,6 +1042,208 @@ printf '%s{"adopted":%d}\n' "$marker" "${#legacy_units[@]}"
                 "The device returned invalid Robot Hardware migration information."
             ) from exc
         return {"ok": True, "adopted": max(0, adopted)}
+    finally:
+        try:
+            _run(
+                connection,
+                f"rm -f -- {remote_script_path}",
+                timeout=10.0,
+            )
+        except DeviceInstallError:
+            pass
+        connection.close()
+
+
+def configure_hardware_services(
+    *,
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    host_fingerprint: str,
+    instance_id: str,
+    runtime_port: int,
+) -> dict[str, Any]:
+    """Configure connected serial robots in an organized Hardware stack."""
+
+    selected_instance = _clean_instance_id(instance_id or "default")
+    selected_runtime_port = int(runtime_port)
+    if not 1 <= selected_runtime_port <= 65535:
+        raise DeviceInstallError("The managed Runtime port is invalid.")
+    expected = str(host_fingerprint or "").strip()
+    if not expected:
+        raise DeviceInstallError(
+            "Check the SSH connection and confirm its host fingerprint first."
+        )
+    connection = _connect(
+        host,
+        port,
+        username,
+        password,
+        expected_fingerprint=expected,
+        timeout=15.0,
+    )
+    script = r"""#!/usr/bin/env bash
+set -euo pipefail
+sudo() {
+  command sudo -S -p '' "$@"
+}
+export -f sudo
+instance="$1"
+runtime_port="$2"
+[[ "$instance" == "default" || "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || {
+  echo "Invalid Blacknode Hardware instance." >&2
+  exit 2
+}
+[[ "$runtime_port" =~ ^[0-9]+$ ]] \
+  && (( runtime_port >= 1 && runtime_port <= 65535 )) || {
+  echo "Invalid Blacknode Runtime port." >&2
+  exit 2
+}
+target="$HOME/Blacknode/devices/$instance/hardware"
+service_instance="$instance"
+legacy=""
+if [[ "$instance" == "default" ]]; then
+  service_instance=""
+  legacy="$HOME/blacknode-hardware"
+fi
+[[ -d "$target/.git" && -f "$target/pyproject.toml" ]] \
+  && grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*["'"'"']blacknode-hardware["'"'"'][[:space:]]*$' \
+    "$target/pyproject.toml" || {
+  echo "The organized Hardware package is missing or invalid: $target" >&2
+  exit 4
+}
+[[ -x "$target/.venv/bin/python" && -x "$target/configure.sh" ]] || {
+  echo "The organized Hardware environment is not set up: $target" >&2
+  exit 4
+}
+
+orphan_units=()
+if [[ -n "$legacy" ]]; then
+  mapfile -t orphan_units < <(
+    {
+      systemctl list-unit-files 'blacknode-hardware*.service' --no-legend 2>/dev/null
+      systemctl list-units --all --type=service 'blacknode-hardware*.service' \
+        --no-legend 2>/dev/null
+    } | awk '{print $1}' | sort -u | while read -r unit; do
+      [[ "$unit" =~ ^blacknode-hardware([-.@][A-Za-z0-9_.@-]+)?\.service$ ]] \
+        || continue
+      directory="$(
+        systemctl show "$unit" --property=WorkingDirectory --value 2>/dev/null || true
+      )"
+      [[ "$directory" == "$legacy" ]] || continue
+      printf '%s\n' "$unit"
+    done
+  )
+fi
+restore_orphans=false
+restore_on_failure() {
+  exit_code=$?
+  if (( exit_code != 0 )) && [[ "$restore_orphans" == true ]]; then
+    for unit in "${orphan_units[@]}"; do
+      sudo systemctl start "$unit" >/dev/null 2>&1 || true
+    done
+  fi
+  exit "$exit_code"
+}
+trap restore_on_failure EXIT
+if (( ${#orphan_units[@]} > 0 )); then
+  echo "Stopping orphaned legacy Hardware services for a safe serial rescan..."
+  for unit in "${orphan_units[@]}"; do
+    sudo systemctl stop "$unit"
+  done
+  restore_orphans=true
+fi
+(
+  cd "$target"
+  BLACKNODE_HARDWARE_INSTANCE="$service_instance" \
+    BLACKNODE_RUNTIME_PORT="$runtime_port" \
+    ./configure.sh --all --install
+)
+
+for unit in "${orphan_units[@]}"; do
+  directory="$(
+    systemctl show "$unit" --property=WorkingDirectory --value 2>/dev/null || true
+  )"
+  if [[ "$directory" == "$legacy" ]]; then
+    sudo systemctl disable --now "$unit" >/dev/null 2>&1 || true
+    sudo rm -f -- "/etc/systemd/system/$unit" "/run/systemd/system/$unit"
+  fi
+done
+sudo systemctl daemon-reload
+
+configured=0
+while read -r unit; do
+  [[ "$unit" =~ ^blacknode-hardware([-.@][A-Za-z0-9_.@-]+)?\.service$ ]] \
+    || continue
+  directory="$(
+    systemctl show "$unit" --property=WorkingDirectory --value 2>/dev/null || true
+  )"
+  [[ "$directory" == "$target" ]] || continue
+  systemctl is-active --quiet "$unit" || {
+    echo "$unit is not running after configuration." >&2
+    exit 6
+  }
+  configured=$((configured + 1))
+done < <(
+  {
+    systemctl list-unit-files 'blacknode-hardware*.service' --no-legend 2>/dev/null
+    systemctl list-units --all --type=service 'blacknode-hardware*.service' \
+      --no-legend 2>/dev/null
+  } | awk '{print $1}' | sort -u
+)
+(( configured > 0 )) || {
+  echo "No connected serial robots were configured." >&2
+  exit 6
+}
+restore_orphans=false
+trap - EXIT
+printf '__BLACKNODE_HARDWARE_CONFIGURATION__={"configured":%d}\n' "$configured"
+"""
+    remote_script_path = (
+        f"/tmp/blacknode-hardware-configure-{secrets.token_hex(8)}.sh"
+    )
+    try:
+        sftp = connection.client.open_sftp()
+        try:
+            with sftp.file(remote_script_path, "w") as remote_script:
+                remote_script.write(script)
+            sftp.chmod(remote_script_path, 0o700)
+        finally:
+            sftp.close()
+        output = _run(
+            connection,
+            (
+                f"bash {remote_script_path} "
+                f"{selected_instance} {selected_runtime_port}"
+            ),
+            stdin_text=_sudo_input(password, attempts=32),
+            timeout=300.0,
+        )
+        marker_line = next(
+            (
+                line[len(_HARDWARE_CONFIGURATION_MARKER):]
+                for line in output.splitlines()
+                if line.startswith(_HARDWARE_CONFIGURATION_MARKER)
+            ),
+            "",
+        )
+        if not marker_line:
+            raise DeviceInstallError(
+                "The device did not confirm its configured Robot Hardware services."
+            )
+        try:
+            result = json.loads(marker_line)
+            configured = int(result.get("configured") or 0)
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise DeviceInstallError(
+                "The device returned invalid Robot Hardware configuration information."
+            ) from exc
+        if configured < 1:
+            raise DeviceInstallError(
+                "No connected serial robots were configured."
+            )
+        return {"ok": True, "configured": configured}
     finally:
         try:
             _run(
