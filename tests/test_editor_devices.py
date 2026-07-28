@@ -198,6 +198,11 @@ class _HardwareService:
             service_id = parts[1]
             action = parts[2] if len(parts) > 2 else ""
             service = self.runtime_services.get(service_id)
+            if request.method == "GET" and action == "logs":
+                return _JsonResponse({
+                    "id": service_id,
+                    "logs": "managed camera provider output\n",
+                })
             if request.method == "GET" and not action:
                 if service is None:
                     raise urllib.error.HTTPError(
@@ -3170,7 +3175,7 @@ class EditorDeviceApiTests(unittest.TestCase):
                 response.json()["detail"].lower(),
             )
 
-    def test_managed_rosorin_rgbd_attachment_starts_outside_deployments(self):
+    def test_managed_blacknode_rgbd_attachment_starts_outside_deployments(self):
         hardware = _HardwareService()
         payload = {
             "attachment_id": "front_rgbd",
@@ -3180,12 +3185,13 @@ class EditorDeviceApiTests(unittest.TestCase):
             "provider_package": "blacknode-perception",
             "provider_component": "depth",
             "provider_adapter": "ros2",
-            "provider_profile": "rosorin_depth",
-            "topic": "/depth_cam/rgb0/image_raw",
+            "provider_profile": "blacknode_rgbd",
+            "topic": "/camera/rgb/image_raw",
             "message_type": "sensor_msgs/msg/Image",
-            "camera_info_topic": "/depth_cam/rgb0/camera_info",
-            "depth_topic": "/depth_cam/depth0/image_raw",
-            "point_cloud_topic": "/depth_cam/depth0/points",
+            "camera_info_topic": "/camera/rgb/camera_info",
+            "depth_topic": "/camera/depth/image_raw",
+            "point_cloud_topic": "",
+            "launch_arguments": ["rgb_device:=0", "depth_device:=1"],
             "parent_frame": "base_link",
             "frame_id": "depth_camera_link",
             "required": True,
@@ -3212,10 +3218,10 @@ class EditorDeviceApiTests(unittest.TestCase):
             )
 
         attachment = created.json()["attachment"]
-        self.assertEqual(len(attachment["interfaces"]), 4)
+        self.assertEqual(len(attachment["interfaces"]), 3)
         self.assertEqual(
             attachment["interfaces"][2]["topic"],
-            "/depth_cam/depth0/image_raw",
+            "/camera/depth/image_raw",
         )
         self.assertTrue(attachment["interfaces"][2]["required"])
         service = started.json()["service"]
@@ -3223,15 +3229,92 @@ class EditorDeviceApiTests(unittest.TestCase):
             service["command"],
             {
                 "verb": "launch",
-                "package": "peripherals",
-                "target": "depth_camera.launch.py",
-                "arguments": [],
+                "package": "perception_camera",
+                "target": "rgbd_camera.launch.py",
+                "arguments": [
+                    "rgb_device:=0",
+                    "depth_device:=1",
+                    "rgb_topic:=/camera/rgb/image_raw",
+                    "rgb_info_topic:=/camera/rgb/camera_info",
+                    "depth_topic:=/camera/depth/image_raw",
+                    "rgb_frame_id:=depth_camera_link",
+                    "depth_frame_id:=depth_camera_link",
+                ],
             },
         )
         self.assertEqual(started.json()["check"]["status"], "streaming")
         self.assertEqual(checked.json()["check"]["service_state"], "running")
         self.assertEqual(stopped.json()["service"]["state"], "stopped")
         self.assertEqual(hardware.runtime_deployments, {})
+
+    def test_managed_usb_attachment_uses_bundled_camera_provider(self):
+        service_id, payload = server._attachment_service_payload({
+            "id": "wrist_camera",
+            "display_name": "Wrist camera",
+            "service": {
+                "id": "wrist-camera",
+                "profile": "usb_cam",
+                "launch_arguments": ["device:=2"],
+            },
+            "interfaces": [
+                {
+                    "kind": "topic",
+                    "topic": "/wrist/image_raw",
+                    "message_type": "sensor_msgs/msg/Image",
+                    "frame_id": "wrist_camera_link",
+                },
+                {
+                    "kind": "topic",
+                    "role": "camera_info",
+                    "topic": "/wrist/camera_info",
+                    "message_type": "sensor_msgs/msg/CameraInfo",
+                    "required": False,
+                },
+            ],
+        })
+
+        self.assertEqual(service_id, "wrist-camera")
+        self.assertEqual(payload["command"], {
+            "verb": "launch",
+            "package": "perception_camera",
+            "target": "usb_camera.launch.py",
+            "arguments": [
+                "device:=2",
+                "image_topic:=/wrist/image_raw",
+                "camera_info_topic:=/wrist/camera_info",
+                "frame_id:=wrist_camera_link",
+            ],
+        })
+        self.assertEqual(payload["wait_seconds"], 15.0)
+
+    def test_attachment_check_surfaces_provider_log_for_missing_stream(self):
+        check = server._attachment_service_check(
+            {
+                "display_name": "Wrist camera",
+                "interfaces": [{
+                    "kind": "topic",
+                    "topic": "/camera/image_raw",
+                    "message_type": "sensor_msgs/msg/Image",
+                }],
+            },
+            {
+                "state": "running",
+                "error": "",
+                "diagnostics": {
+                    "ok": False,
+                    "missing": ["/camera/image_raw"],
+                    "interfaces": [],
+                },
+            },
+            provider_logs=(
+                "starting provider\n"
+                "RuntimeError: Could not open camera device 0\n"
+            ),
+        )
+
+        self.assertFalse(check["ok"])
+        self.assertIn("/camera/image_raw", check["message"])
+        self.assertIn("Could not open camera device 0", check["message"])
 
     def test_device_status_keeps_last_verified_hardware_version(self):
         hardware = _HardwareService(status_overrides={
