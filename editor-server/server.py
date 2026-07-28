@@ -5223,6 +5223,113 @@ def _attachment_primary_interface(
     )
 
 
+def _attachment_provider_package_spec(
+    attachment: dict[str, Any],
+) -> dict[str, Any] | None:
+    provider = (
+        attachment.get("provider")
+        if isinstance(attachment.get("provider"), dict)
+        else {}
+    )
+    service = (
+        attachment.get("service")
+        if isinstance(attachment.get("service"), dict)
+        else {}
+    )
+    if str(service.get("profile") or "existing_topics") == "existing_topics":
+        return None
+    name = str(provider.get("package") or "").strip()
+    component = str(provider.get("component") or "").strip()
+    adapter = str(provider.get("adapter") or "").strip()
+    if not name:
+        raise DeviceRegistryError(
+            "Attachment provider package is required before starting it."
+        )
+    indexed = (package_index_payload().get("packages") or {}).get(name)
+    local = next(
+        (info for info in installed_packages() if info.name == name),
+        None,
+    )
+    git_url = (
+        _package_git_source(str(local.path or ""))
+        if local is not None
+        else str(indexed.get("git_url") or "")
+        if isinstance(indexed, dict)
+        else ""
+    )
+    if not git_url:
+        raise DeviceRegistryError(
+            f"{name} has no trusted package source and cannot be installed "
+            "on the device automatically."
+        )
+    version = (
+        str(local.version or "")
+        if local is not None
+        else str(indexed.get("version") or "")
+        if isinstance(indexed, dict)
+        else ""
+    )
+    components = {component} if component else set()
+    profile = str(service.get("profile") or "")
+    if name == "blacknode-perception" and profile in {
+        "usb_cam",
+        "blacknode_rgbd",
+    }:
+        components.add("camera")
+        if profile == "blacknode_rgbd":
+            components.add("depth")
+    adapters = [
+        {"component": value, "adapter": adapter}
+        for value in sorted(components)
+        if adapter
+    ]
+    return {
+        "name": name,
+        "git_url": git_url,
+        "version": version,
+        "components": sorted(components),
+        "adapters": adapters,
+    }
+
+
+def _sync_attachment_provider_package(
+    runtime_client: RuntimeDeviceClient,
+    attachment: dict[str, Any],
+) -> dict[str, Any] | None:
+    spec = _attachment_provider_package_spec(attachment)
+    if spec is None:
+        return None
+    result = runtime_client.sync_packages([spec])
+    setup_failures = [
+        str(message)
+        for message in (result.get("messages") or [])
+        if "package setup script failed" in str(message).lower()
+    ]
+    if setup_failures:
+        raise DeviceRegistryError(
+            f"{spec['name']} installed, but its device setup failed: "
+            + " ".join(setup_failures[-3:])
+        )
+    manifest = runtime_client.manifest()
+    installed = {
+        str(item.get("name") or ""): str(item.get("version") or "")
+        for item in (manifest.get("packages") or [])
+        if isinstance(item, dict)
+    }
+    actual_version = installed.get(str(spec["name"]))
+    if actual_version is None:
+        raise DeviceRegistryError(
+            f"{spec['name']} did not appear in the Runtime after synchronization."
+        )
+    required_version = str(spec.get("version") or "")
+    if required_version and actual_version != required_version:
+        raise DeviceRegistryError(
+            f"{spec['name']} {required_version} is required, but the Runtime "
+            f"reports {actual_version or 'an unknown version'}."
+        )
+    return result
+
+
 def _attachment_service_payload(
     attachment: dict[str, Any],
 ) -> tuple[str, dict[str, Any] | None]:
@@ -5681,6 +5788,7 @@ def start_robot_attachment(device_id: str, attachment_id: str):
                 "driver, then press Check ROS.",
             )
         runtime_client = _runtime_client_or_404(device_id)
+        _sync_attachment_provider_package(runtime_client, attachment)
         service = runtime_client.start_service(
             service_id,
             payload,
