@@ -577,12 +577,12 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "depth": {
                     "name": "depth",
-                    "default": False,
+                    "default": True,
                     "node_types": [],
                     "adapters": {
                         "ros2": {
                             "name": "ros2",
-                            "default": False,
+                            "default": True,
                             "node_types": [
                                 "DepthROS2Subscribe"
                             ]
