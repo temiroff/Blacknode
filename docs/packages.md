@@ -393,6 +393,8 @@ sources, and enabled components.
 components and their enabled adapters. It also runs only the enabled units'
 declared `.py` or `.sh` `setup-hooks`; paths must remain inside the package.
 Enabled component and adapter `templates` paths are added to the Templates tab.
+Set `metadata.hidden: true` on compatibility templates that must remain
+loadable by slug but should not appear as a new-workflow choice.
 pip reuses already satisfied
 dependencies and checks declared version constraints. Component node modules use aliases such as
 `blacknode.pkg.blacknode_drivers.feetech.<module>`.

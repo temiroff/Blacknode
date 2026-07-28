@@ -10555,6 +10555,13 @@ def list_templates():
                 continue
             try:
                 data = _read_workflow_file(os.path.join(templates_dir, fname))
+                metadata = (
+                    data.get("metadata")
+                    if isinstance(data.get("metadata"), dict)
+                    else {}
+                )
+                if bool(metadata.get("hidden", False)):
+                    continue
                 result.append(_workflow_summary(
                     slug,
                     data,
