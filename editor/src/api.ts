@@ -100,6 +100,12 @@ export type RobotAttachmentType =
   | 'microphone'
   | 'custom'
 
+export type RobotAttachmentProviderProfile =
+  | 'existing_topics'
+  | 'usb_cam'
+  | 'rosorin_depth'
+  | 'custom_launch'
+
 export interface RobotAttachmentCheck {
   ok: boolean
   status:
@@ -115,6 +121,9 @@ export interface RobotAttachmentCheck {
   publisher_count: number | null
   checked_at: string
   message: string
+  service_state?: 'running' | 'stopped' | 'failed'
+  missing?: string[]
+  interfaces?: Array<Record<string, unknown>>
 }
 
 export interface RobotAttachment {
@@ -128,6 +137,7 @@ export interface RobotAttachment {
     package: string
     component: string
     adapter: string
+    profile?: RobotAttachmentProviderProfile
   }
   hardware_identity: {
     id: string
@@ -144,12 +154,21 @@ export interface RobotAttachment {
   }
   interfaces: Array<{
     kind: 'topic'
+    role?: 'camera_info' | 'depth' | 'points'
     direction: 'output'
     topic: string
     candidates: string[]
     message_type: string
     frame_id: string
+    required?: boolean
   }>
+  service?: {
+    id: string
+    profile: RobotAttachmentProviderProfile
+    launch_package: string
+    launch_target: string
+    launch_arguments: string[]
+  }
   required: boolean
   enabled: boolean
   last_check?: RobotAttachmentCheck
@@ -164,8 +183,15 @@ export interface RobotAttachmentInput {
   provider_package: string
   provider_component: string
   provider_adapter: string
+  provider_profile: RobotAttachmentProviderProfile
   topic: string
   message_type: string
+  camera_info_topic: string
+  depth_topic: string
+  point_cloud_topic: string
+  launch_package: string
+  launch_target: string
+  launch_arguments: string[]
   parent_frame: string
   frame_id: string
   x_m: number
@@ -1594,6 +1620,30 @@ export const api = {
       `/devices/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/check`,
       {},
       90000,
+    ),
+  startRobotAttachment: (id: string, attachmentId: string) =>
+    req<{
+      device: HardwareDevice
+      attachment: RobotAttachment
+      service: Record<string, unknown>
+      check: RobotAttachmentCheck
+    }>(
+      'POST',
+      `/devices/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/start`,
+      {},
+      30000,
+    ),
+  stopRobotAttachment: (id: string, attachmentId: string) =>
+    req<{
+      device: HardwareDevice
+      attachment: RobotAttachment
+      service: Record<string, unknown>
+      check: RobotAttachmentCheck
+    }>(
+      'POST',
+      `/devices/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/stop`,
+      {},
+      30000,
     ),
   deviceMonitor:    (id: string) =>
     req<RobotTelemetrySample>(
