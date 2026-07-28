@@ -684,6 +684,71 @@ class EditorDeviceApiTests(unittest.TestCase):
         remote_python = uploaded[0].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
         compile(remote_python, "<hardware-environment-install>", "exec")
 
+    def test_default_stack_can_adopt_recognized_legacy_hardware_services(self):
+        uploaded = []
+
+        class RemoteFile(io.StringIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                uploaded.append(self.getvalue())
+                self.close()
+                return False
+
+        class Sftp:
+            def file(self, _path, _mode):
+                return RemoteFile()
+
+            def chmod(self, _path, _mode):
+                return None
+
+            def close(self):
+                return None
+
+        connection = SimpleNamespace(
+            client=SimpleNamespace(open_sftp=lambda: Sftp()),
+            fingerprint="SHA256:trusted-device-key",
+            close=lambda: None,
+        )
+        commands = []
+        stdin_values = []
+
+        def fake_run(_connection, command, **kwargs):
+            commands.append(command)
+            stdin_values.append(kwargs.get("stdin_text"))
+            if "blacknode-hardware-adopt-" in command and command.startswith("bash "):
+                return "__BLACKNODE_HARDWARE_ADOPTION__={\"adopted\":2}"
+            return ""
+
+        with (
+            patch.object(device_installer, "_connect", return_value=connection),
+            patch.object(device_installer, "_run", side_effect=fake_run),
+        ):
+            result = device_installer.adopt_legacy_hardware_services(
+                host="192.168.1.87",
+                port=22,
+                username="alex",
+                password="ssh-password",
+                host_fingerprint="SHA256:trusted-device-key",
+                instance_id="default",
+            )
+
+        self.assertEqual(result["adopted"], 2)
+        self.assertEqual(stdin_values[0], "ssh-password\n" * 16)
+        self.assertNotIn("ssh-password", uploaded[0])
+        self.assertIn('target="$HOME/Blacknode/devices/default/hardware"', uploaded[0])
+        self.assertIn('legacy="$HOME/blacknode-hardware"', uploaded[0])
+        self.assertIn('cp -a -- "$legacy_private" "$temporary_private"', uploaded[0])
+        self.assertIn(
+            'BLACKNODE_HARDWARE_INSTANCE="" ./install-service.sh --all',
+            uploaded[0],
+        )
+        self.assertIn(
+            '[[ "$directory" == "$legacy" ]] || continue',
+            uploaded[0],
+        )
+
     def test_reinstall_of_incomplete_instance_uses_next_available_port(self):
         class RemoteFile(io.StringIO):
             def __enter__(self):
@@ -1193,6 +1258,94 @@ class EditorDeviceApiTests(unittest.TestCase):
             saved["devices"]["follower-device"]["token"],
             hardware_token,
         )
+
+    def test_robot_discovery_adopts_legacy_default_services_before_pairing(self):
+        runtime_token = "runtime-pairing-token-1234567890"
+        hardware_token = "hardware-pairing-token-1234567890"
+        host = server._device_registry.pair_host(
+            name="alex-desktop",
+            runtime_url="http://192.168.1.87:8766",
+            runtime_token=runtime_token,
+            manifest={
+                "service": "blacknode-runtime",
+                "protocol_version": 1,
+                "device_id": "alex-desktop",
+            },
+            managed_runtime={
+                "ssh_host": "192.168.1.87",
+                "ssh_port": 22,
+                "ssh_username": "alex",
+                "host_fingerprint": "SHA256:trusted-device-key",
+                "instance_id": "default",
+                "runtime_port": 8766,
+                "service_name": "blacknode-runtime.service",
+                "install_root": "~/Blacknode/devices/default",
+                "runtime_dir": "~/Blacknode/devices/default/runtime",
+                "packages_dir": "~/Blacknode/devices/default/runtime/packages",
+                "stack_mode": "isolated",
+                "hardware_dir": "~/Blacknode/devices/default/hardware",
+            },
+        )
+        hardware = _HardwareService(
+            hardware_token,
+            status_overrides={"device_id": "follower-device"},
+        )
+        empty_discovery = {
+            "discovered": 0,
+            "errors": [],
+            "pairings": [],
+        }
+        migrated_discovery = {
+            "discovered": 1,
+            "errors": [],
+            "pairings": [{
+                "service_name": "blacknode-hardware-follower.service",
+                "port": 8765,
+                "name": "Follower arm",
+                "device_id": "follower-device",
+                "token": hardware_token,
+                "active": True,
+            }],
+        }
+
+        with (
+            patch.object(
+                server,
+                "discover_hardware_pairings",
+                side_effect=[empty_discovery, migrated_discovery],
+            ) as discover,
+            patch.object(
+                server,
+                "adopt_legacy_hardware_services",
+                return_value={"ok": True, "adopted": 1},
+            ) as adopt,
+            patch(
+                "device_registry.urllib.request.urlopen",
+                side_effect=hardware,
+            ),
+        ):
+            response = self.client.post(
+                f"/device-hosts/{host['id']}/robots/discover",
+                json={"password": "ssh-password"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["robots"][0]["name"], "Follower arm")
+        self.assertIn(
+            "Moved 1 existing Robot Hardware service into this device stack.",
+            response.json()["summary"],
+        )
+        self.assertEqual(discover.call_count, 2)
+        adopt.assert_called_once_with(
+            host="192.168.1.87",
+            port=22,
+            username="alex",
+            password="ssh-password",
+            host_fingerprint="SHA256:trusted-device-key",
+            instance_id="default",
+        )
+        self.assertNotIn(hardware_token, response.text)
+        self.assertNotIn("ssh-password", response.text)
 
     def test_runtime_only_device_can_install_managed_hardware_package(self):
         managed = {
