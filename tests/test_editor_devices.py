@@ -3316,6 +3316,47 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn("/camera/image_raw", check["message"])
         self.assertIn("Could not open camera device 0", check["message"])
 
+    def test_retired_depth_attachment_profile_migrates_to_blacknode_rgbd(self):
+        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
+        self.registry_path.write_text(json.dumps({
+            "schema_version": 2,
+            "hosts": {},
+            "devices": {
+                "camera-robot": {
+                    "id": "camera-robot",
+                    "name": "Camera robot",
+                    "base_url": "http://127.0.0.1:8765",
+                    "token": "secret",
+                    "attachments": [{
+                        "id": "front_depth",
+                        "attachment_type": "depth_camera",
+                        "provider": {
+                            "package": "blacknode-perception",
+                            "component": "depth",
+                            "adapter": "ros2",
+                            "profile": "retired_depth_profile",
+                        },
+                        "service": {
+                            "id": "front-depth",
+                            "profile": "retired_depth_profile",
+                        },
+                    }],
+                },
+            },
+        }), encoding="utf-8")
+
+        attachment = server._device_registry.get_public(
+            "camera-robot"
+        )["attachments"][0]
+        self.assertEqual(
+            attachment["provider"]["profile"],
+            "blacknode_rgbd",
+        )
+        self.assertEqual(
+            attachment["service"]["profile"],
+            "blacknode_rgbd",
+        )
+
     def test_device_status_keeps_last_verified_hardware_version(self):
         hardware = _HardwareService(status_overrides={
             "software_version": "0.1.1",

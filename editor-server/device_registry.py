@@ -31,6 +31,12 @@ _ATTACHMENT_TYPES = {
     "microphone",
     "custom",
 }
+_ATTACHMENT_PROVIDER_PROFILES = {
+    "existing_topics",
+    "usb_cam",
+    "blacknode_rgbd",
+    "custom_launch",
+}
 
 
 class DeviceRegistryError(RuntimeError):
@@ -153,12 +159,7 @@ def _normalize_attachment(
         or provider.get("profile")
         or "existing_topics"
     ).strip().lower()
-    if provider_profile not in {
-        "existing_topics",
-        "usb_cam",
-        "blacknode_rgbd",
-        "custom_launch",
-    }:
+    if provider_profile not in _ATTACHMENT_PROVIDER_PROFILES:
         raise DeviceRegistryError(
             "Attachment provider profile must be existing topics, USB camera, "
             "Blacknode RGB-D, or custom ROS 2 launch."
@@ -1396,15 +1397,47 @@ class DeviceRegistry:
         hosts = payload.get("hosts", {}) if isinstance(payload, dict) else {}
         if not isinstance(devices, dict) or not isinstance(hosts, dict):
             raise DeviceRegistryError("Local device registry has an invalid format.")
-        return ({
+        loaded_hosts = {
             str(host_id): dict(record)
             for host_id, record in hosts.items()
             if isinstance(record, dict)
-        }, {
+        }
+        loaded_devices = {
             str(device_id): dict(record)
             for device_id, record in devices.items()
             if isinstance(record, dict)
-        })
+        }
+        for record in loaded_devices.values():
+            for attachment in record.get("attachments") or []:
+                if not isinstance(attachment, dict):
+                    continue
+                provider = (
+                    attachment.get("provider")
+                    if isinstance(attachment.get("provider"), dict)
+                    else {}
+                )
+                service = (
+                    attachment.get("service")
+                    if isinstance(attachment.get("service"), dict)
+                    else {}
+                )
+                profile = str(
+                    provider.get("profile")
+                    or service.get("profile")
+                    or "existing_topics"
+                )
+                if (
+                    profile not in _ATTACHMENT_PROVIDER_PROFILES
+                    and str(attachment.get("attachment_type") or "")
+                    == "depth_camera"
+                    and str(provider.get("package") or "")
+                    == "blacknode-perception"
+                ):
+                    provider["profile"] = "blacknode_rgbd"
+                    service["profile"] = "blacknode_rgbd"
+                    attachment["provider"] = provider
+                    attachment["service"] = service
+        return loaded_hosts, loaded_devices
 
     def _load(self) -> dict[str, dict[str, Any]]:
         _hosts, devices = self._load_payload()
