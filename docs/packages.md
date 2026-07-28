@@ -52,26 +52,32 @@ environment variable (separated by the platform path separator).
 
 ## Updating packages
 
+For a managed device, open **Devices**, select the device, and press
+**Software**. Enter the SSH password for a remote device, press
+**Check updates**, then choose **Update all** or the **Update** action on a
+package card. **Update all** refreshes Runtime, every extension package already
+installed in that Runtime, and Hardware. The package cards also provide
+**Restart** for restarting Runtime or Hardware individually.
+
+Blacknode stops active deployments, disarms attached robots, updates the
+selected services and clean package checkouts, reloads Runtime, and verifies
+the resulting package manifest. Deployments remain stopped and disarmed until
+the operator explicitly starts and arms them.
+
+For local package development and command-line diagnostics,
 `blacknode packages status` reports package load state, missing official nodes,
-and local git state for installed folder packages. Add `--fetch` when you want
-to contact remotes and see whether a package is behind upstream:
+and local git state for installed folder packages. Add `--fetch` to contact
+remotes and see whether a package is behind upstream:
 
 ```bash
 blacknode packages status --fetch
 ```
 
-Update clean package checkouts with:
+Update clean development checkouts with:
 
 ```bash
 blacknode packages update --all
 ```
-
-For a managed remote device, **Devices → Software packages → Update Runtime**
-and **Update all** also refresh every extension package already installed in
-that Runtime. Blacknode stops active deployments, disarms attached robots,
-updates the service and clean package checkouts, reloads Runtime, and verifies
-the resulting package manifest. Deployments remain stopped and disarmed until
-the operator explicitly starts and arms them.
 
 The update command is intentionally conservative: it fetches and fast-forwards
 only packages with no local edits and no local commits ahead of upstream. Dirty,

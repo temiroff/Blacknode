@@ -30,6 +30,24 @@ class AgentSkillTests(unittest.TestCase):
             "canonical and repository-local Blacknode skills must stay synchronized",
         )
 
+    def test_managed_device_operations_are_documented_as_ui_first(self):
+        agent_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        agent_guide = (ROOT / "docs" / "agent-guide.md").read_text(encoding="utf-8")
+        lifecycle = (ROOT / "docs" / "project-lifecycle.md").read_text(
+            encoding="utf-8",
+        )
+
+        for text in (agent_instructions, agent_guide, lifecycle):
+            with self.subTest(document=text[:40]):
+                self.assertIn("**Devices**", text)
+                self.assertIn("**Software**", text)
+                self.assertIn("**Check updates**", text)
+                self.assertIn("**Update all**", text)
+                self.assertIn("**Restart**", text)
+
+        self.assertIn("primary operator surface", agent_instructions)
+        self.assertIn("fallback path", agent_instructions)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -41,6 +41,21 @@ When building a workflow:
 The canonical skill sources live in `skills/`; `.agents/skills/` is the
 repository-discoverable mirror. Keep both copies synchronized.
 
+### Managed-device operating workflow
+
+Use the editor for routine managed-device operations. Open **Devices**, select
+the device, and press **Software**. Enter the SSH password when the device is
+remote, press **Check updates**, then use **Update all** or the **Update**
+action on the Runtime or Hardware package card. Use the package card's
+**Restart** button when that service needs to restart.
+
+Agent instructions should point users to these controls for setup, package
+updates, restarts, deployment, and removal. SSH commands, `git pull`,
+`service.sh`, systemd, and direct package-manager commands are recovery,
+diagnostic, or package-development tools. Present them only when the user asks
+for a command-line path or the editor cannot complete the operation, and state
+why the fallback is needed.
+
 ## Current Contract
 
 Blacknode workflows are portable JSON graph files. They are meant to run outside the browser editor through the Python runtime and CLI.
