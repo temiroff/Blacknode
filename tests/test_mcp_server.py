@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import io
+import tomllib
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from blacknode.mcp import server
@@ -18,6 +20,17 @@ class NonTtyStringIO(io.StringIO):
 
 
 class McpServerTests(unittest.TestCase):
+    def test_project_extras_require_the_fastmcp_compatible_major(self):
+        project = tomllib.loads(
+            (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        extras = project["project"]["optional-dependencies"]
+        self.assertIn("mcp>=1.0,<2.0", extras["dev"])
+        self.assertEqual(["mcp>=1.0,<2.0"], extras["mcp"])
+
     def test_agent_instructions_explain_one_shot_cooks_and_runtime_safety(self):
         text = server.WORKFLOW_BUILDER_INSTRUCTIONS
 

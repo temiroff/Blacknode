@@ -7,6 +7,7 @@ import { portColor } from '../portColors'
 import { headerColor } from '../categories'
 import { useQualifiedTypeLabel } from '../nodeTypeLabel'
 import NodeFrame from './NodeFrame'
+import NodeGlyph from './NodeGlyph'
 import type { NodeCookState } from '../types'
 
 interface NodeData extends NodeCookState {
@@ -124,6 +125,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
       data={data}
       selected={selected}
       color={color}
+      nodeType={data.type}
       style={{
         width:  isLargeText ? '100%' : 170,
         height: isLargeText ? '100%' : undefined,
@@ -145,7 +147,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
       )}
 
       {/* header */}
-      <div style={{
+      <div className="bn-node-header" style={{
         background: color,
         borderRadius: '8px 8px 0 0',
         padding: '4px 8px',
@@ -154,6 +156,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
         alignItems: 'center',
         flexShrink: 0,
       }}>
+        <NodeGlyph type={data.type} className="bn-node-header-glyph" />
         <div style={{ flex: 1, minWidth: 0 }}>
           {editingLabel ? (
             <input
@@ -176,6 +179,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
             />
           ) : (
             <span
+              className="bn-node-title"
               title="Double-click to rename"
               onDoubleClick={startRename}
               style={{ fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-ui)', display: 'block', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -185,6 +189,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
           )}
           {!editingLabel && (
             <span
+              className="bn-node-type"
               title={`Node type ${data.type}`}
               style={{ fontSize: 11, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
@@ -193,6 +198,7 @@ function ValueNode({ id, data, selected }: NodeProps<NodeData>) {
           )}
         </div>
         <button
+          className="bn-node-cook-button"
           onClick={e => { e.stopPropagation(); cookNode(id, 'value') }}
           style={{
             background: 'rgba(0,0,0,.2)', border: 'none', borderRadius: 3,

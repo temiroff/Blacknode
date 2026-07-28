@@ -4,13 +4,14 @@ import { NodeResizer } from '@reactflow/node-resizer'
 import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
 import { api, type DeviceCalibrationCandidate } from '../api'
-import { portColor } from '../portColors'
+import { portColor, portVisualColor } from '../portColors'
 import { headerColor } from '../categories'
 import { isWireOnlyInput } from '../inputControls'
 import { copyTextToClipboard } from '../clipboard'
 import { portDisplayHint, portDisplayName } from '../portLabels'
 import { useQualifiedTypeLabel } from '../nodeTypeLabel'
 import NodeFrame from './NodeFrame'
+import NodeGlyph from './NodeGlyph'
 import DatasetBrowserPanel from './DatasetBrowserPanel'
 import type { NodeCookState } from '../types'
 import { LIVE_STREAM_NODE_TYPES } from '../liveNodeTypes'
@@ -82,12 +83,14 @@ function formatPortValue(v: unknown): string {
 }
 
 function PortRow({
+  nodeId,
   name,
   type,
   dir,
   result,
   onRemove,
 }: {
+  nodeId: string
   name: string
   type: string
   dir: 'input' | 'output'
@@ -99,6 +102,7 @@ function PortRow({
   const [copyMenu, setCopyMenu] = useState<{ x: number; y: number } | null>(null)
   const closeTimer = useRef<number | null>(null)
   const color   = portColor(type)
+  const visualColor = portVisualColor(type)
   const isInput = dir === 'input'
   const resultText = result !== undefined ? formatPortValue(result) : ''
   const popupText = `${dir} · ${name} · ${type}${resultText ? `\n${resultText}` : ''}`
@@ -143,6 +147,14 @@ function PortRow({
 
   return (
     <div
+      className="bn-port-row"
+      data-direction={dir}
+      onMouseEnter={() => window.dispatchEvent(new CustomEvent('blacknode:port-hover', {
+        detail: { nodeId, port: name, dir },
+      }))}
+      onMouseLeave={() => window.dispatchEvent(new CustomEvent('blacknode:port-hover', {
+        detail: null,
+      }))}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -150,7 +162,8 @@ function PortRow({
         padding: isInput ? `4px 10px 4px ${onRemove ? 28 : 12}px` : '4px 12px 4px 10px',
         position: 'relative',
         gap: 5,
-      }}
+        '--bn-port-color': visualColor,
+      } as React.CSSProperties}
     >
       <Handle
         type={isInput ? 'target' : 'source'}
@@ -191,11 +204,23 @@ function PortRow({
         </button>
       )}
       <span style={{
+        flex: '0 1 auto',
+        minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
         color: 'var(--tx2)',
         fontSize: 14,
         fontFamily: 'var(--font-ui)',
       }}>
         {displayName}
+      </span>
+      <span
+        className="bn-port-type-pill"
+        title={`${displayName}: ${type}`}
+        style={{ color: visualColor, borderColor: `${visualColor}66`, background: `${visualColor}16` }}
+      >
+        {type.toUpperCase()}
       </span>
       {hovering && (type || resultText) && (
         <div
@@ -842,6 +867,69 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       title: 'This is the result of one evaluation. It is not updating; use Go live to start supported continuous output.',
     }
     : null
+  const headerState = data.cookError || data.replayStatus === 'error' || liveBlocked
+    ? { label: 'Error', tone: 'error' }
+    : data.cooking || data.replayStatus === 'running' || data.replayStatus === 'model' || data.replayStatus === 'tool'
+      ? { label: data.replayStatus === 'model' ? 'Reasoning' : data.replayStatus === 'tool' ? 'Using tool' : 'Running', tone: 'running' }
+      : streamActive || rosRunActive || manualMoveLive || genericNodeLive || liveServiceRunning
+        ? { label: liveWaiting ? 'Waiting' : 'Live', tone: liveWaiting ? 'waiting' : 'live' }
+        : snapshotResult || data.cookResult !== undefined || Object.keys(data.portResults ?? {}).length > 0
+          ? { label: 'Ready', tone: 'ready' }
+          : { label: 'Idle', tone: 'idle' }
+  const hoverPreviewImage = streamPreview ?? imageResult
+  const hasVisualHoverPreview = /camera|detect|vision|image|track|segment/i.test(data.type)
+    && Boolean(hoverPreviewImage)
+  const previewFps = Number(data.portResults?.fps ?? data.portResults?.frame_rate ?? 0)
+  const previewConfidence = Number(data.portResults?.confidence ?? data.portResults?.score ?? 0)
+  const previewWidth = Number(data.portResults?.width ?? data.portResults?.frame_width ?? 0)
+  const previewHeight = Number(data.portResults?.height ?? data.portResults?.frame_height ?? 0)
+  const nodeStats: Array<{ label: string; tone?: 'live' | 'warn' | 'muted' }> = []
+  const addStat = (value: unknown, tone?: 'live' | 'warn' | 'muted') => {
+    const text = String(value ?? '').trim()
+    if (text && !nodeStats.some(stat => stat.label === text)) nodeStats.push({ label: text, tone })
+  }
+  if (/camera|stream|video|detect|vision|track|segment/i.test(data.type)) {
+    if (previewFps > 0) addStat(`${Math.round(previewFps)} FPS`, 'live')
+    if (previewWidth > 0 && previewHeight > 0) addStat(`${previewWidth}×${previewHeight}`)
+    if (streamActive) addStat('LIVE', 'live')
+  }
+  if (/robot|joint|controller|motion|follow/i.test(data.type)) {
+    if (typeof data.portResults?.connected === 'boolean') {
+      addStat(data.portResults.connected ? 'Connected' : 'Disconnected', data.portResults.connected ? 'live' : 'warn')
+    }
+    const latency = Number(
+      data.portResults?.latency_ms
+      ?? data.portResults?.round_trip_ms
+      ?? data.portResults?.response_ms
+      ?? 0,
+    )
+    if (latency > 0) addStat(`${Math.round(latency)} ms`)
+    const motionState = String(data.portResults?.mode ?? data.portResults?.state ?? '').trim()
+    if (motionState && motionState.length <= 18) addStat(motionState)
+  }
+  if (/agent|reason|llm|model|nim/i.test(data.type)) {
+    const modelName = String(data.portResults?.model ?? data.params?.model ?? '').trim()
+    if (modelName) addStat(modelName.split('/').pop()?.replace(/^nim:/, '') || modelName)
+    const duration = Number(data.replayDurationMs ?? data.portResults?.duration_ms ?? data.portResults?.latency_ms ?? 0)
+    if (duration > 0) addStat(`${Math.round(duration)} ms`)
+  }
+  if (/cuda|gpu|tensor|nvidia/i.test(data.type)) {
+    const gpuName = String(
+      data.portResults?.gpu_name
+      ?? data.portResults?.device_name
+      ?? data.portResults?.device
+      ?? '',
+    ).trim()
+    if (gpuName) addStat(gpuName)
+    addStat('GPU', 'live')
+    const memoryGb = Number(
+      data.portResults?.memory_gb
+      ?? data.portResults?.vram_gb
+      ?? data.portResults?.gpu_memory_gb
+      ?? 0,
+    )
+    if (memoryGb > 0) addStat(`${memoryGb.toFixed(memoryGb >= 10 ? 0 : 1)} GB`)
+  }
 
   const effectivePortType = (portName: string, side: 'input' | 'output'): string => {
     const declared = side === 'input'
@@ -1278,7 +1366,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
 
 
       {/* header */}
-      <div style={{
+      <div className="bn-node-header" style={{
         background: color,
         borderRadius: '8px 8px 0 0',
         padding: '6px 10px',
@@ -1287,6 +1375,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         alignItems: 'center',
         gap: 6,
       }}>
+        <NodeGlyph type={data.type} className="bn-node-header-glyph" />
         <div style={{ flex: 1, minWidth: 0 }}>
           {editingLabel ? (
             <input
@@ -1309,6 +1398,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             />
           ) : (
             <span
+              className="bn-node-title"
               title="Double-click to rename"
               onDoubleClick={startRename}
               style={{ fontWeight: 600, fontSize: 15, fontFamily: 'var(--font-ui)', display: 'block', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -1318,6 +1408,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           )}
           {!editingLabel && (
             <span
+              className="bn-node-type"
               title={`Node type ${data.type}`}
               style={{ fontSize: 11, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
@@ -1325,7 +1416,16 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             </span>
           )}
         </div>
+        <div
+          className="bn-node-runtime-state"
+          data-tone={headerState.tone}
+          title={`Node state: ${headerState.label}`}
+        >
+          <i />
+          <span>{headerState.label}</span>
+        </div>
         <button
+          className="bn-node-cook-button"
           onClick={e => { e.stopPropagation(); cookNode(id, data.outputs[0] ?? 'output') }}
           title="Cook once"
           style={{
@@ -1344,6 +1444,38 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </button>
       </div>
 
+      {hasVisualHoverPreview && hoverPreviewImage && (
+        <div className="bn-node-hover-preview" role="status" aria-label={`${data.type} preview`}>
+          <div className="bn-node-hover-preview-head">
+            <span>{streamActive ? 'LIVE' : 'PREVIEW'}</span>
+            {previewFps > 0 && <b>{Math.round(previewFps)} FPS</b>}
+          </div>
+          <img src={hoverPreviewImage} alt="" draggable={false} />
+          <div className="bn-node-hover-preview-meta">
+            <strong>{label ?? data.type}</strong>
+            <span>
+              {previewWidth > 0 && previewHeight > 0
+                ? `${previewWidth}×${previewHeight}`
+                : streamActive
+                  ? 'Streaming'
+                  : 'Latest result'}
+            </span>
+            {previewConfidence > 0 && <span>{Math.round(previewConfidence * 100)}% confidence</span>}
+          </div>
+        </div>
+      )}
+
+      {nodeStats.length > 0 && (
+        <div className="bn-node-stat-strip" aria-label={`${data.type} runtime statistics`}>
+          {nodeStats.slice(0, 4).map(stat => (
+            <span key={stat.label} className={stat.tone ? `is-${stat.tone}` : undefined}>
+              {stat.label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="bn-node-parameter-area">
       {isRobot && (
         <div className="nodrag" onMouseDown={e => e.stopPropagation()}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, margin: '6px 8px 0' }}>
@@ -2030,9 +2162,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           </div>
         </div>
       )}
+      </div>
 
       {/* ports */}
-      <div style={{
+      <div className="bn-node-ports" style={{
         flex: showImageResult ? '0 0 auto' : 1,
         padding: '6px 0',
         display: 'flex',
@@ -2064,6 +2197,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             </span>
           </div>
         )}
+        {visibleInputs.length > 0 && <div className="bn-port-section-label is-input">Inputs</div>}
         {visibleInputs.map(inp => {
           const type = effectivePortType(inp, 'input')
           const connected = edges.some(e => e.target === id && e.targetHandle === inp)
@@ -2090,6 +2224,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               } : undefined}
             >
               <PortRow
+                nodeId={id}
                 name={inp}
                 type={type}
                 dir="input"
@@ -2105,8 +2240,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             </div>
           )
         })}
+        {visibleOutputs.length > 0 && <div className="bn-port-section-label is-output">Outputs</div>}
         {visibleOutputs.map(out => (
           <PortRow
+            nodeId={id}
             key={out}
             name={out}
             type={effectivePortType(out, 'output')}

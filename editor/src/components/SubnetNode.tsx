@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { useQualifiedTypeLabel } from '../nodeTypeLabel'
 import NodeFrame from './NodeFrame'
+import NodeGlyph from './NodeGlyph'
 import type { NodeCookState } from '../types'
 
 interface NodeData extends NodeCookState {
@@ -73,6 +74,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
       data={data}
       selected={selected}
       color={headerColor}
+      nodeType={data.type}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -80,7 +82,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
       }}
     >
       {/* header */}
-      <div style={{
+      <div className="bn-node-header" style={{
         background: headerColor,
         borderRadius: '8px 8px 0 0',
         padding: '5px 8px',
@@ -89,7 +91,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
         justifyContent: 'space-between',
         gap: 6,
       }}>
-        <span style={{ fontSize: 12, opacity: 0.7, flexShrink: 0 }}>{isToolSubnet ? 'fn' : isVisualLoop ? 'loop' : '⬡'}</span>
+        <NodeGlyph type={isToolSubnet ? 'Tool' : isVisualLoop ? 'AgentLoop' : data.type} className="bn-node-header-glyph" />
         <div style={{ flex: 1, minWidth: 0 }}>
           {editingLabel ? (
             <input
@@ -111,6 +113,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
             />
           ) : (
             <span
+              className="bn-node-title"
               title={isToolSubnet ? 'Double-click to rename tool' : isVisualLoop ? 'Double-click to rename loop' : 'Double-click to rename'}
               onDoubleClick={startRename}
               style={{ display: 'block', fontWeight: 600, fontSize: 14, fontFamily: 'var(--font-ui)', cursor: 'text', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -120,6 +123,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
           )}
           {!editingLabel && (
             <span
+              className="bn-node-type"
               title={`Node type ${data.type}`}
               style={{ fontSize: 11, opacity: 0.65, fontFamily: 'var(--font-mono)', display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             >
@@ -128,6 +132,7 @@ function SubnetNode({ id, data, selected }: NodeProps<NodeData>) {
           )}
         </div>
         <button
+          className="bn-node-cook-button"
           title="Cook"
           onClick={e => { e.stopPropagation(); cookNode(id, data.outputs[0] ?? 'output') }}
           style={{

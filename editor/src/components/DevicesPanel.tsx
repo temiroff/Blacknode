@@ -471,6 +471,7 @@ function diagnoseDeviceMotion(
 }
 
 export default function DevicesPanel() {
+  const isUiTest = document.documentElement.dataset.uiTest === 'refined'
   const activeProject = useStore(state => state.activeProject)
   const setActiveProject = useStore(state => state.setActiveProject)
   const openGraphAsTab = useStore(state => state.openGraphAsTab)
@@ -506,6 +507,7 @@ export default function DevicesPanel() {
   const [showServiceDetails, setShowServiceDetails] = useState(false)
   const [showRosDetails, setShowRosDetails] = useState(false)
   const [showDeviceManagement, setShowDeviceManagement] = useState(false)
+  const [deviceDetailTab, setDeviceDetailTab] = useState<'overview' | 'software' | 'diagnostics'>('overview')
   const [updatePassword, setUpdatePassword] = useState('')
   const [updateCheckReport, setUpdateCheckReport] = useState<ManagedServiceUpdateCheckResult | null>(null)
   const [updateReport, setUpdateReport] = useState<ManagedServiceUpdateResult | null>(null)
@@ -528,6 +530,13 @@ export default function DevicesPanel() {
   const [error, setError] = useState<string | null>(null)
   const [linkedProjectName, setLinkedProjectName] = useState('')
   const rosChecksInFlight = useRef(new Set<string>())
+
+  const openDeviceDetailTab = (tab: 'overview' | 'software' | 'diagnostics') => {
+    setDeviceDetailTab(tab)
+    setShowSoftwareDetails(tab === 'software')
+    setShowServiceDetails(tab === 'diagnostics')
+    setShowRosDetails(tab === 'diagnostics')
+  }
 
   const selectedDevice = devices.find(device => device.id === selectedDeviceId) ?? null
   const rememberUpdatedRobot = (updatedRobot: HardwareDevice) => {
@@ -2966,6 +2975,7 @@ export default function DevicesPanel() {
                   setShowServiceDetails(false)
                   setShowRosDetails(false)
                   setShowDeviceManagement(false)
+                  setDeviceDetailTab('overview')
                   setShowDeviceForm(false)
                   setShowRobotForm(false)
                   setShowSshManagement(false)
@@ -2997,6 +3007,7 @@ export default function DevicesPanel() {
                 setShowServiceDetails(false)
                 setShowRosDetails(false)
                 setShowDeviceManagement(false)
+                setDeviceDetailTab('overview')
                 setShowSshManagement(false)
                 setManagementPassword('')
                 setManagementProbe(null)
@@ -3019,7 +3030,11 @@ export default function DevicesPanel() {
                 : selectedStackIsIsolated
                   ? <span>Complete isolated robot stack</span>
                   : null}
-              <code>{selectedDevice.runtime_url}</code>
+              <code>
+                {isUiTest
+                  ? runtimeHostname(selectedDevice.runtime_url)
+                  : selectedDevice.runtime_url}
+              </code>
             </div>
             <div className="bn-run-detail-actions bn-device-header-actions">
               <button
@@ -3028,7 +3043,9 @@ export default function DevicesPanel() {
                 className={`bn-device-action-button${showDeviceManagement ? ' is-primary' : ''}`}
                 aria-expanded={showDeviceManagement}
               >
-                {showDeviceManagement ? 'Close device settings' : 'Manage device'}
+                {isUiTest
+                  ? showDeviceManagement ? 'Close' : 'Manage'
+                  : showDeviceManagement ? 'Close device settings' : 'Manage device'}
               </button>
               {showDeviceManagement && (
                 <>
@@ -3107,8 +3124,53 @@ export default function DevicesPanel() {
             </div>
           </div>
 
+          {isUiTest && (
+            <div className="bn-device-detail-tabs" role="tablist" aria-label="Device sections">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={deviceDetailTab === 'overview'}
+                className={deviceDetailTab === 'overview' ? 'is-active' : ''}
+                onClick={() => openDeviceDetailTab('overview')}
+              >
+                Overview
+              </button>
+              {selectedDevice.managed_runtime && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={deviceDetailTab === 'software'}
+                  className={deviceDetailTab === 'software' ? 'is-active' : ''}
+                  onClick={() => openDeviceDetailTab('software')}
+                >
+                  Software
+                </button>
+              )}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={deviceDetailTab === 'diagnostics'}
+                className={deviceDetailTab === 'diagnostics' ? 'is-active' : ''}
+                onClick={() => openDeviceDetailTab('diagnostics')}
+              >
+                Diagnostics
+              </button>
+              <button
+                type="button"
+                className="bn-device-check-action"
+                onClick={() => void checkDevice(selectedDevice)}
+                disabled={busy || selectedDeviceChecking || selectedRosHealth?.checking}
+              >
+                {selectedDeviceChecking || selectedRosHealth?.checking
+                  ? 'Checking…'
+                  : 'Check device →'}
+              </button>
+            </div>
+          )}
+
+          {(!isUiTest || deviceDetailTab === 'overview') && (
           <div className="bn-device-overview" role="status" aria-live="polite">
-            <div className={`bn-device-overview-item${
+            <div className={`bn-device-overview-item is-device${
               selectedDeviceChecking
                 ? ' is-checking'
                 : selectedDeviceReady
@@ -3117,25 +3179,33 @@ export default function DevicesPanel() {
             }`}>
               <span className="bn-device-overview-dot" aria-hidden="true" />
               <div>
-                <small>System</small>
+                <small>{isUiTest ? 'Device' : 'System'}</small>
                 <strong>
                   {selectedDeviceChecking
                     ? 'Checking'
                     : selectedDevice.paused || selectedDeviceState?.runtime?.paused
                       ? 'Paused'
                       : selectedDeviceReady
-                        ? 'Services online'
+                        ? isUiTest ? 'Healthy' : 'Services online'
                         : 'Needs attention'}
                 </strong>
-                <span>Runtime {selectedRuntimeVersion}</span>
+                <span>
+                  {isUiTest
+                    ? selectedDeviceState?.runtime?.ok === true ? 'Online' : 'Check required'
+                    : `Runtime ${selectedRuntimeVersion}`}
+                </span>
               </div>
             </div>
             <button
               type="button"
-              className={`bn-device-overview-item bn-device-overview-toggle is-${
+              className={`bn-device-overview-item bn-device-overview-toggle is-ros is-${
                 selectedRosHealth?.state ?? 'unchecked'
               }${showRosDetails ? ' is-expanded' : ''}`}
-              onClick={() => setShowRosDetails(current => !current)}
+              onClick={() => (
+                isUiTest
+                  ? openDeviceDetailTab('diagnostics')
+                  : setShowRosDetails(current => !current)
+              )}
               aria-expanded={showRosDetails}
               aria-controls="bn-live-ros2-details"
               title="Show live ROS 2 nodes, topics, services, and endpoint counts"
@@ -3163,7 +3233,7 @@ export default function DevicesPanel() {
                 </span>
               </div>
             </button>
-            <div className={`bn-device-overview-item${
+            <div className={`bn-device-overview-item is-robots${
               selectedMotionDisarmed ? ' is-attention' : ''
             }`}>
               <span className="bn-device-overview-dot" aria-hidden="true" />
@@ -3184,7 +3254,25 @@ export default function DevicesPanel() {
                 </span>
               </div>
             </div>
-            <div className="bn-device-overview-actions">
+            {isUiTest && (
+              <div className={`bn-device-overview-item is-runtime${
+                selectedDeviceState?.runtime?.ok === true ? ' is-ready' : ' is-attention'
+              }`}>
+                <span className="bn-device-overview-dot" aria-hidden="true" />
+                <div>
+                  <small>Runtime</small>
+                  <strong>{selectedRuntimeVersion}</strong>
+                  <span>
+                    {selectedDeviceState?.runtime?.state === 'stopped'
+                      ? 'Stopped'
+                      : selectedDeviceState?.runtime?.ok === true
+                        ? 'Running'
+                        : 'Unavailable'}
+                  </span>
+                </div>
+              </div>
+            )}
+            {!isUiTest && <div className="bn-device-overview-actions">
               <button
                 type="button"
                 onClick={() => void checkDevice(selectedDevice)}
@@ -3213,8 +3301,9 @@ export default function DevicesPanel() {
               >
                 {showServiceDetails ? 'Hide details' : 'Details'}
               </button>
-            </div>
+            </div>}
           </div>
+          )}
 
           {actionProgress[selectedDevice.id] && !showUninstallForm && (
             <div className="bn-device-check-progress">
@@ -3222,7 +3311,8 @@ export default function DevicesPanel() {
             </div>
           )}
 
-          {selectedCheckIssues.length > 0 && (
+          {(!isUiTest || deviceDetailTab === 'diagnostics')
+            && selectedCheckIssues.length > 0 && (
             <section className="bn-device-motion-diagnostics" role="alert">
               <div className="bn-device-motion-diagnostics-head">
                 <span className="bn-device-overview-dot" aria-hidden="true" />
@@ -3247,7 +3337,8 @@ export default function DevicesPanel() {
             </section>
           )}
 
-          {selectedRosHealth
+          {(!isUiTest || deviceDetailTab === 'diagnostics')
+            && selectedRosHealth
             && (selectedRosHealth.state === 'warning' || selectedRosHealth.state === 'error')
             && (
               <div
@@ -4417,7 +4508,7 @@ export default function DevicesPanel() {
             </form>
           )}
 
-          {(showServiceDetails
+          {(!isUiTest || deviceDetailTab === 'diagnostics') && (showServiceDetails
             || selectedCheckHasFailure
             || selectedCheckHasStopped
             || selectedCheckHasUnknown) && (
@@ -4494,9 +4585,14 @@ export default function DevicesPanel() {
           </div>
           )}
 
+          {(!isUiTest || deviceDetailTab === 'overview') && (
+          <>
           <div className="bn-compute-robots-head">
             <div>
-              <strong>Attached robots</strong>
+              <strong>
+                Attached robots
+                {isUiTest && <small>({selectedDevice.robots.length})</small>}
+              </strong>
               <span>
                 {selectedDevice.robots.length
                   ? `${selectedDevice.robots.length} attached to this device`
@@ -4509,7 +4605,7 @@ export default function DevicesPanel() {
               disabled={busy}
               className="bn-device-action-button is-primary"
             >
-              Attach robot
+              {isUiTest ? '+ Attach Robot' : 'Attach robot'}
             </button>
           </div>
 
@@ -4692,6 +4788,8 @@ export default function DevicesPanel() {
               />
             ))}
           </div>
+          </>
+          )}
         </section>
       )}
     </div>
@@ -4901,6 +4999,54 @@ function SoftwarePackageSummaryCard({
           Delete
         </button>
       </div>
+      <div className="bn-local-package-actions-compact">
+        <button
+          type="button"
+          className="bn-device-action-button bn-local-package-check-compact"
+          disabled={busy}
+          onClick={onCheckLatest}
+        >
+          {busy ? 'Checking…' : 'Check updates'}
+        </button>
+        <button
+          type="button"
+          className={`bn-device-action-button${updateAvailable ? ' is-primary' : ''}`}
+          disabled={busy}
+          onClick={onUpdate}
+        >
+          Update
+        </button>
+        <details className="bn-package-action-menu">
+          <summary aria-label={`More actions for ${label}`}>•••</summary>
+          <div>
+            <button
+              type="button"
+              disabled={busy || !installed || !runStopEnabled}
+              onClick={() => onRunStop(running ? 'stop' : 'run')}
+            >
+              {running ? 'Stop' : 'Run'}
+            </button>
+            <button
+              type="button"
+              disabled={busy || !installed || !running || !restartEnabled}
+              onClick={onRestart}
+            >
+              Restart
+            </button>
+            <button type="button" disabled={busy} onClick={onReinstall}>
+              Reinstall
+            </button>
+            <button
+              type="button"
+              className="is-danger"
+              disabled={busy || !installed || !deleteEnabled}
+              onClick={onDelete}
+            >
+              Delete
+            </button>
+          </div>
+        </details>
+      </div>
     </article>
   )
 }
@@ -4955,6 +5101,7 @@ function RobotRow({
   onRestartService: (password: string) => Promise<boolean>
   onRobotUpdated: (robot: HardwareDevice) => void
 }) {
+  const isUiTest = document.documentElement.dataset.uiTest === 'refined'
   const [expanded, setExpanded] = useState(false)
   const [showMonitor, setShowMonitor] = useState(false)
   const [showAttachments, setShowAttachments] = useState(false)
@@ -4985,12 +5132,19 @@ function RobotRow({
       : connected
         ? 'connected'
         : 'disconnected'
-  const connectionLabel = {
-    checking: 'CHECKING',
-    connected: 'CONNECTED',
-    disconnected: 'DISCONNECTED',
-    unreachable: 'UNREACHABLE',
-  }[connectionState]
+  const connectionLabel = isUiTest
+    ? {
+        checking: 'Checking',
+        connected: 'Connected',
+        disconnected: 'Disconnected',
+        unreachable: 'Unreachable',
+      }[connectionState]
+    : {
+        checking: 'CHECKING',
+        connected: 'CONNECTED',
+        disconnected: 'DISCONNECTED',
+        unreachable: 'UNREACHABLE',
+      }[connectionState]
   const connectionColor = {
     checking: 'var(--accent)',
     connected: 'var(--ok)',
@@ -4999,14 +5153,14 @@ function RobotRow({
   }[connectionState]
   const deploymentState = runningDeployment ? 'running' : inactiveDeployment?.state
   const deploymentLabel = deploymentState === 'running'
-    ? 'ACTIVE'
+    ? isUiTest ? 'Active' : 'ACTIVE'
     : deploymentState === 'failed'
-      ? 'FAILED'
+      ? isUiTest ? 'Failed' : 'FAILED'
       : deploymentState === 'exited'
-        ? 'COMPLETED'
+        ? isUiTest ? 'Complete' : 'COMPLETED'
         : deploymentState
-          ? 'INACTIVE'
-          : 'NONE'
+          ? isUiTest ? 'Idle' : 'INACTIVE'
+          : isUiTest ? 'Idle' : 'NONE'
   const deploymentColor = deploymentState === 'running'
     ? 'var(--ok)'
     : deploymentState === 'failed'
@@ -5015,16 +5169,16 @@ function RobotRow({
         ? 'var(--tx2)'
       : 'var(--tx3)'
   const rosLabel = rosHealth?.state === 'healthy'
-    ? 'ENDPOINTS'
+    ? isUiTest ? 'ROS 2 Ready' : 'ENDPOINTS'
     : rosHealth?.state === 'warning'
-      ? 'WARNING'
+      ? isUiTest ? 'ROS 2 Warning' : 'WARNING'
       : rosHealth?.state === 'error'
-        ? 'ATTENTION'
+        ? isUiTest ? 'ROS 2 Attention' : 'ATTENTION'
         : rosHealth?.state === 'unavailable'
-          ? 'UNAVAILABLE'
+          ? isUiTest ? 'ROS 2 Unavailable' : 'UNAVAILABLE'
           : rosHealth?.state === 'checking'
-            ? 'CHECKING'
-            : 'NOT CHECKED'
+            ? isUiTest ? 'ROS 2 Checking' : 'CHECKING'
+            : isUiTest ? 'ROS 2 Unknown' : 'NOT CHECKED'
   const rosColor = rosHealth?.state === 'healthy'
     ? 'var(--ok)'
     : rosHealth?.state === 'warning'
@@ -5056,7 +5210,7 @@ function RobotRow({
         <span className="bn-device-card-dot" aria-hidden="true" />
         <span className="bn-device-card-main">
           <strong>{robot.name}</strong>
-          <span>{summary}</span>
+          {!isUiTest && <span>{summary}</span>}
         </span>
         <span className="bn-device-card-statuses">
           <span
@@ -5081,6 +5235,16 @@ function RobotRow({
             <small>ROS 2</small>
             {rosLabel}
           </span>
+          {isUiTest && (
+            <span className="bn-device-card-firmware">
+              Firmware {
+                status?.software_version
+                || installedSoftwareVersion
+                || robot.software_version
+                || 'unknown'
+              }
+            </span>
+          )}
         </span>
         <span className="bn-device-card-chevron" aria-hidden="true">›</span>
       </button>

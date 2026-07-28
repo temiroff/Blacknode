@@ -9791,6 +9791,17 @@ def _workflow_summary(
     group_color: str = "#6366f1",
 ) -> dict[str, Any]:
     metadata = data.get("metadata") if isinstance(data.get("metadata"), dict) else {}
+    categories: list[str] = []
+    for node_meta in (data.get("node_meta") or {}).values():
+        if not isinstance(node_meta, dict):
+            continue
+        node_type = str(node_meta.get("type") or "").strip()
+        fn = _NODE_REGISTRY.get(node_type)
+        if fn is None:
+            continue
+        category = _category_for_node(fn)
+        if category and category not in categories:
+            categories.append(category)
     return {
         "slug": slug,
         "name": data.get("name", slug),
@@ -9800,6 +9811,9 @@ def _workflow_summary(
         "node_count": len(data.get("node_meta", {}) or {}),
         "group": group,
         "group_color": group_color,
+        "categories": categories,
+        "required_packages": _workflow_required_packages(data),
+        "required_capabilities": _workflow_required_capabilities(data),
     }
 
 

@@ -2,6 +2,8 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import type { BnPackage, BnPackageIndexPackage } from '../types'
+import { familyColor, packageFamilyName } from '../categories'
+import NodeGlyph from './NodeGlyph'
 
 const inputStyle: React.CSSProperties = {
   flex: 1,
@@ -76,6 +78,15 @@ function comparePackages(a: { name: string; layer?: string }, b: { name: string;
   const aRank = LAYER_ORDER.includes(aLayer) ? LAYER_ORDER.indexOf(aLayer) : LAYER_ORDER.length
   const bRank = LAYER_ORDER.includes(bLayer) ? LAYER_ORDER.indexOf(bLayer) : LAYER_ORDER.length
   return aRank - bRank || aLayer.localeCompare(bLayer) || a.name.localeCompare(b.name)
+}
+
+function packageIdentity(pkg: { name: string; layer?: string; categories?: Record<string, string> }) {
+  const declared = Object.keys(pkg.categories ?? {})[0]
+  const label = declared || packageFamilyName(pkg.name)
+  return {
+    label,
+    color: familyColor(`${label} ${pkg.name} ${pkg.layer || ''}`, '#64748b'),
+  }
 }
 
 export default function PackagesPanel() {
@@ -288,16 +299,39 @@ export default function PackagesPanel() {
         const layer = packageLayer(pkg)
         const startsLayer = index === 0 || packageLayer(availablePackages[index - 1]) !== layer
         const componentCount = Object.keys(pkg.components ?? {}).length
+        const identity = packageIdentity(pkg)
         return (
           <Fragment key={pkg.name}>
-          {startsLayer && <div style={sectionStyle}>Available · {layerLabel(layer)}</div>}
-          <div style={{ borderBottom: '1px solid var(--line)', padding: '9px 12px', display: 'flex', gap: 10, alignItems: 'center' }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--tx3)', flexShrink: 0 }} />
+          {startsLayer && (
+            <div
+              className="bn-package-section"
+              style={{
+                ...sectionStyle,
+                '--bn-package-accent': familyColor(layerLabel(layer), '#64748b'),
+              } as React.CSSProperties}
+            >
+              Available · {layerLabel(layer)}
+            </div>
+          )}
+          <div
+            className="bn-package-row is-available"
+            style={{
+              borderBottom: '1px solid var(--line)',
+              padding: '9px 12px',
+              display: 'flex',
+              gap: 10,
+              alignItems: 'center',
+              '--bn-package-accent': identity.color,
+            } as React.CSSProperties}
+          >
+            <span className="bn-package-status-dot" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--tx3)', flexShrink: 0 }} />
+            <NodeGlyph type={pkg.name} category={identity.label} className="bn-package-glyph" />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
                 <span style={{ color: 'var(--tx1)', fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {pkg.name}
                 </span>
+                <span className="bn-package-family">{identity.label}</span>
                 <span style={{ color: 'var(--tx3)', fontSize: 12, fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
                   {pkg.node_types.length} nodes{componentCount ? ` · ${componentCount} components` : ''}
                 </span>
@@ -349,11 +383,29 @@ export default function PackagesPanel() {
               + ' Click to re-run setup.'
             : 'No prerequisites declared. Click to re-run setup.'
         const git = gitSummary(pkg)
+        const identity = packageIdentity(pkg)
         return (
           <Fragment key={pkg.name}>
-          {startsLayer && <div style={sectionStyle}>Installed · {layerLabel(layer)}</div>}
-          <div style={{ borderBottom: '1px solid var(--line)' }}>
+          {startsLayer && (
+            <div
+              className="bn-package-section"
+              style={{
+                ...sectionStyle,
+                '--bn-package-accent': familyColor(layerLabel(layer), '#64748b'),
+              } as React.CSSProperties}
+            >
+              Installed · {layerLabel(layer)}
+            </div>
+          )}
+          <div
+            className="bn-package-entry"
+            style={{
+              borderBottom: '1px solid var(--line)',
+              '--bn-package-accent': identity.color,
+            } as React.CSSProperties}
+          >
             <button
+              className="bn-package-row is-installed"
               onClick={() => setExpanded(open ? null : pkg.name)}
               style={{
                 width: '100%',
@@ -370,15 +422,18 @@ export default function PackagesPanel() {
               }}
             >
               <span title={dotTitle} style={{
+                // Runtime health stays independent from the package-family color.
                 width: 7,
                 height: 7,
                 borderRadius: '50%',
                 background: !pkg.ok ? 'var(--err)' : (hasWarnings || hasMissingNodes ? 'var(--warn)' : 'var(--ok)'),
                 flexShrink: 0,
               }} />
+              <NodeGlyph type={pkg.name} category={identity.label} className="bn-package-glyph" />
               <span style={{ flex: 1, fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {pkg.name}
               </span>
+              <span className="bn-package-family">{identity.label}</span>
               <span style={{ color: 'var(--tx3)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
                 {pkg.version || '?'}
               </span>

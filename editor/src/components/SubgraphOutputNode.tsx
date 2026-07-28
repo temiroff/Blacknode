@@ -3,6 +3,7 @@ import { Handle, Position, NodeProps } from 'reactflow'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import NodeFrame from './NodeFrame'
+import NodeGlyph from './NodeGlyph'
 import type { NodeCookState } from '../types'
 
 const HEADER = '#6366f1'
@@ -78,12 +79,13 @@ function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
       data={data}
       selected={selected}
       color={HEADER}
+      nodeType={data.type}
       style={{
         minWidth: 140,
       }}
     >
       {/* header */}
-      <div style={{
+      <div className="bn-node-header" style={{
         background: HEADER,
         borderRadius: '8px 8px 0 0',
         padding: '5px 10px',
@@ -95,7 +97,8 @@ function SubgraphOutputNode({ id, data, selected }: NodeProps<NodeData>) {
         alignItems: 'center',
         gap: 5,
       }}>
-        <span>⬡</span> Subnet Output
+        <NodeGlyph type="SubnetOutput" className="bn-node-header-glyph" />
+        <span className="bn-node-title">Subnet Output</span>
       </div>
 
       {/* __new__ auto-create handle — drag to here to auto-add a port */}

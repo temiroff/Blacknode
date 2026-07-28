@@ -17,7 +17,7 @@ try:
 except ImportError as exc:  # pragma: no cover - import guidance
     raise SystemExit(
         "The 'mcp' package is required to run the Blacknode MCP server.\n"
-        "Install it with:  pip install 'mcp>=1.0'"
+        "Install it with:  pip install 'mcp>=1.0,<2.0'"
     ) from exc
 
 from . import tools
