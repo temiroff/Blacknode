@@ -100,6 +100,8 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["HDF5EpisodeExport"]["package"] == "blacknode-dataset"
     assert payload["nodes"]["StreamPublisher"]["package"] == "blacknode-dataset"
     assert payload["nodes"]["ROS2LeaderFollower"]["package"] == "blacknode-skills"
+    assert payload["nodes"]["ROS2JointSubscribe"]["package"] == "blacknode-skills"
+    assert payload["nodes"]["ROS2JointPublish"]["package"] == "blacknode-skills"
     assert payload["nodes"]["ROS2LeaderJointSubscriber"]["package"] == "blacknode-skills"
     assert payload["nodes"]["ROS2FollowerJointPublisher"]["package"] == "blacknode-skills"
     assert payload["nodes"]["PolicyRuntime"]["package"] == "blacknode-controllers"

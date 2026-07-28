@@ -833,7 +833,11 @@ def _push_live_node_param_update(meta: dict[str, Any], key: str, value: Any, old
         if not result.get("ok", True) and "not running" not in str(result.get("report") or ""):
             print(f"[blacknode] live joint-slider update for {run_id}.{key}: {result.get('report')}")
         return
-    if meta.get("type") in {"ROS2LeaderFollower", "ROS2FollowerJointPublisher"}:
+    if meta.get("type") in {
+        "ROS2LeaderFollower",
+        "ROS2FollowerJointPublisher",
+        "ROS2JointPublish",
+    }:
         update_fn = _runtime_callable("ros2_live", _RUNTIME_MODULES["ros2_live"], "update_leader_follower_config")
         if update_fn is None:
             return
@@ -1627,7 +1631,11 @@ def update_param(node_id: str, req: UpdateParamReq):
         invalidated_meta = _session.node_meta.get(invalidated_id)
         if invalidated_meta is not None:
             _clear_runtime_status(invalidated_meta)
-            if invalidated_meta.get("type") in {"ROS2LeaderFollower", "ROS2FollowerJointPublisher"} and invalidated_id != node_id:
+            if invalidated_meta.get("type") in {
+                "ROS2LeaderFollower",
+                "ROS2FollowerJointPublisher",
+                "ROS2JointPublish",
+            } and invalidated_id != node_id:
                 disarm_fn = _runtime_callable("ros2_live", _RUNTIME_MODULES["ros2_live"], "update_leader_follower_config")
                 if disarm_fn is not None:
                     run_id = str(invalidated_meta.get("params", {}).get("run_id") or "leader_follower").strip() or "leader_follower"
@@ -6018,6 +6026,8 @@ def _workflow_requires_deployment_telemetry(workflow: dict[str, Any]) -> bool:
         "RobotDriverLauncher",
         "ROS2JointSliders",
         "ROS2LeaderFollower",
+        "ROS2JointSubscribe",
+        "ROS2JointPublish",
         "ROS2FollowerJointPublisher",
         "ROS2LeaderJointSubscriber",
         "ROS2ManualMove",
@@ -6052,6 +6062,7 @@ def _workflow_motion_controls(workflow: dict[str, Any]) -> list[dict[str, str]]:
             not isinstance(meta, dict)
             or str(meta.get("type") or "") not in {
                 "ROS2LeaderFollower",
+                "ROS2JointPublish",
                 "ROS2FollowerJointPublisher",
             }
         ):
@@ -6081,6 +6092,7 @@ def _disarm_workflow_motion_controls(workflow: dict[str, Any]) -> list[str]:
         if isinstance(meta, dict)
         and str(meta.get("type") or "") in {
             "ROS2LeaderFollower",
+            "ROS2JointPublish",
             "ROS2FollowerJointPublisher",
         }
     }

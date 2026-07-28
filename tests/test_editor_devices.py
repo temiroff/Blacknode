@@ -5482,6 +5482,27 @@ class EditorDeviceApiTests(unittest.TestCase):
             "/blacknode/leader_follower/split_follower/control",
         )
 
+    def test_generic_joint_publisher_declares_one_remote_armed_gate(self):
+        workflow = _workflow([])
+        workflow["node_meta"]["publish"] = {
+            "id": "publish",
+            "type": "ROS2JointPublish",
+            "params": {
+                "run_id": "joint publisher",
+                "control_topic": "",
+                "armed": False,
+            },
+        }
+
+        controls = server._workflow_motion_controls(workflow)
+
+        self.assertEqual(len(controls), 1)
+        self.assertEqual(controls[0]["node_id"], "publish")
+        self.assertEqual(
+            controls[0]["topic"],
+            "/blacknode/leader_follower/joint_publisher/control",
+        )
+
     def test_remote_leader_follower_export_is_forced_disarmed(self):
         workflow = _workflow([])
         workflow["edges"] = [
