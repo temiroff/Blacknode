@@ -492,6 +492,30 @@ class RobotLifecycleReq(BaseModel):
 class RenameDeviceReq(BaseModel):
     name: str
 
+
+class RobotAttachmentReq(BaseModel):
+    attachment_id: str
+    display_name: str
+    attachment_type: str
+    capability: str
+    provider_package: str
+    provider_component: str
+    provider_adapter: str = "ros2"
+    topic: str
+    message_type: str
+    parent_frame: str = "base_link"
+    frame_id: str
+    x_m: float = 0.0
+    y_m: float = 0.0
+    z_m: float = 0.0
+    roll_rad: float = 0.0
+    pitch_rad: float = 0.0
+    yaw_rad: float = 0.0
+    hardware_id: str = ""
+    required: bool = True
+    enabled: bool = True
+
+
 class DeploymentPreflightReq(BaseModel):
     # Omit to validate the graph currently open in the editor.
     workflow: dict[str, Any] | None = None
@@ -5145,6 +5169,268 @@ def get_device(device_id: str):
     return device
 
 
+def _robot_attachment_values(req: RobotAttachmentReq) -> dict[str, Any]:
+    return {
+        "attachment_id": req.attachment_id,
+        "display_name": req.display_name,
+        "attachment_type": req.attachment_type,
+        "capability": req.capability,
+        "provider_package": req.provider_package,
+        "provider_component": req.provider_component,
+        "provider_adapter": req.provider_adapter,
+        "topic": req.topic,
+        "message_type": req.message_type,
+        "parent_frame": req.parent_frame,
+        "frame_id": req.frame_id,
+        "x_m": req.x_m,
+        "y_m": req.y_m,
+        "z_m": req.z_m,
+        "roll_rad": req.roll_rad,
+        "pitch_rad": req.pitch_rad,
+        "yaw_rad": req.yaw_rad,
+        "hardware_id": req.hardware_id,
+        "required": req.required,
+        "enabled": req.enabled,
+    }
+
+
+def _attachment_primary_interface(
+    attachment: dict[str, Any],
+) -> dict[str, Any]:
+    return next(
+        (
+            dict(item)
+            for item in (attachment.get("interfaces") or [])
+            if isinstance(item, dict)
+            and str(item.get("kind") or "topic") == "topic"
+            and str(item.get("topic") or "")
+        ),
+        {},
+    )
+
+
+def _attachment_topic_check(
+    attachment: dict[str, Any],
+    diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    interface = _attachment_primary_interface(attachment)
+    topic = str(interface.get("topic") or "")
+    expected_type = str(interface.get("message_type") or "")
+    checked_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    if not diagnostics.get("available", diagnostics.get("ok", False)):
+        return {
+            "ok": False,
+            "status": "unavailable",
+            "topic": topic,
+            "expected_message_type": expected_type,
+            "actual_message_type": "",
+            "publisher_count": None,
+            "checked_at": checked_at,
+            "message": str(
+                diagnostics.get("error")
+                or diagnostics.get("summary")
+                or "ROS 2 diagnostics are unavailable on this device."
+            ),
+        }
+
+    actual_type = ""
+    topic_found = False
+    for value in diagnostics.get("topics") or []:
+        if isinstance(value, dict):
+            candidate_topic = str(value.get("name") or value.get("topic") or "")
+            candidate_type = str(value.get("type") or value.get("message_type") or "")
+        else:
+            text = str(value or "")
+            match = re.match(r"^(\S+)\s+\[([^\]]+)\]\s*$", text)
+            candidate_topic = match.group(1) if match else text.strip()
+            candidate_type = match.group(2) if match else ""
+        if candidate_topic == topic:
+            topic_found = True
+            actual_type = candidate_type
+            break
+    if not topic_found:
+        return {
+            "ok": False,
+            "status": "missing",
+            "topic": topic,
+            "expected_message_type": expected_type,
+            "actual_message_type": "",
+            "publisher_count": 0,
+            "checked_at": checked_at,
+            "message": f"{topic} is not present in the live ROS 2 graph.",
+        }
+    if actual_type and expected_type and actual_type != expected_type:
+        return {
+            "ok": False,
+            "status": "type_mismatch",
+            "topic": topic,
+            "expected_message_type": expected_type,
+            "actual_message_type": actual_type,
+            "publisher_count": None,
+            "checked_at": checked_at,
+            "message": (
+                f"{topic} publishes {actual_type}, but this attachment expects "
+                f"{expected_type}."
+            ),
+        }
+
+    publisher_count: int | None = None
+    topic_detail = next(
+        (
+            item
+            for item in (diagnostics.get("topic_details") or [])
+            if isinstance(item, dict)
+            and str(item.get("topic") or "") == topic
+        ),
+        None,
+    )
+    if topic_detail and topic_detail.get("ok", True):
+        match = re.search(
+            r"Publisher count:\s*(\d+)",
+            str(topic_detail.get("stdout") or ""),
+            re.IGNORECASE,
+        )
+        if match:
+            publisher_count = int(match.group(1))
+    if publisher_count == 0:
+        return {
+            "ok": False,
+            "status": "no_publisher",
+            "topic": topic,
+            "expected_message_type": expected_type,
+            "actual_message_type": actual_type or expected_type,
+            "publisher_count": 0,
+            "checked_at": checked_at,
+            "message": f"{topic} exists, but no ROS 2 publisher is active.",
+        }
+    if publisher_count is None:
+        return {
+            "ok": True,
+            "status": "topic_present",
+            "topic": topic,
+            "expected_message_type": expected_type,
+            "actual_message_type": actual_type or expected_type,
+            "publisher_count": None,
+            "checked_at": checked_at,
+            "message": (
+                f"{topic} is present with the expected type. Publisher count "
+                "was not sampled."
+            ),
+        }
+    return {
+        "ok": True,
+        "status": "streaming",
+        "topic": topic,
+        "expected_message_type": expected_type,
+        "actual_message_type": actual_type or expected_type,
+        "publisher_count": publisher_count,
+        "checked_at": checked_at,
+        "message": (
+            f"{topic} has {publisher_count} active ROS 2 "
+            f"publisher{'s' if publisher_count != 1 else ''}."
+        ),
+    }
+
+
+@app.get("/devices/{device_id}/attachments")
+def list_robot_attachments(device_id: str):
+    try:
+        device = _device_registry.get_public(device_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if device is None:
+        raise HTTPException(404, "Device not found")
+    return {
+        "device_id": device_id,
+        "attachments": list(device.get("attachments") or []),
+    }
+
+
+@app.post("/devices/{device_id}/attachments")
+def create_robot_attachment(device_id: str, req: RobotAttachmentReq):
+    try:
+        device, attachment = _device_registry.save_attachment(
+            device_id,
+            _robot_attachment_values(req),
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "Device not found") from exc
+    except DeviceRegistryError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"device": device, "attachment": attachment}
+
+
+@app.put("/devices/{device_id}/attachments/{attachment_id}")
+def update_robot_attachment(
+    device_id: str,
+    attachment_id: str,
+    req: RobotAttachmentReq,
+):
+    try:
+        device, attachment = _device_registry.save_attachment(
+            device_id,
+            _robot_attachment_values(req),
+            attachment_id=attachment_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "Device or attachment not found") from exc
+    except DeviceRegistryError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"device": device, "attachment": attachment}
+
+
+@app.delete("/devices/{device_id}/attachments/{attachment_id}")
+def delete_robot_attachment(device_id: str, attachment_id: str):
+    try:
+        device = _device_registry.delete_attachment(device_id, attachment_id)
+    except KeyError as exc:
+        raise HTTPException(404, "Device or attachment not found") from exc
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return {"ok": True, "device": device, "id": attachment_id}
+
+
+@app.post("/devices/{device_id}/attachments/{attachment_id}/check")
+def check_robot_attachment(device_id: str, attachment_id: str):
+    try:
+        device = _device_registry.get_public(device_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if device is None:
+        raise HTTPException(404, "Device not found")
+    attachment = next(
+        (
+            item
+            for item in (device.get("attachments") or [])
+            if isinstance(item, dict)
+            and str(item.get("id") or "") == attachment_id
+        ),
+        None,
+    )
+    if attachment is None:
+        raise HTTPException(404, "Attachment not found")
+    try:
+        diagnostics = _runtime_client_or_404(device_id).ros2_diagnostics()
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    check = _attachment_topic_check(attachment, diagnostics)
+    try:
+        updated_device, updated_attachment = (
+            _device_registry.remember_attachment_check(
+                device_id,
+                attachment_id,
+                check,
+            )
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "Device or attachment not found") from exc
+    return {
+        "device": updated_device,
+        "attachment": updated_attachment,
+        "check": check,
+    }
+
+
 @app.patch("/devices/{device_id}")
 def rename_device(device_id: str, req: RenameDeviceReq):
     try:
@@ -6030,6 +6316,24 @@ def _device_deployment_hash(workflow: dict[str, Any]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def _device_deployment_attachments(device_id: str) -> list[dict[str, Any]]:
+    """Return enabled robot attachments as stable deployment configuration."""
+    try:
+        device = _device_registry.get_public(device_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if device is None:
+        raise HTTPException(404, "Device not found")
+    attachments: list[dict[str, Any]] = []
+    for item in device.get("attachments") or []:
+        if not isinstance(item, dict) or item.get("enabled") is False:
+            continue
+        attachment = json.loads(json.dumps(item))
+        attachment.pop("last_check", None)
+        attachments.append(attachment)
+    return attachments
 
 
 @app.post("/devices/{device_id}/deployment-preflight")
@@ -7173,6 +7477,7 @@ def _stage_device_deployment_payload(
             "Deployment preflight failed: " + "; ".join(blocking[:3]),
         )
 
+    robot_attachments = _device_deployment_attachments(device_id)
     report(28, "Exporting the workflow with motion disarmed")
     try:
         _bind_robot_to_device(workflow, preflight.get("status") or {})
@@ -7211,6 +7516,7 @@ def _stage_device_deployment_payload(
             "blacknode_version": str(getattr(bn, "__version__", "")),
             "runtime_protocol_version": runtime_manifest.get("protocol_version"),
             "target_device_id": device_id,
+            "robot_attachments": robot_attachments,
             "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             **deployment_owner,
         },

@@ -91,6 +91,94 @@ export interface ApiKeyStatus {
   env_var: string
 }
 
+export type RobotAttachmentType =
+  | 'camera'
+  | 'depth_camera'
+  | 'lidar'
+  | 'imu'
+  | 'gps'
+  | 'microphone'
+  | 'custom'
+
+export interface RobotAttachmentCheck {
+  ok: boolean
+  status:
+    | 'streaming'
+    | 'topic_present'
+    | 'missing'
+    | 'no_publisher'
+    | 'type_mismatch'
+    | 'unavailable'
+  topic: string
+  expected_message_type: string
+  actual_message_type: string
+  publisher_count: number | null
+  checked_at: string
+  message: string
+}
+
+export interface RobotAttachment {
+  kind: 'blacknode.robot-attachment'
+  schema_version: 1
+  id: string
+  display_name: string
+  attachment_type: RobotAttachmentType
+  capability: string
+  provider: {
+    package: string
+    component: string
+    adapter: string
+  }
+  hardware_identity: {
+    id: string
+    serial?: string
+    vendor_id?: string
+    product_id?: string
+    path?: string
+  }
+  parent_frame: string
+  frame_id: string
+  mount: {
+    translation_m: [number, number, number]
+    rotation_rpy_rad: [number, number, number]
+  }
+  interfaces: Array<{
+    kind: 'topic'
+    direction: 'output'
+    topic: string
+    candidates: string[]
+    message_type: string
+    frame_id: string
+  }>
+  required: boolean
+  enabled: boolean
+  last_check?: RobotAttachmentCheck
+  binding: Record<string, unknown>
+}
+
+export interface RobotAttachmentInput {
+  attachment_id: string
+  display_name: string
+  attachment_type: RobotAttachmentType
+  capability: string
+  provider_package: string
+  provider_component: string
+  provider_adapter: string
+  topic: string
+  message_type: string
+  parent_frame: string
+  frame_id: string
+  x_m: number
+  y_m: number
+  z_m: number
+  roll_rad: number
+  pitch_rad: number
+  yaw_rad: number
+  hardware_id: string
+  required: boolean
+  enabled: boolean
+}
+
 export interface HardwareDevice {
   id: string
   name: string
@@ -103,6 +191,7 @@ export interface HardwareDevice {
   runtime_token_configured?: boolean
   software_version?: string
   paused?: boolean
+  attachments?: RobotAttachment[]
   created_at: string
   updated_at: string
 }
@@ -1469,6 +1558,43 @@ export const api = {
     ),
   deviceStatus:     (id: string) =>
     req<HardwareDeviceStatus>('GET', `/devices/${encodeURIComponent(id)}/status`, undefined, 7000),
+  listRobotAttachments: (id: string) =>
+    req<{ device_id: string; attachments: RobotAttachment[] }>(
+      'GET',
+      `/devices/${encodeURIComponent(id)}/attachments`,
+    ),
+  createRobotAttachment: (id: string, attachment: RobotAttachmentInput) =>
+    req<{ device: HardwareDevice; attachment: RobotAttachment }>(
+      'POST',
+      `/devices/${encodeURIComponent(id)}/attachments`,
+      attachment,
+    ),
+  updateRobotAttachment: (
+    id: string,
+    attachmentId: string,
+    attachment: RobotAttachmentInput,
+  ) =>
+    req<{ device: HardwareDevice; attachment: RobotAttachment }>(
+      'PUT',
+      `/devices/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`,
+      attachment,
+    ),
+  deleteRobotAttachment: (id: string, attachmentId: string) =>
+    req<{ ok: boolean; id: string; device: HardwareDevice }>(
+      'DELETE',
+      `/devices/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`,
+    ),
+  checkRobotAttachment: (id: string, attachmentId: string) =>
+    req<{
+      device: HardwareDevice
+      attachment: RobotAttachment
+      check: RobotAttachmentCheck
+    }>(
+      'POST',
+      `/devices/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/check`,
+      {},
+      90000,
+    ),
   deviceMonitor:    (id: string) =>
     req<RobotTelemetrySample>(
       'GET',

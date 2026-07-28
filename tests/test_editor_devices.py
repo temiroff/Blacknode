@@ -89,6 +89,20 @@ class _HardwareService:
             "deployment_motion_control_v1",
             "ros2_diagnostics_v1",
         ]
+        self.ros2_diagnostics_payload = {
+            "ok": True,
+            "available": True,
+            "checked_at": "2026-07-27T00:00:00+00:00",
+            "summary": "Found 2 nodes, 2 topics, and 1 service.",
+            "nodes": ["/leader", "/follower"],
+            "topics": [
+                "/leader/joint_states [sensor_msgs/msg/JointState]",
+                "/follower/joint_states [sensor_msgs/msg/JointState]",
+            ],
+            "services": ["/leader/get_parameters"],
+            "topic_details": [],
+            "warnings": [],
+        }
         self.torque_readback_available = torque_readback_available
 
     def __call__(self, request, timeout=0):
@@ -176,20 +190,7 @@ class _HardwareService:
                 "messages": [],
             })
         if path == "/diagnostics/ros2":
-            return _JsonResponse({
-                "ok": True,
-                "available": True,
-                "checked_at": "2026-07-27T00:00:00+00:00",
-                "summary": "Found 2 nodes, 2 topics, and 1 service.",
-                "nodes": ["/leader", "/follower"],
-                "topics": [
-                    "/leader/joint_states [sensor_msgs/msg/JointState]",
-                    "/follower/joint_states [sensor_msgs/msg/JointState]",
-                ],
-                "services": ["/leader/get_parameters"],
-                "topic_details": [],
-                "warnings": [],
-            })
+            return _JsonResponse(self.ros2_diagnostics_payload)
         if path == "/deployments":
             if request.method == "GET":
                 return _JsonResponse({
@@ -2967,6 +2968,147 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertTrue(rpc_requests)
         self.assertEqual(rpc_requests[-1][3]["method"], "stop")
 
+    def test_robot_attachments_are_managed_in_ui_api_and_check_live_ros_topic(self):
+        hardware = _HardwareService()
+        attachment_payload = {
+            "attachment_id": "front_camera",
+            "display_name": "Front camera",
+            "attachment_type": "camera",
+            "capability": "camera",
+            "provider_package": "blacknode-perception",
+            "provider_component": "camera",
+            "provider_adapter": "ros2",
+            "topic": "/camera/image_raw",
+            "message_type": "sensor_msgs/msg/Image",
+            "parent_frame": "base_link",
+            "frame_id": "camera_link",
+            "x_m": 0.2,
+            "y_m": 0.0,
+            "z_m": 0.4,
+            "roll_rad": 0.0,
+            "pitch_rad": 0.1,
+            "yaw_rad": 0.0,
+            "hardware_id": "camera-serial-1",
+            "required": True,
+            "enabled": True,
+        }
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            paired = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]
+            created = self.client.post(
+                f"/devices/{paired['id']}/attachments",
+                json=attachment_payload,
+            )
+            listed = self.client.get(
+                f"/devices/{paired['id']}/attachments",
+            )
+            missing = self.client.post(
+                f"/devices/{paired['id']}/attachments/front_camera/check",
+            )
+
+            hardware.ros2_diagnostics_payload["topics"].append(
+                "/camera/image_raw [sensor_msgs/msg/Image]"
+            )
+            hardware.ros2_diagnostics_payload["topic_details"] = [{
+                "topic": "/camera/image_raw",
+                "ok": True,
+                "stdout": (
+                    "Type: sensor_msgs/msg/Image\n\n"
+                    "Publisher count: 1\n\nSubscription count: 0\n"
+                ),
+                "stderr": "",
+            }]
+            streaming = self.client.post(
+                f"/devices/{paired['id']}/attachments/front_camera/check",
+            )
+            updated = self.client.put(
+                f"/devices/{paired['id']}/attachments/front_camera",
+                json={
+                    **attachment_payload,
+                    "display_name": "Wrist camera",
+                },
+            )
+            re_paired = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            })
+            invalid_id_change = self.client.put(
+                f"/devices/{paired['id']}/attachments/front_camera",
+                json={
+                    **attachment_payload,
+                    "attachment_id": "different_camera",
+                },
+            )
+            deleted = self.client.delete(
+                f"/devices/{paired['id']}/attachments/front_camera",
+            )
+
+        self.assertEqual(created.status_code, 200)
+        attachment = created.json()["attachment"]
+        self.assertEqual(attachment["kind"], "blacknode.robot-attachment")
+        self.assertEqual(attachment["interfaces"][0]["topic"], "/camera/image_raw")
+        self.assertEqual(
+            attachment["mount"]["translation_m"],
+            [0.2, 0.0, 0.4],
+        )
+        self.assertEqual(
+            attachment["hardware_identity"]["id"],
+            "camera-serial-1",
+        )
+        self.assertEqual(len(listed.json()["attachments"]), 1)
+        self.assertEqual(missing.json()["check"]["status"], "missing")
+        self.assertFalse(missing.json()["check"]["ok"])
+        self.assertEqual(streaming.json()["check"]["status"], "streaming")
+        self.assertTrue(streaming.json()["check"]["ok"])
+        self.assertEqual(streaming.json()["check"]["publisher_count"], 1)
+        self.assertEqual(
+            updated.json()["attachment"]["display_name"],
+            "Wrist camera",
+        )
+        self.assertEqual(len(re_paired.json()["device"]["attachments"]), 1)
+        self.assertEqual(invalid_id_change.status_code, 400)
+        self.assertIn("stable", invalid_id_change.json()["detail"].lower())
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.json()["device"]["attachments"], [])
+        self.assertNotIn(hardware.token, created.text)
+        saved = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            saved["devices"][paired["id"]]["attachments"],
+            [],
+        )
+
+    def test_robot_attachment_rejects_invalid_ros_message_type(self):
+        hardware = _HardwareService()
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            paired = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]
+            response = self.client.post(
+                f"/devices/{paired['id']}/attachments",
+                json={
+                    "attachment_id": "front_camera",
+                    "display_name": "Front camera",
+                    "attachment_type": "camera",
+                    "capability": "camera",
+                    "provider_package": "blacknode-perception",
+                    "provider_component": "camera",
+                    "provider_adapter": "ros2",
+                    "topic": "/camera/image_raw",
+                    "message_type": "Image",
+                    "parent_frame": "base_link",
+                    "frame_id": "camera_link",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("sensor_msgs/msg/image", response.json()["detail"].lower())
+
     def test_device_status_keeps_last_verified_hardware_version(self):
         hardware = _HardwareService(status_overrides={
             "software_version": "0.1.1",
@@ -4826,12 +4968,31 @@ class EditorDeviceApiTests(unittest.TestCase):
     def test_validated_graph_can_be_staged_and_started_on_runtime(self):
         hardware = _HardwareService()
         workflow = _workflow([])
+        attachment_payload = {
+            "attachment_id": "front_camera",
+            "display_name": "Front camera",
+            "attachment_type": "camera",
+            "capability": "camera",
+            "provider_package": "blacknode-perception",
+            "provider_component": "camera",
+            "provider_adapter": "ros2",
+            "topic": "/camera/image_raw",
+            "message_type": "sensor_msgs/msg/Image",
+            "parent_frame": "base_link",
+            "frame_id": "camera_link",
+            "required": True,
+            "enabled": True,
+        }
         with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
             device_id = self.client.post("/devices", json={
                 "name": "Workshop arm",
                 "base_url": "http://192.168.1.87:8765",
                 "token": hardware.token,
             }).json()["device"]["id"]
+            self.client.post(
+                f"/devices/{device_id}/attachments",
+                json=attachment_payload,
+            )
             with patch.object(server, "_workflow_payload", return_value=workflow):
                 preflight = self.client.post(
                     f"/devices/{device_id}/deployment-preflight",
@@ -4871,6 +5032,14 @@ class EditorDeviceApiTests(unittest.TestCase):
             stage_request[3]["manifest"]["target_device_id"],
             device_id,
         )
+        staged_attachments = stage_request[3]["manifest"]["robot_attachments"]
+        self.assertEqual(len(staged_attachments), 1)
+        self.assertEqual(staged_attachments[0]["id"], "front_camera")
+        self.assertEqual(
+            staged_attachments[0]["interfaces"][0]["topic"],
+            "/camera/image_raw",
+        )
+        self.assertNotIn("last_check", staged_attachments[0])
         self.assertFalse(stage_request[3]["manifest"]["telemetry_required"])
 
     def test_deployment_stream_reports_package_upload_and_start_progress(self):
