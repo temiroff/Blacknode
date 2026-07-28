@@ -187,18 +187,22 @@ standalone scripts, but it should still be an export target, not a node.
 
 ## Missing-node resolution
 
-Blacknode ships a small core index that maps official extension node types to
-their package name and Git URL. The editor backend exposes it at:
+Blacknode combines its shipped official-package catalog with the `node-types`
+declared by every installed package manifest. The resulting live index maps
+extension node types to their package name and Git URL. The editor backend
+exposes it at:
 
 ```text
 GET /packages/index
 ```
 
 Template loading scans every root and nested node type before validation. When
-a type is unavailable, the loader combines the core index with the template's
-optional `metadata.required_packages` declaration. The Templates tab then
-shows the missing package, installs it through the existing package installer,
-refreshes node definitions, and retries the load.
+a type is unavailable, the loader combines the live manifest index with the
+template's optional `metadata.required_packages` declaration. A package update
+can therefore publish new nodes without waiting for a matching core catalog
+release. The Templates tab then shows the owning package, installs or reloads
+it through the existing package controls, refreshes node definitions, and
+retries the load.
 
 Indexed packages only need their name:
 
