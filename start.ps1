@@ -316,7 +316,11 @@ function Assert-ProcessRunning {
     param(
         [System.Diagnostics.Process] $Process,
         [string] $Name,
-        [string] $ErrorLog
+        [string] $ErrorLog,
+        [ValidateSet("backend", "frontend")]
+        [string] $Service,
+        [int] $Port,
+        [scriptblock] $ReadyProbe
     )
 
     $Process.Refresh()
@@ -326,6 +330,24 @@ function Assert-ProcessRunning {
 
     if (Test-LauncherReplaced) {
         return $false
+    }
+
+    if (& $ReadyProbe) {
+        $ReplacementIds = @(Get-PortProcessIds -Port $Port)
+        if ($ReplacementIds.Count -eq 1) {
+            try {
+                $Replacement = Get-Process -Id $ReplacementIds[0] -ErrorAction Stop
+                if ($Service -eq "backend") {
+                    $script:BackendProcess = $Replacement
+                } else {
+                    $script:FrontendProcess = $Replacement
+                }
+                Write-Step "$Name restarted; launcher adopted process $($Replacement.Id)."
+                return $true
+            } catch {
+                # The listener changed between the health probe and process lookup.
+            }
+        }
     }
 
     Write-Host ""
@@ -513,7 +535,13 @@ try {
         -ErrLog $ServerErr
 
     Start-Sleep -Seconds 3
-    if (-not (Assert-ProcessRunning -Process $script:BackendProcess -Name "Python server" -ErrorLog $ServerErr)) {
+    if (-not (Assert-ProcessRunning `
+        -Process $script:BackendProcess `
+        -Name "Python server" `
+        -ErrorLog $ServerErr `
+        -Service "backend" `
+        -Port $BackendPort `
+        -ReadyProbe { Test-BlacknodeBackendReady })) {
         Write-Step "Startup handed off to a newer Blacknode launcher."
         return
     }
@@ -542,7 +570,13 @@ try {
         -ErrLog $EditorErr
 
     Start-Sleep -Seconds 5
-    if (-not (Assert-ProcessRunning -Process $script:FrontendProcess -Name "Visual editor" -ErrorLog $EditorErr)) {
+    if (-not (Assert-ProcessRunning `
+        -Process $script:FrontendProcess `
+        -Name "Visual editor" `
+        -ErrorLog $EditorErr `
+        -Service "frontend" `
+        -Port $FrontendPort `
+        -ReadyProbe { Test-BlacknodeEditorReady })) {
         Write-Step "Startup handed off to a newer Blacknode launcher."
         return
     }
@@ -554,11 +588,23 @@ try {
     Write-Host ""
 
     while ($true) {
-        if (-not (Assert-ProcessRunning -Process $script:BackendProcess -Name "Python server" -ErrorLog $ServerErr)) {
+        if (-not (Assert-ProcessRunning `
+            -Process $script:BackendProcess `
+            -Name "Python server" `
+            -ErrorLog $ServerErr `
+            -Service "backend" `
+            -Port $BackendPort `
+            -ReadyProbe { Test-BlacknodeBackendReady })) {
             Write-Step "Blacknode was restarted by another launcher."
             return
         }
-        if (-not (Assert-ProcessRunning -Process $script:FrontendProcess -Name "Visual editor" -ErrorLog $EditorErr)) {
+        if (-not (Assert-ProcessRunning `
+            -Process $script:FrontendProcess `
+            -Name "Visual editor" `
+            -ErrorLog $EditorErr `
+            -Service "frontend" `
+            -Port $FrontendPort `
+            -ReadyProbe { Test-BlacknodeEditorReady })) {
             Write-Step "Blacknode was restarted by another launcher."
             return
         }

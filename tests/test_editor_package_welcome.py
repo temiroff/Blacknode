@@ -17,3 +17,13 @@ def test_first_editor_visit_opens_packages_with_one_time_welcome():
     assert "Explore core templates" in source
     assert "useState<Tab | null>('templates')" in source
     assert "finishPackageWelcome('templates')" in source
+
+
+def test_backend_failure_does_not_open_the_first_run_welcome():
+    source = (ROOT / "editor" / "src" / "components" / "NodePalette.tsx").read_text(encoding="utf-8")
+    onboarding = source[source.index("api.getOnboarding()"):]
+    failure_handler = onboarding[onboarding.index(".catch(() => {"):onboarding.index("return () =>")]
+
+    assert "setShowPackageWelcome(true)" not in failure_handler
+    assert "setActiveTab('packages')" not in failure_handler
+    assert "A backend outage is not first-run state." in failure_handler
