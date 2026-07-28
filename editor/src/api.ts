@@ -103,7 +103,7 @@ export type RobotAttachmentType =
 export type RobotAttachmentProviderProfile =
   | 'existing_topics'
   | 'usb_cam'
-  | 'rosorin_depth'
+  | 'blacknode_rgbd'
   | 'custom_launch'
 
 export interface RobotAttachmentCheck {

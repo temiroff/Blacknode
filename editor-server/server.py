@@ -5249,21 +5249,55 @@ def _attachment_service_payload(
             ),
             "",
         )
-        arguments = ["--ros-args", "-r", f"image_raw:={topic}"]
+        arguments = list(service.get("launch_arguments") or [])
+        arguments.append(f"image_topic:={topic}")
         if info:
-            arguments.extend(["-r", f"camera_info:={info}"])
-        command = {
-            "verb": "run",
-            "package": "usb_cam",
-            "target": "usb_cam_node_exe",
-            "arguments": arguments,
-        }
-    elif profile == "rosorin_depth":
+            arguments.append(f"camera_info_topic:={info}")
+        arguments.append(
+            f"frame_id:={str(primary.get('frame_id') or 'camera')}"
+        )
         command = {
             "verb": "launch",
-            "package": "peripherals",
-            "target": "depth_camera.launch.py",
-            "arguments": [],
+            "package": "perception_camera",
+            "target": "usb_camera.launch.py",
+            "arguments": arguments,
+        }
+    elif profile == "blacknode_rgbd":
+        primary = _attachment_primary_interface(attachment)
+        info = next(
+            (
+                str(item.get("topic") or "")
+                for item in (attachment.get("interfaces") or [])
+                if isinstance(item, dict)
+                and str(item.get("role") or "") == "camera_info"
+            ),
+            "",
+        )
+        depth = next(
+            (
+                str(item.get("topic") or "")
+                for item in (attachment.get("interfaces") or [])
+                if isinstance(item, dict)
+                and str(item.get("role") or "") == "depth"
+            ),
+            "",
+        )
+        arguments = (
+            list(service.get("launch_arguments") or [])
+            or ["rgb_device:=0", "depth_device:=1"]
+        )
+        arguments.extend([
+            f"rgb_topic:={str(primary.get('topic') or '/camera/rgb/image_raw')}",
+            f"rgb_info_topic:={info or '/camera/rgb/camera_info'}",
+            f"depth_topic:={depth or '/camera/depth/image_raw'}",
+            f"rgb_frame_id:={str(primary.get('frame_id') or 'camera_rgb')}",
+            f"depth_frame_id:={str(primary.get('frame_id') or 'camera_depth')}",
+        ])
+        command = {
+            "verb": "launch",
+            "package": "perception_camera",
+            "target": "rgbd_camera.launch.py",
+            "arguments": arguments,
         }
     elif profile == "custom_launch":
         command = {
@@ -5288,6 +5322,7 @@ def _attachment_service_payload(
         "name": str(attachment.get("display_name") or service_id),
         "command": command,
         "interfaces": interfaces,
+        "wait_seconds": 15.0,
     }
 
 
@@ -5417,6 +5452,8 @@ def _attachment_topic_check(
 def _attachment_service_check(
     attachment: dict[str, Any],
     service: dict[str, Any],
+    *,
+    provider_logs: str = "",
 ) -> dict[str, Any]:
     primary = _attachment_primary_interface(attachment)
     topic = str(primary.get("topic") or "")
@@ -5438,6 +5475,29 @@ def _attachment_service_check(
     missing = [str(value) for value in (diagnostics.get("missing") or [])]
     state = str(service.get("state") or "stopped")
     ok = state == "running" and bool(diagnostics.get("ok"))
+    message = (
+        f"{attachment.get('display_name') or topic} is running and all "
+        "required ROS 2 streams are publishing."
+        if ok
+        else (
+            "Provider is running, but required streams are not ready: "
+            + ", ".join(missing)
+            if state == "running" and missing
+            else str(
+                service.get("error")
+                or "Attachment provider is stopped."
+            )
+        )
+    )
+    clean_logs = re.sub(r"\x1b\[[0-9;]*m", "", provider_logs).strip()
+    if not ok and clean_logs:
+        log_tail = " | ".join(
+            line.strip()
+            for line in clean_logs.splitlines()[-8:]
+            if line.strip()
+        )
+        if log_tail:
+            message += f" Provider log: {log_tail[-1600:]}"
     return {
         "ok": ok,
         "status": (
@@ -5457,24 +5517,25 @@ def _attachment_service_check(
             diagnostics.get("checked_at")
             or datetime.now().astimezone().isoformat(timespec="seconds")
         ),
-        "message": (
-            f"{attachment.get('display_name') or topic} is running and all "
-            "required ROS 2 streams are publishing."
-            if ok
-            else (
-                "Provider is running, but required streams are not ready: "
-                + ", ".join(missing)
-                if state == "running" and missing
-                else str(
-                    service.get("error")
-                    or "Attachment provider is stopped."
-                )
-            )
-        ),
+        "message": message,
         "interfaces": interfaces,
         "missing": missing,
         "service_state": state,
     }
+
+
+def _attachment_provider_logs(
+    runtime_client: RuntimeDeviceClient,
+    service_id: str,
+    check: dict[str, Any],
+) -> str:
+    if check.get("ok"):
+        return ""
+    try:
+        result = runtime_client.service_logs(service_id, limit=12000)
+    except DeviceRegistryError:
+        return ""
+    return str(result.get("logs") or "")
 
 
 def _find_robot_attachment(
@@ -5572,6 +5633,15 @@ def check_robot_attachment(device_id: str, attachment_id: str):
                 service = {}
             if service:
                 check = _attachment_service_check(attachment, service)
+                check = _attachment_service_check(
+                    attachment,
+                    service,
+                    provider_logs=_attachment_provider_logs(
+                        runtime_client,
+                        service_id,
+                        check,
+                    ),
+                )
             else:
                 diagnostics = runtime_client.ros2_diagnostics()
                 check = _attachment_topic_check(attachment, diagnostics)
@@ -5610,11 +5680,21 @@ def start_robot_attachment(device_id: str, attachment_id: str):
                 "This attachment uses an existing ROS 2 topic. Start its external "
                 "driver, then press Check ROS.",
             )
-        service = _runtime_client_or_404(device_id).start_service(
+        runtime_client = _runtime_client_or_404(device_id)
+        service = runtime_client.start_service(
             service_id,
             payload,
         )
         check = _attachment_service_check(attachment, service)
+        check = _attachment_service_check(
+            attachment,
+            service,
+            provider_logs=_attachment_provider_logs(
+                runtime_client,
+                service_id,
+                check,
+            ),
+        )
         updated_device, updated_attachment = (
             _device_registry.remember_attachment_check(
                 device_id,

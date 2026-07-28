@@ -47,7 +47,7 @@ const CAMERA_PROFILES: Array<{
   label: string
 }> = [
   { value: 'usb_cam', label: 'USB camera · Blacknode starts it' },
-  { value: 'rosorin_depth', label: 'ROSOrin RGB-D · Blacknode starts it' },
+  { value: 'blacknode_rgbd', label: 'Blacknode RGB-D · managed provider' },
   { value: 'existing_topics', label: 'Existing ROS 2 topics' },
   { value: 'custom_launch', label: 'Custom ROS 2 launch' },
 ]
@@ -66,6 +66,7 @@ const PRESETS: Record<RobotAttachmentType, AttachmentPreset> = {
     message_type: 'sensor_msgs/msg/Image',
     parent_frame: 'base_link',
     frame_id: 'camera_link',
+    launch_arguments: ['device:=0'],
   },
   depth_camera: {
     display_name: 'Front depth camera',
@@ -74,11 +75,12 @@ const PRESETS: Record<RobotAttachmentType, AttachmentPreset> = {
     provider_package: 'blacknode-perception',
     provider_component: 'depth',
     provider_adapter: 'ros2',
-    provider_profile: 'rosorin_depth',
-    topic: '/depth_cam/rgb0/image_raw',
-    camera_info_topic: '/depth_cam/rgb0/camera_info',
-    depth_topic: '/depth_cam/depth0/image_raw',
-    point_cloud_topic: '/depth_cam/depth0/points',
+    provider_profile: 'blacknode_rgbd',
+    topic: '/camera/rgb/image_raw',
+    camera_info_topic: '/camera/rgb/camera_info',
+    depth_topic: '/camera/depth/image_raw',
+    point_cloud_topic: '',
+    launch_arguments: ['rgb_device:=0', 'depth_device:=1'],
     message_type: 'sensor_msgs/msg/Image',
     parent_frame: 'base_link',
     frame_id: 'depth_camera_link',
@@ -573,11 +575,18 @@ export function RobotAttachmentsPanel({
                   setDraft(current => current && ({
                     ...current,
                     provider_profile: providerProfile,
-                    ...(providerProfile === 'rosorin_depth' ? {
-                      topic: '/depth_cam/rgb0/image_raw',
-                      camera_info_topic: '/depth_cam/rgb0/camera_info',
-                      depth_topic: '/depth_cam/depth0/image_raw',
-                      point_cloud_topic: '/depth_cam/depth0/points',
+                    ...(providerProfile === 'blacknode_rgbd' ? {
+                      topic: '/camera/rgb/image_raw',
+                      camera_info_topic: '/camera/rgb/camera_info',
+                      depth_topic: '/camera/depth/image_raw',
+                      point_cloud_topic: '',
+                      launch_arguments: ['rgb_device:=0', 'depth_device:=1'],
+                    } : providerProfile === 'usb_cam' ? {
+                      topic: '/camera/image_raw',
+                      camera_info_topic: '/camera/camera_info',
+                      depth_topic: '',
+                      point_cloud_topic: '',
+                      launch_arguments: ['device:=0'],
                     } : {}),
                   }))
                 }}
@@ -616,7 +625,7 @@ export function RobotAttachmentsPanel({
                   <span>Depth image topic · required for depth camera</span>
                   <input
                     value={draft.depth_topic}
-                    placeholder="/depth_cam/depth0/image_raw"
+                    placeholder="/camera/depth/image_raw"
                     onChange={event => setDraft(current => current && ({
                       ...current,
                       depth_topic: event.target.value,
@@ -628,7 +637,7 @@ export function RobotAttachmentsPanel({
                   <span>Point cloud topic · optional</span>
                   <input
                     value={draft.point_cloud_topic}
-                    placeholder="/depth_cam/depth0/points"
+                    placeholder="/camera/depth/points"
                     onChange={event => setDraft(current => current && ({
                       ...current,
                       point_cloud_topic: event.target.value,
@@ -637,33 +646,45 @@ export function RobotAttachmentsPanel({
                 </label>
               </>
             )}
-            {draft.provider_profile === 'custom_launch' && (
+            {(draft.provider_profile === 'custom_launch'
+              || draft.provider_profile === 'blacknode_rgbd'
+              || draft.provider_profile === 'usb_cam') && (
               <>
-                <label>
-                  <span>ROS 2 launch package</span>
-                  <input
-                    value={draft.launch_package}
-                    onChange={event => setDraft(current => current && ({
-                      ...current,
-                      launch_package: event.target.value,
-                    }))}
-                    required
-                  />
-                </label>
-                <label>
-                  <span>Launch file</span>
-                  <input
-                    value={draft.launch_target}
-                    placeholder="camera.launch.py"
-                    onChange={event => setDraft(current => current && ({
-                      ...current,
-                      launch_target: event.target.value,
-                    }))}
-                    required
-                  />
-                </label>
+                {draft.provider_profile === 'custom_launch' && (
+                  <>
+                    <label>
+                      <span>ROS 2 launch package</span>
+                      <input
+                        value={draft.launch_package}
+                        onChange={event => setDraft(current => current && ({
+                          ...current,
+                          launch_package: event.target.value,
+                        }))}
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>Launch file</span>
+                      <input
+                        value={draft.launch_target}
+                        placeholder="camera.launch.py"
+                        onChange={event => setDraft(current => current && ({
+                          ...current,
+                          launch_target: event.target.value,
+                        }))}
+                        required
+                      />
+                    </label>
+                  </>
+                )}
                 <label className="is-wide">
-                  <span>Launch arguments · one per line</span>
+                  <span>
+                    {draft.provider_profile === 'blacknode_rgbd'
+                      ? 'RGB and depth devices · one launch argument per line'
+                      : draft.provider_profile === 'usb_cam'
+                        ? 'Camera device · one launch argument per line'
+                      : 'Launch arguments · one per line'}
+                  </span>
                   <textarea
                     value={draft.launch_arguments.join('\n')}
                     onChange={event => setDraft(current => current && ({

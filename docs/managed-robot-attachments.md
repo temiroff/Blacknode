@@ -72,26 +72,25 @@ published by another managed stack.
 
 ### Generic USB camera
 
-The provider starts `usb_cam` as a named managed ROS 2 process and verifies its
-RGB image and camera-info topics. Device selection and parameters remain in the
-provider configuration.
+The provider starts Blacknode's bundled `perception_camera usb_camera` process
+and verifies its RGB image and camera-info topics. Device selection and
+parameters remain in the provider configuration.
 
-### ROSOrin-Pro RGB-D
+### Blacknode RGB-D
 
-The ROSOrin-Pro `peripherals/depth_camera.launch.py` bring-up selects its depth
-camera from `DEPTH_CAMERA_TYPE` and publishes a normalized interface:
+The bundled `perception_camera rgbd_camera.launch.py` provider accepts explicit
+RGB and metric-depth video inputs and publishes a normalized interface:
 
 ```text
-/depth_cam/rgb0/image_raw
-/depth_cam/rgb0/camera_info
-/depth_cam/depth0/image_raw
-/depth_cam/depth0/camera_info
-/depth_cam/depth0/points
+/camera/rgb/image_raw
+/camera/rgb/camera_info
+/camera/depth/image_raw
+/camera/depth/camera_info
 ```
 
-The same stack starts `web_video_server` and rosbridge for remote tools.
-Blacknode treats those as optional presentation and bridge providers; native
-ROS 2 topics remain the source of truth.
+Blacknode accepts metric depth encoded as `16UC1` or `32FC1`. Calibrated
+downstream components may derive a point cloud when intrinsics and extrinsics
+are available. Native ROS 2 topics remain the sensor-data source of truth.
 
 ## Editor workflow
 

@@ -156,12 +156,12 @@ def _normalize_attachment(
     if provider_profile not in {
         "existing_topics",
         "usb_cam",
-        "rosorin_depth",
+        "blacknode_rgbd",
         "custom_launch",
     }:
         raise DeviceRegistryError(
             "Attachment provider profile must be existing topics, USB camera, "
-            "ROSOrin depth camera, or custom ROS 2 launch."
+            "Blacknode RGB-D, or custom ROS 2 launch."
         )
     topic = str(values.get("topic") or "").strip()
     if not topic.startswith("/") or any(character.isspace() for character in topic):
@@ -617,6 +617,19 @@ class RuntimeDeviceClient(HardwareDeviceClient):
     def get_service(self, service_id: str) -> dict[str, Any]:
         return self._request("GET", self._service_endpoint(service_id), timeout=30.0)
 
+    def service_logs(
+        self,
+        service_id: str,
+        *,
+        limit: int = 12000,
+    ) -> dict[str, Any]:
+        safe_limit = max(512, min(int(limit), 200000))
+        return self._request(
+            "GET",
+            f"{self._service_endpoint(service_id)}/logs?limit={safe_limit}",
+            timeout=30.0,
+        )
+
     def start_service(
         self,
         service_id: str,
@@ -626,7 +639,7 @@ class RuntimeDeviceClient(HardwareDeviceClient):
             "POST",
             f"{self._service_endpoint(service_id)}/start",
             payload=payload,
-            timeout=30.0,
+            timeout=60.0,
         )
 
     def stop_service(self, service_id: str) -> dict[str, Any]:
