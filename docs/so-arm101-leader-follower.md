@@ -21,10 +21,11 @@ from exchanging roles if operating-system discovery order changes.
 ## Start safely
 
 1. Support the leader arm and clear the follower workspace.
-2. Keep `ROS2LeaderFollower.armed=false` and press **Go live**.
+2. Keep `ROS2JointPublish.armed=false` and press **Go live**.
 3. Confirm leader torque is released and the dashboard shows live leader, safe
    target, and follower values. Moving the leader must not move the follower.
-4. Set `armed=true`. The live controller applies this immediately while limits,
+4. Set `ROS2JointPublish.armed=true`. The live publisher applies this
+   immediately while limits,
    bounded steps, deadband, and stale-message suppression remain active.
 5. Set `armed=false` or press **Stop all** before touching the follower.
 
