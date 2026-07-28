@@ -43,6 +43,20 @@ under `packages/` are separate Git repositories and carry their own `AGENTS.md`.
 - Keep physical motion disarmed by default. Retain stale-data, joint-limit, and
   shutdown safeguards in every transport path.
 
+## Operator workflow
+
+- Treat the Blacknode editor as the primary operator surface for managed
+  devices. Guide routine setup, package updates, service restarts, deployment,
+  and removal through the visible UI controls.
+- For a managed-device update, open **Devices**, select the device, press
+  **Software**, then press **Check updates**. Choose **Update all** or the
+  package card's **Update** action. Use the Runtime or Hardware card's
+  **Restart** button when a restart is required.
+- Do not lead with SSH, `git pull`, `service.sh`, systemd, or package-manager
+  commands when the editor exposes the requested action. Offer shell commands
+  only when the user explicitly requests them or when diagnosing or recovering
+  from an unavailable UI action, and identify them as the fallback path.
+
 ## Hardware modularity invariants
 
 - Base robot contracts, profiles, and capability inspection must load and work

@@ -68,6 +68,25 @@ Remote Hardware Run, Stop, and Restart control every exact
 active deployments and disarms each robot; Run and Restart return with motion
 disarmed.
 
+### Update or restart a managed device
+
+Routine device maintenance stays in the editor:
+
+1. Open **Devices** and select the managed computer.
+2. Press **Software** to open the Runtime and Hardware package cards.
+3. For a remote device, enter its SSH password in the field marked
+   **SSH password · never saved**.
+4. Press **Check updates**.
+5. Press **Update all** to update Runtime, every installed workflow package,
+   and Hardware together, or use **Update** on one package card.
+6. Use **Restart** on the Runtime or Hardware card when that individual service
+   needs to restart.
+
+The editor reports progress and verifies package state after the action.
+Update operations stop active deployments and leave attached robots disarmed.
+Command-line maintenance is reserved for package development, diagnostics, and
+recovery when an editor action is unavailable.
+
 For remote SSH setup, choose **Add device → Remote SSH** and enter the
 computer's IP address, username, and password. Blacknode first displays the
 SSH host-key fingerprint for confirmation. After confirmation it installs the
