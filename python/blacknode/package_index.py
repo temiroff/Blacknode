@@ -373,7 +373,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "ROS2TopicEcho",
                         "ROS2TopicList",
                         "ROS2TopicPublish",
-                        "ROS2TopicPublisher"
+                        "ROS2TopicPublisher",
+                        "ROS2TopicRelay"
                     ],
                     "dependencies": {
                         "requires": [{"component": "core"}]
@@ -435,6 +436,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "ROS2TopicList",
                 "ROS2TopicPublish",
                 "ROS2TopicPublisher",
+                "ROS2TopicRelay",
                 "ROS2VisualDashboard"
             ]
         },
@@ -487,6 +489,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "capabilities",
                     "default": True,
                     "node_types": [
+                        "RobotAttachment",
+                        "RobotAttachmentList",
                         "RobotCapabilityBinding",
                         "RobotCapabilityInspect",
                         "RobotCapabilityList",
@@ -508,6 +512,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "description": "Generic robot setup: USB discovery, serial permission diagnostics, driver launch, and standard robot profiles.",
             "node_types": [
                 "Robot",
+                "RobotAttachment",
+                "RobotAttachmentList",
                 "RobotCalibrationRecorder",
                 "RobotCapabilityBinding",
                 "RobotCapabilityInspect",
