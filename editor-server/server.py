@@ -26,13 +26,7 @@ from blacknode.learned import registry as learned_registry
 from blacknode.mcp import tools as mcp_tools
 from blacknode.node import _NODE_REGISTRY
 from blacknode.nodes import ai as ai_nodes
-from blacknode.package_index import (
-    package_index_payload,
-    resolve_workflow_dependencies,
-    template_adapter_requirements,
-    template_component_requirements,
-    workflow_node_types,
-)
+import blacknode.package_index as bn_package_index
 from blacknode.packages import MANIFEST_NAME as BN_MANIFEST_NAME
 from blacknode.packages import component_dependency_plan as bn_component_dependency_plan
 from blacknode.packages import adapter_dependency_plan as bn_adapter_dependency_plan
@@ -52,7 +46,6 @@ from blacknode.python_importer import import_workflow_python
 from blacknode.workflow import WorkflowRunError, export_workflow_python
 from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
-
 from device_installer import (
     adopt_legacy_hardware_services,
     configure_hardware_services,
@@ -89,6 +82,27 @@ from local_runtime import (
 from artifact_store import ArtifactStore, ArtifactStoreError
 from project_store import ProjectStore, ProjectStoreError
 from run_store import RunStore
+
+
+def package_index_payload(*args, **kwargs):
+    return bn_package_index.package_index_payload(*args, **kwargs)
+
+
+def resolve_workflow_dependencies(*args, **kwargs):
+    return bn_package_index.resolve_workflow_dependencies(*args, **kwargs)
+
+
+def template_adapter_requirements(*args, **kwargs):
+    return bn_package_index.template_adapter_requirements(*args, **kwargs)
+
+
+def template_component_requirements(*args, **kwargs):
+    return bn_package_index.template_component_requirements(*args, **kwargs)
+
+
+def workflow_node_types(*args, **kwargs):
+    return bn_package_index.workflow_node_types(*args, **kwargs)
+
 
 app = FastAPI(title="Blacknode Editor Server")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -9434,7 +9448,8 @@ def get_package_index():
 @app.post("/packages/reload")
 def reload_packages():
     report = discover_bn_packages()
-    return {"ok": not report["failed"], **report}
+    importlib.reload(bn_package_index)
+    return {"ok": not report["failed"], "index_refreshed": True, **report}
 
 
 class InstallPackageReq(BaseModel):

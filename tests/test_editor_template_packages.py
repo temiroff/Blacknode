@@ -97,6 +97,25 @@ def test_component_dependency_plan_endpoint():
     resolver.assert_called_once_with("blacknode-adapter", "camera")
 
 
+def test_package_reload_refreshes_package_index():
+    report = {"loaded": [], "failed": []}
+    with (
+        patch.object(server, "discover_bn_packages", return_value=report) as discover,
+        patch.object(server.importlib, "reload", return_value=server.bn_package_index) as reload_module,
+    ):
+        response = TestClient(server.app).post("/packages/reload")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "index_refreshed": True,
+        "loaded": [],
+        "failed": [],
+    }
+    discover.assert_called_once_with()
+    reload_module.assert_called_once_with(server.bn_package_index)
+
+
 def test_nested_adapter_endpoints_preserve_component_ownership():
     plan = {
         "target": {"package": "blacknode-drivers", "component": "feetech", "adapter": "ros2"},

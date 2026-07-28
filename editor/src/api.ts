@@ -1208,7 +1208,7 @@ export const api = {
   // switching tabs or saving a script doesn't fire a burst of git commands.
   packages:  (withGit = false)               => req<{ packages: BnPackage[] }>('GET', withGit ? '/packages?git=true' : '/packages'),
   packageIndex: ()                           => req<BnPackageIndex>('GET', '/packages/index'),
-  reloadPackages: ()                         => req<{ ok: boolean }>('POST', '/packages/reload'),
+  reloadPackages: ()                         => req<{ ok: boolean; index_refreshed: boolean }>('POST', '/packages/reload'),
   installPackage: (url: string)              => req<{ ok: boolean; package: BnPackage | null; error: string; log: string[] }>('POST', '/packages/install', { url }),
   setupPackage: (name: string)               => req<{ ok: boolean; package: BnPackage | null; log: string[] }>('POST', `/packages/${encodeURIComponent(name)}/setup`),
   setPackageComponent: (name: string, component: string, enabled: boolean) =>

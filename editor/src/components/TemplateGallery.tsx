@@ -107,6 +107,12 @@ export default function TemplateGallery({
     refreshTemplates()
   }, [])
 
+  useEffect(() => {
+    const handlePackagesReloaded = () => setMissing({})
+    window.addEventListener('blacknode:packages-reloaded', handlePackagesReloaded)
+    return () => window.removeEventListener('blacknode:packages-reloaded', handlePackagesReloaded)
+  }, [])
+
   const loadTemplate = async (template: TemplateMeta) => {
     setLoading(template.slug)
     setLoaded(null)
