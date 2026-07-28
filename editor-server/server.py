@@ -54,6 +54,7 @@ from blacknode.workflow import validate_graph as validate_bn_graph
 from blacknode.workflow import validate_workflow as validate_bn_workflow
 
 from device_installer import (
+    adopt_legacy_hardware_services,
     control_runtime,
     DeviceInstallError,
     discover_hardware_pairings,
@@ -4829,6 +4830,30 @@ def discover_and_pair_host_robots(host_id: str, req: DiscoverHostRobotsReq):
             host_fingerprint=str(managed.get("host_fingerprint") or ""),
             expected_hardware_dir=str(managed.get("hardware_dir") or ""),
         )
+        adopted = 0
+        if (
+            int(discovered.get("discovered") or 0) == 0
+            and str(managed.get("stack_mode") or "") == "isolated"
+            and str(managed.get("instance_id") or "default") == "default"
+        ):
+            adoption = adopt_legacy_hardware_services(
+                host=str(managed.get("ssh_host") or ""),
+                port=int(managed.get("ssh_port") or 22),
+                username=str(managed.get("ssh_username") or ""),
+                password=req.password,
+                host_fingerprint=str(managed.get("host_fingerprint") or ""),
+                instance_id="default",
+            )
+            adopted = int(adoption.get("adopted") or 0)
+            if adopted:
+                discovered = discover_hardware_pairings(
+                    host=str(managed.get("ssh_host") or ""),
+                    port=int(managed.get("ssh_port") or 22),
+                    username=str(managed.get("ssh_username") or ""),
+                    password=req.password,
+                    host_fingerprint=str(managed.get("host_fingerprint") or ""),
+                    expected_hardware_dir=str(managed.get("hardware_dir") or ""),
+                )
     except DeviceInstallError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -4901,6 +4926,12 @@ def discover_and_pair_host_robots(host_id: str, req: DiscoverHostRobotsReq):
         f"Attached {len(attached)} installed robot"
         f"{'s' if len(attached) != 1 else ''} securely over verified SSH."
     )
+    if adopted:
+        summary = (
+            f"Moved {adopted} existing Robot Hardware service"
+            f"{'s' if adopted != 1 else ''} into this device stack. "
+            + summary
+        )
     if errors:
         summary += (
             f" {len(errors)} service"

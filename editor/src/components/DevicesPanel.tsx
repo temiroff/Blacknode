@@ -599,6 +599,7 @@ export default function DevicesPanel() {
   )
   const selectedManagedHardwareReady = (
     !selectedManagedHardwareInstalled
+    || !selectedDeviceManagedLocally
     || selectedDeviceState?.runtime?.hardware?.ok === true
   )
   const selectedHardwareReady = selectedRobotChecks.every(item => Boolean(
@@ -641,10 +642,6 @@ export default function DevicesPanel() {
     ? 'checking'
     : selectedDeviceManagedLocally
       ? selectedDeviceState?.runtime?.hardware?.state || 'unchecked'
-      : selectedDevice?.managed_runtime?.hardware_state === 'stopped'
-        ? 'stopped'
-      : selectedDevice?.managed_runtime?.hardware_state === 'running'
-        ? 'running'
       : selectedRobotChecks.some(item => item.state?.loading)
         ? 'checking'
         : selectedRobotChecks.some(item => item.state?.error)
@@ -653,7 +650,9 @@ export default function DevicesPanel() {
             ? 'running'
             : selectedDevice?.robots.length
               ? 'unchecked'
-              : 'unavailable'
+              : selectedManagedHardwareInstalled
+                ? 'configured'
+                : 'unavailable'
   const selectedRuntimePackageState = selectedDeviceState?.loading
     ? 'checking'
     : selectedDeviceState?.runtime?.state
@@ -676,10 +675,12 @@ export default function DevicesPanel() {
       ? selectedDeviceState?.runtime
         ? 'unreachable'
         : 'unchecked'
-      : selectedManagedHardwareInstalled
+      : selectedDeviceManagedLocally
+        && selectedManagedHardwareInstalled
         && selectedDeviceState.runtime.hardware?.state === 'stopped'
         ? 'stopped'
-        : selectedManagedHardwareInstalled
+        : selectedDeviceManagedLocally
+        && selectedManagedHardwareInstalled
         && selectedDeviceState.runtime.hardware?.ok !== true
         ? 'unreachable'
         : selectedAttachedHardwareServiceFailed
@@ -695,10 +696,12 @@ export default function DevicesPanel() {
             ? ` · ${selectedDeviceState.runtime.error}`
             : ''
         }`
-      : selectedManagedHardwareInstalled
+      : selectedDeviceManagedLocally
+        && selectedManagedHardwareInstalled
         && selectedDeviceState.runtime.hardware?.state === 'stopped'
         ? `Runtime ${selectedRuntimeVersion} · Hardware ${selectedHardwareVersionLabel} · service stopped`
-        : selectedManagedHardwareInstalled
+        : selectedDeviceManagedLocally
+        && selectedManagedHardwareInstalled
         && selectedDeviceState.runtime.hardware?.ok !== true
         ? `Runtime ${selectedRuntimeVersion} · Hardware service unreachable${
             selectedDeviceState.runtime.hardware?.error
@@ -707,6 +710,8 @@ export default function DevicesPanel() {
           }`
         : selectedAttachedHardwareServiceFailed
           ? `Runtime ${selectedRuntimeVersion} · Hardware service unreachable`
+          : selectedManagedHardwareInstalled && selectedDevice?.robots.length === 0
+            ? `Runtime ${selectedRuntimeVersion} · Hardware environment ready`
           : `Runtime ${selectedRuntimeVersion} · Hardware ${selectedHardwareVersionLabel}`
   const selectedServiceChecks: Array<{
     id: string

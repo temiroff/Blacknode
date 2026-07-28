@@ -21,6 +21,7 @@ class DeviceInstallError(RuntimeError):
 _INSTANCE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 _INSPECTION_MARKER = "__BLACKNODE_RUNTIME_INSPECTION__="
 _HARDWARE_PAIRING_INSPECTION_MARKER = "__BLACKNODE_HARDWARE_PAIRINGS__="
+_HARDWARE_ADOPTION_MARKER = "__BLACKNODE_HARDWARE_ADOPTION__="
 _UPDATE_REPORT_MARKER = "__BLACKNODE_UPDATE_REPORT__="
 _INSPECTION_SCRIPT = r"""python3 - <<'PY'
 import glob
@@ -888,6 +889,167 @@ PY"""
             "Could not read installed Robot Hardware pairing credentials."
         ) from exc
     finally:
+        connection.close()
+
+
+def adopt_legacy_hardware_services(
+    *,
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    host_fingerprint: str,
+    instance_id: str,
+) -> dict[str, Any]:
+    """Move legacy default Hardware services into the organized default stack."""
+
+    selected_instance = _clean_instance_id(instance_id or "default")
+    if selected_instance != "default":
+        return {"ok": True, "adopted": 0}
+    expected = str(host_fingerprint or "").strip()
+    if not expected:
+        raise DeviceInstallError(
+            "Check the SSH connection and confirm its host fingerprint first."
+        )
+    connection = _connect(
+        host,
+        port,
+        username,
+        password,
+        expected_fingerprint=expected,
+        timeout=15.0,
+    )
+    script = r"""#!/usr/bin/env bash
+set -euo pipefail
+sudo() {
+  command sudo -S -p '' "$@"
+}
+export -f sudo
+target="$HOME/Blacknode/devices/default/hardware"
+legacy="$HOME/blacknode-hardware"
+target_private="$target/.blacknode-hardware"
+legacy_private="$legacy/.blacknode-hardware"
+marker="__BLACKNODE_HARDWARE_ADOPTION__="
+
+valid_hardware_checkout() {
+  [[ -d "$1/.git" && -f "$1/pyproject.toml" ]] \
+    && grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*["'"'"']blacknode-hardware["'"'"'][[:space:]]*$' \
+      "$1/pyproject.toml"
+}
+
+valid_hardware_checkout "$target" || {
+  echo "The organized Hardware package is missing or invalid: $target" >&2
+  exit 4
+}
+valid_hardware_checkout "$legacy" || {
+  printf '%s{"adopted":0}\n' "$marker"
+  exit 0
+}
+[[ -f "$legacy_private/devices.json" ]] || {
+  printf '%s{"adopted":0}\n' "$marker"
+  exit 0
+}
+
+mapfile -t legacy_units < <(
+  {
+    systemctl list-unit-files 'blacknode-hardware*.service' --no-legend 2>/dev/null
+    systemctl list-units --all --type=service 'blacknode-hardware*.service' \
+      --no-legend 2>/dev/null
+  } | awk '{print $1}' | sort -u | while read -r unit; do
+    [[ "$unit" =~ ^blacknode-hardware([-.@][A-Za-z0-9_.@-]+)?\.service$ ]] \
+      || continue
+    directory="$(
+      systemctl show "$unit" --property=WorkingDirectory --value 2>/dev/null || true
+    )"
+    [[ "$directory" == "$legacy" ]] || continue
+    printf '%s\n' "$unit"
+  done
+)
+if (( ${#legacy_units[@]} == 0 )); then
+  printf '%s{"adopted":0}\n' "$marker"
+  exit 0
+fi
+if [[ -e "$target_private" ]] \
+  && [[ -n "$(find "$target_private" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+  echo "The organized Hardware stack already has robot configuration. Its services must be installed or repaired instead of replacing it with the legacy configuration." >&2
+  exit 5
+fi
+
+temporary_private="${target_private}.adopting.$$"
+cleanup() {
+  rm -rf -- "$temporary_private"
+}
+trap cleanup EXIT
+rm -rf -- "$temporary_private"
+cp -a -- "$legacy_private" "$temporary_private"
+rm -rf -- "$target_private"
+mv -- "$temporary_private" "$target_private"
+(
+  cd "$target"
+  BLACKNODE_HARDWARE_INSTANCE="" ./install-service.sh --all
+)
+for unit in "${legacy_units[@]}"; do
+  directory="$(
+    systemctl show "$unit" --property=WorkingDirectory --value 2>/dev/null || true
+  )"
+  [[ "$directory" == "$target" ]] || {
+    echo "$unit did not move into the organized Hardware stack." >&2
+    exit 6
+  }
+  systemctl is-active --quiet "$unit" || {
+    echo "$unit is not running after migration." >&2
+    exit 6
+  }
+done
+printf '%s{"adopted":%d}\n' "$marker" "${#legacy_units[@]}"
+"""
+    remote_script_path = (
+        f"/tmp/blacknode-hardware-adopt-{secrets.token_hex(8)}.sh"
+    )
+    try:
+        sftp = connection.client.open_sftp()
+        try:
+            with sftp.file(remote_script_path, "w") as remote_script:
+                remote_script.write(script)
+            sftp.chmod(remote_script_path, 0o700)
+        finally:
+            sftp.close()
+        output = _run(
+            connection,
+            f"bash {remote_script_path}",
+            stdin_text=_sudo_input(password, attempts=16),
+            timeout=300.0,
+        )
+        marker_line = next(
+            (
+                line[len(_HARDWARE_ADOPTION_MARKER):]
+                for line in output.splitlines()
+                if line.startswith(_HARDWARE_ADOPTION_MARKER)
+            ),
+            "",
+        )
+        if not marker_line:
+            raise DeviceInstallError(
+                "The device did not confirm whether legacy Robot Hardware "
+                "services were migrated."
+            )
+        try:
+            result = json.loads(marker_line)
+            adopted = int(result.get("adopted") or 0)
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise DeviceInstallError(
+                "The device returned invalid Robot Hardware migration information."
+            ) from exc
+        return {"ok": True, "adopted": max(0, adopted)}
+    finally:
+        try:
+            _run(
+                connection,
+                f"rm -f -- {remote_script_path}",
+                timeout=10.0,
+            )
+        except DeviceInstallError:
+            pass
         connection.close()
 
 
