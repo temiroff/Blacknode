@@ -158,6 +158,11 @@ def test_template_list_groups_core_and_package_templates(tmp_path: Path):
     (robot_dir / "motion-test.json").write_text(
         json.dumps(_template("Robot")), encoding="utf-8",
     )
+    hidden = _template("ROS2LeaderFollower")
+    hidden["metadata"]["hidden"] = True
+    (robot_dir / "legacy-motion.json").write_text(
+        json.dumps(hidden), encoding="utf-8",
+    )
     robot_package = SimpleNamespace(
         name="blacknode-robot",
         ok=True,
@@ -180,3 +185,4 @@ def test_template_list_groups_core_and_package_templates(tmp_path: Path):
     assert templates["motion-test"]["group"] == "Robot"
     assert templates["motion-test"]["group_color"] == "#14b8a6"
     assert templates["motion-test"]["required_packages"] == ["blacknode-cuda"]
+    assert "legacy-motion" not in templates
