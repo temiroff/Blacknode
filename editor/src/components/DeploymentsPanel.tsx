@@ -25,6 +25,7 @@ const JOINT_MOTION_NODE_TYPES = new Set([
   'ROS2ManualMove',
   'ROS2JointSliders',
   'ROS2LeaderFollower',
+  'ROS2FollowerJointPublisher',
   'ROS2NativeFollowDetectionJoint',
   'ROS2FollowDetectionJoint',
   'RobotFollow',

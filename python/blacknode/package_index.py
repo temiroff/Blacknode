@@ -41,6 +41,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                                 "RobotFollow",
                                 "ROS2FollowDetectionJoint",
                                 "ROS2LeaderFollower",
+                                "ROS2LeaderJointSubscriber",
+                                "ROS2FollowerJointPublisher",
                                 "ROS2NativeFollowDetectionJoint"
                             ]
                         }
@@ -68,6 +70,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "RobotFollow",
                 "ROS2FollowDetectionJoint",
                 "ROS2LeaderFollower",
+                "ROS2LeaderJointSubscriber",
+                "ROS2FollowerJointPublisher",
                 "ROS2NativeFollowDetectionJoint"
             ]
         },

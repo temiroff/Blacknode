@@ -657,7 +657,9 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
       },
     }
   }
-  if (data.type === 'RobotFollow' || data.type === 'ROS2LeaderFollower') {
+  if (data.type === 'RobotFollow'
+    || data.type === 'ROS2LeaderFollower'
+    || data.type === 'ROS2FollowerJointPublisher') {
     return {
       ...base,
       portResults: {
@@ -3511,6 +3513,8 @@ export const useStore = create<Store>((set, get) => ({
           LIVE_STREAM_NODE_TYPES.has(n.data.type) ||
           n.data.type === 'RobotFollow' ||
           n.data.type === 'ROS2LeaderFollower' ||
+          n.data.type === 'ROS2FollowerJointPublisher' ||
+          n.data.type === 'ROS2LeaderJointSubscriber' ||
           n.data.type === 'ROS2ManualMove' ||
           n.data.type === 'ROS2MotionDashboard' ||
           n.data.type === 'Output' ||
