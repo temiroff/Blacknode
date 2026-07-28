@@ -129,6 +129,7 @@ export default function PackagesPanel() {
       await api.reloadPackages()
       await refresh()
       await loadNodeTypes()
+      window.dispatchEvent(new Event('blacknode:packages-reloaded'))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
