@@ -2,6 +2,7 @@
 setlocal
 title Blacknode
 
+set "BLACKNODE_FORCE_RESTART=1"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start.ps1"
 set "BLACKNODE_EXIT=%errorlevel%"
 
