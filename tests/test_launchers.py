@@ -49,6 +49,23 @@ def test_windows_launcher_waits_for_backend_port_cleanup_before_starting():
     assert 'throw "Python server port is busy."' in powershell
 
 
+def test_windows_launcher_reuses_healthy_services_and_hands_off_cleanly():
+    powershell = (ROOT / "start.ps1").read_text(encoding="utf-8")
+
+    reuse = 'Write-Step "Blacknode is already running. Reusing the active services."'
+    ownership = "Set-LauncherOwnership"
+    stop = "Stop-PortListener -Port $BackendPort"
+
+    assert "Test-BlacknodeBackendReady" in powershell
+    assert "Test-BlacknodeEditorReady" in powershell
+    assert "BLACKNODE_FORCE_RESTART" in powershell
+    assert reuse in powershell
+    assert powershell.index(reuse) < powershell.index(ownership, powershell.index(reuse))
+    assert powershell.index(ownership, powershell.index(reuse)) < powershell.index(stop)
+    assert "Test-LauncherReplaced" in powershell
+    assert 'Write-Step "Blacknode was restarted by another launcher."' in powershell
+
+
 def test_windows_markdown_launch_commands_are_powershell_explicit():
     markdown_files = [ROOT / "README.md", *ROOT.joinpath("docs").rglob("*.md")]
     markdown_files.extend([

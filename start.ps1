@@ -6,10 +6,12 @@ $ServerOut = Join-Path $LogDir "server.out.log"
 $ServerErr = Join-Path $LogDir "server.err.log"
 $EditorOut = Join-Path $LogDir "editor.out.log"
 $EditorErr = Join-Path $LogDir "editor.err.log"
+$LauncherOwner = Join-Path $LogDir "launcher.owner"
 $VenvDir = if ($env:BLACKNODE_VENV) { $env:BLACKNODE_VENV } else { Join-Path $Root ".venv" }
 
 $BackendProcess = $null
 $FrontendProcess = $null
+$LauncherId = [guid]::NewGuid().ToString("N")
 $BackendPort = 7777
 $FrontendPort = 3000
 $EditorUrl = "http://localhost:$FrontendPort"
@@ -121,6 +123,35 @@ function Test-BlacknodeEditorReady {
     }
 
     return $false
+}
+
+function Test-BlacknodeBackendReady {
+    try {
+        $Response = Invoke-WebRequest `
+            -Uri "http://127.0.0.1:$BackendPort/device-hosts" `
+            -UseBasicParsing `
+            -TimeoutSec 2
+        return $Response.StatusCode -ge 200
+    } catch {
+        return $false
+    }
+}
+
+function Set-LauncherOwnership {
+    Set-Content -LiteralPath $LauncherOwner -Value $script:LauncherId -NoNewline
+}
+
+function Test-LauncherReplaced {
+    if (-not (Test-Path -LiteralPath $LauncherOwner)) {
+        return $false
+    }
+
+    try {
+        $CurrentOwner = (Get-Content -LiteralPath $LauncherOwner -Raw).Trim()
+        return $CurrentOwner -and $CurrentOwner -ne $script:LauncherId
+    } catch {
+        return $false
+    }
 }
 
 function Test-BlacknodeEditorProcessOnPort {
@@ -290,7 +321,11 @@ function Assert-ProcessRunning {
 
     $Process.Refresh()
     if (-not $Process.HasExited) {
-        return
+        return $true
+    }
+
+    if (Test-LauncherReplaced) {
+        return $false
     }
 
     Write-Host ""
@@ -416,6 +451,17 @@ try {
 
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 
+    if (
+        $env:BLACKNODE_FORCE_RESTART -ne "1" `
+        -and $env:BLACKNODE_BOOTSTRAP_ONLY -ne "1" `
+        -and (Test-BlacknodeBackendReady) `
+        -and (Test-BlacknodeEditorReady)
+    ) {
+        Write-Step "Blacknode is already running. Reusing the active services."
+        Open-Browser
+        return
+    }
+
     $Python = Resolve-ProjectPython
     $Npm = Resolve-RequiredCommand -Names @("npm.cmd", "npm") -ErrorMessage "npm is required. Install Node.js 20.19+ or 22.12+."
 
@@ -451,6 +497,7 @@ try {
         return
     }
 
+    Set-LauncherOwnership
     Stop-PortListener -Port $BackendPort
     if (-not (Wait-PortFree -Port $BackendPort)) {
         Write-PortBusyError -Port $BackendPort
@@ -466,7 +513,10 @@ try {
         -ErrLog $ServerErr
 
     Start-Sleep -Seconds 3
-    Assert-ProcessRunning -Process $script:BackendProcess -Name "Python server" -ErrorLog $ServerErr
+    if (-not (Assert-ProcessRunning -Process $script:BackendProcess -Name "Python server" -ErrorLog $ServerErr)) {
+        Write-Step "Startup handed off to a newer Blacknode launcher."
+        return
+    }
 
     if (Test-PortInUse -Port $FrontendPort) {
         $ExistingBlacknodeEditor = (Wait-BlacknodeEditorReady) -or (Test-BlacknodeEditorProcessOnPort -Port $FrontendPort)
@@ -492,7 +542,10 @@ try {
         -ErrLog $EditorErr
 
     Start-Sleep -Seconds 5
-    Assert-ProcessRunning -Process $script:FrontendProcess -Name "Visual editor" -ErrorLog $EditorErr
+    if (-not (Assert-ProcessRunning -Process $script:FrontendProcess -Name "Visual editor" -ErrorLog $EditorErr)) {
+        Write-Step "Startup handed off to a newer Blacknode launcher."
+        return
+    }
 
     Open-Browser
     Write-Host ""
@@ -501,8 +554,14 @@ try {
     Write-Host ""
 
     while ($true) {
-        Assert-ProcessRunning -Process $script:BackendProcess -Name "Python server" -ErrorLog $ServerErr
-        Assert-ProcessRunning -Process $script:FrontendProcess -Name "Visual editor" -ErrorLog $EditorErr
+        if (-not (Assert-ProcessRunning -Process $script:BackendProcess -Name "Python server" -ErrorLog $ServerErr)) {
+            Write-Step "Blacknode was restarted by another launcher."
+            return
+        }
+        if (-not (Assert-ProcessRunning -Process $script:FrontendProcess -Name "Visual editor" -ErrorLog $EditorErr)) {
+            Write-Step "Blacknode was restarted by another launcher."
+            return
+        }
         Start-Sleep -Seconds 1
     }
 } finally {

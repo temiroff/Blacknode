@@ -4873,6 +4873,59 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         self.assertFalse(stage_request[3]["manifest"]["telemetry_required"])
 
+    def test_deployment_stream_reports_package_upload_and_start_progress(self):
+        hardware = _HardwareService()
+        workflow = _workflow([])
+        package_specs = [_target_package_spec()]
+        with (
+            patch("device_registry.urllib.request.urlopen", side_effect=hardware),
+            patch.object(
+                server,
+                "_workflow_target_package_specs",
+                return_value=package_specs,
+            ),
+            patch.object(
+                server,
+                "_workflow_target_packages",
+                return_value=[package_specs[0]["name"]],
+            ),
+        ):
+            device_id = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]["id"]
+            with patch.object(server, "_workflow_payload", return_value=workflow):
+                preflight = self.client.post(
+                    f"/devices/{device_id}/deployment-preflight",
+                    json={},
+                ).json()
+                response = self.client.post(
+                    f"/devices/{device_id}/deployments-stream",
+                    json={
+                        "name": "Camera workflow",
+                        "workflow_hash": preflight["workflow"]["hash"],
+                        "start": True,
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        events = [
+            json.loads(line)
+            for line in response.text.splitlines()
+            if line.strip()
+        ]
+        progress = [event for event in events if event["type"] == "progress"]
+        self.assertEqual(progress[0]["progress"], 1)
+        self.assertEqual(progress[-1]["progress"], 100)
+        messages = [event["message"] for event in progress]
+        self.assertTrue(any("Synchronizing 1 required" in item for item in messages))
+        self.assertIn("Uploading the workflow bundle", messages)
+        self.assertTrue(any("replacing the previous workflow" in item for item in messages))
+        self.assertEqual(events[-1]["type"], "done")
+        self.assertTrue(events[-1]["result"]["started"])
+        self.assertEqual(events[-1]["result"]["deployment"]["state"], "running")
+
     def test_leader_follower_deployment_declares_one_remote_armed_gate(self):
         workflow = _workflow([])
         workflow["node_meta"]["follow"] = {

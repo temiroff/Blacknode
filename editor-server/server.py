@@ -7133,18 +7133,31 @@ def _start_replacing_device_deployment(
     return deployment, sorted(superseded_ids), cleanup_warnings
 
 
-@app.post("/devices/{device_id}/deployments")
-def stage_device_deployment(device_id: str, req: RemoteDeployReq):
+def _stage_device_deployment_payload(
+    device_id: str,
+    req: RemoteDeployReq,
+    progress: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    def report(percent: int, message: str) -> None:
+        if progress is not None:
+            progress({
+                "progress": max(0, min(100, int(percent))),
+                "message": message,
+            })
+
+    report(4, "Preparing deployment")
     deployment_owner = _remote_deployment_owner(device_id, req)
     workflow = _device_deployment_workflow()
     current_hash = _device_deployment_hash(workflow)
     requested_hash = req.workflow_hash.strip().lower()
+    report(10, "Confirming the validated graph revision")
     if not requested_hash or requested_hash != current_hash:
         raise HTTPException(
             409,
             "The graph changed after validation. Validate deployment again before staging.",
         )
 
+    report(18, "Running deployment safety checks")
     preflight = validate_device_deployment(
         device_id,
         DeploymentPreflightReq(workflow=workflow),
@@ -7160,6 +7173,7 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
             "Deployment preflight failed: " + "; ".join(blocking[:3]),
         )
 
+    report(28, "Exporting the workflow with motion disarmed")
     try:
         _bind_robot_to_device(workflow, preflight.get("status") or {})
         _disarm_workflow_motion_controls(workflow)
@@ -7204,10 +7218,17 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
     if req.deployment_id:
         payload["deployment_id"] = req.deployment_id
     try:
+        report(36, "Connecting to the target Runtime")
         client = _runtime_client_or_404(device_id)
         package_specs = _workflow_target_package_specs(workflow)
         if package_specs:
+            report(
+                42,
+                f"Synchronizing {len(package_specs)} required workflow "
+                f"package{'s' if len(package_specs) != 1 else ''}",
+            )
             client.sync_packages(package_specs)
+            report(62, "Verifying synchronized packages and workflow nodes")
             synced_manifest = client.manifest()
             synced_packages = {
                 str(item.get("name")): str(item.get("version") or "")
@@ -7247,10 +7268,15 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
                     409,
                     "Target package synchronization did not provide " + "; ".join(details),
                 )
+        else:
+            report(62, "No workflow package updates are required")
+        report(70, "Uploading the workflow bundle")
         deployment = client.stage_deployment(payload)
+        report(80, "Workflow stored on the target Runtime")
         superseded_deployments: list[str] = []
         cleanup_warnings: list[str] = []
         if req.start:
+            report(84, "Checking robot safety and replacing the previous workflow")
             (
                 deployment,
                 superseded_deployments,
@@ -7260,15 +7286,30 @@ def stage_device_deployment(device_id: str, req: RemoteDeployReq):
                 client,
                 str(deployment["id"]),
             )
+            report(98, "Workflow started; confirming replacement cleanup")
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
-    return {
+    result = {
         "deployment": deployment,
         "workflow_hash": current_hash,
         "started": bool(req.start),
         "superseded_deployments": superseded_deployments,
         "cleanup_warnings": cleanup_warnings,
     }
+    report(100, "Workflow sent and started" if req.start else "Workflow sent to robot")
+    return result
+
+
+@app.post("/devices/{device_id}/deployments")
+def stage_device_deployment(device_id: str, req: RemoteDeployReq):
+    return _stage_device_deployment_payload(device_id, req)
+
+
+@app.post("/devices/{device_id}/deployments-stream")
+def stream_device_deployment(device_id: str, req: RemoteDeployReq):
+    return _lifecycle_stream(
+        lambda report: _stage_device_deployment_payload(device_id, req, report)
+    )
 
 
 @app.get("/devices/{device_id}/deployments/{deployment_id}")
