@@ -9,6 +9,7 @@ import {
   type DeploymentPreflightCheck,
   type DeploymentPreflightStatus,
   type DeploymentState,
+  type DeviceActionProgress,
   type HardwareDevice,
   type HardwareDeviceStatus,
   type RemoteDeployment,
@@ -119,6 +120,7 @@ export default function DeploymentsPanel({
   const [remoteLogs, setRemoteLogs] = useState<Record<string, string>>({})
   const [remoteDeploymentName, setRemoteDeploymentName] = useState('')
   const [remoteAction, setRemoteAction] = useState<'send' | 'send-run' | null>(null)
+  const [remoteProgress, setRemoteProgress] = useState<DeviceActionProgress | null>(null)
   const [remoteNotice, setRemoteNotice] = useState<string | null>(null)
   const [rosDiagnostics, setRosDiagnostics] = useState('')
   const stopRuntimeServices = useStore(s => s.stopRuntimeServices)
@@ -629,6 +631,10 @@ export default function DeploymentsPanel({
     ) return
     setBusy(true)
     setRemoteAction(start ? 'send-run' : 'send')
+    setRemoteProgress({
+      progress: 1,
+      message: start ? 'Preparing to send and start workflow' : 'Preparing to send workflow',
+    })
     setRemoteNotice(null)
     setError(null)
     try {
@@ -637,6 +643,7 @@ export default function DeploymentsPanel({
         name,
         preflight.workflow.hash,
         start,
+        setRemoteProgress,
         existing?.id,
         deploymentProject?.id,
         deploymentProject?.workflowSlug,
@@ -662,6 +669,7 @@ export default function DeploymentsPanel({
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setRemoteAction(null)
+      setRemoteProgress(null)
       setBusy(false)
     }
   }
@@ -1254,10 +1262,23 @@ export default function DeploymentsPanel({
                   </>
                 )}
               </div>
-              {remoteAction && (
-                <div className="bn-robot-step-status is-info">
-                  Synchronizing required packages and sending the workflow. This can take a few
-                  minutes the first time.
+              {remoteAction && remoteProgress && (
+                <div
+                  className="bn-device-install-progress bn-device-action-progress is-compact"
+                  role="progressbar"
+                  aria-label="Workflow deployment progress"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(remoteProgress.progress)}
+                  aria-valuetext={remoteProgress.message}
+                >
+                  <div>
+                    <strong>{remoteProgress.message}</strong>
+                    <span>{Math.round(remoteProgress.progress)}%</span>
+                  </div>
+                  <span className="bn-device-install-progress-track" aria-hidden="true">
+                    <span style={{ width: `${remoteProgress.progress}%` }} />
+                  </span>
                 </div>
               )}
               {remoteNotice && !remoteAction && (

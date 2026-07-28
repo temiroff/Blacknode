@@ -1526,20 +1526,20 @@ export const api = {
     deviceId: string,
     name: string,
     workflowHash: string,
-    start = false,
+    start: boolean,
+    onProgress: (progress: DeviceActionProgress) => void,
     deploymentId?: string,
     projectId?: string,
     workflowSlug?: string,
   ) =>
-    req<{
+    streamDeviceAction<{
       deployment: RemoteDeployment
       workflow_hash: string
       started: boolean
       superseded_deployments: string[]
       cleanup_warnings: string[]
     }>(
-      'POST',
-      `/devices/${encodeURIComponent(deviceId)}/deployments`,
+      `/devices/${encodeURIComponent(deviceId)}/deployments-stream`,
       {
         name,
         workflow_hash: workflowHash,
@@ -1548,7 +1548,7 @@ export const api = {
         project_id: projectId ?? null,
         workflow_slug: workflowSlug ?? null,
       },
-      600000,
+      onProgress,
     ),
   startRemoteDeployment: (deviceId: string, deploymentId: string) =>
     req<RemoteDeployment>(
