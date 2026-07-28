@@ -3246,6 +3246,13 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(checked.json()["check"]["service_state"], "running")
         self.assertEqual(stopped.json()["service"]["state"], "stopped")
         self.assertEqual(hardware.runtime_deployments, {})
+        self.assertIn(
+            "blacknode-perception",
+            {
+                item["name"]
+                for item in hardware.runtime_packages
+            },
+        )
 
     def test_managed_usb_attachment_uses_bundled_camera_provider(self):
         service_id, payload = server._attachment_service_payload({
@@ -3315,6 +3322,38 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertFalse(check["ok"])
         self.assertIn("/camera/image_raw", check["message"])
         self.assertIn("Could not open camera device 0", check["message"])
+
+    def test_attachment_provider_setup_failure_is_actionable(self):
+        class FailingSetupRuntime:
+            def sync_packages(self, packages):
+                self.packages = packages
+                return {
+                    "ok": True,
+                    "messages": [
+                        "warning: package setup script failed; rerun setup"
+                    ],
+                }
+
+        runtime = FailingSetupRuntime()
+        with self.assertRaisesRegex(
+            device_registry.DeviceRegistryError,
+            "device setup failed",
+        ):
+            server._sync_attachment_provider_package(
+                runtime,
+                {
+                    "provider": {
+                        "package": "blacknode-perception",
+                        "component": "camera",
+                        "adapter": "ros2",
+                    },
+                    "service": {"profile": "usb_cam"},
+                },
+            )
+        self.assertEqual(
+            runtime.packages[0]["components"],
+            ["camera"],
+        )
 
     def test_retired_depth_attachment_profile_migrates_to_blacknode_rgbd(self):
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
