@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from blacknode.package_index import (
     package_index_payload,
     resolve_workflow_dependencies,
@@ -120,6 +123,53 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "git_url": "https://github.com/temiroff/blacknode-isaac.git",
     }
     assert payload["nodes"]["IsaacPolicyRuntime"]["package"] == "blacknode-isaac"
+
+
+def test_installed_package_manifest_maps_new_node_types_without_core_edit():
+    info = SimpleNamespace(
+        name="blacknode-skills",
+        layer="skills",
+        description="skills",
+        git_status={},
+        node_types=[],
+        components={
+            "follow": {
+                "node_types": [],
+                "adapters": {
+                    "ros2": {
+                        "node_types": ["ROS2FutureJointNode"],
+                    },
+                },
+            },
+        },
+    )
+    with patch("blacknode.packages.installed_packages", return_value=[info]):
+        payload = package_index_payload()
+        result = resolve_workflow_dependencies(
+            _workflow("ROS2FutureJointNode"),
+            available_node_types={"NestedNode"},
+            installed_packages={
+                "blacknode-skills": {
+                    "ok": True,
+                    "error": "",
+                },
+            },
+        )
+
+    assert payload["nodes"]["ROS2FutureJointNode"] == {
+        "package": "blacknode-skills",
+        "git_url": "https://github.com/temiroff/blacknode-skills.git",
+    }
+    assert "ROS2FutureJointNode" in payload["packages"]["blacknode-skills"]["node_types"]
+    assert result["unresolved_node_types"] == []
+    assert result["missing_packages"] == [{
+        "name": "blacknode-skills",
+        "git_url": "https://github.com/temiroff/blacknode-skills.git",
+        "node_types": ["ROS2FutureJointNode"],
+        "source": "package_manifest",
+        "installed": True,
+        "load_error": "",
+    }]
 
 
 def test_resolver_finds_nested_nodes_and_indexed_package():

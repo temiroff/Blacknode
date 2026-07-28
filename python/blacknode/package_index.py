@@ -879,21 +879,100 @@ _NODE_PACKAGE_INDEX: dict[str, dict[str, str]] = {
 }
 
 
+def _manifest_node_types(info: Any) -> set[str]:
+    """Collect every node type declared by an installed package manifest."""
+    declared = {
+        str(node_type)
+        for node_type in getattr(info, "node_types", [])
+        if str(node_type)
+    }
+    components = getattr(info, "components", {})
+    if not isinstance(components, Mapping):
+        return declared
+    for component in components.values():
+        if not isinstance(component, Mapping):
+            continue
+        declared.update(
+            str(node_type)
+            for node_type in component.get("node_types", [])
+            if str(node_type)
+        )
+        adapters = component.get("adapters", {})
+        if not isinstance(adapters, Mapping):
+            continue
+        for adapter in adapters.values():
+            if not isinstance(adapter, Mapping):
+                continue
+            declared.update(
+                str(node_type)
+                for node_type in adapter.get("node_types", [])
+                if str(node_type)
+            )
+    return declared
+
+
+def _runtime_package_index() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, str]]]:
+    """Merge installed self-describing manifests over the shipped catalog."""
+    packages = {
+        name: {
+            **package,
+            "node_types": list(package["node_types"]),
+        }
+        for name, package in _CORE_PACKAGES.items()
+    }
+    nodes = {
+        node_type: dict(resolution)
+        for node_type, resolution in _NODE_PACKAGE_INDEX.items()
+    }
+    try:
+        from .packages import installed_packages
+
+        installed = installed_packages()
+    except Exception:
+        installed = []
+
+    for info in installed:
+        name = str(getattr(info, "name", "") or "").strip()
+        if not name:
+            continue
+        declared = _manifest_node_types(info)
+        package = packages.get(name)
+        if package is None:
+            git_status = getattr(info, "git_status", {})
+            git_url = (
+                str(git_status.get("remote") or "")
+                if isinstance(git_status, Mapping)
+                else ""
+            )
+            package = {
+                "name": name,
+                "layer": str(getattr(info, "layer", "") or "extensions"),
+                "components": getattr(info, "components", {}),
+                "git_url": git_url,
+                "description": str(getattr(info, "description", "") or ""),
+                "node_types": [],
+            }
+            packages[name] = package
+        package["node_types"] = sorted({
+            *package.get("node_types", []),
+            *declared,
+        })
+        git_url = str(package.get("git_url") or "")
+        for node_type in declared:
+            nodes.setdefault(node_type, {
+                "package": name,
+                "git_url": git_url,
+            })
+    return packages, nodes
+
+
 def package_index_payload() -> dict[str, Any]:
-    """Return a JSON-safe copy of the package and node lookup index."""
+    """Return the shipped catalog enriched by installed package manifests."""
+    packages, nodes = _runtime_package_index()
     return {
         "schema_version": 2,
-        "packages": {
-            name: {
-                **package,
-                "node_types": list(package["node_types"]),
-            }
-            for name, package in _CORE_PACKAGES.items()
-        },
-        "nodes": {
-            node_type: dict(resolution)
-            for node_type, resolution in _NODE_PACKAGE_INDEX.items()
-        },
+        "packages": packages,
+        "nodes": nodes,
     }
 
 
@@ -1060,6 +1139,7 @@ def resolve_workflow_dependencies(
     missing_adapters: list[dict[str, Any]] = []
     component_plans: list[dict[str, Any]] = []
     unresolved_node_types: list[str] = []
+    _, runtime_node_index = _runtime_package_index()
 
     def installed_component(
         components: Any,
@@ -1184,14 +1264,18 @@ def resolve_workflow_dependencies(
             None,
         )
         if requirement is None:
-            resolution = _NODE_PACKAGE_INDEX.get(node_type)
+            resolution = runtime_node_index.get(node_type)
             if resolution is not None:
                 package_name = resolution["package"]
                 requirement = {
                     "name": package_name,
                     "git_url": explicit.get(package_name, {}).get("git_url", resolution["git_url"]),
                     "node_types": [node_type],
-                    "source": "core_index",
+                    "source": (
+                        "core_index"
+                        if node_type in _NODE_PACKAGE_INDEX
+                        else "package_manifest"
+                    ),
                 }
         if requirement is None:
             unresolved_node_types.append(node_type)
