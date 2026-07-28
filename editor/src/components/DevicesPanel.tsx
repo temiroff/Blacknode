@@ -15,6 +15,7 @@ import {
   type SshRuntimeInspection,
 } from '../api'
 import { useStore } from '../store'
+import { RobotAttachmentsPanel } from './RobotAttachmentsPanel'
 import { RobotLiveMonitor } from './RobotMonitorNode'
 
 type RobotState = {
@@ -529,6 +530,18 @@ export default function DevicesPanel() {
   const rosChecksInFlight = useRef(new Set<string>())
 
   const selectedDevice = devices.find(device => device.id === selectedDeviceId) ?? null
+  const rememberUpdatedRobot = (updatedRobot: HardwareDevice) => {
+    setDevices(current => current.map(device => (
+      device.robots.some(robot => robot.id === updatedRobot.id)
+        ? {
+            ...device,
+            robots: device.robots.map(robot => (
+              robot.id === updatedRobot.id ? updatedRobot : robot
+            )),
+          }
+        : device
+    )))
+  }
   const selectedRosHealth = selectedDevice
     ? rosHealthByDevice[selectedDevice.id]
     : undefined
@@ -4675,6 +4688,7 @@ export default function DevicesPanel() {
                 onReleaseTorque={() => releaseRobotTorque(robot)}
                 onControl={action => controlRobot(robot, action)}
                 onRestartService={password => controlRobot(robot, 'restart', password)}
+                onRobotUpdated={rememberUpdatedRobot}
               />
             ))}
           </div>
@@ -4911,6 +4925,7 @@ function RobotRow({
   onReleaseTorque,
   onControl,
   onRestartService,
+  onRobotUpdated,
 }: {
   robot: HardwareDevice
   state?: RobotState
@@ -4938,9 +4953,11 @@ function RobotRow({
   onReleaseTorque: () => void
   onControl: (action: 'pause' | 'resume') => void
   onRestartService: (password: string) => Promise<boolean>
+  onRobotUpdated: (robot: HardwareDevice) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [showMonitor, setShowMonitor] = useState(false)
+  const [showAttachments, setShowAttachments] = useState(false)
   const [showRestart, setShowRestart] = useState(false)
   const [showTorqueDetails, setShowTorqueDetails] = useState(false)
   const [restartPassword, setRestartPassword] = useState('')
@@ -5111,6 +5128,7 @@ function RobotRow({
             <span>{robot.remote_device_id}</span>
             <span>token {robot.token_fingerprint}</span>
             {status?.joint_names && <span>{status.joint_names.length} joints</span>}
+            <span>{robot.attachments?.length ?? 0} attachments</span>
           </div>
           {state?.error && (
             <div className="bn-run-error-line bn-device-error" role="alert">{state.error}</div>
@@ -5290,6 +5308,17 @@ function RobotRow({
             >
               {showMonitor ? 'Hide monitor' : 'Monitor'}
             </button>
+            <button
+              type="button"
+              onClick={() => setShowAttachments(current => !current)}
+              className={`bn-device-action-button${showAttachments ? ' is-primary' : ''}`}
+              aria-expanded={showAttachments}
+              title="Add and check cameras, LiDAR, IMU, and other ROS 2 attachments"
+            >
+              {showAttachments
+                ? 'Hide attachments'
+                : `Attachments (${robot.attachments?.length ?? 0})`}
+            </button>
             {runningDeployment?.id && (
               <button
                 type="button"
@@ -5338,6 +5367,12 @@ function RobotRow({
                 emptyMessage=""
               />
             </div>
+          )}
+          {showAttachments && (
+            <RobotAttachmentsPanel
+              robot={robot}
+              onRobotUpdated={onRobotUpdated}
+            />
           )}
           <div className="bn-run-detail-actions bn-robot-card-actions is-secondary">
             <button

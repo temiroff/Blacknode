@@ -1,0 +1,298 @@
+.bn-robot-attachments {
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #00d2ff 62%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 94%, #00151b);
+}
+
+.bn-robot-attachments-head,
+.bn-robot-attachment-form-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, #00d2ff 11%, transparent), transparent 65%),
+    var(--lift);
+}
+
+.bn-robot-attachments-head > div,
+.bn-robot-attachment-form-title > div {
+  min-width: 0;
+}
+
+.bn-robot-attachments-head strong,
+.bn-robot-attachments-head span,
+.bn-robot-attachment-form-title strong,
+.bn-robot-attachment-form-title span {
+  display: block;
+}
+
+.bn-robot-attachments-head strong,
+.bn-robot-attachment-form-title strong {
+  color: var(--tx1);
+  font-size: 13px;
+}
+
+.bn-robot-attachments-head span,
+.bn-robot-attachment-form-title span {
+  margin-top: 3px;
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bn-robot-attachments-empty {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  margin: 10px;
+  padding: 14px;
+  border: 1px dashed var(--line2);
+  border-radius: 6px;
+  color: var(--tx3);
+  font-size: 12px;
+}
+
+.bn-robot-attachments-empty strong {
+  color: var(--tx1);
+}
+
+.bn-robot-attachment-list {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+}
+
+.bn-robot-attachment-card {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--lift);
+}
+
+.bn-robot-attachment-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bn-robot-attachment-card-head > div {
+  min-width: 0;
+}
+
+.bn-robot-attachment-card-head strong,
+.bn-robot-attachment-kind {
+  display: block;
+}
+
+.bn-robot-attachment-card-head strong {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--tx1);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-robot-attachment-kind {
+  color: #00d2ff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.bn-robot-attachment-status {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.bn-robot-attachment-status.is-healthy {
+  border-color: color-mix(in srgb, var(--ok) 70%, var(--line));
+  color: var(--ok);
+}
+
+.bn-robot-attachment-status.is-present {
+  border-color: color-mix(in srgb, var(--accent) 65%, var(--line));
+  color: var(--accent);
+}
+
+.bn-robot-attachment-status.is-attention {
+  border-color: color-mix(in srgb, var(--warn) 70%, var(--line));
+  color: var(--warn);
+}
+
+.bn-robot-attachment-status.is-disabled {
+  opacity: .7;
+}
+
+.bn-robot-attachment-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 12px;
+  margin: 10px 0 0;
+}
+
+.bn-robot-attachment-facts div {
+  min-width: 0;
+}
+
+.bn-robot-attachment-facts dt {
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.bn-robot-attachment-facts dd {
+  overflow: hidden;
+  margin: 2px 0 0;
+  color: var(--tx2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-robot-attachment-message {
+  margin: 9px 0 0;
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bn-robot-attachment-actions,
+.bn-robot-attachment-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.bn-robot-attachment-actions .bn-device-action-button {
+  min-height: 30px;
+}
+
+.bn-robot-attachment-form {
+  padding-bottom: 11px;
+}
+
+.bn-robot-attachment-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  padding: 11px 12px 0;
+}
+
+.bn-robot-attachment-form-grid label {
+  min-width: 0;
+}
+
+.bn-robot-attachment-form-grid label.is-wide {
+  grid-column: 1 / -1;
+}
+
+.bn-robot-attachment-form-grid label > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.bn-robot-attachment-form-grid input,
+.bn-robot-attachment-form-grid select {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  outline: none;
+  background: var(--panel);
+  color: var(--tx1);
+  font: 12px var(--font-ui);
+}
+
+.bn-robot-attachment-form-grid input:focus,
+.bn-robot-attachment-form-grid select:focus {
+  border-color: #00d2ff;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #00d2ff 12%, transparent);
+}
+
+.bn-robot-attachment-form-grid input:disabled,
+.bn-robot-attachment-form-grid select:disabled {
+  color: var(--tx3);
+  cursor: not-allowed;
+  opacity: .7;
+}
+
+.bn-robot-attachment-advanced {
+  margin: 11px 12px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.bn-robot-attachment-advanced summary {
+  padding: 9px 10px;
+  color: var(--tx2);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bn-robot-attachment-advanced .bn-robot-attachment-form-grid {
+  padding: 2px 10px 10px;
+}
+
+.bn-robot-attachment-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 11px 12px 0;
+}
+
+.bn-robot-attachment-switches label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tx2);
+  font-size: 11px;
+}
+
+.bn-robot-attachment-form-actions {
+  justify-content: flex-end;
+  padding: 0 12px;
+}
+
+@media (max-width: 760px) {
+  .bn-robot-attachment-facts,
+  .bn-robot-attachment-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bn-robot-attachment-form-grid label.is-wide {
+    grid-column: auto;
+  }
+
+  .bn-robot-attachments-head,
+  .bn-robot-attachment-form-title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

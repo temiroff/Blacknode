@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import threading
@@ -17,6 +18,19 @@ from typing import Any
 
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _ID_RE = re.compile(r"[^a-z0-9]+")
+_ATTACHMENT_ID_RE = re.compile(r"[^a-z0-9]+")
+_ROS_MESSAGE_TYPE_RE = re.compile(
+    r"^[A-Za-z][A-Za-z0-9_]*/(?:msg|srv|action)/[A-Za-z][A-Za-z0-9_]*$"
+)
+_ATTACHMENT_TYPES = {
+    "camera",
+    "depth_camera",
+    "lidar",
+    "imu",
+    "gps",
+    "microphone",
+    "custom",
+}
 
 
 class DeviceRegistryError(RuntimeError):
@@ -63,6 +77,199 @@ def default_runtime_url(hardware_url: str) -> str:
 
 def _slug(value: str) -> str:
     return _ID_RE.sub("-", value.strip().lower()).strip("-")[:48] or "device"
+
+
+def _attachment_identifier(value: Any, fallback: str = "attachment") -> str:
+    text = _ATTACHMENT_ID_RE.sub(
+        "_",
+        str(value or "").strip().lower(),
+    ).strip("_")
+    if not text:
+        text = fallback
+    if not text[0].isalpha():
+        text = f"attachment_{text}"
+    return text[:64]
+
+
+def _finite_attachment_number(value: Any, field: str) -> float:
+    try:
+        result = float(value or 0.0)
+    except (TypeError, ValueError) as exc:
+        raise DeviceRegistryError(f"{field} must be a number.") from exc
+    if not math.isfinite(result):
+        raise DeviceRegistryError(f"{field} must be finite.")
+    return result
+
+
+def _normalize_attachment(
+    values: dict[str, Any],
+    *,
+    existing_id: str = "",
+) -> dict[str, Any]:
+    requested_id = _attachment_identifier(
+        values.get("attachment_id")
+        or values.get("id")
+        or values.get("display_name"),
+    )
+    if existing_id and requested_id != existing_id:
+        raise DeviceRegistryError(
+            "Attachment IDs are stable. Duplicate the attachment to use a new ID."
+        )
+    attachment_id = existing_id or requested_id
+    display_name = str(
+        values.get("display_name")
+        or attachment_id.replace("_", " ").title()
+    ).strip()
+    if not display_name:
+        raise DeviceRegistryError("Attachment name is required.")
+    attachment_type = str(
+        values.get("attachment_type") or "custom"
+    ).strip().lower()
+    if attachment_type not in _ATTACHMENT_TYPES:
+        raise DeviceRegistryError(
+            "Attachment type must be camera, depth camera, LiDAR, IMU, GPS, "
+            "microphone, or custom."
+        )
+    capability = _attachment_identifier(
+        values.get("capability") or attachment_type,
+        attachment_type,
+    )
+    provider = values.get("provider") if isinstance(values.get("provider"), dict) else {}
+    provider_package = str(
+        values.get("provider_package") or provider.get("package") or ""
+    ).strip()
+    provider_component = str(
+        values.get("provider_component") or provider.get("component") or ""
+    ).strip()
+    provider_adapter = str(
+        values.get("provider_adapter") or provider.get("adapter") or "ros2"
+    ).strip()
+    if not provider_package or not provider_component:
+        raise DeviceRegistryError(
+            "Attachment provider package and component are required."
+        )
+    topic = str(values.get("topic") or "").strip()
+    if not topic.startswith("/") or any(character.isspace() for character in topic):
+        raise DeviceRegistryError(
+            "ROS 2 topic must start with / and cannot contain spaces."
+        )
+    message_type = str(values.get("message_type") or "").strip()
+    if not _ROS_MESSAGE_TYPE_RE.fullmatch(message_type):
+        raise DeviceRegistryError(
+            "ROS 2 message type must look like sensor_msgs/msg/Image."
+        )
+    parent_frame = str(values.get("parent_frame") or "base_link").strip()
+    frame_id = str(values.get("frame_id") or f"{attachment_id}_link").strip()
+    if not parent_frame or not frame_id:
+        raise DeviceRegistryError("Parent frame and attachment frame are required.")
+    if any(character.isspace() for character in parent_frame + frame_id):
+        raise DeviceRegistryError("ROS 2 frame names cannot contain spaces.")
+    mount = values.get("mount") if isinstance(values.get("mount"), dict) else {}
+    translation = (
+        mount.get("translation_m")
+        if isinstance(mount.get("translation_m"), list)
+        else []
+    )
+    rotation = (
+        mount.get("rotation_rpy_rad")
+        if isinstance(mount.get("rotation_rpy_rad"), list)
+        else []
+    )
+    x_m = values.get("x_m", translation[0] if len(translation) > 0 else 0.0)
+    y_m = values.get("y_m", translation[1] if len(translation) > 1 else 0.0)
+    z_m = values.get("z_m", translation[2] if len(translation) > 2 else 0.0)
+    roll_rad = values.get(
+        "roll_rad",
+        rotation[0] if len(rotation) > 0 else 0.0,
+    )
+    pitch_rad = values.get(
+        "pitch_rad",
+        rotation[1] if len(rotation) > 1 else 0.0,
+    )
+    yaw_rad = values.get(
+        "yaw_rad",
+        rotation[2] if len(rotation) > 2 else 0.0,
+    )
+    hardware_identity = (
+        values.get("hardware_identity")
+        if isinstance(values.get("hardware_identity"), dict)
+        else {}
+    )
+    hardware_id = str(
+        values.get("hardware_id") or hardware_identity.get("id") or ""
+    ).strip()
+    required = bool(values.get("required", True))
+    enabled = bool(values.get("enabled", True))
+    provider_record = {
+        "package": provider_package,
+        "component": provider_component,
+        "adapter": provider_adapter,
+    }
+    interface = {
+        "kind": "topic",
+        "direction": "output",
+        "topic": topic,
+        "candidates": [topic],
+        "message_type": message_type,
+        "frame_id": frame_id,
+    }
+    mount_record = {
+        "translation_m": [
+            _finite_attachment_number(x_m, "Mount X"),
+            _finite_attachment_number(y_m, "Mount Y"),
+            _finite_attachment_number(z_m, "Mount Z"),
+        ],
+        "rotation_rpy_rad": [
+            _finite_attachment_number(roll_rad, "Mount roll"),
+            _finite_attachment_number(pitch_rad, "Mount pitch"),
+            _finite_attachment_number(yaw_rad, "Mount yaw"),
+        ],
+    }
+    identity_record = {
+        "id": hardware_id,
+        "serial": str(hardware_identity.get("serial") or "").strip(),
+        "vendor_id": str(hardware_identity.get("vendor_id") or "").strip(),
+        "product_id": str(hardware_identity.get("product_id") or "").strip(),
+        "path": str(hardware_identity.get("path") or "").strip(),
+    }
+    configuration = {
+        "attachment_id": attachment_id,
+        "attachment_type": attachment_type,
+        "parent_frame": parent_frame,
+        "frame_id": frame_id,
+        "mount": mount_record,
+        "ros2_interfaces": [interface],
+    }
+    binding = {
+        "kind": "blacknode.robot-capability-binding",
+        "schema_version": 1,
+        "capability": capability,
+        "provider": provider_record,
+        "configuration": configuration,
+        "hardware_identity": identity_record,
+        "required": required,
+    }
+    attachment = {
+        "kind": "blacknode.robot-attachment",
+        "schema_version": 1,
+        "id": attachment_id,
+        "display_name": display_name,
+        "attachment_type": attachment_type,
+        "capability": capability,
+        "provider": provider_record,
+        "hardware_identity": identity_record,
+        "parent_frame": parent_frame,
+        "frame_id": frame_id,
+        "mount": mount_record,
+        "interfaces": [interface],
+        "required": required,
+        "enabled": enabled,
+        "binding": binding,
+    }
+    previous_check = values.get("last_check")
+    if isinstance(previous_check, dict):
+        attachment["last_check"] = dict(previous_check)
+    return attachment
 
 
 def _host_id(runtime_url: str) -> str:
@@ -832,6 +1039,11 @@ class DeviceRegistry:
                     or str((existing or {}).get("software_version") or "").strip()
                 ),
                 "paused": False,
+                "attachments": [
+                    dict(item)
+                    for item in ((existing or {}).get("attachments") or [])
+                    if isinstance(item, dict)
+                ],
                 "created_at": created_at,
                 "updated_at": now,
             }
@@ -908,6 +1120,125 @@ class DeviceRegistry:
             record["updated_at"] = _iso_now()
             self._save_payload(hosts, records)
             return self._public(record)
+
+    def save_attachment(
+        self,
+        device_id: str,
+        values: dict[str, Any],
+        *,
+        attachment_id: str = "",
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        with self._lock:
+            hosts, records = self._load_payload()
+            record = records.get(device_id)
+            if record is None:
+                raise KeyError(device_id)
+            clean_existing_id = (
+                _attachment_identifier(attachment_id)
+                if attachment_id
+                else ""
+            )
+            attachment = _normalize_attachment(
+                values,
+                existing_id=clean_existing_id,
+            )
+            attachments = [
+                dict(item)
+                for item in (record.get("attachments") or [])
+                if isinstance(item, dict) and str(item.get("id") or "")
+            ]
+            index = next(
+                (
+                    index
+                    for index, item in enumerate(attachments)
+                    if str(item.get("id") or "") == attachment["id"]
+                ),
+                None,
+            )
+            if clean_existing_id:
+                if index is None:
+                    raise KeyError(clean_existing_id)
+                attachments[index] = attachment
+            elif index is not None:
+                raise DeviceRegistryError(
+                    f"Attachment '{attachment['id']}' already exists."
+                )
+            else:
+                attachments.append(attachment)
+            attachments.sort(
+                key=lambda item: (
+                    str(item.get("display_name") or "").casefold(),
+                    str(item.get("id") or ""),
+                )
+            )
+            record["attachments"] = attachments
+            record["updated_at"] = _iso_now()
+            records[device_id] = record
+            self._save_payload(hosts, records)
+            return self._public(record), attachment
+
+    def delete_attachment(
+        self,
+        device_id: str,
+        attachment_id: str,
+    ) -> dict[str, Any]:
+        clean_id = _attachment_identifier(attachment_id)
+        with self._lock:
+            hosts, records = self._load_payload()
+            record = records.get(device_id)
+            if record is None:
+                raise KeyError(device_id)
+            attachments = [
+                dict(item)
+                for item in (record.get("attachments") or [])
+                if isinstance(item, dict) and str(item.get("id") or "")
+            ]
+            filtered = [
+                item
+                for item in attachments
+                if str(item.get("id") or "") != clean_id
+            ]
+            if len(filtered) == len(attachments):
+                raise KeyError(clean_id)
+            record["attachments"] = filtered
+            record["updated_at"] = _iso_now()
+            records[device_id] = record
+            self._save_payload(hosts, records)
+            return self._public(record)
+
+    def remember_attachment_check(
+        self,
+        device_id: str,
+        attachment_id: str,
+        check: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        clean_id = _attachment_identifier(attachment_id)
+        with self._lock:
+            hosts, records = self._load_payload()
+            record = records.get(device_id)
+            if record is None:
+                raise KeyError(device_id)
+            attachments = [
+                dict(item)
+                for item in (record.get("attachments") or [])
+                if isinstance(item, dict) and str(item.get("id") or "")
+            ]
+            attachment = next(
+                (
+                    item
+                    for item in attachments
+                    if str(item.get("id") or "") == clean_id
+                ),
+                None,
+            )
+            if attachment is None:
+                raise KeyError(clean_id)
+            attachment["last_check"] = dict(check)
+            record["attachments"] = attachments
+            record["updated_at"] = _iso_now()
+            records[device_id] = record
+            self._save_payload(hosts, records)
+            return self._public(record), attachment
 
     def _load_payload(
         self,
