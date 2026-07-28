@@ -253,10 +253,8 @@ export default function NodePalette() {
         }
       })
       .catch(() => {
-        if (active) {
-          setActiveTab('packages')
-          setShowPackageWelcome(true)
-        }
+        // A backend outage is not first-run state. Connectivity errors are
+        // surfaced by the editor's service status instead of onboarding.
       })
     return () => { active = false }
   }, [])

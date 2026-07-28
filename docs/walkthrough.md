@@ -66,6 +66,10 @@ core graph** when you want to begin with built-in nodes. Blacknode records the
 choice in `.blacknode/onboarding.json`; Packages stays available in the left
 sidebar.
 
+The welcome message opens only after the backend confirms that onboarding has
+not been completed. A backend startup or connectivity error keeps the current
+canvas state and is reported through the service status instead.
+
 ## 3. Check the Local Setup
 
 Keep Blacknode running. In a second terminal, activate its environment once;

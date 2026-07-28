@@ -66,6 +66,20 @@ def test_windows_launcher_reuses_healthy_services_and_hands_off_cleanly():
     assert 'Write-Step "Blacknode was restarted by another launcher."' in powershell
 
 
+def test_windows_launcher_adopts_a_healthy_replacement_service():
+    powershell = (ROOT / "start.ps1").read_text(encoding="utf-8")
+
+    assert "if (& $ReadyProbe)" in powershell
+    assert "$ReplacementIds = @(Get-PortProcessIds -Port $Port)" in powershell
+    assert '$script:BackendProcess = $Replacement' in powershell
+    assert '$script:FrontendProcess = $Replacement' in powershell
+    assert 'Write-Step "$Name restarted; launcher adopted process $($Replacement.Id)."' in powershell
+    assert '-Service "backend"' in powershell
+    assert '-ReadyProbe { Test-BlacknodeBackendReady }' in powershell
+    assert '-Service "frontend"' in powershell
+    assert '-ReadyProbe { Test-BlacknodeEditorReady }' in powershell
+
+
 def test_windows_starter_always_restarts_running_services():
     batch = (ROOT / "start.bat").read_text(encoding="utf-8")
 
