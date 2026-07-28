@@ -8,7 +8,7 @@ from typing import Any, Callable
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
 import blacknode as bn
@@ -501,8 +501,15 @@ class RobotAttachmentReq(BaseModel):
     provider_package: str
     provider_component: str
     provider_adapter: str = "ros2"
+    provider_profile: str = "existing_topics"
     topic: str
     message_type: str
+    camera_info_topic: str = ""
+    depth_topic: str = ""
+    point_cloud_topic: str = ""
+    launch_package: str = ""
+    launch_target: str = ""
+    launch_arguments: list[str] = Field(default_factory=list)
     parent_frame: str = "base_link"
     frame_id: str
     x_m: float = 0.0
@@ -5178,8 +5185,15 @@ def _robot_attachment_values(req: RobotAttachmentReq) -> dict[str, Any]:
         "provider_package": req.provider_package,
         "provider_component": req.provider_component,
         "provider_adapter": req.provider_adapter,
+        "provider_profile": req.provider_profile,
         "topic": req.topic,
         "message_type": req.message_type,
+        "camera_info_topic": req.camera_info_topic,
+        "depth_topic": req.depth_topic,
+        "point_cloud_topic": req.point_cloud_topic,
+        "launch_package": req.launch_package,
+        "launch_target": req.launch_target,
+        "launch_arguments": req.launch_arguments,
         "parent_frame": req.parent_frame,
         "frame_id": req.frame_id,
         "x_m": req.x_m,
@@ -5207,6 +5221,74 @@ def _attachment_primary_interface(
         ),
         {},
     )
+
+
+def _attachment_service_payload(
+    attachment: dict[str, Any],
+) -> tuple[str, dict[str, Any] | None]:
+    service = (
+        attachment.get("service")
+        if isinstance(attachment.get("service"), dict)
+        else {}
+    )
+    service_id = str(
+        service.get("id") or attachment.get("id") or ""
+    ).replace("_", "-")
+    profile = str(service.get("profile") or "existing_topics")
+    if profile == "existing_topics":
+        return service_id, None
+    if profile == "usb_cam":
+        primary = _attachment_primary_interface(attachment)
+        topic = str(primary.get("topic") or "/camera/image_raw")
+        info = next(
+            (
+                str(item.get("topic") or "")
+                for item in (attachment.get("interfaces") or [])
+                if isinstance(item, dict)
+                and str(item.get("role") or "") == "camera_info"
+            ),
+            "",
+        )
+        arguments = ["--ros-args", "-r", f"image_raw:={topic}"]
+        if info:
+            arguments.extend(["-r", f"camera_info:={info}"])
+        command = {
+            "verb": "run",
+            "package": "usb_cam",
+            "target": "usb_cam_node_exe",
+            "arguments": arguments,
+        }
+    elif profile == "rosorin_depth":
+        command = {
+            "verb": "launch",
+            "package": "peripherals",
+            "target": "depth_camera.launch.py",
+            "arguments": [],
+        }
+    elif profile == "custom_launch":
+        command = {
+            "verb": "launch",
+            "package": str(service.get("launch_package") or ""),
+            "target": str(service.get("launch_target") or ""),
+            "arguments": list(service.get("launch_arguments") or []),
+        }
+    else:
+        raise DeviceRegistryError(f"Unsupported attachment provider profile: {profile}")
+    interfaces = [
+        {
+            "topic": str(item.get("topic") or ""),
+            "type": str(item.get("message_type") or ""),
+            "required": bool(item.get("required", index == 0)),
+            "direction": "publisher",
+        }
+        for index, item in enumerate(attachment.get("interfaces") or [])
+        if isinstance(item, dict) and str(item.get("topic") or "")
+    ]
+    return service_id, {
+        "name": str(attachment.get("display_name") or service_id),
+        "command": command,
+        "interfaces": interfaces,
+    }
 
 
 def _attachment_topic_check(
@@ -5332,6 +5414,93 @@ def _attachment_topic_check(
     }
 
 
+def _attachment_service_check(
+    attachment: dict[str, Any],
+    service: dict[str, Any],
+) -> dict[str, Any]:
+    primary = _attachment_primary_interface(attachment)
+    topic = str(primary.get("topic") or "")
+    expected_type = str(primary.get("message_type") or "")
+    diagnostics = (
+        service.get("diagnostics")
+        if isinstance(service.get("diagnostics"), dict)
+        else {}
+    )
+    interfaces = [
+        item
+        for item in (diagnostics.get("interfaces") or [])
+        if isinstance(item, dict)
+    ]
+    primary_result = next(
+        (item for item in interfaces if str(item.get("topic") or "") == topic),
+        {},
+    )
+    missing = [str(value) for value in (diagnostics.get("missing") or [])]
+    state = str(service.get("state") or "stopped")
+    ok = state == "running" and bool(diagnostics.get("ok"))
+    return {
+        "ok": ok,
+        "status": (
+            "streaming"
+            if ok
+            else "missing"
+            if state == "running"
+            else "unavailable"
+        ),
+        "topic": topic,
+        "expected_message_type": expected_type,
+        "actual_message_type": str(
+            primary_result.get("type") or expected_type
+        ),
+        "publisher_count": primary_result.get("publishers"),
+        "checked_at": str(
+            diagnostics.get("checked_at")
+            or datetime.now().astimezone().isoformat(timespec="seconds")
+        ),
+        "message": (
+            f"{attachment.get('display_name') or topic} is running and all "
+            "required ROS 2 streams are publishing."
+            if ok
+            else (
+                "Provider is running, but required streams are not ready: "
+                + ", ".join(missing)
+                if state == "running" and missing
+                else str(
+                    service.get("error")
+                    or "Attachment provider is stopped."
+                )
+            )
+        ),
+        "interfaces": interfaces,
+        "missing": missing,
+        "service_state": state,
+    }
+
+
+def _find_robot_attachment(
+    device_id: str,
+    attachment_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        device = _device_registry.get_public(device_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if device is None:
+        raise HTTPException(404, "Device not found")
+    attachment = next(
+        (
+            item
+            for item in (device.get("attachments") or [])
+            if isinstance(item, dict)
+            and str(item.get("id") or "") == attachment_id
+        ),
+        None,
+    )
+    if attachment is None:
+        raise HTTPException(404, "Attachment not found")
+    return device, attachment
+
+
 @app.get("/devices/{device_id}/attachments")
 def list_robot_attachments(device_id: str):
     try:
@@ -5392,28 +5561,25 @@ def delete_robot_attachment(device_id: str, attachment_id: str):
 
 @app.post("/devices/{device_id}/attachments/{attachment_id}/check")
 def check_robot_attachment(device_id: str, attachment_id: str):
+    device, attachment = _find_robot_attachment(device_id, attachment_id)
     try:
-        device = _device_registry.get_public(device_id)
-    except DeviceRegistryError as exc:
-        raise HTTPException(500, str(exc)) from exc
-    if device is None:
-        raise HTTPException(404, "Device not found")
-    attachment = next(
-        (
-            item
-            for item in (device.get("attachments") or [])
-            if isinstance(item, dict)
-            and str(item.get("id") or "") == attachment_id
-        ),
-        None,
-    )
-    if attachment is None:
-        raise HTTPException(404, "Attachment not found")
-    try:
-        diagnostics = _runtime_client_or_404(device_id).ros2_diagnostics()
+        runtime_client = _runtime_client_or_404(device_id)
+        service_id, service_payload = _attachment_service_payload(attachment)
+        if service_payload is not None:
+            try:
+                service = runtime_client.get_service(service_id)
+            except DeviceRegistryError:
+                service = {}
+            if service:
+                check = _attachment_service_check(attachment, service)
+            else:
+                diagnostics = runtime_client.ros2_diagnostics()
+                check = _attachment_topic_check(attachment, diagnostics)
+        else:
+            diagnostics = runtime_client.ros2_diagnostics()
+            check = _attachment_topic_check(attachment, diagnostics)
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
-    check = _attachment_topic_check(attachment, diagnostics)
     try:
         updated_device, updated_attachment = (
             _device_registry.remember_attachment_check(
@@ -5427,6 +5593,84 @@ def check_robot_attachment(device_id: str, attachment_id: str):
     return {
         "device": updated_device,
         "attachment": updated_attachment,
+        "check": check,
+    }
+
+
+@app.post("/devices/{device_id}/attachments/{attachment_id}/start")
+def start_robot_attachment(device_id: str, attachment_id: str):
+    _, attachment = _find_robot_attachment(device_id, attachment_id)
+    if attachment.get("enabled") is False:
+        raise HTTPException(409, "Enable this attachment before starting it.")
+    try:
+        service_id, payload = _attachment_service_payload(attachment)
+        if payload is None:
+            raise HTTPException(
+                409,
+                "This attachment uses an existing ROS 2 topic. Start its external "
+                "driver, then press Check ROS.",
+            )
+        service = _runtime_client_or_404(device_id).start_service(
+            service_id,
+            payload,
+        )
+        check = _attachment_service_check(attachment, service)
+        updated_device, updated_attachment = (
+            _device_registry.remember_attachment_check(
+                device_id,
+                attachment_id,
+                check,
+            )
+        )
+    except HTTPException:
+        raise
+    except DeviceRegistryError as exc:
+        message = str(exc)
+        if "404" in message or "not found" in message.lower():
+            message = (
+                "This device Runtime does not support managed attachments yet. "
+                "Update Blacknode Runtime, then start the camera again."
+            )
+        raise HTTPException(502, message) from exc
+    except KeyError as exc:
+        raise HTTPException(404, "Device or attachment not found") from exc
+    return {
+        "device": updated_device,
+        "attachment": updated_attachment,
+        "service": service,
+        "check": check,
+    }
+
+
+@app.post("/devices/{device_id}/attachments/{attachment_id}/stop")
+def stop_robot_attachment(device_id: str, attachment_id: str):
+    _, attachment = _find_robot_attachment(device_id, attachment_id)
+    try:
+        service_id, payload = _attachment_service_payload(attachment)
+        if payload is None:
+            raise HTTPException(
+                409,
+                "This attachment is provided externally and is not owned by Blacknode.",
+            )
+        service = _runtime_client_or_404(device_id).stop_service(service_id)
+        check = _attachment_service_check(attachment, service)
+        updated_device, updated_attachment = (
+            _device_registry.remember_attachment_check(
+                device_id,
+                attachment_id,
+                check,
+            )
+        )
+    except HTTPException:
+        raise
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(404, "Device or attachment not found") from exc
+    return {
+        "device": updated_device,
+        "attachment": updated_attachment,
+        "service": service,
         "check": check,
     }
 

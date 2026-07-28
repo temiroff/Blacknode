@@ -216,7 +216,8 @@
 }
 
 .bn-robot-attachment-form-grid input,
-.bn-robot-attachment-form-grid select {
+.bn-robot-attachment-form-grid select,
+.bn-robot-attachment-form-grid textarea {
   width: 100%;
   min-height: 34px;
   padding: 6px 8px;
@@ -229,9 +230,15 @@
 }
 
 .bn-robot-attachment-form-grid input:focus,
-.bn-robot-attachment-form-grid select:focus {
+.bn-robot-attachment-form-grid select:focus,
+.bn-robot-attachment-form-grid textarea:focus {
   border-color: #00d2ff;
   box-shadow: 0 0 0 2px color-mix(in srgb, #00d2ff 12%, transparent);
+}
+
+.bn-robot-attachment-form-grid textarea {
+  min-height: 74px;
+  resize: vertical;
 }
 
 .bn-robot-attachment-form-grid input:disabled,

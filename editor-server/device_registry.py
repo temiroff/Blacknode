@@ -148,6 +148,21 @@ def _normalize_attachment(
         raise DeviceRegistryError(
             "Attachment provider package and component are required."
         )
+    provider_profile = str(
+        values.get("provider_profile")
+        or provider.get("profile")
+        or "existing_topics"
+    ).strip().lower()
+    if provider_profile not in {
+        "existing_topics",
+        "usb_cam",
+        "rosorin_depth",
+        "custom_launch",
+    }:
+        raise DeviceRegistryError(
+            "Attachment provider profile must be existing topics, USB camera, "
+            "ROSOrin depth camera, or custom ROS 2 launch."
+        )
     topic = str(values.get("topic") or "").strip()
     if not topic.startswith("/") or any(character.isspace() for character in topic):
         raise DeviceRegistryError(
@@ -157,6 +172,40 @@ def _normalize_attachment(
     if not _ROS_MESSAGE_TYPE_RE.fullmatch(message_type):
         raise DeviceRegistryError(
             "ROS 2 message type must look like sensor_msgs/msg/Image."
+        )
+    camera_info_topic = str(values.get("camera_info_topic") or "").strip()
+    depth_topic = str(values.get("depth_topic") or "").strip()
+    point_cloud_topic = str(values.get("point_cloud_topic") or "").strip()
+    for label, optional_topic in (
+        ("Camera info", camera_info_topic),
+        ("Depth", depth_topic),
+        ("Point cloud", point_cloud_topic),
+    ):
+        if optional_topic and (
+            not optional_topic.startswith("/")
+            or any(character.isspace() for character in optional_topic)
+        ):
+            raise DeviceRegistryError(
+                f"{label} ROS 2 topic must start with / and cannot contain spaces."
+            )
+    launch_package = str(values.get("launch_package") or "").strip()
+    launch_target = str(values.get("launch_target") or "").strip()
+    raw_launch_arguments = values.get("launch_arguments") or []
+    if isinstance(raw_launch_arguments, str):
+        launch_arguments = [
+            value
+            for value in raw_launch_arguments.splitlines()
+            if value.strip()
+        ]
+    elif isinstance(raw_launch_arguments, list):
+        launch_arguments = [str(value) for value in raw_launch_arguments]
+    else:
+        raise DeviceRegistryError("ROS 2 launch arguments must be a list or lines.")
+    if provider_profile == "custom_launch" and (
+        not launch_package or not launch_target
+    ):
+        raise DeviceRegistryError(
+            "Custom ROS 2 launch requires a package and launch file."
         )
     parent_frame = str(values.get("parent_frame") or "base_link").strip()
     frame_id = str(values.get("frame_id") or f"{attachment_id}_link").strip()
@@ -204,6 +253,7 @@ def _normalize_attachment(
         "package": provider_package,
         "component": provider_component,
         "adapter": provider_adapter,
+        "profile": provider_profile,
     }
     interface = {
         "kind": "topic",
@@ -213,6 +263,40 @@ def _normalize_attachment(
         "message_type": message_type,
         "frame_id": frame_id,
     }
+    interfaces = [interface]
+    if camera_info_topic:
+        interfaces.append({
+            "kind": "topic",
+            "role": "camera_info",
+            "direction": "output",
+            "topic": camera_info_topic,
+            "candidates": [camera_info_topic],
+            "message_type": "sensor_msgs/msg/CameraInfo",
+            "frame_id": frame_id,
+            "required": False,
+        })
+    if depth_topic:
+        interfaces.append({
+            "kind": "topic",
+            "role": "depth",
+            "direction": "output",
+            "topic": depth_topic,
+            "candidates": [depth_topic],
+            "message_type": "sensor_msgs/msg/Image",
+            "frame_id": frame_id,
+            "required": attachment_type == "depth_camera",
+        })
+    if point_cloud_topic:
+        interfaces.append({
+            "kind": "topic",
+            "role": "points",
+            "direction": "output",
+            "topic": point_cloud_topic,
+            "candidates": [point_cloud_topic],
+            "message_type": "sensor_msgs/msg/PointCloud2",
+            "frame_id": frame_id,
+            "required": False,
+        })
     mount_record = {
         "translation_m": [
             _finite_attachment_number(x_m, "Mount X"),
@@ -238,7 +322,14 @@ def _normalize_attachment(
         "parent_frame": parent_frame,
         "frame_id": frame_id,
         "mount": mount_record,
-        "ros2_interfaces": [interface],
+        "ros2_interfaces": interfaces,
+        "managed_service": {
+            "id": attachment_id.replace("_", "-"),
+            "profile": provider_profile,
+            "launch_package": launch_package,
+            "launch_target": launch_target,
+            "launch_arguments": launch_arguments,
+        },
     }
     binding = {
         "kind": "blacknode.robot-capability-binding",
@@ -261,7 +352,14 @@ def _normalize_attachment(
         "parent_frame": parent_frame,
         "frame_id": frame_id,
         "mount": mount_record,
-        "interfaces": [interface],
+        "interfaces": interfaces,
+        "service": {
+            "id": attachment_id.replace("_", "-"),
+            "profile": provider_profile,
+            "launch_package": launch_package,
+            "launch_target": launch_target,
+            "launch_arguments": launch_arguments,
+        },
         "required": required,
         "enabled": enabled,
         "binding": binding,
@@ -516,6 +614,29 @@ class RuntimeDeviceClient(HardwareDeviceClient):
     def ros2_diagnostics(self) -> dict[str, Any]:
         return self._request("GET", "/diagnostics/ros2", timeout=90.0)
 
+    def get_service(self, service_id: str) -> dict[str, Any]:
+        return self._request("GET", self._service_endpoint(service_id), timeout=30.0)
+
+    def start_service(
+        self,
+        service_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"{self._service_endpoint(service_id)}/start",
+            payload=payload,
+            timeout=30.0,
+        )
+
+    def stop_service(self, service_id: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"{self._service_endpoint(service_id)}/stop",
+            payload={},
+            timeout=30.0,
+        )
+
     def delete_deployment(self, deployment_id: str) -> dict[str, Any]:
         return self._request("DELETE", self._deployment_endpoint(deployment_id))
 
@@ -525,6 +646,13 @@ class RuntimeDeviceClient(HardwareDeviceClient):
         if not clean_id:
             raise DeviceRegistryError("Deployment ID is required.")
         return f"/deployments/{urllib.parse.quote(clean_id, safe='')}"
+
+    @staticmethod
+    def _service_endpoint(service_id: str) -> str:
+        clean_id = str(service_id or "").strip()
+        if not clean_id:
+            raise DeviceRegistryError("Managed service ID is required.")
+        return f"/services/{urllib.parse.quote(clean_id, safe='')}"
 
 
 class DeviceRegistry:

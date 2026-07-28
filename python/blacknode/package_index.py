@@ -555,6 +555,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             "name": "ros2",
                             "default": True,
                             "node_types": [
+                                "CameraROS2Provider",
                                 "CameraROS2Subscribe",
                                 "CameraROS2Publish",
                                 "CameraROS2Http"
@@ -577,7 +578,16 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "depth": {
                     "name": "depth",
                     "default": False,
-                    "node_types": []
+                    "node_types": [],
+                    "adapters": {
+                        "ros2": {
+                            "name": "ros2",
+                            "default": False,
+                            "node_types": [
+                                "DepthROS2Subscribe"
+                            ]
+                        }
+                    }
                 },
                 "lidar": {
                     "name": "lidar",
@@ -636,6 +646,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "CameraCalibration",
                 "CameraDashboard",
                 "CameraDiscovery",
+                "CameraROS2Provider",
                 "CameraROS2Http",
                 "CameraROS2Publish",
                 "CameraROS2Subscribe",
@@ -643,6 +654,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "CameraStream",
                 "DetectionPrompt",
                 "DetectionStream",
+                "DepthROS2Subscribe",
                 "FramePrompt",
                 "ReasoningDashboard",
                 "ReasoningStream",

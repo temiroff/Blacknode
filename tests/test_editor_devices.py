@@ -72,6 +72,7 @@ class _HardwareService:
         self.runtime_deployments: dict[str, dict] = {}
         self.runtime_workflows: dict[str, dict] = {}
         self.runtime_telemetry: dict[str, dict] = {}
+        self.runtime_services: dict[str, dict] = {}
         self.runtime_packages = [
             {"name": "blacknode-runtime", "version": "0.2.0"},
         ]
@@ -88,6 +89,7 @@ class _HardwareService:
             "deployment_workflow_v1",
             "deployment_motion_control_v1",
             "ros2_diagnostics_v1",
+            "managed_ros2_services_v1",
         ]
         self.ros2_diagnostics_payload = {
             "ok": True,
@@ -191,6 +193,62 @@ class _HardwareService:
             })
         if path == "/diagnostics/ros2":
             return _JsonResponse(self.ros2_diagnostics_payload)
+        if path.startswith("/services/"):
+            parts = path.strip("/").split("/")
+            service_id = parts[1]
+            action = parts[2] if len(parts) > 2 else ""
+            service = self.runtime_services.get(service_id)
+            if request.method == "GET" and not action:
+                if service is None:
+                    raise urllib.error.HTTPError(
+                        request.full_url, 404, "Not found", {}, None
+                    )
+                return _JsonResponse(service)
+            if action == "start":
+                service = {
+                    "id": service_id,
+                    "name": body.get("name") or service_id,
+                    "state": "running",
+                    "command": body["command"],
+                    "interfaces": body.get("interfaces") or [],
+                    "pid": 5678,
+                    "error": "",
+                    "diagnostics": {
+                        "ok": True,
+                        "checked_at": "2026-07-27T00:00:00+00:00",
+                        "missing": [],
+                        "interfaces": [
+                            {
+                                **item,
+                                "ready": True,
+                                "publishers": 1,
+                            }
+                            for item in (body.get("interfaces") or [])
+                        ],
+                    },
+                }
+                self.runtime_services[service_id] = service
+                return _JsonResponse(service)
+            if action == "stop":
+                if service is None:
+                    raise urllib.error.HTTPError(
+                        request.full_url, 404, "Not found", {}, None
+                    )
+                service.update(
+                    state="stopped",
+                    pid=None,
+                    diagnostics={
+                        "ok": False,
+                        "missing": [
+                            item["topic"]
+                            for item in service.get("interfaces") or []
+                            if item.get("required", True)
+                        ],
+                        "interfaces": [],
+                    },
+                )
+                return _JsonResponse(service)
+            raise AssertionError(f"Unexpected fake service action: {action}")
         if path == "/deployments":
             if request.method == "GET":
                 return _JsonResponse({
@@ -3106,8 +3164,74 @@ class EditorDeviceApiTests(unittest.TestCase):
                 },
             )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("sensor_msgs/msg/image", response.json()["detail"].lower())
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(
+                "sensor_msgs/msg/image",
+                response.json()["detail"].lower(),
+            )
+
+    def test_managed_rosorin_rgbd_attachment_starts_outside_deployments(self):
+        hardware = _HardwareService()
+        payload = {
+            "attachment_id": "front_rgbd",
+            "display_name": "Front RGB-D",
+            "attachment_type": "depth_camera",
+            "capability": "depth_camera",
+            "provider_package": "blacknode-perception",
+            "provider_component": "depth",
+            "provider_adapter": "ros2",
+            "provider_profile": "rosorin_depth",
+            "topic": "/depth_cam/rgb0/image_raw",
+            "message_type": "sensor_msgs/msg/Image",
+            "camera_info_topic": "/depth_cam/rgb0/camera_info",
+            "depth_topic": "/depth_cam/depth0/image_raw",
+            "point_cloud_topic": "/depth_cam/depth0/points",
+            "parent_frame": "base_link",
+            "frame_id": "depth_camera_link",
+            "required": True,
+            "enabled": True,
+        }
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            paired = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]
+            created = self.client.post(
+                f"/devices/{paired['id']}/attachments",
+                json=payload,
+            )
+            started = self.client.post(
+                f"/devices/{paired['id']}/attachments/front_rgbd/start",
+            )
+            checked = self.client.post(
+                f"/devices/{paired['id']}/attachments/front_rgbd/check",
+            )
+            stopped = self.client.post(
+                f"/devices/{paired['id']}/attachments/front_rgbd/stop",
+            )
+
+        attachment = created.json()["attachment"]
+        self.assertEqual(len(attachment["interfaces"]), 4)
+        self.assertEqual(
+            attachment["interfaces"][2]["topic"],
+            "/depth_cam/depth0/image_raw",
+        )
+        self.assertTrue(attachment["interfaces"][2]["required"])
+        service = started.json()["service"]
+        self.assertEqual(
+            service["command"],
+            {
+                "verb": "launch",
+                "package": "peripherals",
+                "target": "depth_camera.launch.py",
+                "arguments": [],
+            },
+        )
+        self.assertEqual(started.json()["check"]["status"], "streaming")
+        self.assertEqual(checked.json()["check"]["service_state"], "running")
+        self.assertEqual(stopped.json()["service"]["state"], "stopped")
+        self.assertEqual(hardware.runtime_deployments, {})
 
     def test_device_status_keeps_last_verified_hardware_version(self):
         hardware = _HardwareService(status_overrides={

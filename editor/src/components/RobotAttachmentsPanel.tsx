@@ -4,6 +4,7 @@ import {
   type HardwareDevice,
   type RobotAttachment,
   type RobotAttachmentInput,
+  type RobotAttachmentProviderProfile,
   type RobotAttachmentType,
 } from '../api'
 import './RobotAttachmentsPanel.css'
@@ -16,11 +17,20 @@ type AttachmentPreset = Pick<
   | 'provider_package'
   | 'provider_component'
   | 'provider_adapter'
+  | 'provider_profile'
   | 'topic'
   | 'message_type'
   | 'parent_frame'
   | 'frame_id'
->
+> & Partial<Pick<
+  RobotAttachmentInput,
+  | 'camera_info_topic'
+  | 'depth_topic'
+  | 'point_cloud_topic'
+  | 'launch_package'
+  | 'launch_target'
+  | 'launch_arguments'
+>>
 
 const ATTACHMENT_TYPES: Array<{ value: RobotAttachmentType; label: string }> = [
   { value: 'camera', label: 'Camera' },
@@ -32,6 +42,16 @@ const ATTACHMENT_TYPES: Array<{ value: RobotAttachmentType; label: string }> = [
   { value: 'custom', label: 'Custom ROS 2 device' },
 ]
 
+const CAMERA_PROFILES: Array<{
+  value: RobotAttachmentProviderProfile
+  label: string
+}> = [
+  { value: 'usb_cam', label: 'USB camera · Blacknode starts it' },
+  { value: 'rosorin_depth', label: 'ROSOrin RGB-D · Blacknode starts it' },
+  { value: 'existing_topics', label: 'Existing ROS 2 topics' },
+  { value: 'custom_launch', label: 'Custom ROS 2 launch' },
+]
+
 const PRESETS: Record<RobotAttachmentType, AttachmentPreset> = {
   camera: {
     display_name: 'Front camera',
@@ -40,7 +60,9 @@ const PRESETS: Record<RobotAttachmentType, AttachmentPreset> = {
     provider_package: 'blacknode-perception',
     provider_component: 'camera',
     provider_adapter: 'ros2',
+    provider_profile: 'usb_cam',
     topic: '/camera/image_raw',
+    camera_info_topic: '/camera/camera_info',
     message_type: 'sensor_msgs/msg/Image',
     parent_frame: 'base_link',
     frame_id: 'camera_link',
@@ -52,7 +74,11 @@ const PRESETS: Record<RobotAttachmentType, AttachmentPreset> = {
     provider_package: 'blacknode-perception',
     provider_component: 'depth',
     provider_adapter: 'ros2',
-    topic: '/depth_cam/rgb/image_raw',
+    provider_profile: 'rosorin_depth',
+    topic: '/depth_cam/rgb0/image_raw',
+    camera_info_topic: '/depth_cam/rgb0/camera_info',
+    depth_topic: '/depth_cam/depth0/image_raw',
+    point_cloud_topic: '/depth_cam/depth0/points',
     message_type: 'sensor_msgs/msg/Image',
     parent_frame: 'base_link',
     frame_id: 'depth_camera_link',
@@ -64,6 +90,7 @@ const PRESETS: Record<RobotAttachmentType, AttachmentPreset> = {
     provider_package: 'blacknode-perception',
     provider_component: 'lidar',
     provider_adapter: 'ros2',
+    provider_profile: 'existing_topics',
     topic: '/scan',
     message_type: 'sensor_msgs/msg/LaserScan',
     parent_frame: 'base_link',
@@ -76,6 +103,7 @@ const PRESETS: Record<RobotAttachmentType, AttachmentPreset> = {
     provider_package: 'blacknode-perception',
     provider_component: 'imu',
     provider_adapter: 'ros2',
+    provider_profile: 'existing_topics',
     topic: '/imu',
     message_type: 'sensor_msgs/msg/Imu',
     parent_frame: 'base_link',
@@ -88,6 +116,7 @@ const PRESETS: Record<RobotAttachmentType, AttachmentPreset> = {
     provider_package: 'blacknode-perception',
     provider_component: 'localization',
     provider_adapter: 'ros2',
+    provider_profile: 'existing_topics',
     topic: '/fix',
     message_type: 'sensor_msgs/msg/NavSatFix',
     parent_frame: 'base_link',
@@ -100,6 +129,7 @@ const PRESETS: Record<RobotAttachmentType, AttachmentPreset> = {
     provider_package: 'blacknode-perception',
     provider_component: 'audio',
     provider_adapter: 'ros2',
+    provider_profile: 'existing_topics',
     topic: '/audio',
     message_type: 'audio_common_msgs/msg/AudioData',
     parent_frame: 'base_link',
@@ -112,6 +142,7 @@ const PRESETS: Record<RobotAttachmentType, AttachmentPreset> = {
     provider_package: 'blacknode-ros2',
     provider_component: 'topics',
     provider_adapter: 'ros2',
+    provider_profile: 'existing_topics',
     topic: '/sensor/data',
     message_type: 'std_msgs/msg/String',
     parent_frame: 'base_link',
@@ -134,6 +165,12 @@ function emptyDraft(type: RobotAttachmentType = 'camera'): RobotAttachmentInput 
   return {
     ...preset,
     attachment_id: attachmentId(preset.display_name),
+    camera_info_topic: preset.camera_info_topic || '',
+    depth_topic: preset.depth_topic || '',
+    point_cloud_topic: preset.point_cloud_topic || '',
+    launch_package: preset.launch_package || '',
+    launch_target: preset.launch_target || '',
+    launch_arguments: preset.launch_arguments || [],
     x_m: 0,
     y_m: 0,
     z_m: 0,
@@ -152,6 +189,8 @@ function attachmentInterface(attachment: RobotAttachment) {
 
 function editDraft(attachment: RobotAttachment): RobotAttachmentInput {
   const topic = attachmentInterface(attachment)
+  const topicForRole = (role: 'camera_info' | 'depth' | 'points') =>
+    attachment.interfaces.find(item => item.role === role)?.topic || ''
   const translation = attachment.mount.translation_m ?? [0, 0, 0]
   const rotation = attachment.mount.rotation_rpy_rad ?? [0, 0, 0]
   return {
@@ -162,8 +201,17 @@ function editDraft(attachment: RobotAttachment): RobotAttachmentInput {
     provider_package: attachment.provider.package,
     provider_component: attachment.provider.component,
     provider_adapter: attachment.provider.adapter || 'ros2',
+    provider_profile: attachment.service?.profile
+      || attachment.provider.profile
+      || 'existing_topics',
     topic: topic?.topic || '',
     message_type: topic?.message_type || '',
+    camera_info_topic: topicForRole('camera_info'),
+    depth_topic: topicForRole('depth'),
+    point_cloud_topic: topicForRole('points'),
+    launch_package: attachment.service?.launch_package || '',
+    launch_target: attachment.service?.launch_target || '',
+    launch_arguments: attachment.service?.launch_arguments || [],
     parent_frame: attachment.parent_frame,
     frame_id: attachment.frame_id,
     x_m: Number(translation[0] || 0),
@@ -272,6 +320,32 @@ export function RobotAttachmentsPanel({
     }
   }
 
+  const start = async (attachment: RobotAttachment) => {
+    setBusyId(attachment.id)
+    setError('')
+    try {
+      const result = await api.startRobotAttachment(robot.id, attachment.id)
+      onRobotUpdated(result.device)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusyId('')
+    }
+  }
+
+  const stop = async (attachment: RobotAttachment) => {
+    setBusyId(attachment.id)
+    setError('')
+    try {
+      const result = await api.stopRobotAttachment(robot.id, attachment.id)
+      onRobotUpdated(result.device)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusyId('')
+    }
+  }
+
   return (
     <section className="bn-robot-attachments" aria-label={`Attachments for ${robot.name}`}>
       <header className="bn-robot-attachments-head">
@@ -279,8 +353,8 @@ export function RobotAttachmentsPanel({
           <strong>Attachments</strong>
           <span>
             Cameras and sensors mounted on this robot. Each attachment keeps its
-            ROS topic, frame, provider, and physical mounting transform. Register
-            the stream here after its ROS 2 driver is running.
+            ROS topics, frame, provider, and physical mounting transform. Blacknode
+            can start managed camera providers independently from motion workflows.
           </span>
         </div>
         {!draft && (
@@ -311,6 +385,9 @@ export function RobotAttachmentsPanel({
           {attachments.map(attachment => {
             const topic = attachmentInterface(attachment)
             const status = attachmentStatus(attachment)
+            const profile = attachment.service?.profile
+              || attachment.provider.profile
+              || 'existing_topics'
             return (
               <article className="bn-robot-attachment-card" key={attachment.id}>
                 <div className="bn-robot-attachment-card-head">
@@ -330,7 +407,7 @@ export function RobotAttachmentsPanel({
                 </div>
                 <dl className="bn-robot-attachment-facts">
                   <div>
-                    <dt>ROS topic</dt>
+                    <dt>Primary ROS topic</dt>
                     <dd>{topic?.topic || 'Not configured'}</dd>
                   </div>
                   <div>
@@ -348,16 +425,41 @@ export function RobotAttachmentsPanel({
                       {attachment.provider.adapter ? `@${attachment.provider.adapter}` : ''}
                     </dd>
                   </div>
+                  <div>
+                    <dt>Lifecycle</dt>
+                    <dd>{profile}</dd>
+                  </div>
                 </dl>
                 <p className="bn-robot-attachment-message">{status.message}</p>
                 <div className="bn-robot-attachment-actions">
+                  {profile !== 'existing_topics' && (
+                    attachment.last_check?.service_state === 'running' ? (
+                      <button
+                        type="button"
+                        className="bn-device-action-button"
+                        disabled={Boolean(busyId)}
+                        onClick={() => void stop(attachment)}
+                      >
+                        {busyId === attachment.id ? 'Stopping…' : 'Stop camera'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="bn-device-action-button is-primary"
+                        disabled={Boolean(busyId) || attachment.enabled === false}
+                        onClick={() => void start(attachment)}
+                      >
+                        {busyId === attachment.id ? 'Starting…' : 'Start camera'}
+                      </button>
+                    )
+                  )}
                   <button
                     type="button"
-                    className="bn-device-action-button is-primary"
+                    className="bn-device-action-button"
                     disabled={Boolean(busyId)}
                     onClick={() => void check(attachment)}
                   >
-                    {busyId === attachment.id ? 'Checking…' : 'Check ROS'}
+                    {busyId === attachment.id ? 'Working…' : 'Check ROS'}
                   </button>
                   <button
                     type="button"
@@ -388,8 +490,8 @@ export function RobotAttachmentsPanel({
             <div>
               <strong>{editingId ? 'Edit attachment' : 'Add attachment'}</strong>
               <span>
-                Associate an existing ROS 2 stream with this robot, then use Check
-                ROS to verify its publisher.
+                Choose who starts the provider, declare its streams, then verify
+                live publishers from the same panel.
               </span>
             </div>
             <button
@@ -463,6 +565,29 @@ export function RobotAttachmentsPanel({
               />
             </label>
             <label className="is-wide">
+              <span>Provider lifecycle</span>
+              <select
+                value={draft.provider_profile}
+                onChange={event => {
+                  const providerProfile = event.target.value as RobotAttachmentProviderProfile
+                  setDraft(current => current && ({
+                    ...current,
+                    provider_profile: providerProfile,
+                    ...(providerProfile === 'rosorin_depth' ? {
+                      topic: '/depth_cam/rgb0/image_raw',
+                      camera_info_topic: '/depth_cam/rgb0/camera_info',
+                      depth_topic: '/depth_cam/depth0/image_raw',
+                      point_cloud_topic: '/depth_cam/depth0/points',
+                    } : {}),
+                  }))
+                }}
+              >
+                {CAMERA_PROFILES.map(profile => (
+                  <option value={profile.value} key={profile.value}>{profile.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="is-wide">
               <span>ROS 2 topic</span>
               <input
                 value={draft.topic}
@@ -474,6 +599,81 @@ export function RobotAttachmentsPanel({
                 required
               />
             </label>
+            {(draft.attachment_type === 'camera' || draft.attachment_type === 'depth_camera') && (
+              <>
+                <label className="is-wide">
+                  <span>Camera info topic · optional</span>
+                  <input
+                    value={draft.camera_info_topic}
+                    placeholder="/camera/camera_info"
+                    onChange={event => setDraft(current => current && ({
+                      ...current,
+                      camera_info_topic: event.target.value,
+                    }))}
+                  />
+                </label>
+                <label className="is-wide">
+                  <span>Depth image topic · required for depth camera</span>
+                  <input
+                    value={draft.depth_topic}
+                    placeholder="/depth_cam/depth0/image_raw"
+                    onChange={event => setDraft(current => current && ({
+                      ...current,
+                      depth_topic: event.target.value,
+                    }))}
+                    required={draft.attachment_type === 'depth_camera'}
+                  />
+                </label>
+                <label className="is-wide">
+                  <span>Point cloud topic · optional</span>
+                  <input
+                    value={draft.point_cloud_topic}
+                    placeholder="/depth_cam/depth0/points"
+                    onChange={event => setDraft(current => current && ({
+                      ...current,
+                      point_cloud_topic: event.target.value,
+                    }))}
+                  />
+                </label>
+              </>
+            )}
+            {draft.provider_profile === 'custom_launch' && (
+              <>
+                <label>
+                  <span>ROS 2 launch package</span>
+                  <input
+                    value={draft.launch_package}
+                    onChange={event => setDraft(current => current && ({
+                      ...current,
+                      launch_package: event.target.value,
+                    }))}
+                    required
+                  />
+                </label>
+                <label>
+                  <span>Launch file</span>
+                  <input
+                    value={draft.launch_target}
+                    placeholder="camera.launch.py"
+                    onChange={event => setDraft(current => current && ({
+                      ...current,
+                      launch_target: event.target.value,
+                    }))}
+                    required
+                  />
+                </label>
+                <label className="is-wide">
+                  <span>Launch arguments · one per line</span>
+                  <textarea
+                    value={draft.launch_arguments.join('\n')}
+                    onChange={event => setDraft(current => current && ({
+                      ...current,
+                      launch_arguments: event.target.value.split('\n'),
+                    }))}
+                  />
+                </label>
+              </>
+            )}
             <label className="is-wide">
               <span>ROS 2 message type</span>
               <input
