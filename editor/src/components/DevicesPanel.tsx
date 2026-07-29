@@ -470,7 +470,15 @@ function diagnoseDeviceMotion(
   return issues
 }
 
-export default function DevicesPanel() {
+interface DevicesPanelProps {
+  initialDeviceId?: string
+  onInitialDeviceRestored?: () => void
+}
+
+export default function DevicesPanel({
+  initialDeviceId = '',
+  onInitialDeviceRestored,
+}: DevicesPanelProps) {
   const isUiTest = document.documentElement.dataset.uiTest === 'refined'
   const activeProject = useStore(state => state.activeProject)
   const setActiveProject = useStore(state => state.setActiveProject)
@@ -483,7 +491,9 @@ export default function DevicesPanel() {
     Record<string, DeviceCheckIssue[]>
   >({})
   const [knownHardwareVersions, setKnownHardwareVersions] = useState<Record<string, string>>({})
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(
+    initialDeviceId || null,
+  )
   const [showDeviceForm, setShowDeviceForm] = useState(false)
   const [setupMode, setSetupMode] = useState<'local' | 'automatic' | 'manual'>('local')
   const [deviceName, setDeviceName] = useState('Local computer')
@@ -1073,6 +1083,10 @@ export default function DevicesPanel() {
 
   useEffect(() => {
     void refresh()
+  }, [])
+
+  useEffect(() => {
+    if (initialDeviceId) onInitialDeviceRestored?.()
   }, [])
 
   useEffect(() => {
@@ -4769,7 +4783,13 @@ export default function DevicesPanel() {
                 onRemove={() => removeRobot(robot)}
                 onDeploy={() => window.dispatchEvent(new CustomEvent(
                   'blacknode:open-panel',
-                  { detail: { tab: 'deployments', deviceId: robot.id } },
+                  {
+                    detail: {
+                      tab: 'deployments',
+                      deviceId: robot.id,
+                      returnDeviceId: selectedDevice.id,
+                    },
+                  },
                 ))}
                 onStopDeployment={deploymentId => stopDeployment(robot, deploymentId)}
                 onStartDeployment={(deploymentId, deploymentName) => (
