@@ -99,13 +99,13 @@ const REMOTE_STATE_LABEL: Record<RemoteDeploymentState, string> = {
 interface DeploymentsPanelProps {
   onOpenTemplates: (query: string) => void
   targetDeviceId?: string
-  onBackToDevices?: () => void
+  onBack?: () => void
 }
 
 export default function DeploymentsPanel({
   onOpenTemplates,
   targetDeviceId = '',
-  onBackToDevices,
+  onBack,
 }: DeploymentsPanelProps) {
   const [deployments, setDeployments] = useState<Deployment[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -791,10 +791,10 @@ export default function DeploymentsPanel({
     <div className="bn-runs-panel bn-deploy-panel">
       {isRobotContext ? (
         <div className="bn-deploy-nav">
-          {onBackToDevices && (
-            <button type="button" className="bn-deploy-nav-button" onClick={onBackToDevices}>
+          {onBack && (
+            <button type="button" className="bn-deploy-nav-button" onClick={onBack}>
               <span aria-hidden="true">←</span>
-              <span>All devices</span>
+              <span>Back</span>
             </button>
           )}
           <button
@@ -814,6 +814,7 @@ export default function DeploymentsPanel({
             <div className="bn-runs-subtitle">Choose a robot for the current workflow</div>
           </div>
           <div className="bn-runs-actions">
+            {onBack && <button onClick={onBack} style={miniButton}>← Back</button>}
             <button onClick={refresh} style={miniButton}>Refresh</button>
             <button onClick={() => handleDeploy(false)} disabled={busy} style={miniButton} title="Save the runnable script on this computer without running it">Save local</button>
             <button onClick={() => handleDeploy(true)} disabled={busy} style={primaryButton} title="Stop the live graph, then run it on this computer">Run local</button>
