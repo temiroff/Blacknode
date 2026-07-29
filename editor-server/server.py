@@ -6731,7 +6731,15 @@ def _workflow_target_package_specs(
             for component, adapter in sorted(adapters)
             if component and adapter
         ]
-    return [specs[name] for name in sorted(specs)]
+    ordered_specs = [specs[name] for name in sorted(specs)]
+    for spec in ordered_specs:
+        if spec.get("git_url"):
+            # Package versions describe API compatibility, so multiple
+            # revisions can legitimately share one version. Deployments must
+            # still refresh Git-backed packages or a device may keep running
+            # stale driver/runtime adapter code indefinitely.
+            spec["update"] = True
+    return ordered_specs
 
 
 def _device_deployment_workflow(
