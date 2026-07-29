@@ -7966,16 +7966,11 @@ def _start_replacing_device_deployment(
         for item in (deployment.get("superseded_deployment_ids") or [])
         if str(item)
     )
-    cleanup_warnings: list[str] = []
-    for old_id in sorted(superseded_ids):
-        try:
-            runtime_client.delete_deployment(old_id)
-        except DeviceRegistryError as exc:
-            cleanup_warnings.append(
-                f"Replacement started, but superseded deployment "
-                f"'{old_id}' could not be removed: {exc}"
-            )
-    return deployment, sorted(superseded_ids), cleanup_warnings
+    # Retain stopped deployments and their revisions until the operator uses
+    # the explicit Remove action. Automatic deletion made a deployment appear
+    # to vanish and could erase the recoverable record when multiple robots
+    # share one Runtime.
+    return deployment, sorted(superseded_ids), []
 
 
 def _stage_device_deployment_payload(

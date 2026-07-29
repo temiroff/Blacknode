@@ -385,17 +385,6 @@ export default function DeploymentsPanel({
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
   }, [targetDeviceId])
 
-  useEffect(() => {
-    if (!calibrationMatchedDevice) return
-    setSelectedDeviceId(current => (
-      current === calibrationMatchedDevice.id
-        ? current
-        : calibrationMatchedDevice.id
-    ))
-    setPreflight(null)
-    setRemoteNotice(null)
-  }, [activeTabId, calibrationMatchedDevice?.id, selectedCalibration?.hardware_id])
-
   // Only the open row's log is fetched, and only while it is open, so a long
   // list of deployments does not turn into a log-tail storm every 3s.
   useEffect(() => {
@@ -627,7 +616,7 @@ export default function DeploymentsPanel({
           replacements.some(deployment => deployment.state === 'running')
             ? 'the running workflow'
             : 'any running workflow'
-        }, start "${name}", then remove the superseded deployment records.`,
+        }, start "${name}", and keep the previous deployment stopped for review.`,
       )
     ) return
     setBusy(true)
@@ -655,7 +644,7 @@ export default function DeploymentsPanel({
         start
           ? `"${name}" was sent to ${selectedComputeDevice?.name || 'the compute device'} and started for ${selectedRobot?.name || 'the selected robot'}.${
             (result.superseded_deployments?.length ?? 0) > 0
-              ? ` Replaced ${result.superseded_deployments.length} previous deployment${
+              ? ` Stopped ${result.superseded_deployments.length} previous deployment${
                 result.superseded_deployments.length === 1 ? '' : 's'
               }.`
               : ''
@@ -693,7 +682,7 @@ export default function DeploymentsPanel({
       && !window.confirm(
         `Run "${deployment.name}" and replace ${replacements.length} other deployment${
           replacements.length === 1 ? '' : 's'
-        } for this robot? Superseded deployment records will be removed after the replacement starts.`,
+        } for this robot? The other deployment will remain available in a stopped state.`,
       )
     ) return
     await actRemote(() => api.startRemoteDeployment(
@@ -924,6 +913,15 @@ export default function DeploymentsPanel({
             <strong>Matched to the graph calibration:</strong>
             {' '}
             {calibrationMatchedDevice.name} · {selectedCalibration?.hardware_id}
+          </div>
+        )}
+        {calibrationMatchedDevice && selectedDeviceId !== calibrationMatchedDevice.id && (
+          <div className="bn-robot-step-status is-warning">
+            <strong>Calibration target mismatch:</strong>
+            {' '}
+            The graph calibration belongs to {calibrationMatchedDevice.name}, while this
+            deployment targets {selectedRobot?.name || selectedDeviceId}. Choose a calibration
+            recorded for the selected robot before deployment.
           </div>
         )}
 
