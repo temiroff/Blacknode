@@ -3611,9 +3611,11 @@ export default function DevicesPanel({
                     }
                     detail={selectedDeviceManagedLocally
                       ? `Port ${selectedDevice.managed_runtime.hardware_port || 8765}`
-                      : `${selectedDevice.robots.length} Hardware service${
-                          selectedDevice.robots.length === 1 ? '' : 's'
-                        } on ${runtimeHostname(selectedDevice.runtime_url)}`}
+                      : selectedDevice.robots.length
+                        ? `${selectedDevice.robots.length} Hardware service${
+                            selectedDevice.robots.length === 1 ? '' : 's'
+                          } on ${runtimeHostname(selectedDevice.runtime_url)}`
+                        : 'Robot package installed · no robot service configured yet'}
                     state={selectedHardwarePackageState}
                     currentVersion={hardwareCurrentVersion}
                     latestVersion={hardwareLatestVersion}
@@ -4698,6 +4700,18 @@ export default function DevicesPanel({
                         ? 'Find and attach robots'
                         : 'Install Hardware package'}
                   </button>
+                  {selectedDevice.managed_runtime.hardware_dir
+                    && selectedDevice.robots.length === 0 && (
+                    <button
+                      type="button"
+                      className="bn-device-action-button"
+                      disabled={busy || !robotDiscoveryPassword}
+                      onClick={() => void installDeviceHardware()}
+                      title="Set up the saved Robot Hardware checkout again, or download it when the managed checkout is missing"
+                    >
+                      Repair Hardware package
+                    </button>
+                  )}
                 </div>
               )}
               {selectedDevice.managed_runtime && !selectedDeviceManagedLocally && (
@@ -4944,11 +4958,13 @@ function SoftwarePackageSummaryCard({
   onDelete: () => void
 }) {
   const normalizedState = String(state || 'unchecked').toLowerCase()
-  const running = ['running', 'unreachable', 'awaiting_device', 'configured'].includes(
-    normalizedState,
-  )
+  const running = ['running', 'unreachable'].includes(normalizedState)
   const statusLabel = normalizedState === 'checking'
     ? 'CHECKING'
+    : normalizedState === 'configured'
+      ? 'INSTALLED'
+      : normalizedState === 'awaiting_device'
+        ? 'AWAITING ROBOT'
     : running && normalizedState !== 'unreachable'
       ? 'RUNNING'
       : normalizedState === 'stopped'
@@ -4960,6 +4976,8 @@ function SoftwarePackageSummaryCard({
             : 'NOT CHECKED'
   const statusTone = normalizedState === 'checking'
     ? 'checking'
+    : normalizedState === 'configured' || normalizedState === 'awaiting_device'
+      ? 'configured'
     : running && normalizedState !== 'unreachable'
       ? 'running'
       : normalizedState === 'stopped'

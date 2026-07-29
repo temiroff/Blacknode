@@ -932,17 +932,23 @@ target_private="$target/.blacknode-hardware"
 legacy_private="$legacy/.blacknode-hardware"
 marker="__BLACKNODE_HARDWARE_ADOPTION__="
 
-valid_hardware_checkout() {
+valid_target_checkout() {
+  [[ -d "$1/.git" && -f "$1/pyproject.toml" ]] \
+    && grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*["'"'"']blacknode-robot["'"'"'][[:space:]]*$' \
+      "$1/pyproject.toml"
+}
+
+valid_legacy_checkout() {
   [[ -d "$1/.git" && -f "$1/pyproject.toml" ]] \
     && grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*["'"'"']blacknode-hardware["'"'"'][[:space:]]*$' \
       "$1/pyproject.toml"
 }
 
-valid_hardware_checkout "$target" || {
+valid_target_checkout "$target" || {
   echo "The organized Hardware package is missing or invalid: $target" >&2
   exit 4
 }
-valid_hardware_checkout "$legacy" || {
+valid_legacy_checkout "$legacy" || {
   printf '%s{"adopted":0}\n' "$marker"
   exit 0
 }
@@ -2584,13 +2590,19 @@ request = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
 home = Path.home()
 instance = request["instance_id"]
 organized_runtime = home / "Blacknode" / "devices" / instance / "runtime"
+organized_hardware = home / "Blacknode" / "devices" / instance / "hardware"
 if instance == "default":
     legacy_runtime = home / "blacknode-runtime"
+    legacy_hardware = home / "blacknode-hardware"
     runtime_service = "blacknode-runtime.service"
 else:
     legacy_runtime = home / "blacknode-runtimes" / instance
+    legacy_hardware = home / "blacknode-hardware-instances" / instance
     runtime_service = f"blacknode-runtime-{{instance}}.service"
 runtime_dir = organized_runtime if organized_runtime.is_dir() else legacy_runtime
+hardware_dir = (
+    organized_hardware if organized_hardware.is_dir() else legacy_hardware
+)
 
 def command(args, timeout=30):
     try:
@@ -2751,10 +2763,10 @@ def resolve_hardware(port, expected_device_id):
         raise RuntimeError(f"{{unit}} does not report its repository WorkingDirectory.")
     return unit, Path(directory), resolution_error
 
-def inspect(kind, repository, service, port, directory):
+def inspect(kind, repository, service, port, directory, state_override=""):
     component = {{
         "kind": kind,
-        "service_name": service,
+        "service_name": service or "blacknode-hardware-awaiting-device",
         "port": int(port),
         "installed": {{"version": package_version(directory), "commit": ""}},
         "latest": {{"version": "unknown", "commit": ""}},
@@ -2762,7 +2774,11 @@ def inspect(kind, repository, service, port, directory):
         "can_update": False,
         "migration_required": False,
         "dirty": False,
-        "state": command(["systemctl", "is-active", service]).stdout.strip() or "unknown",
+        "state": (
+            state_override
+            or command(["systemctl", "is-active", service]).stdout.strip()
+            or "unknown"
+        ),
         "error": "",
     }}
     try:
@@ -2889,6 +2905,17 @@ components = [
         runtime_dir,
     )
 ]
+if not request["hardware_targets"] and hardware_dir.is_dir():
+    components.append(
+        inspect(
+            "hardware",
+            "blacknode-robot",
+            "",
+            0,
+            hardware_dir,
+            "configured",
+        )
+    )
 for target in request["hardware_targets"]:
     hardware_port = int(target["port"])
     try:
