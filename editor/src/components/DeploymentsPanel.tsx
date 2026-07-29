@@ -224,6 +224,33 @@ export default function DeploymentsPanel({
     ),
     [devices, selectedCalibration?.hardware_id],
   )
+  const targetCalibrationCandidates = useMemo(
+    () => (
+      selectedRobot
+        ? calibrations.filter(calibration => (
+            deviceForHardwareIdentity(
+              [selectedRobot],
+              calibration.hardware_id,
+            )?.id === selectedRobot.id
+          ))
+        : []
+    ),
+    [calibrations, selectedRobot],
+  )
+  const activeTargetCalibration = targetCalibrationCandidates.find(
+    calibration => (
+      calibration.profile_id === targetStatus?.calibration?.profile_id
+      && calibration.hardware_id === targetStatus?.calibration?.hardware_id
+    ),
+  )
+  const automaticTargetCalibration = (
+    activeTargetCalibration
+    ?? (
+      targetCalibrationCandidates.length === 1
+        ? targetCalibrationCandidates[0]
+        : null
+    )
+  )
 
   const refresh = async () => {
     try {
@@ -323,25 +350,29 @@ export default function DeploymentsPanel({
   useEffect(() => {
     if (
       robotNodes.length !== 1
-      || calibrations.length !== 1
-      || selectedCalibration
+      || !automaticTargetCalibration
+      || (
+        selectedCalibration?.profile_id === automaticTargetCalibration.profile_id
+        && selectedCalibration?.hardware_id === automaticTargetCalibration.hardware_id
+      )
       || requirementsBusy
       || profileBusyId
       || isCalibrationWorkflow
     ) return
-    const calibration = calibrations[0]
     void updateRequirements(inferredCapabilities, {
-      profile_id: calibration.profile_id,
-      hardware_id: calibration.hardware_id,
+      profile_id: automaticTargetCalibration.profile_id,
+      hardware_id: automaticTargetCalibration.hardware_id,
     })
   }, [
-    calibrations,
+    automaticTargetCalibration?.hardware_id,
+    automaticTargetCalibration?.profile_id,
     inferredCapabilities.join('|'),
     isCalibrationWorkflow,
     profileBusyId,
     requirementsBusy,
     robotNodes.length,
-    selectedCalibration,
+    selectedCalibration?.hardware_id,
+    selectedCalibration?.profile_id,
   ])
 
   useEffect(() => {
