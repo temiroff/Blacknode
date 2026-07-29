@@ -5503,6 +5503,27 @@ class EditorDeviceApiTests(unittest.TestCase):
             "/blacknode/leader_follower/joint_publisher/control",
         )
 
+    def test_joint_controller_declares_one_remote_armed_gate(self):
+        workflow = _workflow([])
+        workflow["node_meta"]["controller"] = {
+            "id": "controller",
+            "type": "ROS2JointController",
+            "params": {
+                "run_id": "joint controller",
+                "control_topic": "",
+                "armed": False,
+            },
+        }
+
+        controls = server._workflow_motion_controls(workflow)
+
+        self.assertEqual(len(controls), 1)
+        self.assertEqual(controls[0]["node_id"], "controller")
+        self.assertEqual(
+            controls[0]["topic"],
+            "/blacknode/leader_follower/joint_controller/control",
+        )
+
     def test_remote_leader_follower_export_is_forced_disarmed(self):
         workflow = _workflow([])
         workflow["edges"] = [
@@ -5547,6 +5568,21 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(
             workflow["metadata"]["deployment_motion_default"],
             "disarmed",
+        )
+
+    def test_joint_controller_export_is_forced_disarmed(self):
+        workflow = _workflow([])
+        workflow["node_meta"]["controller"] = {
+            "id": "controller",
+            "type": "ROS2JointController",
+            "params": {"armed": True},
+        }
+
+        controlled = server._disarm_workflow_motion_controls(workflow)
+
+        self.assertEqual(controlled, ["controller"])
+        self.assertFalse(
+            workflow["node_meta"]["controller"]["params"]["armed"]
         )
 
     def test_send_and_run_replaces_and_removes_older_target_deployments(self):
@@ -5616,6 +5652,16 @@ class EditorDeviceApiTests(unittest.TestCase):
         }
         self.assertTrue(
             server._workflow_requires_deployment_telemetry(robot_node_workflow)
+        )
+
+        controller_workflow = _workflow([])
+        controller_workflow["node_meta"]["controller"] = {
+            "id": "controller",
+            "type": "ROS2JointController",
+            "params": {},
+        }
+        self.assertTrue(
+            server._workflow_requires_deployment_telemetry(controller_workflow)
         )
 
     def test_project_owned_deployment_requires_linked_workflow_and_device(self):
