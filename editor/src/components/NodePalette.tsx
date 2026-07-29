@@ -159,7 +159,7 @@ export default function NodePalette() {
     loadNodeTypes,
     learnedNodeHighlight,
   } = useStore()
-  const [activeTab, setActiveTab] = useState<Tab | null>('templates')
+  const [activeTab, setActiveTab] = useState<Tab | null>('nodes')
   const [showPackageWelcome, setShowPackageWelcome] = useState(false)
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const [deploymentTargetId, setDeploymentTargetId] = useState('')
