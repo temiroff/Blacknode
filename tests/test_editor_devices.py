@@ -5573,7 +5573,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             workflow["node_meta"]["controller"]["params"]["armed"]
         )
 
-    def test_send_and_run_replaces_and_removes_older_target_deployments(self):
+    def test_send_and_run_stops_but_retains_older_target_deployments(self):
         hardware = _HardwareService()
         workflow = _workflow([])
         with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
@@ -5606,12 +5606,15 @@ class EditorDeviceApiTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["superseded_deployments"], ["follower-old"])
         self.assertEqual(payload["cleanup_warnings"], [])
-        self.assertNotIn("follower-old", hardware.runtime_deployments)
+        self.assertEqual(
+            hardware.runtime_deployments["follower-old"]["state"],
+            "stopped",
+        )
         self.assertEqual(payload["deployment"]["state"], "running")
         replacement_id = payload["deployment"]["id"]
         self.assertEqual(
             set(hardware.runtime_deployments),
-            {replacement_id},
+            {"follower-old", replacement_id},
         )
         deployment_requests = [
             (method, path)
@@ -5622,7 +5625,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             ("POST", "/deployments/follower-old/stop"),
             deployment_requests,
         )
-        self.assertIn(
+        self.assertNotIn(
             ("DELETE", "/deployments/follower-old"),
             deployment_requests,
         )
