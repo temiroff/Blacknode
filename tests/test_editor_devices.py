@@ -811,6 +811,10 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertNotIn("ssh-password", uploaded[0])
         self.assertIn('target="$HOME/Blacknode/devices/default/hardware"', uploaded[0])
         self.assertIn('legacy="$HOME/blacknode-hardware"', uploaded[0])
+        self.assertIn("valid_target_checkout", uploaded[0])
+        self.assertIn("valid_legacy_checkout", uploaded[0])
+        self.assertIn("blacknode-robot", uploaded[0])
+        self.assertIn("blacknode-hardware", uploaded[0])
         self.assertIn('cp -a -- "$legacy_private" "$temporary_private"', uploaded[0])
         self.assertIn(
             'BLACKNODE_HARDWARE_INSTANCE="" bash ./install-service.sh --all',
@@ -1251,6 +1255,11 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn("temiroff/blacknode-hardware", commands[0])
         self.assertIn('"migration_required": False', commands[0])
         self.assertIn("Migration required:", commands[0])
+        self.assertIn(
+            'if not request["hardware_targets"] and hardware_dir.is_dir():',
+            commands[0],
+        )
+        self.assertIn('"configured"', commands[0])
         self.assertIn("raw.githubusercontent.com", commands[0])
         self.assertIn('"status", "--porcelain"', commands[0])
         self.assertNotIn('"fetch"', commands[0])

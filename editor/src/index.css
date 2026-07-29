@@ -1369,6 +1369,10 @@ html[data-theme="light"] .bn-logo-image-light {
   color: var(--ok);
 }
 
+.bn-local-package-state.is-configured {
+  color: var(--accent);
+}
+
 .bn-local-package-state.is-stopped,
 .bn-local-package-state.is-missing {
   color: var(--tx3);
