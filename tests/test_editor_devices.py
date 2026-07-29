@@ -5115,6 +5115,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             "name": "blacknode-new-camera",
             "git_url": "https://github.com/example/blacknode-new-camera.git",
             "version": "1.4.0",
+            "update": True,
             "components": ["capture"],
             "adapters": [{"component": "capture", "adapter": "ros2"}],
         }])
