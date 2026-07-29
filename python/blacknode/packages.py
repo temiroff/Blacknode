@@ -35,7 +35,11 @@ from typing import Any, Callable, Mapping
 
 from ._version import __version__ as _CORE_VERSION
 from .node import _NODE_REGISTRY
-from .package_index import indexed_package
+from .package_index import (
+    indexed_package,
+    template_adapter_requirements,
+    template_component_requirements,
+)
 
 MANIFEST_NAME = "blacknode-package.toml"
 ENTRY_POINT_GROUP = "blacknode.packages"
@@ -545,7 +549,11 @@ def _audit_enabled_component_dependencies(infos: list[PackageInfo]) -> None:
         )
 
 
-def load_package(pkg_dir: str | Path) -> PackageInfo:
+def load_package(
+    pkg_dir: str | Path,
+    *,
+    component_overrides: Mapping[str, bool] | None = None,
+) -> PackageInfo:
     pkg_path = Path(pkg_dir).expanduser().resolve()
     info = PackageInfo(name=pkg_path.name, path=str(pkg_path))
     try:
@@ -577,6 +585,12 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
         overrides, state_warning = _read_component_overrides(pkg_path, info.name)
         if state_warning:
             info.warnings.append(state_warning)
+        if component_overrides:
+            overrides.update({
+                str(name): enabled
+                for name, enabled in component_overrides.items()
+                if isinstance(enabled, bool)
+            })
     for component_name, component in info.components.items():
         component["enabled"] = (
             _component_override_value(
@@ -747,6 +761,48 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
     _check_indexed_nodes(info)
     _PACKAGE_REGISTRY[info.name] = info
     return info
+
+
+def load_workflow_requirements(workflow: Mapping[str, Any]) -> dict[str, Any]:
+    """Activate explicitly required workflow components for this process.
+
+    Workflow validation and execution need the node schemas owned by optional
+    components. These overrides affect only the in-memory package load and do
+    not modify the operator's persisted component selections.
+    """
+    overrides_by_package: dict[str, dict[str, bool]] = {}
+    for requirement in template_component_requirements(workflow):
+        package = requirement["package"]
+        component = requirement["component"]
+        overrides_by_package.setdefault(package, {})[component] = True
+    for requirement in template_adapter_requirements(workflow):
+        package = requirement["package"]
+        component = requirement["component"]
+        adapter = requirement["adapter"]
+        package_overrides = overrides_by_package.setdefault(package, {})
+        package_overrides[component] = True
+        package_overrides[_adapter_state_key(component, adapter)] = True
+
+    loaded: list[dict[str, Any]] = []
+    unavailable: list[dict[str, str]] = []
+    for package, overrides in overrides_by_package.items():
+        info = _PACKAGE_REGISTRY.get(package)
+        if info is None or info.source != "folder" or not info.path:
+            unavailable.append({
+                "package": package,
+                "reason": "package is not installed as a folder package",
+            })
+            continue
+        updated = load_package(info.path, component_overrides=overrides)
+        if updated.ok:
+            loaded.append(updated.to_dict())
+        else:
+            unavailable.append({
+                "package": package,
+                "reason": updated.error.strip() or "package could not be loaded",
+            })
+
+    return {"loaded": loaded, "unavailable": unavailable}
 
 
 def component_dependency_plan(package_name: str, component_name: str) -> dict[str, Any]:
@@ -2259,6 +2315,7 @@ __all__ = [
     "package_git_status",
     "package_statuses",
     "load_package",
+    "load_workflow_requirements",
     "package_category_colors",
     "package_template_dirs",
     "packages_root",

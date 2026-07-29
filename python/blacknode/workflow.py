@@ -175,6 +175,9 @@ def validate_graph(
 
 
 def validate_workflow(data: Mapping[str, Any]) -> ValidationReport:
+    from .packages import load_workflow_requirements
+
+    load_workflow_requirements(data)
     errors: list[ValidationIssue] = []
     warnings: list[ValidationIssue] = []
 

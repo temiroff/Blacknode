@@ -20,6 +20,7 @@ from blacknode.packages import (
     install_from_git,
     install_prerequisites,
     load_package,
+    load_workflow_requirements,
     package_template_dirs,
     remove_package,
     reset_component,
@@ -28,6 +29,7 @@ from blacknode.packages import (
     validate_package_catalog,
     write_package_lock,
 )
+from blacknode.workflow import validate_workflow
 
 
 def _write_package(
@@ -104,6 +106,56 @@ def test_folder_package_exposes_layer_and_component_catalog(tmp_path):
     assert component["node_paths"] == []
     assert info.component_mode is False
     assert "_PkgDriverLayer" in info.node_types
+
+
+def test_workflow_requirement_transiently_enables_optional_component(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-workflow-required",
+        node_name="_PkgWorkflowRequiredRoot",
+        package_metadata="component-mode = true",
+        component_metadata='''
+        [components.optional]
+        default = false
+        nodes = ["components/optional/nodes"]
+        ''',
+    )
+    _write_component_node(pkg, "optional", "_PkgWorkflowRequired")
+    info = load_package(pkg)
+    assert info.ok
+    assert info.enabled_components == []
+    assert "_PkgWorkflowRequired" not in _NODE_REGISTRY
+
+    workflow = {
+        "kind": "blacknode.workflow",
+        "schema_version": 1,
+        "name": "Required optional component",
+        "entrypoint": {"node_id": "probe", "port": "out"},
+        "metadata": {
+            "required_packages": ["bn-workflow-required"],
+            "required_components": ["bn-workflow-required/optional"],
+        },
+        "node_meta": {
+            "probe": {
+                "id": "probe",
+                "type": "_PkgWorkflowRequired",
+                "params": {"text": "hello"},
+                "pos": [0, 0],
+                "inputs": ["text"],
+                "outputs": ["out"],
+                "input_types": {"text": "Text"},
+                "output_types": {"out": "Text"},
+                "input_defaults": {},
+            },
+        },
+        "edges": [],
+    }
+
+    requirement_report = load_workflow_requirements(workflow)
+    assert not requirement_report["unavailable"]
+    assert "_PkgWorkflowRequired" in _NODE_REGISTRY
+    assert validate_workflow(workflow).ok
+    assert not (tmp_path / ".blacknode-components.json").exists()
 
 
 def _write_component_node(pkg, component, node_name):
