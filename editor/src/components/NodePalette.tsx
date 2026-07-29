@@ -164,6 +164,7 @@ export default function NodePalette() {
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const [deploymentTargetId, setDeploymentTargetId] = useState('')
   const [deploymentReturnTab, setDeploymentReturnTab] = useState<Tab>('devices')
+  const [deploymentReturnDeviceId, setDeploymentReturnDeviceId] = useState('')
   const [templateSearch, setTemplateSearch] = useState('')
   const [templateOpenInNewTab, setTemplateOpenInNewTab] = useState(false)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
@@ -221,11 +222,16 @@ export default function NodePalette() {
 
   useEffect(() => {
     const handleOpenPanel = (event: Event) => {
-      const detail = (event as CustomEvent<{ tab?: Tab; deviceId?: string }>).detail
+      const detail = (event as CustomEvent<{
+        tab?: Tab
+        deviceId?: string
+        returnDeviceId?: string
+      }>).detail
       const tab = detail?.tab
       if (!tab || (tab !== 'deployments' && !TABS.some(item => item.id === tab))) return
       if (tab === 'deployments') {
         setDeploymentTargetId(String(detail?.deviceId || ''))
+        setDeploymentReturnDeviceId(String(detail?.returnDeviceId || ''))
       }
       openPanel(tab)
     }
@@ -797,7 +803,12 @@ export default function NodePalette() {
               />
             )}
 
-            {activeTab === 'devices' && <DevicesPanel />}
+            {activeTab === 'devices' && (
+              <DevicesPanel
+                initialDeviceId={deploymentReturnDeviceId}
+                onInitialDeviceRestored={() => setDeploymentReturnDeviceId('')}
+              />
+            )}
 
             {/* ── RUNTIME ── */}
             {activeTab === 'runtime' && <RuntimePanel />}
