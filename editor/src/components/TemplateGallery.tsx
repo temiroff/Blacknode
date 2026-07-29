@@ -43,7 +43,6 @@ export default function TemplateGallery({
   const [error, setError] = useState<string | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const [query, setQuery] = useState(initialQuery)
-  const isUiTest = document.documentElement.dataset.uiTest === 'refined'
 
   useEffect(() => {
     setQuery(initialQuery)
@@ -77,13 +76,6 @@ export default function TemplateGallery({
       }))
       .filter(group => group.templates.length > 0)
   }, [query, templateGroups])
-
-  useEffect(() => {
-    if (!isUiTest || templateGroups.length === 0) return
-    setExpandedGroups(current => (
-      current.size > 0 ? current : new Set([templateGroups[0].name])
-    ))
-  }, [isUiTest, templateGroups])
 
   const toggleGroup = (name: string) => {
     setExpandedGroups(current => {
