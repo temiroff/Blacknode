@@ -175,9 +175,13 @@ def validate_graph(
 
 
 def validate_workflow(data: Mapping[str, Any]) -> ValidationReport:
-    from .packages import load_workflow_requirements
+    from .packages import workflow_requirement_scope
 
-    load_workflow_requirements(data)
+    with workflow_requirement_scope(data):
+        return _validate_workflow_loaded(data)
+
+
+def _validate_workflow_loaded(data: Mapping[str, Any]) -> ValidationReport:
     errors: list[ValidationIssue] = []
     warnings: list[ValidationIssue] = []
 
@@ -223,7 +227,9 @@ def load_workflow(path: str | Path) -> dict[str, Any]:
 
 def graph_from_workflow(data: Mapping[str, Any]):
     from .graph import Graph
+    from .packages import load_workflow_requirements
 
+    load_workflow_requirements(data)
     graph = Graph()
     node_meta = data.get("node_meta") or {}
     edges = data.get("edges") or []

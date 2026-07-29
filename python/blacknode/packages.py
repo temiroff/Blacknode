@@ -29,9 +29,10 @@ import sys
 import tomllib
 import traceback
 import types
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from ._version import __version__ as _CORE_VERSION
 from .node import _NODE_REGISTRY
@@ -785,7 +786,7 @@ def load_workflow_requirements(workflow: Mapping[str, Any]) -> dict[str, Any]:
 
     loaded: list[dict[str, Any]] = []
     unavailable: list[dict[str, str]] = []
-    for package, overrides in overrides_by_package.items():
+    for package, required_overrides in overrides_by_package.items():
         info = _PACKAGE_REGISTRY.get(package)
         if info is None or info.source != "folder" or not info.path:
             unavailable.append({
@@ -793,6 +794,27 @@ def load_workflow_requirements(workflow: Mapping[str, Any]) -> dict[str, Any]:
                 "reason": "package is not installed as a folder package",
             })
             continue
+        requirements_satisfied = all(
+            (
+                f"{state_key.partition('@')[0]}/{state_key.partition('@')[2]}"
+                in info.enabled_adapters
+            )
+            if "@" in state_key
+            else state_key in info.enabled_components
+            for state_key in required_overrides
+        )
+        if requirements_satisfied:
+            loaded.append(info.to_dict())
+            continue
+        overrides = {
+            component: True
+            for component in info.enabled_components
+        }
+        for adapter_ref in info.enabled_adapters:
+            component, separator, adapter = adapter_ref.partition("/")
+            if separator:
+                overrides[_adapter_state_key(component, adapter)] = True
+        overrides.update(required_overrides)
         updated = load_package(info.path, component_overrides=overrides)
         if updated.ok:
             loaded.append(updated.to_dict())
@@ -803,6 +825,70 @@ def load_workflow_requirements(workflow: Mapping[str, Any]) -> dict[str, Any]:
             })
 
     return {"loaded": loaded, "unavailable": unavailable}
+
+
+@contextmanager
+def workflow_requirement_scope(
+    workflow: Mapping[str, Any],
+) -> Iterator[dict[str, Any]]:
+    """Temporarily load workflow requirements and restore package state."""
+    package_names = {
+        requirement["package"]
+        for requirement in (
+            *template_component_requirements(workflow),
+            *template_adapter_requirements(workflow),
+        )
+    }
+    if not package_names:
+        yield {"loaded": [], "unavailable": []}
+        return
+
+    node_snapshot = dict(_NODE_REGISTRY)
+    package_snapshot = {
+        package: _PACKAGE_REGISTRY.get(package)
+        for package in package_names
+    }
+    module_prefixes = tuple(
+        f"{_PKG_MODULE_ROOT}.{_safe_module_name(package)}"
+        for package in package_names
+    )
+    module_snapshot = {
+        name: module
+        for name, module in sys.modules.items()
+        if any(name == prefix or name.startswith(prefix + ".") for prefix in module_prefixes)
+    }
+    root = sys.modules.get(_PKG_MODULE_ROOT)
+    root_attributes = {
+        package: getattr(root, _safe_module_name(package), None) if root else None
+        for package in package_names
+    }
+
+    try:
+        yield load_workflow_requirements(workflow)
+    finally:
+        _NODE_REGISTRY.clear()
+        _NODE_REGISTRY.update(node_snapshot)
+        for package, previous in package_snapshot.items():
+            if previous is None:
+                _PACKAGE_REGISTRY.pop(package, None)
+            else:
+                _PACKAGE_REGISTRY[package] = previous
+        for name in [
+            name
+            for name in sys.modules
+            if any(name == prefix or name.startswith(prefix + ".") for prefix in module_prefixes)
+        ]:
+            del sys.modules[name]
+        sys.modules.update(module_snapshot)
+        root = sys.modules.get(_PKG_MODULE_ROOT)
+        if root is not None:
+            for package, previous in root_attributes.items():
+                attribute = _safe_module_name(package)
+                if previous is None:
+                    if hasattr(root, attribute):
+                        delattr(root, attribute)
+                else:
+                    setattr(root, attribute, previous)
 
 
 def component_dependency_plan(package_name: str, component_name: str) -> dict[str, Any]:
@@ -2316,6 +2402,7 @@ __all__ = [
     "package_statuses",
     "load_package",
     "load_workflow_requirements",
+    "workflow_requirement_scope",
     "package_category_colors",
     "package_template_dirs",
     "packages_root",
