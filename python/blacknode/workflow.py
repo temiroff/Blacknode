@@ -175,6 +175,9 @@ def validate_graph(
 
 
 def validate_workflow(data: Mapping[str, Any]) -> ValidationReport:
+    from .packages import load_workflow_requirements
+
+    load_workflow_requirements(data)
     errors: list[ValidationIssue] = []
     warnings: list[ValidationIssue] = []
 
@@ -439,7 +442,7 @@ def export_workflow_python(data: Mapping[str, Any], *, style: str = "flat") -> s
         "        return",
         "    _blacknode_live_runtime_stopped = True",
         "    for module_name in (",
-        "        'blacknode.pkg.blacknode_controllers.joint_control.adapters.ros2.joint_motion',",
+        "        'blacknode.pkg.blacknode_motion.arm.adapters.ros2.joint_motion',",
         "        'blacknode.pkg.blacknode_robot.robot',",
         "        'blacknode.pkg.blacknode_ros2.ros2_runtime',",
         "        'blacknode.pkg.blacknode_perception.cv2_runtime',",

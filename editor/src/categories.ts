@@ -62,6 +62,7 @@ export const FAMILY_COLORS: Record<string, string> = {
   AI: '#a855f7',
   Controllers: '#f97316',
   Controller: '#f97316',
+  Motion: '#f97316',
   Drivers: '#64748b',
   Driver: '#64748b',
   Output: '#ec4899',
@@ -71,11 +72,10 @@ export const FAMILY_COLORS: Record<string, string> = {
 
 export const PACKAGE_FAMILY_NAMES: Record<string, string> = {
   'blacknode-agent': 'Agent',
-  'blacknode-controllers': 'Controllers',
+  'blacknode-motion': 'Motion',
   'blacknode-cuda': 'CUDA',
   'blacknode-dataset': 'Dataset',
   'blacknode-drivers': 'Drivers',
-  'blacknode-hardware': 'Hardware',
   'blacknode-isaac': 'Isaac Sim',
   'blacknode-perception': 'Perception',
   'blacknode-robot': 'Robot',

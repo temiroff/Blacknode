@@ -128,8 +128,8 @@ or type error, inspect `get_node_schema` and fix the graph instead of guessing.
 
 - Prefer `Robot` for setup, then `ROS2Status`, `ROS2JointState`,
   `ROS2SetJoint`, and `ROS2ManualMove`. `ROS2Status` comes from
-  `blacknode-ros2`; the joint nodes come from the `blacknode-controllers`
-  joint-control ROS 2 adapter, so templates using them must require both
+  `blacknode-ros2`; the joint nodes come from the `blacknode-motion`
+  arm ROS 2 adapter, so templates using them must require both
   packages. Each node picks the transport itself via `transport=auto`.
 - Treat torque control and pose streaming as independent state:
   - `Release + live pose` disables torque and keeps joint feedback live. Support

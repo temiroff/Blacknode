@@ -20,6 +20,7 @@ from blacknode.packages import (
     install_from_git,
     install_prerequisites,
     load_package,
+    load_workflow_requirements,
     package_template_dirs,
     remove_package,
     reset_component,
@@ -28,6 +29,7 @@ from blacknode.packages import (
     validate_package_catalog,
     write_package_lock,
 )
+from blacknode.workflow import validate_workflow
 
 
 def _write_package(
@@ -104,6 +106,56 @@ def test_folder_package_exposes_layer_and_component_catalog(tmp_path):
     assert component["node_paths"] == []
     assert info.component_mode is False
     assert "_PkgDriverLayer" in info.node_types
+
+
+def test_workflow_requirement_transiently_enables_optional_component(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-workflow-required",
+        node_name="_PkgWorkflowRequiredRoot",
+        package_metadata="component-mode = true",
+        component_metadata='''
+        [components.optional]
+        default = false
+        nodes = ["components/optional/nodes"]
+        ''',
+    )
+    _write_component_node(pkg, "optional", "_PkgWorkflowRequired")
+    info = load_package(pkg)
+    assert info.ok
+    assert info.enabled_components == []
+    assert "_PkgWorkflowRequired" not in _NODE_REGISTRY
+
+    workflow = {
+        "kind": "blacknode.workflow",
+        "schema_version": 1,
+        "name": "Required optional component",
+        "entrypoint": {"node_id": "probe", "port": "out"},
+        "metadata": {
+            "required_packages": ["bn-workflow-required"],
+            "required_components": ["bn-workflow-required/optional"],
+        },
+        "node_meta": {
+            "probe": {
+                "id": "probe",
+                "type": "_PkgWorkflowRequired",
+                "params": {"text": "hello"},
+                "pos": [0, 0],
+                "inputs": ["text"],
+                "outputs": ["out"],
+                "input_types": {"text": "Text"},
+                "output_types": {"out": "Text"},
+                "input_defaults": {},
+            },
+        },
+        "edges": [],
+    }
+
+    requirement_report = load_workflow_requirements(workflow)
+    assert not requirement_report["unavailable"]
+    assert "_PkgWorkflowRequired" in _NODE_REGISTRY
+    assert validate_workflow(workflow).ok
+    assert not (tmp_path / ".blacknode-components.json").exists()
 
 
 def _write_component_node(pkg, component, node_name):
@@ -184,7 +236,52 @@ def test_component_package_loads_only_enabled_nodes_and_dependencies(tmp_path):
     assert "_PkgComponentCore" in _NODE_REGISTRY
 
 
-def test_component_alias_preserves_saved_state_cli_and_import_paths(tmp_path):
+def test_tagged_root_component_package_filters_nodes_by_enabled_component(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-tagged-components",
+        node_name="_PkgTaggedCore",
+        package_metadata='component-mode = true',
+        component_metadata='''
+        [components.core]
+        default = true
+
+        [components.optional]
+        default = false
+        ''',
+    )
+    probe = pkg / "nodes" / "probe.py"
+    probe.write_text(
+        probe.read_text(encoding="utf-8").replace(
+            'name="_PkgTaggedCore",',
+            'name="_PkgTaggedCore", component="core",',
+        ),
+        encoding="utf-8",
+    )
+    (pkg / "nodes" / "optional.py").write_text(textwrap.dedent("""
+        from blacknode.node import Text, node
+
+
+        @node(name="_PkgTaggedOptional", component="optional", inputs={"text": Text}, outputs={"out": Text})
+        def optional(text: str) -> str:
+            return text
+    """), encoding="utf-8")
+
+    info = load_package(pkg)
+
+    assert info.ok
+    assert info.component_mode is True
+    assert info.enabled_components == ["core"]
+    assert "_PkgTaggedCore" in _NODE_REGISTRY
+    assert "_PkgTaggedOptional" not in _NODE_REGISTRY
+
+    enabled = set_component_enabled("bn-tagged-components", "optional", True)
+    assert enabled.enabled_components == ["core", "optional"]
+    assert "_PkgTaggedCore" in _NODE_REGISTRY
+    assert "_PkgTaggedOptional" in _NODE_REGISTRY
+
+
+def test_component_alias_supports_third_party_package_migrations(tmp_path):
     pkg = _write_package(
         tmp_path,
         name="bn-component-alias",
@@ -192,7 +289,7 @@ def test_component_alias_preserves_saved_state_cli_and_import_paths(tmp_path):
         package_metadata='layer = "Skills"',
         component_metadata='''
         [components.follow]
-        aliases = ["follow-person"]
+        aliases = ["legacy-follow"]
         default = false
         nodes = ["components/follow/nodes"]
         ''',
@@ -202,7 +299,7 @@ def test_component_alias_preserves_saved_state_cli_and_import_paths(tmp_path):
         "schema_version": 1,
         "packages": {
             "bn-component-alias": {
-                "follow-person": True,
+                "legacy-follow": True,
             },
         },
     }), encoding="utf-8")
@@ -210,20 +307,20 @@ def test_component_alias_preserves_saved_state_cli_and_import_paths(tmp_path):
     info = load_package(pkg)
 
     assert info.ok
-    assert info.components["follow"]["aliases"] == ["follow-person"]
+    assert info.components["follow"]["aliases"] == ["legacy-follow"]
     assert info.enabled_components == ["follow"]
     assert "_PkgFollowAlias" in _NODE_REGISTRY
     assert "blacknode.pkg.bn_component_alias.follow" in sys.modules
     assert (
-        sys.modules["blacknode.pkg.bn_component_alias.follow_person"]
+        sys.modules["blacknode.pkg.bn_component_alias.legacy_follow"]
         is sys.modules["blacknode.pkg.bn_component_alias.follow"]
     )
     assert component_dependency_plan(
-        "bn-component-alias", "follow-person"
+        "bn-component-alias", "legacy-follow"
     )["target"]["component"] == "follow"
 
     disabled = set_component_enabled(
-        "bn-component-alias", "follow-person", False
+        "bn-component-alias", "legacy-follow", False
     )
     assert disabled.enabled_components == []
     state = json.loads(
@@ -787,8 +884,12 @@ def test_remove_unknown_package_is_structured_error():
 def test_blacknode_cuda_loads_as_package():
     if "blacknode-cuda" not in _PACKAGE_REGISTRY:
         pytest.skip("blacknode-cuda not installed (it lives in its own repo)")
-    assert "CUDAKernelLab" in _NODE_REGISTRY
-    assert getattr(_NODE_REGISTRY["CUDAKernelLab"], "_bn_package", "") == "blacknode-cuda"
+    assert "GPUCapability" in _NODE_REGISTRY
+    assert "CUDAImageFilter" in _NODE_REGISTRY
+    assert "CUDAKernelLab" not in _NODE_REGISTRY
+    assert "CUDACustomKernel" not in _NODE_REGISTRY
+    assert "CUTLASSGemm" not in _NODE_REGISTRY
+    assert getattr(_NODE_REGISTRY["GPUCapability"], "_bn_package", "") == "blacknode-cuda"
     info = _PACKAGE_REGISTRY["blacknode-cuda"]
     assert info.ok
     assert info.categories.get("NVIDIA CUDA")

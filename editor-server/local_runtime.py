@@ -19,7 +19,7 @@ from typing import Any, Callable
 
 
 _RUNTIME_REPOSITORY = "https://github.com/temiroff/blacknode-runtime.git"
-_HARDWARE_REPOSITORY = "https://github.com/temiroff/blacknode-hardware.git"
+_HARDWARE_REPOSITORY = "https://github.com/temiroff/blacknode-robot.git"
 
 
 class LocalRuntimeError(RuntimeError):
@@ -82,14 +82,14 @@ def _validate_hardware_checkout(hardware_dir: Path) -> None:
     service_script = hardware_dir / "scripts" / "hardware_service.py"
     if not pyproject.is_file() or not service_script.is_file():
         raise LocalRuntimeError(
-            f"{hardware_dir} is not an empty folder or a Blacknode Hardware checkout."
+            f"{hardware_dir} is not an empty folder or a Blacknode Robot checkout."
         )
     try:
         manifest = pyproject.read_text(encoding="utf-8")
     except OSError as exc:
         raise LocalRuntimeError(f"Could not inspect {pyproject}: {exc}") from exc
-    if 'name = "blacknode-hardware"' not in manifest:
-        raise LocalRuntimeError(f"{hardware_dir} is not a Blacknode Hardware checkout.")
+    if 'name = "blacknode-robot"' not in manifest:
+        raise LocalRuntimeError(f"{hardware_dir} is not a Blacknode Robot checkout.")
 
 
 def _resolve_install_dir(value: str, core_root: Path) -> Path:
@@ -519,7 +519,7 @@ def install_local_runtime(
         install_root = install_root.parent
     else:
         runtime_dir = install_root / "blacknode-runtime"
-    hardware_dir = install_root / "blacknode-hardware"
+    hardware_dir = install_root / "blacknode-robot"
     _report(progress, 4, "Checking the local robot stack folder")
 
     runtime_existed = runtime_dir.exists() and any(runtime_dir.iterdir())

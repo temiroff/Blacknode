@@ -8,7 +8,7 @@
 
 **Build, run, inspect, and deploy robot behavior as typed visual workflows.**
 
-Blacknode connects robot hardware, perception, controllers, datasets, training,
+Blacknode connects robot hardware, perception, motion, datasets, training,
 simulation, and deployment on one visual canvas. Start with a tested robot
 template, inspect live state, authorize a bounded action, and follow every
 result through run history and replay.
@@ -35,7 +35,7 @@ Task skills and mission workflows
               │
        ┌──────┴──────┐
        ▼             ▼
-  Perception    Controllers + safety
+  Perception    Motion + safety
        │             │
        └──────┬──────┘
               ▼
@@ -52,12 +52,12 @@ Hardware drivers, cameras, buses, and the physical robot
 
 | Layer | What it owns | Packages |
 |---|---|---|
-| Tasks and missions | Reusable robot skills, planning, confirmation, and orchestration | [`blacknode-skills`](https://github.com/temiroff/blacknode-skills), [`blacknode-agent`](https://github.com/temiroff/blacknode-agent) |
+| Tasks and missions | Reusable robot skills, persistent memory, and executive mission orchestration | [`blacknode-skills`](https://github.com/temiroff/blacknode-skills), [`blacknode-agent`](https://github.com/temiroff/blacknode-agent) |
 | Perception | Cameras, tracking, VLMs, and spatial observations | [`blacknode-perception`](https://github.com/temiroff/blacknode-perception) |
-| Control and safety | Joint control, mobile bases, manipulation, policies, arbitration, limits, freshness checks, and stop paths | [`blacknode-controllers`](https://github.com/temiroff/blacknode-controllers) |
-| Robot model | Robot profiles, capability contracts, calibration, discovery, and connection health | [`blacknode-robot`](https://github.com/temiroff/blacknode-robot) |
+| Motion and safety | Arm and base planning, trajectories, execution, policy, arbitration, and safety | [`blacknode-motion`](https://github.com/temiroff/blacknode-motion) |
+| Robot model and devices | Robot profiles, connected-device lifecycle, capability contracts, calibration, discovery, health, and normalized telemetry | [`blacknode-robot`](https://github.com/temiroff/blacknode-robot) |
 | Integration | ROS 2 graph, topics, services, processes, native transport, and rosbridge | [`blacknode-ros2`](https://github.com/temiroff/blacknode-ros2) |
-| Hardware deployment | Runtime device contracts, capability inspection, safe device control, replaceable adapters, physical drivers, and firmware protocols | [`blacknode-hardware`](https://github.com/temiroff/blacknode-hardware), [`blacknode-drivers`](https://github.com/temiroff/blacknode-drivers) |
+| Physical drivers | Concrete device drivers with internal serial, CAN, USB, and other protocol transports | [`blacknode-drivers`](https://github.com/temiroff/blacknode-drivers) |
 | Learning and deployment | Episode recording, policy training, remote runtime, simulation, and accelerated compute | [`blacknode-dataset`](https://github.com/temiroff/blacknode-dataset), [`blacknode-training`](https://github.com/temiroff/blacknode-training), [`blacknode-runtime`](https://github.com/temiroff/blacknode-runtime), [`blacknode-isaac`](https://github.com/temiroff/blacknode-isaac), [`blacknode-cuda`](https://github.com/temiroff/blacknode-cuda) |
 
 The workflow depends on stable capabilities such as a camera, joint controller,
@@ -104,9 +104,9 @@ Templates declare required packages and Blacknode resolves missing
 capabilities. See [Extension Packages](docs/packages.md).
 
 For deployment on physical hardware, use
-[`blacknode-hardware`](https://github.com/temiroff/blacknode-hardware) for
-runtime hardware contracts, capability checks, safe device control, and
-replaceable adapters. Add
+[`blacknode-robot`](https://github.com/temiroff/blacknode-robot) for connected
+device contracts, lifecycle, health, normalized telemetry, and safe provider
+interfaces. Add
 [`blacknode-drivers`](https://github.com/temiroff/blacknode-drivers) for the
 physical bus, firmware, or device protocol used by the robot.
 

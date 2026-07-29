@@ -64,7 +64,7 @@ Checking the device or package versions does not start a stopped service.
 Remote package actions use the verified SSH identity and one unsaved password
 field above the same two cards.
 Remote Hardware Run, Stop, and Restart control every exact
-`blacknode-hardware` service attached to that compute device. Stop first ends
+robot device service attached to that compute device. Stop first ends
 active deployments and disarms each robot; Run and Restart return with motion
 disarmed.
 
@@ -149,7 +149,7 @@ reads their private pairing credentials through the verified SSH connection.
 The token is paired server-side and is never displayed in the browser; the SSH
 password is used for that request and is not saved. Manual pairing remains
 available by entering the robot URL and token printed by
-`blacknode-hardware/pair.sh`. One device may contain several robots; each robot
+`blacknode-robot/pair.sh`. One device may contain several robots; each robot
 remains a distinct deployment target and uses its parent device's shared
 runtime. Pairing and discovery keep physical motion disarmed.
 
