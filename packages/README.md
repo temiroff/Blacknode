@@ -21,10 +21,12 @@ and how to write your own package.
 
 Every package folder here is gitignored — each is its own repository. Official
 robotics packages are split by responsibility: `blacknode-robot` owns robot
-profiles and calibration, `blacknode-drivers` owns physical hardware protocols,
-`blacknode-ros2` owns ROS 2 graph/transport behavior, and `blacknode-perception`
-provides camera/CV2/VLM perception. `blacknode-cuda` remains the smallest flat
-package reference; `blacknode-drivers` is the selective-component reference.
+profiles, calibration, connected-device lifecycle, health, and normalized
+telemetry; `blacknode-drivers` owns physical hardware protocols;
+`blacknode-ros2` owns ROS 2 graph/transport behavior; and
+`blacknode-perception` provides camera/CV2/VLM perception. `blacknode-cuda`
+remains the smallest flat package reference; `blacknode-drivers` is the
+selective-component reference.
 
 Maintained packages should include a scoped `AGENTS.md` with ownership,
 dependency, safety, and verification rules. Agents use the core

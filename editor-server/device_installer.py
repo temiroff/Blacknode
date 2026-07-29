@@ -837,7 +837,7 @@ PY"""
                         256 * 1024,
                     )
                     if not re.search(
-                        r'(?m)^\s*name\s*=\s*["\']blacknode-hardware["\']\s*$',
+                        r'(?m)^\s*name\s*=\s*["\']blacknode-(?:robot|hardware)["\']\s*$',
                         manifest,
                     ):
                         raise ValueError(
@@ -1108,7 +1108,7 @@ if [[ "$instance" == "default" ]]; then
   legacy="$HOME/blacknode-hardware"
 fi
 [[ -d "$target/.git" && -f "$target/pyproject.toml" ]] \
-  && grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*["'"'"']blacknode-hardware["'"'"'][[:space:]]*$' \
+  && grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*["'"'"']blacknode-(robot|hardware)["'"'"'][[:space:]]*$' \
     "$target/pyproject.toml" || {
   echo "The organized Hardware package is missing or invalid: $target" >&2
   exit 4
@@ -1334,7 +1334,7 @@ if [[ -e "$hardware_dir" ]]; then
     exit 4
   }
   origin="$(git -C "$hardware_dir" remote get-url origin 2>/dev/null || true)"
-  [[ "$origin" =~ (github\.com[:/])temiroff/blacknode-hardware(\.git)?$ ]] || {
+  [[ "$origin" =~ (github\.com[:/])temiroff/blacknode-robot(\.git)?$ ]] || {
     echo "The existing Hardware checkout has an unrecognized Git origin."
     exit 4
   }
@@ -1342,7 +1342,7 @@ if [[ -e "$hardware_dir" ]]; then
 else
   progress 20 "Downloading the Robot Hardware package"
   mkdir -p "$(dirname -- "$hardware_dir")"
-  git clone https://github.com/temiroff/blacknode-hardware.git "$hardware_dir"
+  git clone https://github.com/temiroff/blacknode-robot.git "$hardware_dir"
   created=true
 fi
 if ! grep -q 'BLACKNODE_HARDWARE_INSTANCE' "$hardware_dir/install-service.sh" \
@@ -1788,7 +1788,7 @@ if [[ "$complete_stack" == true && ! -d "$hardware_dir" ]]; then
   progress 72 "Installing the Robot Hardware package"
   mkdir -p "$(dirname -- "$hardware_dir")"
   cleanup_hardware=true
-  git clone https://github.com/temiroff/blacknode-hardware.git "$hardware_dir"
+  git clone https://github.com/temiroff/blacknode-robot.git "$hardware_dir"
   if ! grep -q 'BLACKNODE_HARDWARE_INSTANCE' "$hardware_dir/install-service.sh" \
     || ! grep -q 'previous_working_directory' "$hardware_dir/install-service.sh"; then
     echo "The downloaded Blacknode Hardware release does not support isolated stacks yet."
@@ -2209,7 +2209,7 @@ install_persistent_hardware_services() {
     echo "Repair Hardware requires $hardware_repo/install-service.sh." >&2
     return 1
   }
-  validate_checkout "$hardware_repo" "blacknode-hardware"
+  validate_checkout "$hardware_repo" "blacknode-robot"
   if [[ -f "$hardware_repo/.blacknode-hardware/devices.json" ]]; then
     python3 - "$hardware_repo/.blacknode-hardware/devices.json" \
       "$hardware_targets_payload" <<'PY'
@@ -2334,7 +2334,7 @@ for directory in "${hardware_dirs[@]}"; do
     [[ "$existing" == "$directory" ]] && found=true
   done
   if [[ "$found" == false ]]; then
-    validate_checkout "$directory" "blacknode-hardware"
+    validate_checkout "$directory" "blacknode-robot"
     unique_hardware_dirs+=("$directory")
   fi
 done
@@ -2851,7 +2851,7 @@ for target in request["hardware_targets"]:
         )
         component = inspect(
             "hardware",
-            "blacknode-hardware",
+            "blacknode-robot",
             service,
             hardware_port,
             directory,

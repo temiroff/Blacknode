@@ -40,10 +40,30 @@ def test_core_index_maps_official_node_types_to_git_packages():
     payload = package_index_payload()
 
     assert payload["schema_version"] == 2
+    assert set(payload["packages"]) == {
+        "blacknode-agent",
+        "blacknode-motion",
+        "blacknode-cuda",
+        "blacknode-dataset",
+        "blacknode-drivers",
+        "blacknode-isaac",
+        "blacknode-perception",
+        "blacknode-robot",
+        "blacknode-ros2",
+        "blacknode-runtime",
+        "blacknode-skills",
+        "blacknode-training",
+    }
     assert payload["packages"]["blacknode-robot"]["layer"] == "robot"
+    robot = payload["packages"]["blacknode-robot"]
+    assert {"devices", "telemetry"}.issubset(robot["components"])
+    assert robot["components"]["devices"]["node_types"] == ["HardwareCapabilities"]
+    assert robot["components"]["telemetry"]["adapters"]["mqtt"]["default"] is False
     assert payload["packages"]["blacknode-perception"]["layer"] == "perception"
     assert payload["packages"]["blacknode-ros2"]["layer"] == "ros2"
     assert payload["packages"]["blacknode-ros2"]["components"]["core"]["default"] is True
+    assert payload["packages"]["blacknode-ros2"]["components"]["rosbridge"]["default"] is False
+    assert payload["packages"]["blacknode-ros2"]["components"]["processes"]["default"] is False
     assert set(payload["packages"]["blacknode-ros2"]["components"]) == {
         "core",
         "diagnostics",
@@ -63,9 +83,23 @@ def test_core_index_maps_official_node_types_to_git_packages():
             "requires": [{"component": "core"}],
         }
     assert payload["packages"]["blacknode-skills"]["layer"] == "skills"
-    assert payload["packages"]["blacknode-agent"]["layer"] == "agent"
-    assert payload["packages"]["blacknode-controllers"]["layer"] == "controllers"
+    agent = payload["packages"]["blacknode-agent"]
+    assert agent["layer"] == "agent"
+    assert set(agent["components"]) == {"memory", "executive"}
+    motion = payload["packages"]["blacknode-motion"]
+    assert motion["layer"] == "motion"
+    assert set(motion["components"]) == {"core", "arm", "base", "policy", "safety"}
+    assert motion["components"]["arm"]["node_types"] == ["JointMotionProfile"]
+    assert motion["components"]["arm"].get("aliases", []) == []
+    assert motion["components"]["base"].get("aliases", []) == []
+    assert "JointMotionProfile" not in motion["components"]["arm"]["adapters"]["ros2"]["node_types"]
     assert payload["packages"]["blacknode-dataset"]["layer"] == "learning"
+    dataset = payload["packages"]["blacknode-dataset"]["components"]
+    assert all(dataset[name]["default"] for name in {"recording", "replay", "validation"})
+    assert not any(dataset[name]["default"] for name in {"evaluation", "export", "publishing"})
+    cuda = payload["packages"]["blacknode-cuda"]["components"]
+    assert set(cuda) == {"capability", "image-processing", "tensor-operations", "benchmarks"}
+    assert cuda["benchmarks"]["default"] is False
     drivers = payload["packages"]["blacknode-drivers"]
     assert drivers["layer"] == "drivers"
     assert drivers["components"]["feetech"]["default"] is True
@@ -73,27 +107,19 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "FeetechBusConfig",
         "FeetechBusProbe",
     ]
-    # Roadmap components are declared ahead of implementation, so assert the
-    # one that ships nodes rather than pinning the whole set.
-    assert "feetech" in drivers["components"]
-    assert all(
-        not component["node_types"]
-        for name, component in drivers["components"].items()
-        if name != "feetech"
-    )
+    assert set(drivers["components"]) == {"feetech"}
     assert drivers["components"]["feetech"]["adapters"]["ros2"]["default"] is False
     assert payload["nodes"]["FeetechROS2Adapter"]["package"] == "blacknode-drivers"
     assert payload["nodes"]["FeetechBusProbe"]["package"] == "blacknode-drivers"
-    assert payload["nodes"]["CUDAKernelLab"] == {
-        "package": "blacknode-cuda",
-        "git_url": "https://github.com/temiroff/blacknode-cuda.git",
-    }
+    assert "CUDAKernelLab" not in payload["nodes"]
+    assert "CUDACustomKernel" not in payload["nodes"]
     assert payload["nodes"]["ROS2TopicList"]["package"] == "blacknode-ros2"
     assert payload["nodes"]["ROS2TopicPublisher"]["package"] == "blacknode-ros2"
     assert "ROS2DemoPublisher" not in payload["nodes"]
     assert payload["nodes"]["RobotDiscovery"]["package"] == "blacknode-robot"
     assert payload["nodes"]["RobotMonitor"]["package"] == "blacknode-robot"
     assert payload["nodes"]["RobotCapabilityInspect"]["package"] == "blacknode-robot"
+    assert payload["nodes"]["HardwareCapabilities"]["package"] == "blacknode-robot"
     assert payload["nodes"]["EpisodeRecorder"] == {
         "package": "blacknode-dataset",
         "git_url": "https://github.com/temiroff/blacknode-dataset.git",
@@ -106,14 +132,17 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["ROS2PublishJointState"]["package"] == "blacknode-skills"
     assert payload["nodes"]["ROS2SubscribeJointState"]["package"] == "blacknode-skills"
     assert payload["nodes"]["ROS2JointController"]["package"] == "blacknode-skills"
-    assert payload["nodes"]["ROS2JointStatePublish"]["package"] == "blacknode-skills"
-    assert payload["nodes"]["ROS2JointSubscribe"]["package"] == "blacknode-skills"
-    assert payload["nodes"]["ROS2JointReplicate"]["package"] == "blacknode-skills"
-    assert payload["nodes"]["ROS2JointPublish"]["package"] == "blacknode-skills"
-    assert payload["nodes"]["ROS2LeaderJointSubscriber"]["package"] == "blacknode-skills"
-    assert payload["nodes"]["ROS2FollowerJointPublisher"]["package"] == "blacknode-skills"
-    assert payload["nodes"]["PolicyRuntime"]["package"] == "blacknode-controllers"
-    assert payload["nodes"]["BaseSafetyGate"]["package"] == "blacknode-controllers"
+    for legacy_name in {
+        "ROS2JointStatePublish",
+        "ROS2JointSubscribe",
+        "ROS2JointReplicate",
+        "ROS2JointPublish",
+        "ROS2LeaderJointSubscriber",
+        "ROS2FollowerJointPublisher",
+    }:
+        assert legacy_name not in payload["nodes"]
+    assert payload["nodes"]["PolicyRuntime"]["package"] == "blacknode-motion"
+    assert payload["nodes"]["BaseSafetyGate"]["package"] == "blacknode-motion"
     assert payload["nodes"]["Camera"]["package"] == "blacknode-perception"
     assert payload["nodes"]["CameraStream"]["package"] == "blacknode-perception"
     assert payload["nodes"]["ACTTraining"] == {
@@ -123,6 +152,10 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["ACTPolicyExport"]["package"] == "blacknode-training"
     assert payload["nodes"]["ACTPolicyReplay"]["package"] == "blacknode-training"
     assert payload["nodes"]["PolicyArtifactLoad"]["package"] == "blacknode-training"
+    assert not any(
+        component["default"]
+        for component in payload["packages"]["blacknode-training"]["components"].values()
+    )
     assert payload["nodes"]["IsaacPolicyBridge"] == {
         "package": "blacknode-isaac",
         "git_url": "https://github.com/temiroff/blacknode-isaac.git",
@@ -178,9 +211,9 @@ def test_installed_package_manifest_maps_new_node_types_without_core_edit():
 
 
 def test_resolver_finds_nested_nodes_and_indexed_package():
-    workflow = _workflow("CUDAKernelLab")
+    workflow = _workflow("CUDAImageFilter")
 
-    assert workflow_node_types(workflow) == {"CUDAKernelLab", "NestedNode"}
+    assert workflow_node_types(workflow) == {"CUDAImageFilter", "NestedNode"}
     result = resolve_workflow_dependencies(
         workflow,
         available_node_types={"Output"},
@@ -189,7 +222,7 @@ def test_resolver_finds_nested_nodes_and_indexed_package():
 
     assert not result["ok"]
     assert result["missing_packages"][0]["name"] == "blacknode-cuda"
-    assert result["missing_packages"][0]["node_types"] == ["CUDAKernelLab"]
+    assert result["missing_packages"][0]["node_types"] == ["CUDAImageFilter"]
     assert result["unresolved_node_types"] == ["NestedNode"]
 
 
@@ -282,36 +315,3 @@ def test_workflow_adapter_requirement_adds_missing_official_package():
     assert result["code"] == "missing_packages"
     assert result["missing_packages"][0]["name"] == "blacknode-drivers"
     assert result["missing_adapters"][0]["reason"] == "package is not installed"
-
-
-def test_legacy_component_alias_resolves_against_renamed_installed_component():
-    workflow = _workflow("ROS2LeaderFollower")
-    workflow["metadata"]["required_components"] = [
-        "blacknode-skills/follow-person"
-    ]
-    workflow["metadata"]["required_adapters"] = [
-        "blacknode-skills/follow-person@ros2"
-    ]
-    installed = {
-        "blacknode-skills": {
-            "ok": True,
-            "version": "0.2.0",
-            "components": {
-                "follow": {
-                    "aliases": ["follow-person"],
-                    "enabled": True,
-                    "adapters": {"ros2": {"enabled": True}},
-                },
-            },
-        },
-    }
-
-    result = resolve_workflow_dependencies(
-        workflow,
-        available_node_types={"ROS2LeaderFollower", "NestedNode"},
-        installed_packages=installed,
-    )
-
-    assert result["ok"]
-    assert result["missing_components"] == []
-    assert result["missing_adapters"] == []

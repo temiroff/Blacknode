@@ -478,7 +478,7 @@ class HardwareDeviceClient:
             if exc.code == 404 and endpoint == "/calibration":
                 raise DeviceRegistryError(
                     "This device service does not support calibration activation yet. "
-                    "Update blacknode-hardware on the device, run "
+                    "Update blacknode-robot on the device, run "
                     "'./service.sh restart', then refresh the device in Blacknode."
                 ) from exc
             detail = ""

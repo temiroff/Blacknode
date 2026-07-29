@@ -1196,7 +1196,7 @@ export default function App() {
   const controllerNodes = nodes.filter(n => (
     n.data.type === 'RobotFollow'
     || n.data.type === 'ROS2LeaderFollower'
-    || n.data.type === 'ROS2FollowerJointPublisher'
+    || n.data.type === 'ROS2JointController'
   ))
   const controllerRunningCount = controllerNodes.filter(n => n.data.portResults?.running === true).length
   const controllerCount = controllerNodes.filter(n => n.data.portResults?.live === true).length

@@ -155,7 +155,7 @@ class PythonRoundTripTests(unittest.TestCase):
             script,
         )
         self.assertIn(
-            "blacknode.pkg.blacknode_controllers.joint_control.adapters.ros2.joint_motion",
+            "blacknode.pkg.blacknode_motion.arm.adapters.ros2.joint_motion",
             script,
         )
         self.assertIn("signal.signal(signal.SIGTERM, _raise_blacknode_stop)", script)

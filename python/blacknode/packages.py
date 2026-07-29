@@ -674,6 +674,18 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
     try:
         if info.component_mode:
             _prepare_component_package(snake_name, pkg_path)
+            tagged_root_nodes = (
+                (pkg_path / "nodes").is_dir()
+                and not any(
+                    component["node_paths"]
+                    for component in info.components.values()
+                )
+            )
+            if tagged_root_nodes:
+                nodes_dir = pkg_path / "nodes"
+                before = dict(_NODE_REGISTRY)
+                _import_nodes_package(snake_name, nodes_dir, clear=False)
+                _tag_new_package_nodes(before, info.name, nodes_dir)
             for component_name in info.enabled_components:
                 component = info.components[component_name]
                 for index, nodes_dir in enumerate(_component_node_dirs(pkg_path, component_name, component)):
@@ -714,6 +726,7 @@ def load_package(pkg_dir: str | Path) -> PackageInfo:
                     component_name,
                     component.get("aliases", []),
                 )
+            _filter_package_component_nodes(info)
         else:
             nodes_dir = pkg_path / "nodes"
             if not nodes_dir.is_dir():
@@ -1478,6 +1491,34 @@ def _deregister_package_nodes(package_name: str) -> None:
     for node_name, fn in list(_NODE_REGISTRY.items()):
         if getattr(fn, "_bn_package", "") == package_name:
             del _NODE_REGISTRY[node_name]
+
+
+def _filter_package_component_nodes(info: PackageInfo) -> None:
+    """Keep only nodes owned by enabled, declared components and adapters."""
+    enabled_components = set(info.enabled_components)
+    ignored_components: set[str] = set()
+    for node_name, fn in list(_NODE_REGISTRY.items()):
+        if getattr(fn, "_bn_package", "") != info.name:
+            continue
+        component_name = _component_name(getattr(fn, "_bn_component", ""))
+        if not component_name or component_name not in info.components:
+            del _NODE_REGISTRY[node_name]
+            ignored_components.add(component_name or "(undeclared)")
+            continue
+        if component_name not in enabled_components:
+            del _NODE_REGISTRY[node_name]
+            continue
+        adapter_name = _component_name(getattr(fn, "_bn_adapter", ""))
+        if not adapter_name:
+            continue
+        adapter = info.components[component_name].get("adapters", {}).get(adapter_name)
+        if not isinstance(adapter, Mapping) or not adapter.get("enabled"):
+            del _NODE_REGISTRY[node_name]
+    if ignored_components:
+        info.warnings.append(
+            "Ignored nodes assigned to unpublished components: "
+            + ", ".join(sorted(ignored_components))
+        )
 
 
 def _check_indexed_nodes(info: PackageInfo) -> None:

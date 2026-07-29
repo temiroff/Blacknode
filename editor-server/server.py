@@ -617,7 +617,7 @@ def _stop_active_cook() -> None:
 _RUNTIME_MODULES = {
     "ros2": "blacknode.pkg.blacknode_ros2.ros2_runtime",
     "ros2_live": "blacknode.pkg.blacknode_skills.follow.leader_follower_runtime",
-    "joint_control": "blacknode.pkg.blacknode_controllers.joint_control.adapters.ros2.joint_motion",
+    "joint_control": "blacknode.pkg.blacknode_motion.arm.adapters.ros2.joint_motion",
     "vision": "blacknode.pkg.blacknode_perception.cv2_runtime",
     "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
     "robot": "blacknode.pkg.blacknode_robot.robot",
@@ -835,8 +835,7 @@ def _push_live_node_param_update(meta: dict[str, Any], key: str, value: Any, old
         return
     if meta.get("type") in {
         "ROS2LeaderFollower",
-        "ROS2FollowerJointPublisher",
-        "ROS2JointPublish",
+        "ROS2JointController",
     }:
         update_fn = _runtime_callable("ros2_live", _RUNTIME_MODULES["ros2_live"], "update_leader_follower_config")
         if update_fn is None:
@@ -1633,8 +1632,7 @@ def update_param(node_id: str, req: UpdateParamReq):
             _clear_runtime_status(invalidated_meta)
             if invalidated_meta.get("type") in {
                 "ROS2LeaderFollower",
-                "ROS2FollowerJointPublisher",
-                "ROS2JointPublish",
+                "ROS2JointController",
             } and invalidated_id != node_id:
                 disarm_fn = _runtime_callable("ros2_live", _RUNTIME_MODULES["ros2_live"], "update_leader_follower_config")
                 if disarm_fn is not None:
@@ -4590,7 +4588,7 @@ def _control_robot_lifecycle_payload(
             raise HTTPException(
                 409,
                 "This robot's compute device was paired manually. Restart its "
-                "blacknode-hardware service on the device.",
+                "robot device service on the device.",
             )
         try:
             hardware_port = urllib.parse.urlsplit(
@@ -6029,12 +6027,6 @@ def _workflow_requires_deployment_telemetry(workflow: dict[str, Any]) -> bool:
         "ROS2PublishJointState",
         "ROS2SubscribeJointState",
         "ROS2JointController",
-        "ROS2JointStatePublish",
-        "ROS2JointReplicate",
-        "ROS2JointSubscribe",
-        "ROS2JointPublish",
-        "ROS2FollowerJointPublisher",
-        "ROS2LeaderJointSubscriber",
         "ROS2ManualMove",
         "ROS2SetJoint",
     }
@@ -6068,9 +6060,6 @@ def _workflow_motion_controls(workflow: dict[str, Any]) -> list[dict[str, str]]:
             or str(meta.get("type") or "") not in {
                 "ROS2LeaderFollower",
                 "ROS2JointController",
-                "ROS2JointReplicate",
-                "ROS2JointPublish",
-                "ROS2FollowerJointPublisher",
             }
         ):
             continue
@@ -6100,9 +6089,6 @@ def _disarm_workflow_motion_controls(workflow: dict[str, Any]) -> list[str]:
         and str(meta.get("type") or "") in {
             "ROS2LeaderFollower",
             "ROS2JointController",
-            "ROS2JointReplicate",
-            "ROS2JointPublish",
-            "ROS2FollowerJointPublisher",
         }
     }
     if not controlled_ids:
@@ -6437,7 +6423,7 @@ def _bind_robot_to_device(
     if str(connection.get("transport") or "").strip() != "serial" or not serial_port:
         raise ValueError(
             "The paired hardware service did not report its serial port. "
-            "Update blacknode-hardware and restart this robot service."
+            "Update blacknode-robot and restart this robot service."
         )
     calibration = (
         remote_status.get("calibration")
@@ -6567,7 +6553,7 @@ def _runtime_extension_update_specs(
             isinstance(item, dict)
             and str(item.get("name") or "").startswith("blacknode-")
             and str(item.get("name") or "")
-            not in {"blacknode-runtime", "blacknode-hardware"}
+            not in {"blacknode-runtime", "blacknode-robot", "blacknode-hardware"}
         )
     }
     local_packages = {

@@ -14,7 +14,7 @@ def test_canonical_family_colors_are_stable():
         "Perception": "#22c55e",
         "ROS2": "#3b82f6",
         "CUDA": "#84cc16",
-        "Controllers": "#f97316",
+        "Motion": "#f97316",
         "Drivers": "#64748b",
         "Output": "#ec4899",
         "Values": "#f59e0b",

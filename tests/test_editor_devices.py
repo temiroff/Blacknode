@@ -742,6 +742,14 @@ class EditorDeviceApiTests(unittest.TestCase):
             uploaded[0],
         )
         self.assertIn(
+            "git clone https://github.com/temiroff/blacknode-robot.git",
+            uploaded[0],
+        )
+        self.assertNotIn(
+            "github.com/temiroff/blacknode-hardware.git",
+            uploaded[0],
+        )
+        self.assertIn(
             'BLACKNODE_HARDWARE_INSTANCE="$service_instance" ./setup_ubuntu.sh',
             uploaded[0],
         )
@@ -1807,14 +1815,14 @@ class EditorDeviceApiTests(unittest.TestCase):
             "service_name": "blacknode-runtime-local-process",
             "instance_id": "local",
             "stack_mode": "runtime_only",
-            "hardware_dir": r"E:\Blacknode\blacknode-hardware",
+            "hardware_dir": r"E:\Blacknode\blacknode-robot",
             "hardware_port": 8765,
             "hardware_service_name": "blacknode-hardware-local-awaiting-device",
             "hardware_state": "awaiting_device",
             "hardware_configured": False,
-            "hardware_pid_file": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\hardware.pid",
-            "hardware_token_file": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\auth.token",
-            "hardware_log_path": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\hardware.log",
+            "hardware_pid_file": r"E:\Blacknode\blacknode-robot\.blacknode-hardware\hardware.pid",
+            "hardware_token_file": r"E:\Blacknode\blacknode-robot\.blacknode-hardware\auth.token",
+            "hardware_log_path": r"E:\Blacknode\blacknode-robot\.blacknode-hardware\hardware.log",
             "hardware_owned_install": True,
             "management_mode": "local",
             "config_path": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.json",
@@ -1857,7 +1865,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         self.assertEqual(
             device["managed_runtime"]["hardware_dir"],
-            r"E:\Blacknode\blacknode-hardware",
+            r"E:\Blacknode\blacknode-robot",
         )
         self.assertEqual(device["managed_runtime"]["hardware_port"], 8765)
         self.assertEqual(
@@ -1902,7 +1910,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             stack = Path(temporary)
             runtime_dir = stack / "blacknode-runtime"
-            hardware_dir = stack / "blacknode-hardware"
+            hardware_dir = stack / "blacknode-robot"
             (runtime_dir / "scripts").mkdir(parents=True)
             (hardware_dir / "scripts").mkdir(parents=True)
             (runtime_dir / "scripts" / "runtime_service.py").write_text(
@@ -1918,7 +1926,7 @@ class EditorDeviceApiTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (hardware_dir / "pyproject.toml").write_text(
-                '[project]\nname = "blacknode-hardware"\nversion = "0.1.1"\n',
+                '[project]\nname = "blacknode-robot"\nversion = "0.4.0"\n',
                 encoding="utf-8",
             )
             runtime_state = runtime_dir / ".blacknode-runtime"
@@ -1945,7 +1953,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             self.assertEqual(runtime_report["state"], "stopped")
             self.assertEqual(runtime_report["installed_version"], "0.3.9")
             self.assertEqual(hardware_report["state"], "stopped")
-            self.assertEqual(hardware_report["installed_version"], "0.1.1")
+            self.assertEqual(hardware_report["installed_version"], "0.4.0")
             spawn_runtime.assert_not_called()
             spawn_hardware.assert_not_called()
 
@@ -1967,14 +1975,14 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "service_name": "blacknode-runtime-local-process",
                 "runtime_dir": r"E:\Blacknode\blacknode-runtime",
                 "stack_mode": "runtime_only",
-                "hardware_dir": r"E:\Blacknode\blacknode-hardware",
+                "hardware_dir": r"E:\Blacknode\blacknode-robot",
                 "hardware_port": 8765,
                 "hardware_service_name": "blacknode-hardware-local-awaiting-device",
                 "hardware_state": "awaiting_device",
                 "hardware_configured": False,
-                "hardware_pid_file": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\hardware.pid",
-                "hardware_token_file": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\auth.token",
-                "hardware_log_path": r"E:\Blacknode\blacknode-hardware\.blacknode-hardware\hardware.log",
+                "hardware_pid_file": r"E:\Blacknode\blacknode-robot\.blacknode-hardware\hardware.pid",
+                "hardware_token_file": r"E:\Blacknode\blacknode-robot\.blacknode-hardware\auth.token",
+                "hardware_log_path": r"E:\Blacknode\blacknode-robot\.blacknode-hardware\hardware.log",
                 "hardware_owned_install": True,
                 "config_path": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.json",
                 "pid_file": r"E:\Blacknode\blacknode-runtime\.blacknode-runtime\runtime.pid",
@@ -2046,7 +2054,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         managed = {
             "management_mode": "local",
             "runtime_dir": r"E:\Blacknode\blacknode-runtime",
-            "hardware_dir": r"E:\Blacknode\blacknode-hardware",
+            "hardware_dir": r"E:\Blacknode\blacknode-robot",
         }
         host = {
             "id": "local-computer",
@@ -2098,7 +2106,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             stack = Path(temporary)
             runtime_dir = stack / "blacknode-runtime"
-            hardware_dir = stack / "blacknode-hardware"
+            hardware_dir = stack / "blacknode-robot"
             (runtime_dir / "scripts").mkdir(parents=True)
             (hardware_dir / "scripts").mkdir(parents=True)
             (runtime_dir / "scripts" / "runtime_service.py").write_text(
@@ -2114,7 +2122,7 @@ class EditorDeviceApiTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (hardware_dir / "pyproject.toml").write_text(
-                '[project]\nname = "blacknode-hardware"\nversion = "0.1.1"\n',
+                '[project]\nname = "blacknode-robot"\nversion = "0.4.0"\n',
                 encoding="utf-8",
             )
             managed = {
@@ -2183,7 +2191,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         managed = {
             "management_mode": "local",
             "runtime_dir": r"E:\Blacknode\blacknode-runtime",
-            "hardware_dir": r"E:\Blacknode\blacknode-hardware",
+            "hardware_dir": r"E:\Blacknode\blacknode-robot",
         }
         host = {
             "id": "local-computer",
@@ -4974,7 +4982,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             patch("device_registry.urllib.request.urlopen", side_effect=error),
             self.assertRaisesRegex(
                 device_registry.DeviceRegistryError,
-                r"Update blacknode-hardware.*service\.sh restart",
+                r"Update blacknode-robot.*service\.sh restart",
             ),
         ):
             client.activate_calibration({}, {})
@@ -5102,8 +5110,8 @@ class EditorDeviceApiTests(unittest.TestCase):
             "name": "blacknode-skills",
             "git_url": "https://github.com/temiroff/blacknode-skills.git",
             "version": "0.1.0",
-            "components": ["follow-person"],
-            "adapters": [{"component": "follow-person", "adapter": "ros2"}],
+            "components": ["follow"],
+            "adapters": [{"component": "follow", "adapter": "ros2"}],
         }]
         package_index = {
             "packages": {},
@@ -5459,48 +5467,6 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "run_id": "so-arm follower",
                 "topic": "/blacknode/leader_follower/so_arm_follower/control",
             }],
-        )
-
-    def test_split_follower_publisher_declares_one_remote_armed_gate(self):
-        workflow = _workflow([])
-        workflow["node_meta"]["publisher"] = {
-            "id": "publisher",
-            "type": "ROS2FollowerJointPublisher",
-            "params": {
-                "run_id": "split follower",
-                "control_topic": "",
-                "armed": False,
-            },
-        }
-
-        controls = server._workflow_motion_controls(workflow)
-
-        self.assertEqual(len(controls), 1)
-        self.assertEqual(controls[0]["node_id"], "publisher")
-        self.assertEqual(
-            controls[0]["topic"],
-            "/blacknode/leader_follower/split_follower/control",
-        )
-
-    def test_generic_joint_publisher_declares_one_remote_armed_gate(self):
-        workflow = _workflow([])
-        workflow["node_meta"]["publish"] = {
-            "id": "publish",
-            "type": "ROS2JointPublish",
-            "params": {
-                "run_id": "joint publisher",
-                "control_topic": "",
-                "armed": False,
-            },
-        }
-
-        controls = server._workflow_motion_controls(workflow)
-
-        self.assertEqual(len(controls), 1)
-        self.assertEqual(controls[0]["node_id"], "publish")
-        self.assertEqual(
-            controls[0]["topic"],
-            "/blacknode/leader_follower/joint_publisher/control",
         )
 
     def test_joint_controller_declares_one_remote_armed_gate(self):

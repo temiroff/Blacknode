@@ -13,7 +13,7 @@ status colors.
 | Perception | ![Green](images/swatches/swatch-22c55e.svg) Green | `#22c55e` |
 | ROS 2 | ![Blue](images/swatches/swatch-3b82f6.svg) Blue | `#3b82f6` |
 | CUDA | ![Lime](images/swatches/swatch-84cc16.svg) Lime | `#84cc16` |
-| Controllers | ![Orange](images/swatches/swatch-f97316.svg) Orange | `#f97316` |
+| Motion | ![Orange](images/swatches/swatch-f97316.svg) Orange | `#f97316` |
 | Drivers | ![Gray](images/swatches/swatch-64748b.svg) Gray | `#64748b` |
 | Output | ![Pink](images/swatches/swatch-ec4899.svg) Pink | `#ec4899` |
 | Values | ![Amber](images/swatches/swatch-f59e0b.svg) Amber | `#f59e0b` |

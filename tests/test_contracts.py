@@ -29,20 +29,20 @@ def _constructors():
         "blacknode.robot-profile": c.robot_profile(
             "r1",
             capabilities=["mobile-base"],
-            capability_bindings={"mobile-base": {"provider": {"package": "blacknode-controllers"}}},
+            capability_bindings={"mobile-base": {"provider": {"package": "blacknode-motion"}}},
             hardware_identity={"id": "robot-1"},
             driver={"hardware_id": "x"},
         ),
         "blacknode.robot-capability-binding": c.robot_capability_binding(
             "mobile-base",
-            provider_package="blacknode-controllers",
-            provider_component="mobile-base",
+            provider_package="blacknode-motion",
+            provider_component="base",
             provider_adapter="ros2",
         ),
         "blacknode.robot-capability-status": c.robot_capability_status(
             "mobile-base",
             state="unavailable",
-            provider={"package": "blacknode-controllers", "component": "mobile-base"},
+            provider={"package": "blacknode-motion", "component": "base"},
             reason="provider is not installed",
         ),
         "blacknode.mobile-base": c.mobile_base(

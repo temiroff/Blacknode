@@ -658,7 +658,7 @@ export default function DevicesPanel({
     selectedDeviceState?.runtime?.manifest?.packages ?? []
   ).filter(item => (
     item.name.startsWith('blacknode-')
-    && !['blacknode-runtime', 'blacknode-hardware'].includes(item.name)
+    && !['blacknode-runtime', 'blacknode-robot', 'blacknode-hardware'].includes(item.name)
   ))
   const selectedHardwareVersion = (
     selectedDeviceState?.runtime?.hardware?.status?.software_version
@@ -5574,7 +5574,7 @@ function RobotRow({
               }}
               disabled={busy || state?.loading || !canRestartService}
               title={canRestartService
-                ? 'Restart the exact remote blacknode-hardware systemd service for this port'
+                ? 'Restart the exact remote robot device systemd service for this port'
                 : 'Open the compute device and choose Enable SSH controls first'}
               className="bn-device-action-button"
             >

@@ -63,8 +63,8 @@ SHIPPING_KINDS: dict[str, str] = {
     "blacknode.policy-replay": "blacknode-training",
     "blacknode.policy-replay-frame": "blacknode-training",
     "blacknode.policy-replay-metrics": "blacknode-training",
-    "blacknode.policy-runtime": "blacknode-controllers",
-    "blacknode.policy-safety-gate": "blacknode-controllers",
+    "blacknode.policy-runtime": "blacknode-motion",
+    "blacknode.policy-safety-gate": "blacknode-motion",
     # Simulation
     "blacknode.isaac-command": "blacknode-isaac",
     "blacknode.isaac-observation": "blacknode-isaac",

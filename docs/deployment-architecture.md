@@ -201,7 +201,7 @@ A platform update provider reports inventory and manages releases of:
 - the operating system and kernel;
 - Blacknode core;
 - `blacknode-runtime`;
-- `blacknode-hardware`;
+- `blacknode-robot` device and telemetry components;
 - device drivers and optional packages; and
 - service definitions and non-secret configuration.
 
@@ -257,7 +257,7 @@ responses, logs, or provider-neutral configuration.
 The editor registers the compute device and its shared runtime first. A device
 record owns the runtime URL on port `8766` and the server-side runtime pairing
 credential. Each child robot record uses the exact hardware service URL printed
-by `blacknode-hardware` pairing. On a multi-robot computer, hardware services
+by `blacknode-robot` device pairing. On a multi-robot computer, hardware services
 use `8765`, `8767`, `8768`, and subsequent assigned ports. The editor rejects
 `8766` as a robot hardware endpoint and binds every child robot to its parent
 device's runtime.

@@ -134,27 +134,34 @@ development:
 
 | Package | Role |
 |---|---|
-| `blacknode-runtime` | Authenticated remote deployment, target manifests, process supervision, logs, and rollback on Raspberry Pi, Jetson, and Linux targets. |
-| `blacknode-drivers` | Selectively enabled physical hardware drivers and firmware adapters; the first `feetech` component provides inert bus configuration, read-only probing, and torque-safe bus primitives. |
-| `blacknode-robot` | Generic USB robot discovery, serial permission help, driver descriptors, driver process launch, and the standard robot profile. |
-| `blacknode-controllers` | Joint-control, mobile-base, navigation, manipulation, policy, arbitration, and safety controllers with optional transport adapters. |
-| `blacknode-ros2` | ROS 2 graph discovery, topics, services, native/rosbridge transport, managed processes, and diagnostics. |
-| `blacknode-perception` | Camera, tracking, VLM, and spatial-perception components, organized as selectable components. |
-| `blacknode-dataset` | Blacknode-native episode journals, synchronized robot/camera recording, dataset validation, HDF5 and structured Parquet/MP4 export profiles, and explicit repository publishing. |
-| `blacknode-training` | PyTorch action-chunking training from Blacknode HDF5 episodes, managed jobs, resumable checkpoints, recorded-frame previews, and deployable policy artifacts. |
+| `blacknode-agent` | Persistent task memory and executive planning, mission execution, skill selection, confirmation, and review. |
+| `blacknode-motion` | Arm and base planning, trajectories, execution, learned policies, arbitration, and motion safety. |
+| `blacknode-cuda` | CUDA capability, image-processing, tensor-operation, and optional benchmark components backed by internal kernels. |
+| `blacknode-dataset` | Default recording, replay, and validation with optional evaluation, export, and repository publishing. |
+| `blacknode-drivers` | Selectively enabled concrete physical drivers; the `feetech` component provides inert bus configuration, read-only probing, and torque-safe bus primitives. |
 | `blacknode-isaac` | Direct closed-loop policy deployment using Isaac Sim articulation state, named RGB sensors, safety-gated targets, and runtime replay logs. |
+| `blacknode-perception` | Camera, tracking, VLM, and spatial-perception components, organized as selectable components. |
+| `blacknode-robot` | Robot contracts, profiles, calibration, connected-device discovery and lifecycle, normalized telemetry, driver descriptors, and driver process launch. |
+| `blacknode-ros2` | Native DDS graph, topic, service, and diagnostic integration with optional rosbridge and managed processes. |
+| `blacknode-runtime` | Authenticated remote deployment, target manifests, process supervision, logs, and rollback on Raspberry Pi, Jetson, and Linux targets. |
+| `blacknode-skills` | Task-level follow, pick-place, delivery, docking, and inspection behavior over stable capabilities. |
+| `blacknode-training` | Optional dataset checks, managed jobs, checkpoints, policy previews, and deployable policy artifacts for training workloads. |
 
-Keep the layers separate: `blacknode-robot` owns profiles, calibration, and the
-generic robot contract; `blacknode-drivers` owns physical protocol access and
-driver-boundary safeguards; and `blacknode-ros2` owns ROS graph and transport
-behavior. Optional adapters stay nested under the component they integrate.
+Keep the layers separate: `blacknode-robot` owns profiles, calibration,
+connected devices, normalized telemetry, and the generic robot contract;
+`blacknode-drivers` owns concrete physical drivers, their internal protocol
+access, and driver-boundary safeguards; and
+`blacknode-ros2` owns ROS graph and transport behavior. Optional adapters stay
+nested under the component they integrate. Serial, CAN, and USB helpers remain
+private implementation details of concrete drivers rather than selectable
+components.
 
 A node named `ROS2*` is not automatically a `blacknode-ros2` node. The
 integration layer owns only transport-agnostic ROS primitives; a node *about*
 a capability belongs to the capability's package as a ROS 2 adapter component
 that requires `blacknode-ros2/core`. That is why `CameraROS2Subscribe` lives in
 `blacknode-perception` (`camera/ros2`) and `ROS2SetJoint` in
-`blacknode-controllers` (`joint-control/ros2`). Dependencies point one way
+`blacknode-motion` (`arm/ros2`). Dependencies point one way
 only — capability adapters depend on the integration layer, never the reverse
 — so a second transport can be added as a sibling adapter later without
 reorganizing any capability package. Each capability package also ships its
@@ -325,11 +332,11 @@ requires = [
   { package = "blacknode-ros2", component = "core", version = ">=0.2.0,<1.0.0" }
 ]
 
-[components.stm32]
-description = "STM32 serial bridge."
-default = false
-nodes = ["components/stm32/nodes"]
 ```
+
+Manifests describe usable capabilities. Keep design notes for planned driver
+families in source control, then add a public component when its implementation,
+dependencies, safety behavior, unavailable state, and tests exist.
 
 The Packages UI groups installed and available packages by `layer`. Official
 catalog entries provide a layer for older manifests that do not declare one;
@@ -426,7 +433,7 @@ Lockfile reproduction and version selection across multiple compatible remote
 releases remain future resolver stages.
 
 The initial organizational layers are `skills`, `agent`, `robot`,
-`perception`, `controllers`, and `drivers`. `ros2` identifies the horizontal
+`perception`, `motion`, and `drivers`. `ros2` identifies the horizontal
 ROS graph and transport layer. `learning`, `compute`, and `simulation`
 identify supporting packages such as training, CUDA, and simulator adapters.
 

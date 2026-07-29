@@ -16,7 +16,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-runtime.git",
-            "description": "Authenticated remote deployment, runtime inspection, supervision, logs, and rollback.",
+            "description": "Authenticated component loading, dependency resolution, workflow execution, supervision, configuration, logs, and rollback.",
             "node_types": []
         },
         "blacknode-skills": {
@@ -30,7 +30,6 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "follow": {
                     "name": "follow",
-                    "aliases": ["follow-person"],
                     "default": False,
                     "node_types": [],
                     "adapters": {
@@ -44,12 +43,6 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                                 "ROS2PublishJointState",
                                 "ROS2SubscribeJointState",
                                 "ROS2JointController",
-                                "ROS2JointStatePublish",
-                                "ROS2JointSubscribe",
-                                "ROS2JointReplicate",
-                                "ROS2JointPublish",
-                                "ROS2LeaderJointSubscriber",
-                                "ROS2FollowerJointPublisher",
                                 "ROS2NativeFollowDetectionJoint"
                             ]
                         }
@@ -80,12 +73,6 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "ROS2PublishJointState",
                 "ROS2SubscribeJointState",
                 "ROS2JointController",
-                "ROS2JointStatePublish",
-                "ROS2JointSubscribe",
-                "ROS2JointReplicate",
-                "ROS2JointPublish",
-                "ROS2LeaderJointSubscriber",
-                "ROS2FollowerJointPublisher",
                 "ROS2NativeFollowDetectionJoint"
             ]
         },
@@ -93,23 +80,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "name": "blacknode-agent",
             "layer": "agent",
             "components": {
-                "planner": {
-                    "name": "planner",
-                    "default": False,
-                    "node_types": []
-                },
-                "skill-registry": {
-                    "name": "skill-registry",
-                    "default": False,
-                    "node_types": []
-                },
-                "mission-review": {
-                    "name": "mission-review",
-                    "default": False,
-                    "node_types": []
-                },
-                "confirmation": {
-                    "name": "confirmation",
+                "executive": {
+                    "name": "executive",
                     "default": False,
                     "node_types": []
                 },
@@ -126,7 +98,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-agent.git",
-            "description": "Planning, memory, review, confirmation, and skill orchestration.",
+            "description": "Persistent memory and executive mission orchestration.",
             "node_types": [
                 "AdaptationRecommendation",
                 "EpisodeMemoryIngest",
@@ -135,31 +107,46 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "TaskEvaluationRecord"
             ]
         },
-        "blacknode-controllers": {
-            "name": "blacknode-controllers",
-            "layer": "controllers",
+        "blacknode-motion": {
+            "name": "blacknode-motion",
+            "layer": "motion",
             "components": {
-                "joint-control": {
-                    "name": "joint-control",
+                "core": {
+                    "name": "core",
+                    "default": False,
+                    "node_types": []
+                },
+                "arm": {
+                    "name": "arm",
                     "default": True,
-                    "node_types": [],
+                    "node_types": [
+                        "JointMotionProfile"
+                    ],
                     "adapters": {
                         "ros2": {
                             "name": "ros2",
                             "default": True,
                             "node_types": [
-                                "JointMotionProfile",
                                 "ROS2JointSliders",
                                 "ROS2JointState",
                                 "ROS2ManualMove",
                                 "ROS2MotionDashboard",
                                 "ROS2SetJoint"
-                            ]
+                            ],
+                            "dependencies": {
+                                "requires": [
+                                    {
+                                        "package": "blacknode-ros2",
+                                        "component": "core",
+                                        "version": ">=0.5.6,<1.0.0"
+                                    }
+                                ]
+                            }
                         }
                     }
                 },
-                "mobile-base": {
-                    "name": "mobile-base",
+                "base": {
+                    "name": "base",
                     "default": False,
                     "node_types": [],
                     "adapters": {
@@ -172,19 +159,18 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                                 "ROS2BaseStop",
                                 "ROS2LaserScanCheck",
                                 "ROS2OdomState"
-                            ]
+                            ],
+                            "dependencies": {
+                                "requires": [
+                                    {
+                                        "package": "blacknode-ros2",
+                                        "component": "rosbridge",
+                                        "version": ">=0.5.8,<1.0.0"
+                                    }
+                                ]
+                            }
                         }
                     }
-                },
-                "nav2": {
-                    "name": "nav2",
-                    "default": False,
-                    "node_types": []
-                },
-                "manipulation": {
-                    "name": "manipulation",
-                    "default": False,
-                    "node_types": []
                 },
                 "policy": {
                     "name": "policy",
@@ -197,23 +183,27 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             "node_types": [
                                 "PolicyRuntime",
                                 "PolicySafetyGate"
-                            ]
+                            ],
+                            "dependencies": {
+                                "requires": [
+                                    {
+                                        "package": "blacknode-ros2",
+                                        "component": "rosbridge",
+                                        "version": ">=0.5.8,<1.0.0"
+                                    }
+                                ]
+                            }
                         }
                     }
                 },
-                "command-arbitration": {
-                    "name": "command-arbitration",
-                    "default": False,
-                    "node_types": []
-                },
-                "safety-supervisors": {
-                    "name": "safety-supervisors",
+                "safety": {
+                    "name": "safety",
                     "default": False,
                     "node_types": []
                 }
             },
-            "git_url": "https://github.com/temiroff/blacknode-controllers.git",
-            "description": "Generic motion, manipulation, policy, arbitration, and safety controllers.",
+            "git_url": "https://github.com/temiroff/blacknode-motion.git",
+            "description": "Arm and base planning, trajectory generation, execution, policy, arbitration, and motion safety.",
             "node_types": [
                 "BaseSafetyGate",
                 "JointMotionProfile",
@@ -252,48 +242,13 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                                 "requires": [
                                     {
                                         "package": "blacknode-ros2",
-                                        "component": "core",
-                                        "version": ">=0.2.0,<1.0.0"
+                                        "component": "rosbridge",
+                                        "version": ">=0.5.8,<1.0.0"
                                     }
                                 ]
                             }
                         }
                     }
-                },
-                "stm32": {
-                    "name": "stm32",
-                    "default": False,
-                    "node_types": []
-                },
-                "serial": {
-                    "name": "serial",
-                    "default": False,
-                    "node_types": []
-                },
-                "can": {
-                    "name": "can",
-                    "default": False,
-                    "node_types": []
-                },
-                "usb": {
-                    "name": "usb",
-                    "default": False,
-                    "node_types": []
-                },
-                "motor-controllers": {
-                    "name": "motor-controllers",
-                    "default": False,
-                    "node_types": []
-                },
-                "sensor-drivers": {
-                    "name": "sensor-drivers",
-                    "default": False,
-                    "node_types": []
-                },
-                "vendor-adapters": {
-                    "name": "vendor-adapters",
-                    "default": False,
-                    "node_types": []
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-drivers.git",
@@ -316,14 +271,6 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "GPURequirement"
                     ]
                 },
-                "kernels": {
-                    "name": "kernels",
-                    "default": True,
-                    "node_types": [
-                        "CUDACustomKernel",
-                        "CUDAKernelLab"
-                    ]
-                },
                 "image-processing": {
                     "name": "image-processing",
                     "default": True,
@@ -342,19 +289,17 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "benchmarks": {
                     "name": "benchmarks",
-                    "default": True,
+                    "default": False,
                     "node_types": [
                         "CUTLASSGemm"
                     ]
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-cuda.git",
-            "description": "Real GPU compute nodes: CUDA kernel lab, custom NVRTC kernels, GPU image filters, Tensor Core GEMM, and CUTLASS.",
+            "description": "GPU capability checks, image processing, tensor operations, and optional benchmarks.",
             "node_types": [
-                "CUDACustomKernel",
                 "CUDAImageFilter",
                 "CUDAImageFilterStream",
-                "CUDAKernelLab",
                 "CUTLASS",
                 "CUTLASSGemm",
                 "GPUCapability",
@@ -373,7 +318,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "rosbridge": {
                     "name": "rosbridge",
-                    "default": True,
+                    "default": False,
                     "node_types": [
                         "ROS2BridgeEcho",
                         "ROS2BridgePublish",
@@ -410,7 +355,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "processes": {
                     "name": "processes",
-                    "default": True,
+                    "default": False,
                     "node_types": [
                         "ROS2Launch",
                         "ROS2PackageExecutables",
@@ -520,6 +465,25 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "RobotUSBDiscovery"
                     ]
                 },
+                "devices": {
+                    "name": "devices",
+                    "default": True,
+                    "node_types": [
+                        "HardwareCapabilities"
+                    ]
+                },
+                "telemetry": {
+                    "name": "telemetry",
+                    "default": True,
+                    "node_types": [],
+                    "adapters": {
+                        "mqtt": {
+                            "name": "mqtt",
+                            "default": False,
+                            "node_types": []
+                        }
+                    }
+                },
                 "authorization": {
                     "name": "authorization",
                     "default": False,
@@ -527,8 +491,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-robot.git",
-            "description": "Generic robot setup: USB discovery, serial permission diagnostics, driver launch, and standard robot profiles.",
+            "description": "Robot contracts, connected-device lifecycle, normalized telemetry, profiles, and driver launch.",
             "node_types": [
+                "HardwareCapabilities",
                 "Robot",
                 "RobotAttachment",
                 "RobotAttachmentList",
@@ -713,14 +678,14 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "evaluation": {
                     "name": "evaluation",
-                    "default": True,
+                    "default": False,
                     "node_types": [
                         "EpisodeEvaluator"
                     ]
                 },
                 "export": {
                     "name": "export",
-                    "default": True,
+                    "default": False,
                     "node_types": [
                         "HDF5EpisodeExport",
                         "LeRobotV3Export"
@@ -728,7 +693,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "publishing": {
                     "name": "publishing",
-                    "default": True,
+                    "default": False,
                     "node_types": [
                         "BlacknodeHubExport",
                         "HuggingFaceDatasetUpload",
@@ -762,28 +727,28 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "components": {
                 "dataset-check": {
                     "name": "dataset-check",
-                    "default": True,
+                    "default": False,
                     "node_types": [
                         "TrainingDatasetCheck"
                     ]
                 },
                 "training-jobs": {
                     "name": "training-jobs",
-                    "default": True,
+                    "default": False,
                     "node_types": [
                         "ACTTraining"
                     ]
                 },
                 "checkpoints": {
                     "name": "checkpoints",
-                    "default": True,
+                    "default": False,
                     "node_types": [
                         "ACTCheckpointInspect"
                     ]
                 },
                 "policy-preview": {
                     "name": "policy-preview",
-                    "default": True,
+                    "default": False,
                     "node_types": [
                         "ACTPolicyPreview",
                         "ACTPolicyReplay"
@@ -791,7 +756,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "policy-artifacts": {
                     "name": "policy-artifacts",
-                    "default": True,
+                    "default": False,
                     "node_types": [
                         "ACTPolicyExport",
                         "PolicyArtifactLoad"
@@ -821,7 +786,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "dependencies": {
                         "requires": [
                             {
-                                "package": "blacknode-controllers",
+                                "package": "blacknode-motion",
                                 "component": "policy",
                                 "version": ">=0.1.0,<1.0.0"
                             }
