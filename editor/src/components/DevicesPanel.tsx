@@ -2259,7 +2259,7 @@ export default function DevicesPanel() {
     }
     throw new Error(
       expected
-        ? 'Follower did not confirm physical torque within 8 seconds.'
+        ? 'Follower did not confirm physical torque within 8 seconds. Verify the leader publisher deployment is running with a fresh JointState stream, then check follower power and bus.'
         : 'Follower did not confirm torque release within 8 seconds.',
     )
   }

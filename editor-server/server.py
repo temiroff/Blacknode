@@ -6026,6 +6026,11 @@ def _workflow_requires_deployment_telemetry(workflow: dict[str, Any]) -> bool:
         "RobotDriverLauncher",
         "ROS2JointSliders",
         "ROS2LeaderFollower",
+        "ROS2PublishJointState",
+        "ROS2SubscribeJointState",
+        "ROS2JointController",
+        "ROS2JointStatePublish",
+        "ROS2JointReplicate",
         "ROS2JointSubscribe",
         "ROS2JointPublish",
         "ROS2FollowerJointPublisher",
@@ -6062,6 +6067,8 @@ def _workflow_motion_controls(workflow: dict[str, Any]) -> list[dict[str, str]]:
             not isinstance(meta, dict)
             or str(meta.get("type") or "") not in {
                 "ROS2LeaderFollower",
+                "ROS2JointController",
+                "ROS2JointReplicate",
                 "ROS2JointPublish",
                 "ROS2FollowerJointPublisher",
             }
@@ -6092,6 +6099,8 @@ def _disarm_workflow_motion_controls(workflow: dict[str, Any]) -> list[str]:
         if isinstance(meta, dict)
         and str(meta.get("type") or "") in {
             "ROS2LeaderFollower",
+            "ROS2JointController",
+            "ROS2JointReplicate",
             "ROS2JointPublish",
             "ROS2FollowerJointPublisher",
         }
