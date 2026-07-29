@@ -987,7 +987,7 @@ rm -rf -- "$target_private"
 mv -- "$temporary_private" "$target_private"
 (
   cd "$target"
-  BLACKNODE_HARDWARE_INSTANCE="" ./install-service.sh --all
+  BLACKNODE_HARDWARE_INSTANCE="" bash ./install-service.sh --all
 )
 for unit in "${legacy_units[@]}"; do
   directory="$(
@@ -1113,7 +1113,7 @@ fi
   echo "The organized Hardware package is missing or invalid: $target" >&2
   exit 4
 }
-[[ -x "$target/.venv/bin/python" && -x "$target/configure.sh" ]] || {
+[[ -x "$target/.venv/bin/python" && -f "$target/configure.sh" ]] || {
   echo "The organized Hardware environment is not set up: $target" >&2
   exit 4
 }
@@ -1158,7 +1158,7 @@ fi
   cd "$target"
   BLACKNODE_HARDWARE_INSTANCE="$service_instance" \
     BLACKNODE_RUNTIME_PORT="$runtime_port" \
-    ./configure.sh --all --install
+    bash ./configure.sh --all --install
 )
 
 for unit in "${orphan_units[@]}"; do
@@ -1353,7 +1353,7 @@ fi
 progress 50 "Setting up the Robot Hardware environment"
 (
   cd "$hardware_dir"
-  BLACKNODE_HARDWARE_INSTANCE="$service_instance" ./setup_ubuntu.sh
+  BLACKNODE_HARDWARE_INSTANCE="$service_instance" bash ./setup_ubuntu.sh
 )
 progress 88 "Recording the complete device stack"
 python3 - "$stack_root/install.json" "$instance" "$runtime_dir" "$hardware_dir" <<'PY'
@@ -1778,10 +1778,10 @@ progress 58 "Creating the Python environment"
 BLACKNODE_AUTH_TOKEN_FILE="$token_file" \
 BLACKNODE_RUNTIME_PORT="$runtime_port" \
 BLACKNODE_RUNTIME_INSTANCE="$service_instance" \
-./setup_ubuntu.sh
+bash ./setup_ubuntu.sh
 if [[ -n "$service_instance" ]]; then
   progress 78 "Configuring the independent instance"
-  BLACKNODE_RUNTIME_INSTANCE="$service_instance" ./configure.sh \
+  BLACKNODE_RUNTIME_INSTANCE="$service_instance" bash ./configure.sh \
     --device-id "$(hostname)-$service_instance"
 fi
 if [[ "$complete_stack" == true && ! -d "$hardware_dir" ]]; then
@@ -1796,7 +1796,7 @@ if [[ "$complete_stack" == true && ! -d "$hardware_dir" ]]; then
   fi
   (
     cd "$hardware_dir"
-    BLACKNODE_HARDWARE_INSTANCE="$service_instance" ./setup_ubuntu.sh
+    BLACKNODE_HARDWARE_INSTANCE="$service_instance" bash ./setup_ubuntu.sh
   )
 elif [[ "$complete_stack" == true ]]; then
   [[ -d "$hardware_dir/.git" && -f "$hardware_dir/pyproject.toml" ]] || {
@@ -1813,7 +1813,7 @@ rm -f -- "$port_file"
 port_file=""
 BLACKNODE_RUNTIME_PORT="$runtime_port" \
 BLACKNODE_RUNTIME_INSTANCE="$service_instance" \
-./install-service.sh
+bash ./install-service.sh
 if [[ "${#active_sibling_services[@]}" -gt 0 ]]; then
   progress 92 "Verifying existing runtimes and robot services"
   for sibling_service in "${active_sibling_services[@]}"; do
@@ -2205,7 +2205,7 @@ stop_verified_manual_hardware() {
 }
 
 install_persistent_hardware_services() {
-  [[ -x "$hardware_repo/install-service.sh" ]] || {
+  [[ -f "$hardware_repo/install-service.sh" ]] || {
     echo "Repair Hardware requires $hardware_repo/install-service.sh." >&2
     return 1
   }
@@ -2260,12 +2260,12 @@ PY
   if [[ -f "$hardware_repo/.blacknode-hardware/devices.json" ]]; then
     (
       cd "$hardware_repo"
-      ./install-service.sh --all
+      bash ./install-service.sh --all
     )
   elif [[ "${#hardware_ports[@]}" -eq 1 ]]; then
     (
       cd "$hardware_repo"
-      BLACKNODE_HARDWARE_PORT="${hardware_ports[0]}" ./install-service.sh
+      BLACKNODE_HARDWARE_PORT="${hardware_ports[0]}" bash ./install-service.sh
     )
   else
     echo "Multiple Hardware ports require a saved multi-robot configuration. Run ./configure.sh --all before Repair Hardware." >&2
@@ -2760,6 +2760,7 @@ def inspect(kind, repository, service, port, directory):
         "latest": {{"version": "unknown", "commit": ""}},
         "update_available": False,
         "can_update": False,
+        "migration_required": False,
         "dirty": False,
         "state": command(["systemctl", "is-active", service]).stdout.strip() or "unknown",
         "error": "",
@@ -2770,13 +2771,27 @@ def inspect(kind, repository, service, port, directory):
         origin = command(["git", "-C", str(directory), "remote", "get-url", "origin"])
         origin_url = origin.stdout.strip()
         normalized = origin_url.lower().removesuffix(".git").rstrip("/")
-        if not re.search(
+        trusted_origin = bool(re.search(
             rf"(?:github\.com[:/])temiroff/{{re.escape(repository)}}$",
             normalized,
-        ):
+        ))
+        legacy_hardware_origin = bool(
+            repository == "blacknode-robot"
+            and re.search(
+                r"(?:github\.com[:/])temiroff/blacknode-hardware$",
+                normalized,
+            )
+        )
+        if not trusted_origin and not legacy_hardware_origin:
             raise RuntimeError(
                 f"origin is not the trusted temiroff/{{repository}} repository"
             )
+        component["migration_required"] = legacy_hardware_origin
+        latest_origin_url = (
+            "https://github.com/temiroff/blacknode-robot.git"
+            if legacy_hardware_origin
+            else origin_url
+        )
         current = command(["git", "-C", str(directory), "rev-parse", "HEAD"])
         if current.returncode:
             raise RuntimeError(current.stderr.strip() or "could not read installed commit")
@@ -2785,24 +2800,48 @@ def inspect(kind, repository, service, port, directory):
             "git", "-C", str(directory), "status", "--porcelain", "--untracked-files=normal"
         ])
         component["dirty"] = bool(dirty.stdout.strip())
-        branch = command([
-            "git", "-C", str(directory), "rev-parse", "--abbrev-ref", "HEAD",
-        ]).stdout.strip()
-        upstream = command([
-            "git", "-C", str(directory), "config", "--get",
-            f"branch.{{branch}}.merge",
-        ])
-        upstream_ref = upstream.stdout.strip()
-        if not upstream_ref.startswith("refs/heads/"):
-            raise RuntimeError("the installed branch has no upstream configured")
-        latest = command(["git", "ls-remote", origin_url, upstream_ref], timeout=45)
+        if legacy_hardware_origin:
+            remote_head = command(
+                ["git", "ls-remote", "--symref", latest_origin_url, "HEAD"],
+                timeout=45,
+            )
+            upstream_ref = next(
+                (
+                    line.split()[1]
+                    for line in remote_head.stdout.splitlines()
+                    if line.startswith("ref:") and line.endswith("\tHEAD")
+                ),
+                "",
+            )
+            if remote_head.returncode or not upstream_ref.startswith("refs/heads/"):
+                raise RuntimeError(
+                    remote_head.stderr.strip()
+                    or "could not resolve the blacknode-robot default branch"
+                )
+        else:
+            branch = command([
+                "git", "-C", str(directory), "rev-parse", "--abbrev-ref", "HEAD",
+            ]).stdout.strip()
+            upstream = command([
+                "git", "-C", str(directory), "config", "--get",
+                f"branch.{{branch}}.merge",
+            ])
+            upstream_ref = upstream.stdout.strip()
+            if not upstream_ref.startswith("refs/heads/"):
+                raise RuntimeError("the installed branch has no upstream configured")
+        latest = command(
+            ["git", "ls-remote", latest_origin_url, upstream_ref],
+            timeout=45,
+        )
         if latest.returncode or not latest.stdout.strip():
             raise RuntimeError(
                 latest.stderr.strip() or "could not read the latest upstream commit"
             )
         latest_commit = latest.stdout.split()[0]
         component["latest"]["commit"] = latest_commit[:12]
-        component["update_available"] = current.stdout.strip() != latest_commit
+        component["update_available"] = (
+            legacy_hardware_origin or current.stdout.strip() != latest_commit
+        )
         if not component["update_available"]:
             component["latest"]["version"] = component["installed"]["version"]
         else:
@@ -2824,8 +2863,16 @@ def inspect(kind, repository, service, port, directory):
                         )
                 except Exception:
                     pass
-        component["can_update"] = not component["dirty"]
-        if component["dirty"]:
+        component["can_update"] = (
+            not component["dirty"] and not legacy_hardware_origin
+        )
+        if legacy_hardware_origin:
+            component["error"] = (
+                "Migration required: this service uses the legacy "
+                "temiroff/blacknode-hardware repository. Replace it with "
+                "temiroff/blacknode-robot before updating."
+            )
+        elif component["dirty"]:
             component["error"] = (
                 "Local source changes must be committed, stashed, or removed before update."
             )
@@ -2869,6 +2916,7 @@ for target in request["hardware_targets"]:
             "latest": {{"version": "unknown", "commit": ""}},
             "update_available": False,
             "can_update": False,
+            "migration_required": False,
             "dirty": False,
             "state": "unknown",
             "error": str(exc),

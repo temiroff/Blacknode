@@ -1251,6 +1251,26 @@ html[data-theme="light"] .bn-logo-image-light {
   color: var(--warn);
 }
 
+.bn-local-package-versions .is-latest.is-check-failed {
+  border-color: color-mix(in srgb, var(--err) 55%, var(--line2));
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+  color: var(--err);
+}
+
+.bn-local-package-versions .is-latest.is-current-release {
+  color: var(--ok);
+}
+
+.bn-local-package-versions .is-latest.is-update-available {
+  color: var(--accent);
+}
+
+.bn-local-package-versions .is-latest.is-migration-required {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--line2));
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: var(--warn);
+}
+
 .bn-local-package-version-action {
   display: flex;
   margin-top: auto;
@@ -1290,6 +1310,39 @@ html[data-theme="light"] .bn-logo-image-light {
   color: var(--ok);
   font-size: 11px;
   font-weight: 700;
+}
+
+.bn-local-package-version-unavailable {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--err) 45%, var(--line2));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--err) 8%, transparent);
+  color: var(--err);
+  font-size: 11px;
+}
+
+.bn-local-package-version-unavailable strong {
+  font-size: 11px;
+}
+
+.bn-local-package-version-unavailable span {
+  color: var(--tx2);
+  line-height: 1.35;
+}
+
+.bn-local-package-version-unavailable button {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--err);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
 }
 
 .bn-local-package-state {
@@ -6731,6 +6784,30 @@ html[data-ui-test="refined"] .bn-local-package-versions small {
   text-transform: none;
 }
 
+html[data-ui-test="refined"] .bn-local-package-versions > .is-current {
+  color: var(--ok);
+}
+
+html[data-ui-test="refined"] .bn-local-package-versions > .is-latest.is-current-release {
+  color: var(--ok);
+}
+
+html[data-ui-test="refined"] .bn-local-package-versions > .is-latest.is-update-available {
+  color: var(--accent);
+}
+
+html[data-ui-test="refined"] .bn-local-package-versions > .is-latest.is-migration-required {
+  color: var(--warn);
+}
+
+html[data-ui-test="refined"] .bn-local-package-versions > .is-latest.is-not-checked {
+  color: var(--warn);
+}
+
+html[data-ui-test="refined"] .bn-local-package-versions > .is-latest.is-check-failed {
+  color: var(--err);
+}
+
 html[data-ui-test="refined"] .bn-local-package-state {
   color: var(--tx3);
   font-family: var(--font-ui);
@@ -6746,7 +6823,8 @@ html[data-ui-test="refined"] .bn-local-package-version-action {
 
 html[data-ui-test="refined"] .bn-local-package-check-latest,
 html[data-ui-test="refined"] .bn-local-package-update-available,
-html[data-ui-test="refined"] .bn-local-package-version-current {
+html[data-ui-test="refined"] .bn-local-package-version-current,
+html[data-ui-test="refined"] .bn-local-package-version-unavailable {
   width: auto;
   border: 0;
   border-radius: 7px;

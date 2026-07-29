@@ -863,6 +863,24 @@ export default function DevicesPanel({
   )
     ? `v${checkedHardwareInstallation.latest.version}`
     : null
+  const runtimeLatestVersionError = updateCheckReport
+    ? checkedRuntimeInstallation?.error
+      || (!runtimeLatestVersion && checkedRuntimeComponents.length === 0
+        ? 'The Runtime package was not included in the update check.'
+        : !runtimeLatestVersion
+          ? 'The Runtime repository was found, but its latest package version could not be read.'
+          : '')
+    : ''
+  const hardwareLatestVersionError = updateCheckReport
+    ? checkedHardwareInstallation?.error
+      || (!hardwareLatestVersion && checkedHardwareComponents.length === 0
+        ? selectedDevice?.robots.length
+          ? 'No attached Robot service was included in the update check.'
+          : 'Attach a robot service to this device before checking the Robot package.'
+        : !hardwareLatestVersion
+          ? 'The Robot repository was found, but its latest package version could not be read.'
+          : '')
+    : ''
   const remoteHardwareServices = selectedDevice?.robots
     .map(robot => `${robot.name}: ${robot.base_url}`)
     .join('\n') || ''
@@ -3544,6 +3562,11 @@ export default function DevicesPanel({
                   state={selectedRuntimePackageState}
                   currentVersion={runtimeCurrentVersion}
                   latestVersion={runtimeLatestVersion}
+                  latestChecked={Boolean(updateCheckReport)}
+                  latestError={runtimeLatestVersionError}
+                  migrationRequired={Boolean(
+                    checkedRuntimeInstallation?.migration_required,
+                  )}
                   installed={selectedDeviceState?.runtime?.installed !== false}
                   updateAvailable={checkedRuntimeComponents.some(
                     component => component.update_available,
@@ -3594,6 +3617,11 @@ export default function DevicesPanel({
                     state={selectedHardwarePackageState}
                     currentVersion={hardwareCurrentVersion}
                     latestVersion={hardwareLatestVersion}
+                    latestChecked={Boolean(updateCheckReport)}
+                    latestError={hardwareLatestVersionError}
+                    migrationRequired={Boolean(
+                      checkedHardwareInstallation?.migration_required,
+                    )}
                     installed={
                       selectedDeviceManagedLocally
                         ? selectedDeviceState?.runtime?.hardware?.installed !== false
@@ -4877,6 +4905,9 @@ function SoftwarePackageSummaryCard({
   state,
   currentVersion,
   latestVersion,
+  latestChecked,
+  latestError,
+  migrationRequired,
   installed,
   updateAvailable,
   busy,
@@ -4896,6 +4927,9 @@ function SoftwarePackageSummaryCard({
   state: string
   currentVersion: string
   latestVersion: string | null
+  latestChecked: boolean
+  latestError?: string
+  migrationRequired?: boolean
   installed: boolean
   updateAvailable: boolean
   busy: boolean
@@ -4944,9 +4978,24 @@ function SoftwarePackageSummaryCard({
               <small>Current</small>
               <b>{currentVersion}</b>
             </span>
-            <span className={latestVersion ? 'is-latest' : 'is-latest is-not-checked'}>
+            <span
+              className={`is-latest${
+                latestVersion
+                  ? migrationRequired
+                    ? ' is-migration-required'
+                    : updateAvailable
+                    ? ' is-update-available'
+                    : ' is-current-release'
+                  : latestChecked
+                    ? ' is-check-failed'
+                    : ' is-not-checked'
+              }`}
+              title={latestError || undefined}
+            >
               <small>Latest</small>
-              <b>{latestVersion ?? 'Not checked'}</b>
+              <b>
+                {latestVersion ?? (latestChecked ? 'Unavailable' : 'Not checked')}
+              </b>
             </span>
           </div>
         </div>
@@ -4958,7 +5007,23 @@ function SoftwarePackageSummaryCard({
       <code title={path}>{path}</code>
       {detail && <small>{detail}</small>}
       <div className="bn-local-package-version-action">
-        {!latestVersion ? (
+        {latestError ? (
+          <div className="bn-local-package-version-unavailable" role="alert">
+            <strong>
+              {migrationRequired ? 'Package migration required' : 'Latest version unavailable'}
+            </strong>
+            <span>{latestError}</span>
+            {!migrationRequired && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onCheckLatest}
+              >
+                {busy ? 'Checking…' : 'Retry check'}
+              </button>
+            )}
+          </div>
+        ) : !latestVersion ? (
           <button
             type="button"
             className="bn-local-package-check-latest"

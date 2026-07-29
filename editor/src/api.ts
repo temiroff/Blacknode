@@ -575,6 +575,7 @@ export interface ManagedServiceUpdateCheckResult {
       reported_version?: string
       update_available: boolean
       can_update: boolean
+      migration_required?: boolean
       dirty: boolean
       state: string
       error: string

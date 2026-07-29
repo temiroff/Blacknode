@@ -750,7 +750,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             uploaded[0],
         )
         self.assertIn(
-            'BLACKNODE_HARDWARE_INSTANCE="$service_instance" ./setup_ubuntu.sh',
+            'BLACKNODE_HARDWARE_INSTANCE="$service_instance" bash ./setup_ubuntu.sh',
             uploaded[0],
         )
         remote_python = uploaded[0].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
@@ -813,7 +813,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn('legacy="$HOME/blacknode-hardware"', uploaded[0])
         self.assertIn('cp -a -- "$legacy_private" "$temporary_private"', uploaded[0])
         self.assertIn(
-            'BLACKNODE_HARDWARE_INSTANCE="" ./install-service.sh --all',
+            'BLACKNODE_HARDWARE_INSTANCE="" bash ./install-service.sh --all',
             uploaded[0],
         )
         self.assertIn(
@@ -1247,6 +1247,10 @@ class EditorDeviceApiTests(unittest.TestCase):
 
         self.assertTrue(result["components"][0]["update_available"])
         self.assertIn('"git", "ls-remote"', commands[0])
+        self.assertIn('"ls-remote", "--symref"', commands[0])
+        self.assertIn("temiroff/blacknode-hardware", commands[0])
+        self.assertIn('"migration_required": False', commands[0])
+        self.assertIn("Migration required:", commands[0])
         self.assertIn("raw.githubusercontent.com", commands[0])
         self.assertIn('"status", "--porcelain"', commands[0])
         self.assertNotIn('"fetch"', commands[0])
