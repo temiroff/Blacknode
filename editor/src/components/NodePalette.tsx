@@ -163,6 +163,7 @@ export default function NodePalette() {
   const [showPackageWelcome, setShowPackageWelcome] = useState(false)
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const [deploymentTargetId, setDeploymentTargetId] = useState('')
+  const [deploymentReturnTab, setDeploymentReturnTab] = useState<Tab>('devices')
   const [templateSearch, setTemplateSearch] = useState('')
   const [templateOpenInNewTab, setTemplateOpenInNewTab] = useState(false)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
@@ -174,6 +175,9 @@ export default function NodePalette() {
   }
 
   const openPanel = (tab: Tab) => {
+    if (tab === 'deployments' && activeTab && activeTab !== 'deployments') {
+      setDeploymentReturnTab(activeTab)
+    }
     setActiveTab(tab)
     if (tab === 'templates') {
       setTemplateSearch('')
@@ -789,7 +793,7 @@ export default function NodePalette() {
               <DeploymentsPanel
                 onOpenTemplates={openTemplateGuide}
                 targetDeviceId={deploymentTargetId}
-                onBackToDevices={() => openPanel('devices')}
+                onBack={() => openPanel(deploymentReturnTab)}
               />
             )}
 

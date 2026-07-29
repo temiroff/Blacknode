@@ -27,3 +27,15 @@ def test_backend_failure_does_not_open_the_first_run_welcome():
     assert "setShowPackageWelcome(true)" not in failure_handler
     assert "setActiveTab('packages')" not in failure_handler
     assert "A backend outage is not first-run state." in failure_handler
+
+
+def test_deployments_back_returns_to_the_previous_panel():
+    palette = (ROOT / "editor" / "src" / "components" / "NodePalette.tsx").read_text(encoding="utf-8")
+    deployments = (ROOT / "editor" / "src" / "components" / "DeploymentsPanel.tsx").read_text(encoding="utf-8")
+
+    assert "deploymentReturnTab" in palette
+    assert "activeTab !== 'deployments'" in palette
+    assert "setDeploymentReturnTab(activeTab)" in palette
+    assert "onBack={() => openPanel(deploymentReturnTab)}" in palette
+    assert "onBackToDevices" not in deployments
+    assert "<span>Back</span>" in deployments
