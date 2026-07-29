@@ -10,6 +10,7 @@ def test_template_gallery_groups_are_collapsed_by_default():
     ).read_text(encoding="utf-8")
 
     assert "useState<Set<string>>(() => new Set())" in source
+    assert "new Set([templateGroups[0].name])" not in source
     assert "template.group || 'Core'" in source
     assert "aria-expanded={isExpanded}" in source
     assert "isExpanded && group.templates.map" in source
