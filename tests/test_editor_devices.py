@@ -4426,15 +4426,23 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "age_seconds": 0.01,
                 "stale": False,
                 "payload": {
+                    "kind": "blacknode.device-state",
+                    "schema_version": 1,
+                    "device_id": "follower-arm",
                     "connected": True,
+                    "armed": True,
                     "torque_enabled": True,
-                    "position_unit": "degree",
-                    "velocity_unit": "degree/s",
-                    "joints": [{
-                        "name": "gripper",
-                        "position": 8.0,
-                        "velocity": 2.0,
-                    }],
+                    "joint_state": {
+                        "kind": "blacknode.joint-state",
+                        "schema_version": 1,
+                        "position_unit": "radian",
+                        "velocity_unit": "radian/s",
+                        "positions": {"gripper": 0.13962634015954636},
+                        "velocities": {"gripper": 0.03490658503988659},
+                        "efforts": {},
+                        "limits": {},
+                    },
+                    "faults": [],
                 },
             }
             response = self.client.get(f"/devices/{paired['id']}/monitor")

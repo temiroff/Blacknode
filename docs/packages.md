@@ -379,6 +379,26 @@ requires = [
 ]
 ```
 
+Set `internal = true` on an implementation component that participates in
+dependency resolution but should not appear as a user-selectable package
+feature. Public dependents declare it normally under `dependencies.requires`;
+enabling the public component activates the internal dependency automatically.
+
+Compatibility component names use `aliases` plus explicit deprecation
+metadata:
+
+```toml
+[components.arm]
+aliases = ["joint-control"]
+deprecated-aliases = {
+  joint-control = { replacement = "arm", removal-version = "1.0.0" }
+}
+```
+
+Selecting a deprecated alias emits a warning containing the replacement and
+planned removal version. New manifests, templates, and documentation use the
+canonical component name.
+
 Blacknode preflights the complete graph before changing activation state. It
 installs missing official packages, safely fast-forwards a clean behind-only
 checkout when that can satisfy a version requirement, enables dependencies

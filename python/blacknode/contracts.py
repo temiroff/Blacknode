@@ -21,6 +21,7 @@ one to live yet.
 from __future__ import annotations
 
 import time
+import warnings
 from typing import Any
 
 # --- Part 1: already shipping elsewhere -------------------------------------
@@ -39,6 +40,9 @@ SHIPPING_KINDS: dict[str, str] = {
     "blacknode.replay-stream": "blacknode-dataset",
     "blacknode.sample-stream": "blacknode-ros2",
     "blacknode.latest-value-stream": "blacknode-perception",
+    "blacknode.joint-state": "blacknode-robot",
+    "blacknode.device-state": "blacknode-robot",
+    "blacknode.fault-state": "blacknode-robot",
     # Episodes / datasets
     "blacknode.episode": "blacknode-dataset",
     "blacknode.episode-journal": "blacknode-dataset",
@@ -94,7 +98,6 @@ NEW_KINDS: dict[str, str] = {
     "blacknode.point-cloud-stream": "point cloud handle",
     "blacknode.transform-stream": "frame-to-frame transform, static or dynamic",
     "blacknode.detection-stream": "a batch of detection2d/detection3d results",
-    "blacknode.robot-state-stream": "joint positions/velocities and armed state",
     # Planning / execution
     "blacknode.pose": "frame-qualified position and orientation",
     "blacknode.map": "map artifact, resolution, origin, frame, and provenance",
@@ -331,13 +334,48 @@ def detection_stream(frame: str, *, sequence: int = 0, detections: list[dict[str
 
 def robot_state_stream(
     *, sequence: int = 0, joint_positions: dict[str, float] | None = None,
-    joint_velocities: dict[str, float] | None = None, units: str = "radians", armed: bool = False,
+    joint_velocities: dict[str, float] | None = None, units: str = "radians",
+    armed: bool = False, device_id: str = "",
 ) -> dict[str, Any]:
+    """Compatibility adapter for the canonical blacknode-robot state model."""
+    warnings.warn(
+        "blacknode.contracts.robot_state_stream() is deprecated; construct "
+        "blacknode_robot.devices.DeviceState instead. Planned removal: 1.0.0.",
+        FutureWarning,
+        stacklevel=2,
+    )
+    if units not in {"radians", "radian"}:
+        raise ValueError("canonical joint state uses radians")
+    now = time.time()
     return {
-        "kind": "blacknode.robot-state-stream", "schema_version": 1,
-        **_stream_fields("base_link", sequence),
-        "joint_positions": dict(joint_positions or {}), "joint_velocities": dict(joint_velocities or {}),
-        "units": units, "armed": armed,
+        "kind": "blacknode.device-state",
+        "schema_version": 1,
+        "device_id": device_id,
+        "connected": True,
+        "armed": armed,
+        "torque_enabled": None,
+        "capabilities": [],
+        "joint_state": {
+            "kind": "blacknode.joint-state",
+            "schema_version": 1,
+            "source_time": now,
+            "receive_time": now,
+            "frame_id": "base_link",
+            "position_unit": "radian",
+            "velocity_unit": "radian/s",
+            "effort_unit": "newton-metre",
+            "positions": dict(joint_positions or {}),
+            "velocities": dict(joint_velocities or {}),
+            "efforts": {},
+            "limits": {},
+            "sequence": sequence,
+        },
+        "faults": [],
+        "temperatures_c": {},
+        "voltage_v": None,
+        "values": {},
+        "error": "",
+        "updated_at": now,
     }
 
 

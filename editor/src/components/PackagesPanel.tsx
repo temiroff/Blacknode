@@ -299,7 +299,8 @@ export default function PackagesPanel() {
         const installing = installingName === pkg.name
         const layer = packageLayer(pkg)
         const startsLayer = index === 0 || packageLayer(availablePackages[index - 1]) !== layer
-        const componentCount = Object.keys(pkg.components ?? {}).length
+        const componentCount = Object.values(pkg.components ?? {})
+          .filter(component => !component.internal).length
         const identity = packageIdentity(pkg)
         return (
           <Fragment key={pkg.name}>
@@ -366,6 +367,7 @@ export default function PackagesPanel() {
         const layer = packageLayer(pkg)
         const startsLayer = index === 0 || packageLayer(installedPackages[index - 1]) !== layer
         const componentEntries = Object.values(pkg.components ?? {})
+          .filter(component => !component.internal)
         const hasWarnings = (pkg.warnings?.length ?? 0) > 0
         const hasMissingNodes = (pkg.missing_node_types?.length ?? 0) > 0
         const prereqsMet = pkg.ok && !hasWarnings && !hasMissingNodes

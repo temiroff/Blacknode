@@ -310,6 +310,7 @@ def test_component_alias_supports_third_party_package_migrations(tmp_path):
         component_metadata='''
         [components.follow]
         aliases = ["legacy-follow"]
+        deprecated-aliases = { legacy-follow = { replacement = "follow", removal-version = "1.0.0" } }
         default = false
         nodes = ["components/follow/nodes"]
         ''',
@@ -328,6 +329,12 @@ def test_component_alias_supports_third_party_package_migrations(tmp_path):
 
     assert info.ok
     assert info.components["follow"]["aliases"] == ["legacy-follow"]
+    assert info.components["follow"]["deprecated_aliases"] == {
+        "legacy-follow": {
+            "replacement": "follow",
+            "removal_version": "1.0.0",
+        },
+    }
     assert info.enabled_components == ["follow"]
     assert "_PkgFollowAlias" in _NODE_REGISTRY
     assert "blacknode.pkg.bn_component_alias.follow" in sys.modules
@@ -335,18 +342,48 @@ def test_component_alias_supports_third_party_package_migrations(tmp_path):
         sys.modules["blacknode.pkg.bn_component_alias.legacy_follow"]
         is sys.modules["blacknode.pkg.bn_component_alias.follow"]
     )
-    assert component_dependency_plan(
-        "bn-component-alias", "legacy-follow"
-    )["target"]["component"] == "follow"
+    with pytest.warns(FutureWarning, match="planned for removal in 1.0.0"):
+        assert component_dependency_plan(
+            "bn-component-alias", "legacy-follow"
+        )["target"]["component"] == "follow"
 
-    disabled = set_component_enabled(
-        "bn-component-alias", "legacy-follow", False
-    )
+    with pytest.warns(FutureWarning, match="use 'bn-component-alias/follow'"):
+        disabled = set_component_enabled(
+            "bn-component-alias", "legacy-follow", False
+        )
     assert disabled.enabled_components == []
     state = json.loads(
         (tmp_path / ".blacknode-components.json").read_text(encoding="utf-8")
     )
     assert state["packages"]["bn-component-alias"]["follow"] is False
+
+
+def test_internal_component_loads_but_is_not_user_facing(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-internal-component",
+        component_metadata='''
+        [components.core]
+        internal = true
+        default = true
+        nodes = ["components/core/nodes"]
+
+        [components.arm]
+        default = true
+
+        [components.arm.dependencies]
+        requires = [{ component = "core" }]
+        ''',
+    )
+    _write_component_node(pkg, "core", "_PkgInternalCore")
+
+    info = load_package(pkg)
+
+    assert info.ok
+    assert info.components["core"]["internal"] is True
+    assert info.components["arm"]["internal"] is False
+    assert info.enabled_components == ["core", "arm"]
+    assert "_PkgInternalCore" in _NODE_REGISTRY
 
 
 def test_component_reset_restores_manifest_default(tmp_path):

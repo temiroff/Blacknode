@@ -99,6 +99,12 @@ export interface BnPackageComponent {
   name: string
   description: string
   default: boolean
+  internal?: boolean
+  aliases?: string[]
+  deprecated_aliases?: Record<string, {
+    replacement: string
+    removal_version: string
+  }>
   capabilities: string[]
   node_types?: string[]
   node_paths?: string[]
