@@ -50,8 +50,8 @@ def _template(node_type: str) -> dict:
 
 def test_template_load_returns_installable_missing_package(tmp_path):
     path = tmp_path / "missing-cuda.json"
-    path.write_text(json.dumps(_template("CUDAKernelLab")), encoding="utf-8")
-    registered = _NODE_REGISTRY.pop("CUDAKernelLab", None)
+    path.write_text(json.dumps(_template("CUDAImageFilter")), encoding="utf-8")
+    registered = _NODE_REGISTRY.pop("CUDAImageFilter", None)
     try:
         with (
             patch.object(server, "_TEMPLATES_DIR", str(tmp_path)),
@@ -60,16 +60,16 @@ def test_template_load_returns_installable_missing_package(tmp_path):
             response = TestClient(server.app).post("/templates/missing-cuda/load")
     finally:
         if registered is not None:
-            _NODE_REGISTRY["CUDAKernelLab"] = registered
+            _NODE_REGISTRY["CUDAImageFilter"] = registered
 
     assert response.status_code == 409
     detail = response.json()["detail"]
     assert detail["code"] == "missing_packages"
-    assert detail["missing_node_types"] == ["CUDAKernelLab"]
+    assert detail["missing_node_types"] == ["CUDAImageFilter"]
     assert detail["missing_packages"] == [{
         "name": "blacknode-cuda",
         "git_url": "https://github.com/temiroff/blacknode-cuda.git",
-        "node_types": ["CUDAKernelLab"],
+        "node_types": ["CUDAImageFilter"],
         "source": "template",
         "installed": False,
         "load_error": "",
