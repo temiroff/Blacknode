@@ -89,9 +89,31 @@ def test_core_index_maps_official_node_types_to_git_packages():
     motion = payload["packages"]["blacknode-motion"]
     assert motion["layer"] == "motion"
     assert set(motion["components"]) == {"core", "arm", "base", "policy", "safety"}
+    assert motion["components"]["core"]["default"] is True
+    assert motion["components"]["core"]["internal"] is True
     assert motion["components"]["arm"]["node_types"] == ["JointMotionProfile"]
-    assert motion["components"]["arm"].get("aliases", []) == []
-    assert motion["components"]["base"].get("aliases", []) == []
+    assert motion["components"]["arm"]["aliases"] == ["joint-control"]
+    assert motion["components"]["base"]["aliases"] == ["mobile-base"]
+    for component_name in {"arm", "base", "policy"}:
+        assert motion["components"][component_name]["dependencies"] == {
+            "requires": [
+                {
+                    "component": "core",
+                    "version": ">=0.6.0,<1.0.0",
+                },
+                {
+                    "component": "safety",
+                    "version": ">=0.6.0,<1.0.0",
+                },
+            ],
+        }
+    assert payload["packages"]["blacknode-agent"]["components"]["executive"]["aliases"] == [
+        "planner"
+    ]
+    assert payload["packages"]["blacknode-skills"]["components"]["follow"]["aliases"] == [
+        "follow-person"
+    ]
+    assert set(payload["packages"]["blacknode-runtime"]["components"]) == {"deployment"}
     assert "JointMotionProfile" not in motion["components"]["arm"]["adapters"]["ros2"]["node_types"]
     assert payload["packages"]["blacknode-dataset"]["layer"] == "learning"
     dataset = payload["packages"]["blacknode-dataset"]["components"]

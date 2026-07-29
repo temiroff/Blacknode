@@ -61,7 +61,6 @@ def _constructors():
         "blacknode.point-cloud-stream": c.point_cloud_stream("camera_depth_frame"),
         "blacknode.transform-stream": c.transform_stream("base_link", "lidar_link"),
         "blacknode.detection-stream": c.detection_stream("camera_rgb_frame", detections=[]),
-        "blacknode.robot-state-stream": c.robot_state_stream(joint_positions={"shoulder": 0.1}),
         "blacknode.map": c.map_artifact("map1", resolution=0.05),
         "blacknode.navigation-goal": c.navigation_goal(target=p),
         "blacknode.navigation-status": c.navigation_status(),
@@ -117,3 +116,14 @@ def test_estop_state_only_timestamps_when_latched():
 def test_robot_capability_status_rejects_unknown_state():
     with pytest.raises(ValueError):
         c.robot_capability_status("camera", state="unknown")
+
+
+def test_legacy_robot_state_factory_adapts_to_canonical_robot_contract():
+    with pytest.warns(FutureWarning, match="Planned removal: 1.0.0"):
+        state = c.robot_state_stream(
+            device_id="arm-01",
+            joint_positions={"shoulder": 0.1},
+        )
+    assert state["kind"] == "blacknode.device-state"
+    assert state["joint_state"]["kind"] == "blacknode.joint-state"
+    assert state["joint_state"]["position_unit"] == "radian"

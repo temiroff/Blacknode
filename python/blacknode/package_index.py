@@ -9,14 +9,14 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "name": "blacknode-runtime",
             "layer": "runtime",
             "components": {
-                "service": {
-                    "name": "service",
+                "deployment": {
+                    "name": "deployment",
                     "default": True,
                     "node_types": []
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-runtime.git",
-            "description": "Authenticated component loading, dependency resolution, workflow execution, supervision, configuration, logs, and rollback.",
+            "description": "Authenticated remote deployment, rollout, rollback, logs, and service supervision.",
             "node_types": []
         },
         "blacknode-skills": {
@@ -30,8 +30,23 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "follow": {
                     "name": "follow",
+                    "aliases": ["follow-person"],
                     "default": False,
                     "node_types": [],
+                    "dependencies": {
+                        "requires": [
+                            {
+                                "package": "blacknode-motion",
+                                "component": "arm",
+                                "version": ">=0.6.0,<1.0.0"
+                            },
+                            {
+                                "package": "blacknode-ros2",
+                                "component": "core",
+                                "version": ">=0.5.6,<1.0.0"
+                            }
+                        ]
+                    },
                     "adapters": {
                         "ros2": {
                             "name": "ros2",
@@ -82,6 +97,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "components": {
                 "executive": {
                     "name": "executive",
+                    "aliases": ["planner"],
                     "default": False,
                     "node_types": []
                 },
@@ -113,15 +129,29 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "components": {
                 "core": {
                     "name": "core",
-                    "default": False,
+                    "default": True,
+                    "internal": True,
                     "node_types": []
                 },
                 "arm": {
                     "name": "arm",
+                    "aliases": ["joint-control"],
                     "default": True,
                     "node_types": [
                         "JointMotionProfile"
                     ],
+                    "dependencies": {
+                        "requires": [
+                            {
+                                "component": "core",
+                                "version": ">=0.6.0,<1.0.0"
+                            },
+                            {
+                                "component": "safety",
+                                "version": ">=0.6.0,<1.0.0"
+                            }
+                        ]
+                    },
                     "adapters": {
                         "ros2": {
                             "name": "ros2",
@@ -147,8 +177,21 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "base": {
                     "name": "base",
+                    "aliases": ["mobile-base"],
                     "default": False,
                     "node_types": [],
+                    "dependencies": {
+                        "requires": [
+                            {
+                                "component": "core",
+                                "version": ">=0.6.0,<1.0.0"
+                            },
+                            {
+                                "component": "safety",
+                                "version": ">=0.6.0,<1.0.0"
+                            }
+                        ]
+                    },
                     "adapters": {
                         "ros2": {
                             "name": "ros2",
@@ -176,6 +219,18 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "policy",
                     "default": True,
                     "node_types": [],
+                    "dependencies": {
+                        "requires": [
+                            {
+                                "component": "core",
+                                "version": ">=0.6.0,<1.0.0"
+                            },
+                            {
+                                "component": "safety",
+                                "version": ">=0.6.0,<1.0.0"
+                            }
+                        ]
+                    },
                     "adapters": {
                         "ros2": {
                             "name": "ros2",
@@ -198,8 +253,16 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "safety": {
                     "name": "safety",
-                    "default": False,
-                    "node_types": []
+                    "default": True,
+                    "node_types": [],
+                    "dependencies": {
+                        "requires": [
+                            {
+                                "component": "core",
+                                "version": ">=0.6.0,<1.0.0"
+                            }
+                        ]
+                    }
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-motion.git",
@@ -240,6 +303,11 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             ],
                             "dependencies": {
                                 "requires": [
+                                    {
+                                        "package": "blacknode-robot",
+                                        "component": "contracts",
+                                        "version": ">=0.5.0,<1.0.0"
+                                    },
                                     {
                                         "package": "blacknode-ros2",
                                         "component": "rosbridge",

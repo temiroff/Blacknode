@@ -29,6 +29,7 @@ import sys
 import tomllib
 import traceback
 import types
+import warnings as python_warnings
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -181,15 +182,37 @@ def _package_components(value: Any) -> dict[str, dict[str, Any]]:
         if isinstance(node_paths, str):
             node_paths = [node_paths]
         requirements, requirement_errors = _component_requirements(dependencies.get("requires", []))
+        aliases = [
+            alias
+            for alias in (_component_name(item) for item in config.get("aliases", []))
+            if alias and alias != name
+        ] if isinstance(config.get("aliases", []), list) else []
+        raw_deprecations = config.get("deprecated-aliases", {})
+        deprecated_aliases: dict[str, dict[str, str]] = {}
+        if isinstance(raw_deprecations, Mapping):
+            for raw_alias, raw_deprecation in raw_deprecations.items():
+                alias = _component_name(raw_alias)
+                if alias not in aliases or not isinstance(raw_deprecation, Mapping):
+                    continue
+                deprecated_aliases[alias] = {
+                    "replacement": _component_name(
+                        raw_deprecation.get("replacement")
+                    ) or name,
+                    "removal_version": str(
+                        raw_deprecation.get(
+                            "removal-version",
+                            raw_deprecation.get("removal_version", ""),
+                        )
+                        or ""
+                    ).strip(),
+                }
         components[name] = {
             "name": name,
-            "aliases": [
-                alias
-                for alias in (_component_name(item) for item in config.get("aliases", []))
-                if alias and alias != name
-            ] if isinstance(config.get("aliases", []), list) else [],
+            "aliases": aliases,
+            "deprecated_aliases": deprecated_aliases,
             "description": str(config.get("description") or ""),
             "default": bool(config.get("default", False)),
+            "internal": bool(config.get("internal", False)),
             "capabilities": sorted({
                 str(capability).strip()
                 for capability in capabilities
@@ -302,6 +325,32 @@ def _canonical_component_name(
         if requested in component.get("aliases", []):
             return name
     return requested
+
+
+def _warn_for_deprecated_component_alias(
+    info: PackageInfo,
+    component_name: str,
+    requested_name: str,
+) -> None:
+    """Surface an actionable warning when a compatibility alias is selected."""
+    if requested_name == component_name:
+        return
+    component = info.components.get(component_name, {})
+    deprecation = component.get("deprecated_aliases", {}).get(requested_name)
+    if not isinstance(deprecation, Mapping):
+        return
+    replacement = str(deprecation.get("replacement") or component_name)
+    removal = str(deprecation.get("removal_version") or "").strip()
+    message = (
+        f"Component '{info.name}/{requested_name}' is deprecated; "
+        f"use '{info.name}/{replacement}' instead"
+    )
+    if removal:
+        message += f". The alias is planned for removal in {removal}"
+    message += "."
+    if message not in info.warnings:
+        info.warnings.append(message)
+    python_warnings.warn(message, FutureWarning, stacklevel=3)
 
 
 def _component_state_keys(
@@ -897,7 +946,13 @@ def component_dependency_plan(package_name: str, component_name: str) -> dict[st
     target_component = _component_name(component_name)
     target_info = _PACKAGE_REGISTRY.get(target_package)
     if target_info is not None:
-        target_component = _canonical_component_name(target_info.components, target_component)
+        canonical = _canonical_component_name(
+            target_info.components, target_component
+        )
+        _warn_for_deprecated_component_alias(
+            target_info, canonical, target_component
+        )
+        target_component = canonical
     plan: list[dict[str, Any]] = []
     visited: set[tuple[str, str]] = set()
     visiting: list[tuple[str, str]] = []
@@ -990,7 +1045,13 @@ def component_dependency_install_plan(
     target_component = _component_name(component_name)
     target_info = _PACKAGE_REGISTRY.get(target_package)
     if target_info is not None:
-        target_component = _canonical_component_name(target_info.components, target_component)
+        canonical = _canonical_component_name(
+            target_info.components, target_component
+        )
+        _warn_for_deprecated_component_alias(
+            target_info, canonical, target_component
+        )
+        target_component = canonical
     actions: list[dict[str, Any]] = []
     conflicts: list[str] = []
     visited: set[tuple[str, str, str]] = set()
@@ -1361,13 +1422,15 @@ def _component_package_info(
         raise ValueError(f"No package named '{package_name}' is installed")
     if info.source != "folder" or not info.path:
         raise ValueError("Selective components currently require a folder package")
-    canonical_name = _canonical_component_name(info.components, component_name)
+    requested_name = _component_name(component_name)
+    canonical_name = _canonical_component_name(info.components, requested_name)
     if canonical_name not in info.components:
         raise ValueError(f"Package '{package_name}' has no component '{component_name}'")
     if not info.component_mode:
         raise ValueError(
             f"Package '{package_name}' only publishes component labels; its manifest has not enabled selective loading"
         )
+    _warn_for_deprecated_component_alias(info, canonical_name, requested_name)
     return info, canonical_name
 
 

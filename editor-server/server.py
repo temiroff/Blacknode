@@ -1,6 +1,6 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib
+import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib, math
 import urllib.error, urllib.parse, urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -7617,6 +7617,57 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
     return status
 
 
+def _monitor_payload_from_device_state(payload: dict[str, Any]) -> dict[str, Any]:
+    """Convert canonical Blacknode robot state into the editor view model."""
+    if payload.get("kind") != "blacknode.device-state":
+        return payload
+    joint_state = payload.get("joint_state")
+    joint_state = joint_state if isinstance(joint_state, dict) else {}
+    positions = dict(joint_state.get("positions") or {})
+    velocities = dict(joint_state.get("velocities") or {})
+    limits = dict(joint_state.get("limits") or {})
+    position_unit = str(joint_state.get("position_unit") or "radian")
+    velocity_unit = str(joint_state.get("velocity_unit") or "radian/s")
+    to_display = math.degrees if position_unit == "radian" else float
+    velocity_to_display = (
+        math.degrees if velocity_unit == "radian/s" else float
+    )
+    joints = []
+    for name, raw_position in positions.items():
+        try:
+            position = to_display(float(raw_position))
+            velocity = velocity_to_display(float(velocities.get(name, 0.0)))
+        except (TypeError, ValueError):
+            continue
+        item = {
+            "name": str(name),
+            "position": position,
+            "velocity": velocity,
+        }
+        raw_limits = limits.get(name)
+        if isinstance(raw_limits, dict):
+            try:
+                item["lower_limit"] = to_display(float(raw_limits["lower"]))
+                item["upper_limit"] = to_display(float(raw_limits["upper"]))
+            except (KeyError, TypeError, ValueError):
+                pass
+        joints.append(item)
+    return {
+        "connected": bool(payload.get("connected")),
+        "armed": bool(payload.get("armed")),
+        "torque_enabled": payload.get("torque_enabled"),
+        "position_unit": "degree" if position_unit == "radian" else position_unit,
+        "velocity_unit": (
+            "degree/s" if velocity_unit == "radian/s" else velocity_unit
+        ),
+        "joints": joints,
+        "error": str(payload.get("error") or ""),
+        "faults": list(payload.get("faults") or []),
+        "temperatures_c": dict(payload.get("temperatures_c") or {}),
+        "voltage_v": payload.get("voltage_v"),
+    }
+
+
 def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
     """Return one normalized robot-state sample from the current bus owner."""
     device = _device_registry.get_public(device_id)
@@ -7661,6 +7712,11 @@ def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
             }
         payload = telemetry.get("payload")
         available = bool(telemetry.get("available") and isinstance(payload, dict))
+        monitor_payload = (
+            _monitor_payload_from_device_state(payload)
+            if available
+            else None
+        )
         return {
             "type": "robot_telemetry",
             "robot_id": device_id,
@@ -7674,7 +7730,7 @@ def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
             "sent_at": str(telemetry.get("sent_at") or ""),
             "received_at": str(telemetry.get("received_at") or now),
             "age_seconds": telemetry.get("age_seconds"),
-            "payload": payload if available else None,
+            "payload": monitor_payload,
             "message": str(
                 telemetry.get("message")
                 or (
