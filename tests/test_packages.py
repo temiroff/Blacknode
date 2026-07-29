@@ -118,13 +118,22 @@ def test_workflow_requirement_transiently_enables_optional_component(tmp_path):
         [components.optional]
         default = false
         nodes = ["components/optional/nodes"]
+
+        [components.already-enabled]
+        default = false
+        nodes = ["components/already-enabled/nodes"]
         ''',
     )
     _write_component_node(pkg, "optional", "_PkgWorkflowRequired")
-    info = load_package(pkg)
+    _write_component_node(pkg, "already-enabled", "_PkgAlreadyEnabled")
+    info = load_package(
+        pkg,
+        component_overrides={"already-enabled": True},
+    )
     assert info.ok
-    assert info.enabled_components == []
+    assert info.enabled_components == ["already-enabled"]
     assert "_PkgWorkflowRequired" not in _NODE_REGISTRY
+    assert "_PkgAlreadyEnabled" in _NODE_REGISTRY
 
     workflow = {
         "kind": "blacknode.workflow",
@@ -151,10 +160,21 @@ def test_workflow_requirement_transiently_enables_optional_component(tmp_path):
         "edges": [],
     }
 
+    already_enabled_node = _NODE_REGISTRY["_PkgAlreadyEnabled"]
+    assert validate_workflow(workflow).ok
+    assert "_PkgWorkflowRequired" not in _NODE_REGISTRY
+    assert _NODE_REGISTRY["_PkgAlreadyEnabled"] is already_enabled_node
+    assert _PACKAGE_REGISTRY["bn-workflow-required"].enabled_components == [
+        "already-enabled",
+    ]
+
     requirement_report = load_workflow_requirements(workflow)
     assert not requirement_report["unavailable"]
     assert "_PkgWorkflowRequired" in _NODE_REGISTRY
-    assert validate_workflow(workflow).ok
+    assert "_PkgAlreadyEnabled" in _NODE_REGISTRY
+    required_node = _NODE_REGISTRY["_PkgWorkflowRequired"]
+    assert not load_workflow_requirements(workflow)["unavailable"]
+    assert _NODE_REGISTRY["_PkgWorkflowRequired"] is required_node
     assert not (tmp_path / ".blacknode-components.json").exists()
 
 
