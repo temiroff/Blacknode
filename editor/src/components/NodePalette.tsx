@@ -166,7 +166,7 @@ export default function NodePalette() {
   const [deploymentReturnTab, setDeploymentReturnTab] = useState<Tab>('devices')
   const [deploymentReturnDeviceId, setDeploymentReturnDeviceId] = useState('')
   const [templateSearch, setTemplateSearch] = useState('')
-  const [templateOpenInNewTab, setTemplateOpenInNewTab] = useState(false)
+  const [templateOpenInNewTab, setTemplateOpenInNewTab] = useState(true)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
 
@@ -182,7 +182,7 @@ export default function NodePalette() {
     setActiveTab(tab)
     if (tab === 'templates') {
       setTemplateSearch('')
-      setTemplateOpenInNewTab(false)
+      setTemplateOpenInNewTab(true)
     }
     if (tab === 'deployments') {
       if (panelWidth < PANEL_DEPLOY_W) {
