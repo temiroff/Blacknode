@@ -5053,6 +5053,85 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn("missing servo ID: 2", message)
         self.assertIn("feedback-only workflow may run", message)
 
+    def test_hardware_monitor_exposes_servo_debug_fields_and_calibrated_limits(self):
+        status = {
+            "device_id": "robot-device",
+            "connected": True,
+            "armed": False,
+            "torque_enabled": False,
+            "joint_names": ["servo_2"],
+            "positions": {"servo_2": 12.5},
+            "raw_positions": {"servo_2": 2190},
+            "limits": {"servo_2": {"min": -180.0, "max": 180.0}},
+            "calibrated": True,
+            "calibration": {
+                "profile_id": "so_arm101",
+                "hardware_id": "SERIAL-42",
+                "topology": {"2": "shoulder_lift"},
+                "joints": {
+                    "shoulder_lift": {
+                        "safe_min_deg": -70.0,
+                        "safe_max_deg": 80.0,
+                    },
+                },
+            },
+            "temperatures_c": {"servo_2": 41.5},
+            "voltage_v": 12.2,
+            "error": "",
+        }
+        with (
+            patch.object(
+                server._device_registry,
+                "get_public",
+                return_value={"id": "robot", "name": "Robot"},
+            ),
+            patch.object(
+                server,
+                "_deployment_aware_device_status",
+                return_value=status,
+            ),
+        ):
+            snapshot = server._device_monitor_snapshot("robot")
+
+        payload = snapshot["payload"]
+        joint = payload["joints"][0]
+        self.assertEqual(joint["servo_id"], 2)
+        self.assertEqual(joint["semantic_name"], "shoulder_lift")
+        self.assertEqual(joint["raw_position"], 2190)
+        self.assertEqual(joint["lower_limit"], -70.0)
+        self.assertEqual(joint["upper_limit"], 80.0)
+        self.assertTrue(payload["calibrated"])
+        self.assertEqual(payload["temperatures_c"]["servo_2"], 41.5)
+        self.assertEqual(payload["voltage_v"], 12.2)
+
+    def test_deployment_monitor_preserves_semantic_joint_servo_ids(self):
+        payload = server._monitor_payload_from_device_state({
+            "kind": "blacknode.device-state",
+            "connected": True,
+            "armed": False,
+            "torque_enabled": False,
+            "joint_state": {
+                "position_unit": "radian",
+                "velocity_unit": "radian/s",
+                "positions": {"shoulder_lift": 0.25},
+                "velocities": {"shoulder_lift": 0.1},
+                "limits": {
+                    "shoulder_lift": {"lower": -1.0, "upper": 1.0},
+                },
+            },
+            "values": {
+                "servo_ids": {"shoulder_lift": 2},
+                "raw_positions": {"shoulder_lift": 2190},
+                "calibrated": True,
+            },
+        })
+
+        joint = payload["joints"][0]
+        self.assertEqual(joint["name"], "shoulder_lift")
+        self.assertEqual(joint["servo_id"], 2)
+        self.assertEqual(joint["raw_position"], 2190)
+        self.assertTrue(payload["calibrated"])
+
     def test_old_device_service_reports_calibration_upgrade_action(self):
         response = io.BytesIO(b'{"ok": false, "error": "not found"}')
         error = urllib.error.HTTPError(

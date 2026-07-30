@@ -7694,6 +7694,18 @@ def _monitor_payload_from_device_state(payload: dict[str, Any]) -> dict[str, Any
     positions = dict(joint_state.get("positions") or {})
     velocities = dict(joint_state.get("velocities") or {})
     limits = dict(joint_state.get("limits") or {})
+    values = (
+        payload.get("values")
+        if isinstance(payload.get("values"), dict)
+        else {}
+    )
+    raw_positions = dict(values.get("raw_positions") or {})
+    servo_ids = dict(values.get("servo_ids") or {})
+    calibration = (
+        values.get("calibration")
+        if isinstance(values.get("calibration"), dict)
+        else {}
+    )
     position_unit = str(joint_state.get("position_unit") or "radian")
     velocity_unit = str(joint_state.get("velocity_unit") or "radian/s")
     to_display = math.degrees if position_unit == "radian" else float
@@ -7712,6 +7724,17 @@ def _monitor_payload_from_device_state(payload: dict[str, Any]) -> dict[str, Any
             "position": position,
             "velocity": velocity,
         }
+        reported_servo_id = servo_ids.get(name)
+        servo_match = re.fullmatch(r"servo_(\d+)", str(name))
+        if (
+            isinstance(reported_servo_id, int)
+            and not isinstance(reported_servo_id, bool)
+        ):
+            item["servo_id"] = int(reported_servo_id)
+        elif servo_match:
+            item["servo_id"] = int(servo_match.group(1))
+        if name in raw_positions and isinstance(raw_positions[name], int):
+            item["raw_position"] = int(raw_positions[name])
         raw_limits = limits.get(name)
         if isinstance(raw_limits, dict):
             try:
@@ -7733,6 +7756,8 @@ def _monitor_payload_from_device_state(payload: dict[str, Any]) -> dict[str, Any
         "faults": list(payload.get("faults") or []),
         "temperatures_c": dict(payload.get("temperatures_c") or {}),
         "voltage_v": payload.get("voltage_v"),
+        "calibrated": values.get("calibrated"),
+        "calibration": calibration,
     }
 
 
@@ -7822,7 +7847,73 @@ def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
     joint_names = reported_joint_names + [
         name for name in positions if name not in reported_joint_names
     ]
+    raw_positions = dict(status.get("raw_positions") or {})
+    status_limits = dict(status.get("limits") or {})
+    calibration = (
+        status.get("calibration")
+        if isinstance(status.get("calibration"), dict)
+        else {}
+    )
+    calibration_topology = dict(calibration.get("topology") or {})
+    calibration_joints = dict(calibration.get("joints") or {})
+
+    def hardware_joint(name: str) -> dict[str, Any]:
+        item: dict[str, Any] = {
+            "name": name,
+            "position": positions[name],
+            "velocity": 0.0,
+        }
+        servo_match = re.fullmatch(r"servo_(\d+)", name)
+        servo_id = int(servo_match.group(1)) if servo_match else None
+        if servo_id is not None:
+            item["servo_id"] = servo_id
+            semantic_name = str(calibration_topology.get(str(servo_id)) or "")
+            if semantic_name:
+                item["semantic_name"] = semantic_name
+        if isinstance(raw_positions.get(name), int):
+            item["raw_position"] = int(raw_positions[name])
+
+        raw_limit = status_limits.get(name)
+        if isinstance(raw_limit, dict):
+            try:
+                item["lower_limit"] = float(
+                    raw_limit["lower"]
+                    if "lower" in raw_limit
+                    else raw_limit["min"]
+                )
+                item["upper_limit"] = float(
+                    raw_limit["upper"]
+                    if "upper" in raw_limit
+                    else raw_limit["max"]
+                )
+            except (KeyError, TypeError, ValueError):
+                pass
+        semantic_name = str(item.get("semantic_name") or "")
+        calibrated_joint = calibration_joints.get(semantic_name)
+        if isinstance(calibrated_joint, dict):
+            try:
+                item["lower_limit"] = float(calibrated_joint["safe_min_deg"])
+                item["upper_limit"] = float(calibrated_joint["safe_max_deg"])
+            except (KeyError, TypeError, ValueError):
+                pass
+        return item
+
     available = bool(status.get("connected") and positions)
+    error = str(status.get("error") or "")
+    faults = [
+        dict(item)
+        for item in (status.get("faults") or [])
+        if isinstance(item, dict)
+    ]
+    if error and not faults:
+        faults = [{
+            "kind": "blacknode.fault-state",
+            "schema_version": 1,
+            "code": "device-error",
+            "message": error,
+            "severity": "error",
+            "active": True,
+        }]
     return {
         "type": "robot_telemetry",
         "robot_id": device_id,
@@ -7841,15 +7932,16 @@ def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
             "position_unit": "degree",
             "velocity_unit": "degree/s",
             "joints": [
-                {
-                    "name": name,
-                    "position": positions[name],
-                    "velocity": 0.0,
-                }
+                hardware_joint(name)
                 for name in joint_names
                 if name in positions
             ],
-            "error": str(status.get("error") or ""),
+            "error": error,
+            "faults": faults,
+            "temperatures_c": dict(status.get("temperatures_c") or {}),
+            "voltage_v": status.get("voltage_v"),
+            "calibrated": status.get("calibrated"),
+            "calibration": calibration,
         },
         "message": (
             "Receiving state from Robot Hardware."

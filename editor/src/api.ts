@@ -445,8 +445,12 @@ export interface HardwareDeviceStatus {
 
 export interface RobotTelemetryJoint {
   name: string
+  semantic_name?: string
+  servo_id?: number
   position: number
   velocity: number
+  effort?: number
+  raw_position?: number
   lower_limit?: number
   upper_limit?: number
 }
@@ -477,6 +481,30 @@ export interface RobotTelemetrySample {
     velocity_unit: string
     joints: RobotTelemetryJoint[]
     error?: string
+    calibrated?: boolean
+    calibration?: {
+      name?: string
+      profile_id?: string
+      hardware_id?: string
+      topology?: Record<string, string>
+      joints?: Record<string, {
+        safe_min_deg?: number
+        safe_max_deg?: number
+        home_ticks?: number
+        invert?: boolean
+      }>
+    }
+    faults?: Array<{
+      code?: string
+      message?: string
+      severity?: string
+      active?: boolean
+      recoverable?: boolean
+      vendor_code?: string
+      details?: Record<string, unknown>
+    }>
+    temperatures_c?: Record<string, number>
+    voltage_v?: number
     battery?: {
       level?: number
       voltage?: number

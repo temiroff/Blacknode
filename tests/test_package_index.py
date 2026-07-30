@@ -57,7 +57,10 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["packages"]["blacknode-robot"]["layer"] == "robot"
     robot = payload["packages"]["blacknode-robot"]
     assert {"devices", "telemetry"}.issubset(robot["components"])
-    assert robot["components"]["devices"]["node_types"] == ["HardwareCapabilities"]
+    assert robot["components"]["devices"]["node_types"] == [
+        "HardwareCapabilities",
+        "RobotServo",
+    ]
     assert robot["components"]["telemetry"]["adapters"]["mqtt"]["default"] is False
     assert payload["packages"]["blacknode-perception"]["layer"] == "perception"
     assert payload["packages"]["blacknode-ros2"]["layer"] == "ros2"
@@ -142,6 +145,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["RobotMonitor"]["package"] == "blacknode-robot"
     assert payload["nodes"]["RobotCapabilityInspect"]["package"] == "blacknode-robot"
     assert payload["nodes"]["HardwareCapabilities"]["package"] == "blacknode-robot"
+    assert payload["nodes"]["RobotServo"]["package"] == "blacknode-robot"
     assert payload["nodes"]["EpisodeRecorder"] == {
         "package": "blacknode-dataset",
         "git_url": "https://github.com/temiroff/blacknode-dataset.git",

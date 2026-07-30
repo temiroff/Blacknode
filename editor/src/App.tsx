@@ -12,6 +12,7 @@ import ValueNode from './components/ValueNode'
 import ModelNode from './components/ModelNode'
 import OutputNode from './components/OutputNode'
 import RobotMonitorNode from './components/RobotMonitorNode'
+import RobotServoNode from './components/RobotServoNode'
 import SubnetNode from './components/SubnetNode'
 import SubnetBreadcrumb from './components/SubnetBreadcrumb'
 import SubgraphInputNode from './components/SubgraphInputNode'
@@ -32,6 +33,7 @@ const NODE_TYPES = {
   modelnode: ModelNode,
   outputnode: OutputNode,
   robotmonitor: RobotMonitorNode,
+  robotservo: RobotServoNode,
   subnetnode: SubnetNode,
   subnetinput: SubgraphInputNode,
   subnetoutput: SubgraphOutputNode,
