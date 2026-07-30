@@ -4985,6 +4985,50 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         self.assertIn("Do not activate", checks["calibration"]["message"])
 
+    def test_inactive_calibration_message_reports_missing_servo_topology(self):
+        workflow = {
+            "metadata": {
+                "device_calibration": {
+                    "profile_id": "so_arm101_v002",
+                    "hardware_id": "5B41531481",
+                },
+            },
+        }
+        profile = {
+            "id": "so_arm101_v002",
+            "joints": [
+                {"id": f"joint_{servo_id}", "servo_id": servo_id}
+                for servo_id in range(1, 7)
+            ],
+        }
+        calibration = {
+            "profile_id": "so_arm101_v002",
+            "hardware_id": "5B41531481",
+            "joints": {},
+        }
+        with patch.object(
+            server,
+            "_selected_local_calibration",
+            return_value=(profile, calibration),
+        ):
+            message = server._inactive_calibration_message(
+                workflow,
+                {
+                    "joint_names": [
+                        "servo_1",
+                        "servo_3",
+                        "servo_4",
+                        "servo_5",
+                        "servo_6",
+                    ],
+                },
+            )
+
+        self.assertIn("saved but not active", message)
+        self.assertIn("5 of 6 expected servos", message)
+        self.assertIn("missing servo ID: 2", message)
+        self.assertIn("feedback-only workflow may run", message)
+
     def test_old_device_service_reports_calibration_upgrade_action(self):
         response = io.BytesIO(b'{"ok": false, "error": "not found"}')
         error = urllib.error.HTTPError(
