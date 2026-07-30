@@ -3,15 +3,16 @@ import { Handle, Position, type NodeProps } from 'reactflow'
 
 import {
   api,
-  deviceMonitorSocketUrl,
   type HardwareDevice,
   type RobotTelemetryJoint,
   type RobotTelemetrySample,
 } from '../api'
+import {
+  subscribeRobotTelemetry,
+  type RobotMonitorConnection,
+} from '../robotTelemetryStream'
 import { useStore, type NodeData } from '../store'
 import NodeFrame from './NodeFrame'
-
-type MonitorConnection = 'idle' | 'connecting' | 'live' | 'offline'
 
 type JointTrace = {
   position: number[]
@@ -111,7 +112,7 @@ export function RobotLiveMonitor({
   emptyMessage: string
 }) {
   const [sample, setSample] = useState<RobotTelemetrySample | null>(null)
-  const [connection, setConnection] = useState<MonitorConnection>(
+  const [connection, setConnection] = useState<RobotMonitorConnection>(
     robotId ? 'connecting' : 'idle',
   )
   const [traces, setTraces] = useState<Record<string, JointTrace>>({})
@@ -128,22 +129,10 @@ export function RobotLiveMonitor({
       return
     }
 
-    let stopped = false
-    let socket: WebSocket | null = null
-    let reconnectTimer: number | undefined
-
-    const connect = () => {
-      if (stopped) return
-      setConnection('connecting')
-      socket = new WebSocket(deviceMonitorSocketUrl(robotId))
-      socket.onopen = () => setConnection('live')
-      socket.onmessage = event => {
-        let next: RobotTelemetrySample
-        try {
-          next = JSON.parse(String(event.data)) as RobotTelemetrySample
-        } catch {
-          return
-        }
+    return subscribeRobotTelemetry(
+      robotId,
+      nextSample => {
+        let next = nextSample
         const sourceKey = `${next.source || 'unknown'}:${next.source_label || ''}`
         if (activeSource.current && activeSource.current !== sourceKey) {
           previous.current = {}
@@ -189,21 +178,9 @@ export function RobotLiveMonitor({
           })
         }
         setSample(next)
-      }
-      socket.onerror = () => socket?.close()
-      socket.onclose = () => {
-        if (stopped) return
-        setConnection('offline')
-        reconnectTimer = window.setTimeout(connect, 1200)
-      }
-    }
-
-    connect()
-    return () => {
-      stopped = true
-      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
-      socket?.close()
-    }
+      },
+      setConnection,
+    )
   }, [robotId])
 
   const joints = sample?.payload?.joints || []
