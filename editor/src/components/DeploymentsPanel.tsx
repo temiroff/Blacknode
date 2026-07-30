@@ -351,10 +351,11 @@ export default function DeploymentsPanel({
     if (
       robotNodes.length !== 1
       || !automaticTargetCalibration
-      || (
-        selectedCalibration?.profile_id === automaticTargetCalibration.profile_id
-        && selectedCalibration?.hardware_id === automaticTargetCalibration.hardware_id
-      )
+      // Auto-selection is only a default for an unbound graph. Replacing an
+      // existing hardware identity when the operator opens another robot card
+      // would silently turn a Leader workflow into a Follower workflow before
+      // deployment preflight can reject the mismatched target.
+      || selectedCalibration
       || requirementsBusy
       || profileBusyId
       || isCalibrationWorkflow
