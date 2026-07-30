@@ -4970,6 +4970,15 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "/devices/paired/deployment-preflight",
                 json={"workflow": workflow},
             )
+            feedback_workflow = json.loads(json.dumps(workflow))
+            feedback_workflow["metadata"]["required_capabilities"] = [
+                "position_feedback",
+                "servo_bus",
+            ]
+            feedback_preflight = self.client.post(
+                "/devices/paired/deployment-preflight",
+                json={"workflow": feedback_workflow},
+            )
 
         self.assertEqual(preflight.status_code, 200)
         checks = {item["id"]: item for item in preflight.json()["checks"]}
@@ -4984,6 +4993,21 @@ class EditorDeviceApiTests(unittest.TestCase):
             checks["calibration"]["message"],
         )
         self.assertIn("Do not activate", checks["calibration"]["message"])
+        self.assertEqual(feedback_preflight.status_code, 200)
+        feedback_checks = {
+            item["id"]: item
+            for item in feedback_preflight.json()["checks"]
+        }
+        self.assertEqual(feedback_checks["calibration"]["status"], "fail")
+        self.assertTrue(feedback_checks["calibration"]["blocking"])
+        self.assertEqual(
+            feedback_checks["calibration"]["action"],
+            "choose_matching_hardware",
+        )
+        self.assertIn(
+            "different physical robot",
+            feedback_checks["calibration"]["message"],
+        )
 
     def test_inactive_calibration_message_reports_missing_servo_topology(self):
         workflow = {
