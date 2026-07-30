@@ -537,7 +537,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "devices",
                     "default": True,
                     "node_types": [
-                        "HardwareCapabilities"
+                        "HardwareCapabilities",
+                        "RobotServo"
                     ]
                 },
                 "telemetry": {
@@ -584,6 +585,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "RobotProfileLoad",
                 "RobotProfileSave",
                 "RobotROSInterfaceCheck",
+                "RobotServo",
                 "RobotUSBDiscovery"
             ]
         },
