@@ -5217,6 +5217,7 @@ function RobotRow({
   const inactiveDeployment = runningDeployment
     ? undefined
     : status?.inactive_deployment ?? status?.stored_deployment
+  const displayedDeployment = runningDeployment ?? inactiveDeployment
   const torqueReleaseSupported = Boolean(
     status?.service_features?.includes('torque_release_v1'),
   )
@@ -5351,38 +5352,40 @@ function RobotRow({
         </span>
         <span className="bn-device-card-chevron" aria-hidden="true">›</span>
       </button>
-      {!expanded && runningDeployment?.id && (
+      {!expanded && displayedDeployment?.id && (
         <div className="bn-device-card-quick-actions">
-          <span title={runningDeployment.name}>
-            Running · {runningDeployment.name}
+          <span title={displayedDeployment.name}>
+            {runningDeployment ? 'Running' : deploymentLabel} · {displayedDeployment.name}
           </span>
           <button
             type="button"
             onClick={() => onOpenDeployedGraph(
-              runningDeployment.id,
-              runningDeployment.name,
+              displayedDeployment.id,
+              displayedDeployment.name,
             )}
             disabled={busy || state?.loading}
             className="bn-device-action-button"
           >
             Open graph
           </button>
-          {Number(runningDeployment.motion_control_count || 0) === 1 && (
-            <button
-              type="button"
-              onClick={() => onSetDeploymentMotion(
-                runningDeployment.id,
-                runningDeployment.name,
-                !runningDeployment.motion_armed,
-              )}
-              disabled={busy || state?.loading || paused}
-              className={`bn-device-action-button${
-                runningDeployment.motion_armed ? ' is-danger' : ' is-primary'
-              }`}
-            >
-              {runningDeployment.motion_armed ? 'Disarm' : 'Arm follower'}
-            </button>
-          )}
+          {runningDeployment
+            && Number(runningDeployment.motion_control_count || 0) === 1
+            && (
+              <button
+                type="button"
+                onClick={() => onSetDeploymentMotion(
+                  runningDeployment.id,
+                  runningDeployment.name,
+                  !runningDeployment.motion_armed,
+                )}
+                disabled={busy || state?.loading || paused}
+                className={`bn-device-action-button${
+                  runningDeployment.motion_armed ? ' is-danger' : ' is-primary'
+                }`}
+              >
+                {runningDeployment.motion_armed ? 'Disarm' : 'Arm follower'}
+              </button>
+            )}
         </div>
       )}
       {expanded && (
@@ -5586,16 +5589,16 @@ function RobotRow({
                 ? 'Hide attachments'
                 : `Attachments (${robot.attachments?.length ?? 0})`}
             </button>
-            {runningDeployment?.id && (
+            {displayedDeployment?.id && (
               <button
                 type="button"
                 onClick={() => onOpenDeployedGraph(
-                  runningDeployment.id,
-                  runningDeployment.name,
+                  displayedDeployment.id,
+                  displayedDeployment.name,
                 )}
                 disabled={busy || state?.loading}
                 className="bn-device-action-button"
-                title="Open the exact active deployment revision in a new editable graph tab"
+                title="Open the exact saved deployment revision in a new editable graph tab"
               >
                 Open deployed graph
               </button>
