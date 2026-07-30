@@ -31,7 +31,7 @@ function templateTags(template: TemplateMeta): string[] {
 
 export default function TemplateGallery({
   initialQuery = '',
-  openInNewTab = false,
+  openInNewTab = true,
 }: TemplateGalleryProps) {
   const { loadGraph, loadNodeTypes, openGraphAsTab, organizeNodes } = useStore()
   const [templates, setTemplates] = useState<TemplateMeta[]>([])
