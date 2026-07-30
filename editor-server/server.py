@@ -7102,19 +7102,28 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
             ),
         ))
 
-    requires_joint_motion = "joint_group" in required_capabilities
     calibrated = remote_status.get("calibrated")
-    if requires_joint_motion:
-        selection = _workflow_calibration_selection(workflow)
-        hardware_identity_match = (
-            _remote_hardware_identity_match(
-                remote_status,
-                selection["hardware_id"],
-            )
-            if selection
-            else None
+    selection = _workflow_calibration_selection(workflow)
+    hardware_identity_match = (
+        _remote_hardware_identity_match(
+            remote_status,
+            selection["hardware_id"],
         )
-        hardware_mismatch = hardware_identity_match is False
+        if selection
+        else None
+    )
+    hardware_mismatch = hardware_identity_match is False
+    requires_joint_motion = "joint_group" in required_capabilities
+    if selection and hardware_mismatch:
+        checks.append(_preflight_check(
+            "calibration",
+            "Calibration",
+            "fail",
+            _calibration_hardware_mismatch_message(selection, remote_status),
+            blocking=True,
+            action="choose_matching_hardware",
+        ))
+    elif requires_joint_motion:
         active_calibration = (
             remote_status.get("calibration")
             if isinstance(remote_status.get("calibration"), dict)
@@ -7148,8 +7157,6 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
         calibration_action = (
             "select_calibration"
             if selection is None or selection_error
-            else "choose_matching_hardware"
-            if hardware_mismatch
             else "activate_calibration"
             if not calibration_matches
             else None
@@ -7166,11 +7173,6 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
                 )
                 if calibration_matches and not selection_error
                 else selection_error
-                or (
-                    _calibration_hardware_mismatch_message(selection, remote_status)
-                    if selection and hardware_mismatch
-                    else ""
-                )
                 or (
                     "Select a saved device calibration."
                     if selection is None
