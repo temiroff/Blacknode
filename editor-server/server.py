@@ -6218,6 +6218,64 @@ def _calibration_hardware_mismatch_message(
     )
 
 
+def _inactive_calibration_message(
+    workflow: dict[str, Any],
+    remote_status: dict[str, Any],
+) -> str:
+    selection = _workflow_calibration_selection(workflow)
+    if selection is None:
+        return (
+            "No calibration is selected or active. This feedback-only workflow "
+            "may run, but workflows requiring joint_group remain blocked."
+        )
+
+    prefix = (
+        f"Selected calibration {selection['profile_id']} / "
+        f"{selection['hardware_id']} is saved but not active on this device."
+    )
+    try:
+        profile, _calibration = _selected_local_calibration(workflow)
+    except ValueError:
+        return (
+            prefix
+            + " The saved calibration file is unavailable. Select or record it "
+            "again before using joint_group."
+        )
+
+    expected_ids = {
+        int(joint["servo_id"])
+        for joint in (profile.get("joints") or [])
+        if (
+            isinstance(joint, dict)
+            and isinstance(joint.get("servo_id"), int)
+            and not isinstance(joint.get("servo_id"), bool)
+        )
+    }
+    observed_ids = {
+        int(match.group(1))
+        for name in (remote_status.get("joint_names") or [])
+        if (match := re.fullmatch(r"servo_(\d+)", str(name)))
+    }
+    missing_ids = sorted(expected_ids - observed_ids)
+    if expected_ids and observed_ids and missing_ids:
+        missing = ", ".join(str(value) for value in missing_ids)
+        return (
+            prefix
+            + f" The current device configuration reports {len(observed_ids)} "
+            f"of {len(expected_ids)} expected servos; missing servo ID"
+            f"{'s' if len(missing_ids) != 1 else ''}: {missing}. Check that "
+            "servo's power, bus connector, and configured ID, then run read-only "
+            "robot discovery again. This feedback-only workflow may run, but "
+            "joint_group remains blocked."
+        )
+    return (
+        prefix
+        + " This feedback-only workflow may run. A workflow requiring "
+        "joint_group will prepare the matching calibration during Check setup "
+        "while the device is disarmed."
+    )
+
+
 def _robot_profiles_root() -> Path:
     configured = str(os.environ.get("BLACKNODE_ROBOTS_DIR") or "").strip()
     return (
@@ -7137,7 +7195,7 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
             "calibration",
             "Calibration",
             "warning",
-            "No calibration profile is active; any workflow that requires joint_group will be blocked.",
+            _inactive_calibration_message(workflow, remote_status),
         ))
 
     runtime_manifest = None
