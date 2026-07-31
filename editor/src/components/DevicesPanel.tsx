@@ -1089,6 +1089,21 @@ export default function DevicesPanel({
           : null
       ))
       await Promise.all(result.devices.map(async device => {
+        if (device.inspection_only) {
+          setDeviceStates(previous => ({
+            ...previous,
+            [device.id]: {
+              runtime: {
+                ok: false,
+                state: 'inspection_only',
+                runtime_url: device.runtime_url,
+              },
+              loading: false,
+              checkedAt: Date.now(),
+            },
+          }))
+          return
+        }
         await Promise.all([
           refreshDevice(device),
           Promise.all(device.robots.map(refreshRobot)),
@@ -1257,8 +1272,11 @@ export default function DevicesPanel({
           sshUsername.trim(),
           sshPassword,
           sshProbe.host_fingerprint,
+          deviceName.trim(),
+          true,
         )
         setSshInspection(inspection)
+        await refresh()
         const reusable = inspection.instances.find(instance => instance.healthy)
         if (reusable) {
           setInstallAction('reuse')
@@ -2524,8 +2542,9 @@ export default function DevicesPanel({
                 <div>
                   <strong>Connect over SSH</strong>
                   <p>
-                    Blacknode verifies the computer, checks existing runtimes and occupied
-                    ports, then lets you reuse, replace, or install an independent instance.
+                    Blacknode verifies the computer, checks existing runtimes, occupied
+                    ports, and the live ROS 2 graph, then lets you close without installing
+                    or choose a managed Runtime setup.
                   </p>
                 </div>
               </div>
@@ -2704,6 +2723,71 @@ export default function DevicesPanel({
                       <p>
                         Runtime setup may install missing {sshInspection.environment.runtime_setup_packages.join(', ')}.
                         It does not replace NVIDIA drivers, CUDA, ROS 2, or Docker.
+                      </p>
+                    </div>
+                  )}
+                  {sshInspection.ros2_graph && (
+                    <div className="bn-ssh-ros-inspection">
+                      <div className="bn-host-environment-head">
+                        <div>
+                          <strong>Live ROS 2 graph</strong>
+                          <span>
+                            {sshInspection.ros2_graph.distribution || 'ROS 2'}
+                            {' · domain '}{sshInspection.ros2_graph.domain_id}
+                            {' · '}{sshInspection.ros2_graph.topics.length} topics
+                            {' · '}{sshInspection.ros2_graph.nodes.length} nodes
+                            {' · '}{sshInspection.ros2_graph.services.length} services
+                          </span>
+                        </div>
+                        <span className="bn-preserved-badge">Read only</span>
+                      </div>
+                      {sshInspection.ros2_graph.capabilities.length > 0 ? (
+                        <div className="bn-ssh-ros-capabilities">
+                          {sshInspection.ros2_graph.capabilities.map(candidate => (
+                            <article key={candidate.capability}>
+                              <div>
+                                <strong>{candidate.capability.replace(/_/g, ' ')}</strong>
+                                <span>{candidate.confidence} confidence</span>
+                              </div>
+                              <small>
+                                {[...candidate.state_topics, ...candidate.command_topics].join(', ')}
+                              </small>
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <p>
+                          {sshInspection.ros2_graph.report
+                            || 'No standard robot capability candidates were identified.'}
+                        </p>
+                      )}
+                      {sshInspection.ros2_graph.unclassified.length > 0 && (
+                        <details className="bn-ssh-ros-unclassified">
+                          <summary>
+                            {sshInspection.ros2_graph.unclassified.length} unclassified topics
+                          </summary>
+                          <div>
+                            {sshInspection.ros2_graph.unclassified.slice(0, 20).map(topic => (
+                              <code key={topic.name}>
+                                {topic.name}
+                                {topic.message_types.length
+                                  ? ` [${topic.message_types.join(', ')}]`
+                                  : ''}
+                              </code>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                      {sshInspection.ros2_graph.errors.length > 0 && (
+                        <div className="bn-ssh-ros-errors">
+                          {sshInspection.ros2_graph.errors.map(message => (
+                            <span key={message}>{message}</span>
+                          ))}
+                        </div>
+                      )}
+                      <p>
+                        No packages, files, services, settings, or motion commands were
+                        changed. ROS inspection used transient no-daemon graph queries.
                       </p>
                     </div>
                   )}
@@ -2921,7 +3005,11 @@ export default function DevicesPanel({
           )}
 
           <div className="bn-device-form-actions">
-            <button type="button" onClick={resetDeviceForm} style={miniButton}>Cancel</button>
+            <button type="button" onClick={resetDeviceForm} style={miniButton}>
+              {setupMode === 'automatic' && sshInspection
+                ? 'Close — device saved'
+                : 'Cancel'}
+            </button>
             {setupMode === 'automatic' && !sshProbe ? (
               <button type="button" onClick={probeSsh} disabled={busy} style={primaryButton}>
                 {busy ? 'Checking…' : 'Check connection'}
@@ -3156,9 +3244,19 @@ export default function DevicesPanel({
             </div>
           </div>
 
+          {selectedDevice.inspection_only && (
+            <div className="bn-device-inspection-only" role="status">
+              <strong>Read-only inspection device</strong>
+              <span>
+                The saved system and ROS 2 snapshot is available to ComputeDevice
+                nodes. Blacknode Runtime and physical control are not enabled.
+              </span>
+            </div>
+          )}
+
           {isUiTest && (
             <div className="bn-device-detail-tabs" role="tablist" aria-label="Device sections">
-              <button
+              {!selectedDevice.inspection_only && <button
                 type="button"
                 role="tab"
                 aria-selected={deviceDetailTab === 'overview'}
@@ -3166,7 +3264,7 @@ export default function DevicesPanel({
                 onClick={() => openDeviceDetailTab('overview')}
               >
                 Overview
-              </button>
+              </button>}
               {selectedDevice.managed_runtime && (
                 <button
                   type="button"
@@ -3178,7 +3276,7 @@ export default function DevicesPanel({
                   Software
                 </button>
               )}
-              <button
+              {!selectedDevice.inspection_only && <button
                 type="button"
                 role="tab"
                 aria-selected={deviceDetailTab === 'diagnostics'}
@@ -3186,7 +3284,7 @@ export default function DevicesPanel({
                 onClick={() => openDeviceDetailTab('diagnostics')}
               >
                 Diagnostics
-              </button>
+              </button>}
               <button
                 type="button"
                 className="bn-device-check-action"
@@ -4872,10 +4970,13 @@ function ComputeDeviceCard({
   const paused = Boolean(device.paused || state?.runtime?.paused)
   const ready = !paused && state?.runtime?.ok === true
   const stopped = !paused && state?.runtime?.state === 'stopped'
+  const inspectionOnly = Boolean(device.inspection_only)
   const local = isLocalRuntimeUrl(device.runtime_url)
   const isolated = device.managed_runtime?.stack_mode === 'isolated'
   const label = state?.loading
     ? 'CHECKING'
+    : inspectionOnly
+      ? 'INSPECTED'
     : paused
       ? 'PAUSED'
       : stopped
@@ -4885,7 +4986,7 @@ function ComputeDeviceCard({
           : 'ATTENTION'
   const color = paused || stopped
     ? 'var(--tx3)'
-    : ready
+    : inspectionOnly || ready
       ? 'var(--ok)'
       : state?.runtime
         ? 'var(--warn)'
@@ -4900,7 +5001,9 @@ function ComputeDeviceCard({
     >
       <span className="bn-compute-device-card-top">
         <span className="bn-compute-device-kind">
-          {local ? 'LOCAL' : isolated ? 'REMOTE · ISOLATED' : 'REMOTE'}
+          {inspectionOnly
+            ? 'REMOTE · READ ONLY'
+            : local ? 'LOCAL' : isolated ? 'REMOTE · ISOLATED' : 'REMOTE'}
         </span>
         <span className="bn-compute-device-status">{label}</span>
       </span>

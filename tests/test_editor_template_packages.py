@@ -147,6 +147,26 @@ def test_nested_adapter_endpoints_preserve_component_ownership():
     enable.assert_called_once_with("blacknode-drivers", "feetech", "ros2")
 
 
+def test_component_endpoint_routes_compact_adapter_reference():
+    info = SimpleNamespace(to_dict=lambda: {
+        "name": "blacknode-drivers",
+        "enabled_components": ["feetech"],
+        "enabled_adapters": ["feetech/ros2"],
+    })
+    with patch.object(
+        server,
+        "bn_ensure_adapter_enabled",
+        return_value=info,
+    ) as enable:
+        response = TestClient(server.app).post(
+            "/packages/blacknode-drivers/components/feetech%40ros2/enable"
+        )
+
+    assert response.status_code == 200
+    assert response.json()["package"]["enabled_adapters"] == ["feetech/ros2"]
+    enable.assert_called_once_with("blacknode-drivers", "feetech", "ros2")
+
+
 def test_template_list_groups_core_and_package_templates(tmp_path: Path):
     core_dir = tmp_path / "core"
     robot_dir = tmp_path / "robot" / "templates"

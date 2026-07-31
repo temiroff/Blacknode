@@ -330,6 +330,7 @@ function reactNodeType(typeName: string): string {
   if (SUBGRAPH_NODE_TYPES.has(typeName)) return 'subnetnode'
   if (typeName === 'SubnetInput') return 'subnetinput'
   if (typeName === 'SubnetOutput') return 'subnetoutput'
+  if (typeName === 'ComputeDevice') return 'computedevice'
   if (typeName === 'RobotMonitor') return 'robotmonitor'
   if (typeName === 'RobotServo') return 'robotservo'
   return OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode'
@@ -388,6 +389,7 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'ROS2VisualDashboard' ? { style: { width: 840, height: 760 } } : {}),
     ...(meta.type === 'ROS2Run' ? { style: { width: 520, height: 360 } } : {}),
     ...(meta.type === 'ROS2MotionDashboard' ? { style: { width: 860, height: 720 } } : {}),
+    ...(meta.type === 'ComputeDevice' ? { style: { width: 460, height: 260 } } : {}),
     ...(meta.type === 'RobotMonitor' ? { style: { width: 760 } } : {}),
     ...(meta.type === 'RobotServo' ? { style: { width: 360 } } : {}),
   }
@@ -3254,6 +3256,23 @@ export const useStore = create<Store>((set, get) => ({
     }
     const applyCookEvent = (event: CookEvent) => {
       queueLiveReplay(event)
+      const successfulNodeType = event.type === 'success'
+        ? (
+            event.node_type
+            ?? cookNodes.find(node => node.id === event.node_id)?.data.type
+            ?? ''
+          )
+        : ''
+      if (
+        event.type === 'success'
+        && successfulNodeType === 'RobotProfileSave'
+        && event.outputs?.saved === true
+      ) {
+        // Saved profiles are filesystem-backed and can appear after package
+        // registration. Refresh both schema dropdowns and live Robot cards.
+        void get().loadNodeTypes()
+        window.dispatchEvent(new Event('blacknode:robot-profiles-changed'))
+      }
       if (
         event.type === 'success'
         && cookProject
@@ -3266,12 +3285,9 @@ export const useStore = create<Store>((set, get) => ({
         const captureKey = `${cookProject.id}:${cookTab.slug}:${event.node_id}`
         if (signature && artifactCaptureSignatures.get(captureKey) !== signature) {
           artifactCaptureSignatures.set(captureKey, signature)
-          const nodeType = event.node_type
-            ?? cookNodes.find(node => node.id === event.node_id)?.data.type
-            ?? ''
           void api.importProjectArtifacts(cookProject.id, {
             workflow_slug: cookTab.slug,
-            node_type: nodeType,
+            node_type: successfulNodeType,
             value: candidates.payloads,
           }).then(() => {
             set(state => ({ projectRevision: state.projectRevision + 1 }))

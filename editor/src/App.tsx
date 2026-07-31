@@ -11,6 +11,7 @@ import { LIVE_STREAM_NODE_TYPES } from './liveNodeTypes'
 import ValueNode from './components/ValueNode'
 import ModelNode from './components/ModelNode'
 import OutputNode from './components/OutputNode'
+import ComputeDeviceNode from './components/ComputeDeviceNode'
 import RobotMonitorNode from './components/RobotMonitorNode'
 import RobotServoNode from './components/RobotServoNode'
 import SubnetNode from './components/SubnetNode'
@@ -32,6 +33,7 @@ const NODE_TYPES = {
   valuenode: ValueNode,
   modelnode: ModelNode,
   outputnode: OutputNode,
+  computedevice: ComputeDeviceNode,
   robotmonitor: RobotMonitorNode,
   robotservo: RobotServoNode,
   subnetnode: SubnetNode,

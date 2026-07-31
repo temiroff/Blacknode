@@ -1023,9 +1023,12 @@ export default function DeploymentsPanel({
                               const calibrationLabel = profile?.calibration_count
                                 ? ` · ${profile.calibration_count} calibration${profile.calibration_count === 1 ? '' : 's'}`
                                 : ''
+                              const profileLabel = profile && profile.name !== profileId
+                                ? `${profile.name} · ${profileId}`
+                                : profileId
                               return (
                                 <option value={profileId} key={profileId}>
-                                  {profile?.name || profileId}{calibrationLabel}
+                                  {profileLabel}{calibrationLabel}
                                 </option>
                               )
                             })}

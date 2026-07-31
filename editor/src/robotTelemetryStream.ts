@@ -12,6 +12,7 @@ type Listener = {
 
 type Stream = {
   robotId: string
+  profileId: string
   listeners: Set<Listener>
   socket: WebSocket | null
   reconnectTimer?: number
@@ -30,7 +31,9 @@ function publishConnection(stream: Stream, connection: RobotMonitorConnection) {
 function connect(stream: Stream) {
   if (stream.stopped || stream.listeners.size === 0) return
   publishConnection(stream, 'connecting')
-  const socket = new WebSocket(deviceMonitorSocketUrl(stream.robotId))
+  const socket = new WebSocket(
+    deviceMonitorSocketUrl(stream.robotId, stream.profileId),
+  )
   stream.socket = socket
   socket.onopen = () => publishConnection(stream, 'live')
   socket.onmessage = event => {
@@ -54,25 +57,29 @@ function connect(stream: Stream) {
 
 export function subscribeRobotTelemetry(
   robotId: string,
+  profileId: string,
   onSample: Listener['onSample'],
   onConnection: Listener['onConnection'],
 ): () => void {
   const cleanId = String(robotId || '').trim()
+  const cleanProfileId = String(profileId || 'auto').trim() || 'auto'
   if (!cleanId) {
     onConnection('idle')
     return () => undefined
   }
-  let stream = streams.get(cleanId)
+  const streamKey = `${cleanId}\u0000${cleanProfileId}`
+  let stream = streams.get(streamKey)
   if (!stream) {
     stream = {
       robotId: cleanId,
+      profileId: cleanProfileId,
       listeners: new Set(),
       socket: null,
       connection: 'connecting',
       latest: null,
       stopped: false,
     }
-    streams.set(cleanId, stream)
+    streams.set(streamKey, stream)
   }
   const listener = { onSample, onConnection }
   stream.listeners.add(listener)
@@ -91,6 +98,6 @@ export function subscribeRobotTelemetry(
     const socket = stream!.socket
     stream!.socket = null
     socket?.close()
-    streams.delete(cleanId)
+    streams.delete(streamKey)
   }
 }

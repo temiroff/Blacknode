@@ -25,8 +25,10 @@ and a representative workflow when applicable.
    independent repositories, not tracked children of the core repository.
 4. Decide whether the capability belongs in core, an extension package, a
    user-local custom node, or a workflow-local `PythonFn`.
-5. Implement the narrowest coherent change, add tests, and update public docs.
-6. Build a small workflow/template when it materially proves discovery, ports,
+5. For a hardware, transport, simulation, or replay provider, read
+   `docs/provider-authoring.md` and inspect the live capability contract.
+6. Implement the narrowest coherent change, add tests, and update public docs.
+7. Build a small workflow/template when it materially proves discovery, ports,
    runtime behavior, or package resolution.
 
 ## Choose the Ownership Layer
@@ -82,7 +84,9 @@ Use current generic names in new templates and docs.
 ## Author an Extension Package
 
 Use `blacknode-cuda` as the smallest reference package. Read
-`docs/packages.md` and `docs/custom-nodes.md` before authoring.
+`docs/packages.md` and `docs/custom-nodes.md` before authoring. For a hardware,
+transport, simulation, or replay provider, also read
+`docs/provider-authoring.md`.
 
 Required shape:
 
@@ -123,6 +127,11 @@ node/package -> registry and schema -> editor-server/MCP -> editor -> template
 Update each affected layer in the same change. Do not persist editor-only fields
 such as `cookResult`, `cookError`, `cooking`, or `cookPort` in workflow JSON.
 
+For custom editor node headers or bodies, derive inner corners from the shared
+`--bn-node-inner-radius` token with the legacy radius as a fallback. Inspect
+later cascade overrides and do not introduce a separate fixed radius that can
+drift from the standard node shell.
+
 For hardware-facing contracts, test provider absence as well as provider
 presence. A missing optional module must degrade only its advertised
 capabilities, while compatible providers must produce the same normalized
@@ -131,6 +140,13 @@ state, lifecycle, status, error, and shutdown shapes.
 ## Hardware and Managed-Service Safety
 
 - Keep robot motion disarmed until explicitly authorized.
+- Treat communication presence and hardware health as separate states. Preserve
+  valid read-only telemetry when a response carries a hardware warning, expose
+  the raw status and decoded warning to nodes and monitors, and keep
+  motion/torque authorization strict.
+- A hardware warning may accompany a successful transition to a safer state.
+  Accept release, stop, or disarm only after independently reading the physical
+  state back as safe; never extend that tolerance to arm or torque-enable.
 - Never bypass calibrated limits, freshness checks, or emergency shutdown.
 - Treat worker heartbeat and source-data freshness as separate signals.
 - Preserve idempotent control behavior across retries.
@@ -160,6 +176,8 @@ Update the closest public contract alongside code:
 
 - `docs/agent-guide.md` for agent routing and workflow behavior.
 - `docs/packages.md` for package format and lifecycle.
+- `docs/provider-authoring.md` for capability providers, profile bindings,
+  adapters, managed lifecycle, and compatibility tests.
 - `docs/custom-nodes.md` for node authoring.
 - `CONTRIBUTING.md` for contributor setup and verification.
 - The affected package README for package-specific behavior.

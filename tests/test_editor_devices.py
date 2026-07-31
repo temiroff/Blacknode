@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
 import urllib.parse
@@ -403,6 +404,37 @@ class EditorDeviceApiTests(unittest.TestCase):
         server._project_store = self._original_project_store
         self._tmp.cleanup()
 
+    def test_existing_robot_profile_opens_as_editable_joint_graph(self):
+        robots_root = Path(self._tmp.name) / "robots"
+        profile_dir = robots_root / "editable_arm"
+        profile_dir.mkdir(parents=True)
+        (profile_dir / "profile.json").write_text(json.dumps({
+            "id": "editable_arm",
+            "display_name": "Editable arm",
+            "protocol": "custom",
+            "driver": {"script": "arm_driver.py", "baudrate": 115200},
+            "joints": [
+                {"id": "second", "display_name": "Second", "servo_id": 2, "min_deg": -20, "max_deg": 20},
+                {"id": "first", "display_name": "First", "servo_id": 1, "min_deg": -10, "max_deg": 10},
+            ],
+        }), encoding="utf-8")
+
+        with patch.dict("os.environ", {"BLACKNODE_ROBOTS_DIR": str(robots_root)}):
+            response = self.client.get("/graph/profiles/editable_arm/editor")
+
+        self.assertEqual(response.status_code, 200)
+        graph = response.json()
+        joint_nodes = [node for node in graph["nodes"] if node["type"] == "RobotJointDefinition"]
+        self.assertEqual(
+            [node["params"]["joint_id"] for node in joint_nodes],
+            ["first", "second"],
+        )
+        definition = next(node for node in graph["nodes"] if node["type"] == "RobotDefinition")
+        save = next(node for node in graph["nodes"] if node["type"] == "RobotProfileSave")
+        self.assertEqual(definition["params"]["profile_id"], "editable_arm")
+        self.assertEqual(definition["params"]["baudrate"], 115200)
+        self.assertTrue(save["params"]["overwrite"])
+
     def test_runtime_inspection_keeps_remote_token_paths_private(self):
         output = (
             "remote preface\n"
@@ -417,6 +449,21 @@ class EditorDeviceApiTests(unittest.TestCase):
                     "policy": "preserve",
                     "docker": {"available": True, "server_version": "27.5.1"},
                 },
+                "ros2_graph": {
+                    "available": True,
+                    "state": "available",
+                    "distribution": "humble",
+                    "domain_id": "0",
+                    "read_only": True,
+                    "daemon_used": False,
+                    "topics": [
+                        "/scan [sensor_msgs/msg/LaserScan]",
+                        "/controller/cmd_vel [geometry_msgs/msg/Twist]",
+                    ],
+                    "nodes": ["/controller"],
+                    "services": ["/controller/get_parameters"],
+                    "errors": [],
+                },
                 "suggested_port": 8767,
                 "suggested_instance_id": "instance-2",
             })
@@ -429,7 +476,25 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertNotIn("_token_file", public["instances"][0])
         self.assertNotIn("auth.token", json.dumps(public))
         self.assertEqual(public["environment"]["docker"]["server_version"], "27.5.1")
+        self.assertTrue(public["ros2_graph"]["read_only"])
+        self.assertFalse(public["ros2_graph"]["daemon_used"])
+        self.assertEqual(
+            public["ros2_graph"]["topics"],
+            [
+                "/scan [sensor_msgs/msg/LaserScan]",
+                "/controller/cmd_vel [geometry_msgs/msg/Twist]",
+            ],
+        )
         self.assertEqual(public["suggested_port"], 8767)
+
+    def test_remote_ros_inspection_never_starts_a_daemon_or_sends_messages(self):
+        script = device_installer._INSPECTION_SCRIPT
+
+        self.assertIn("--no-daemon", script)
+        self.assertNotIn("ros2 topic echo", script)
+        self.assertNotIn("ros2 topic pub", script)
+        self.assertNotIn("ros2 service call", script)
+        self.assertNotIn("ros2 action send_goal", script)
 
     def test_runtime_instance_ids_reject_shell_metacharacters(self):
         self.assertEqual(device_installer._clean_instance_id("instance-2"), "instance-2")
@@ -1312,6 +1377,61 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         self.assertEqual(metadata["required_packages"], ["blacknode-robot"])
         self.assertEqual(graph["metadata"], metadata)
+
+    def test_node_defs_discover_profiles_saved_after_package_load(self):
+        robots_root = Path(self._tmp.name) / "robots"
+
+        def robot_node(ctx):
+            return ctx
+
+        robot_node._bn_inputs = ["profile_id"]
+        robot_node._bn_outputs = ["robot"]
+        robot_node._bn_input_types = {"profile_id": "Text"}
+        robot_node._bn_output_types = {"robot": "Dict"}
+        robot_node._bn_input_defaults = {"profile_id": "auto"}
+        robot_node._bn_input_choices = {
+            "profile_id": ["auto", "so_arm101"],
+        }
+
+        with (
+            patch.dict(server._NODE_REGISTRY, {"Robot": robot_node}),
+            patch.dict(
+                os.environ,
+                {"BLACKNODE_ROBOTS_DIR": str(robots_root)},
+            ),
+        ):
+            before = self.client.get("/node-defs").json()
+
+            profile_dir = robots_root / "new_workshop_arm"
+            profile_dir.mkdir(parents=True)
+            (profile_dir / "profile.json").write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "id": "new_workshop_arm",
+                    "display_name": "New workshop arm",
+                    "joints": [{"id": "joint", "servo_id": 1}],
+                }),
+                encoding="utf-8",
+            )
+
+            after = self.client.get("/node-defs").json()
+
+        self.assertNotIn(
+            "new_workshop_arm",
+            before["Robot"]["input_choices"]["profile_id"],
+        )
+        self.assertIn(
+            "new_workshop_arm",
+            after["Robot"]["input_choices"]["profile_id"],
+        )
+        self.assertNotIn(
+            "auto",
+            after["Robot"]["input_choices"]["profile_id"],
+        )
+        self.assertEqual(
+            robot_node._bn_input_choices["profile_id"],
+            ["auto", "so_arm101"],
+        )
 
     def test_pairing_validates_and_keeps_token_out_of_api_responses(self):
         hardware = _HardwareService()
@@ -2623,6 +2743,91 @@ class EditorDeviceApiTests(unittest.TestCase):
             password="ssh-password",
             host_fingerprint="SHA256:trusted-device-key",
         )
+
+    def test_ssh_inspection_classifies_live_ros_graph_without_installing(self):
+        inspection = {
+            "ok": True,
+            "host_fingerprint": "SHA256:trusted-device-key",
+            "instances": [],
+            "environment": {
+                "policy": "preserve",
+                "ros2": {
+                    "available": True,
+                    "distributions": ["humble"],
+                    "selected_distribution": "humble",
+                    "ros2_on_path": False,
+                    "preserved": True,
+                },
+            },
+            "ros2_graph": {
+                "available": True,
+                "state": "available",
+                "distribution": "humble",
+                "domain_id": "0",
+                "read_only": True,
+                "daemon_used": False,
+                "topics": [
+                    "/scan [sensor_msgs/msg/LaserScan]",
+                    "/odom [nav_msgs/msg/Odometry]",
+                    "/controller/cmd_vel [geometry_msgs/msg/Twist]",
+                ],
+                "nodes": ["/controller"],
+                "services": ["/controller/get_parameters"],
+                "errors": [],
+            },
+            "suggested_port": 8766,
+            "suggested_instance_id": "instance-2",
+        }
+        received = []
+
+        def classify(ctx):
+            received.append(ctx)
+            return {
+                "found": True,
+                "capabilities": [{
+                    "kind": "blacknode.robot-capability-candidate",
+                    "schema_version": 1,
+                    "capability": "mobile_base",
+                    "confidence": "high",
+                    "score": 95,
+                    "state_topics": ["/odom"],
+                    "command_topics": ["/controller/cmd_vel"],
+                    "safe_to_read": True,
+                    "requires_confirmation": True,
+                    "evidence": [],
+                }],
+                "unclassified": [],
+                "inventory": {
+                    "topics": inspection["ros2_graph"]["topics"],
+                    "nodes": ["/controller"],
+                    "services": ["/controller/get_parameters"],
+                },
+                "report": "Generic ROS 2 capability discovery",
+            }
+
+        with (
+            patch.object(server, "inspect_runtime", return_value=inspection),
+            patch.dict(
+                server._NODE_REGISTRY,
+                {"RobotROSCapabilityDiscover": classify},
+            ),
+        ):
+            response = self.client.post("/device-hosts/inspect", json={
+                "host": "192.168.55.1",
+                "port": 22,
+                "username": "ubuntu",
+                "password": "ssh-password",
+                "host_fingerprint": "SHA256:trusted-device-key",
+            })
+
+        self.assertEqual(response.status_code, 200)
+        graph = response.json()["ros2_graph"]
+        self.assertTrue(graph["read_only"])
+        self.assertFalse(graph["daemon_used"])
+        self.assertEqual(graph["capabilities"][0]["capability"], "mobile_base")
+        self.assertTrue(graph["capabilities"][0]["requires_confirmation"])
+        self.assertEqual(received[0]["nodes"], ["/controller"])
+        self.assertNotIn("ssh-password", response.text)
 
     def test_manual_device_can_enable_ssh_management_after_pairing(self):
         runtime = _HardwareService("runtime-token")
@@ -4416,6 +4621,13 @@ class EditorDeviceApiTests(unittest.TestCase):
             "connected": False,
             "leased_to_deployment": True,
             "error": "serial hardware is leased to a Blacknode deployment",
+            "calibrated": True,
+            "calibration": {
+                "name": "Follower calibration",
+                "profile_id": "so_arm101_v002",
+                "hardware_id": "FOLLOWER-42",
+                "joint_count": 6,
+            },
         })
         with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
             paired = self.client.post("/devices", json={
@@ -4467,6 +4679,13 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertTrue(payload["available"])
         self.assertEqual(payload["sequence"], 42)
         self.assertEqual(payload["payload"]["joints"][0]["velocity"], 2.0)
+        self.assertTrue(payload["payload"]["calibrated"])
+        self.assertEqual(payload["payload"]["calibration"], {
+            "name": "Follower calibration",
+            "profile_id": "so_arm101_v002",
+            "hardware_id": "FOLLOWER-42",
+            "joint_count": 6,
+        })
 
     def test_robot_monitor_websocket_streams_selected_robot(self):
         hardware = _HardwareService(status_overrides={
@@ -4487,6 +4706,35 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(payload["robot_id"], paired["id"])
         self.assertEqual(payload["source"], "hardware")
         self.assertEqual(payload["payload"]["joints"][0]["position"], 5.0)
+
+    def test_robot_monitor_websocket_stops_sampling_after_disconnect(self):
+        samples = []
+
+        def snapshot(device_id, _profile_id="auto"):
+            samples.append(time.monotonic())
+            return {
+                "type": "robot_telemetry",
+                "robot_id": device_id,
+                "available": True,
+                "stale": False,
+                "payload": {
+                    "connected": True,
+                    "position_unit": "degree",
+                    "velocity_unit": "degree/s",
+                    "joints": [],
+                },
+            }
+
+        with patch.object(server, "_device_monitor_snapshot", side_effect=snapshot):
+            with self.client.websocket_connect(
+                "/api/devices/local-usb-disconnect/monitor/ws"
+            ) as websocket:
+                websocket.receive_json()
+            time.sleep(0.25)
+            settled_count = len(samples)
+            time.sleep(0.25)
+
+        self.assertEqual(len(samples), settled_count)
 
     def test_device_status_reports_stopped_deployment_as_inactive(self):
         hardware = _HardwareService(status_overrides={
@@ -5077,6 +5325,19 @@ class EditorDeviceApiTests(unittest.TestCase):
             },
             "temperatures_c": {"servo_2": 41.5},
             "voltage_v": 12.2,
+            "voltages_v": {"servo_2": 12.2},
+            "hardware_error_flags": {"servo_2": 1},
+            "hardware_errors": {"servo_2": ["voltage"]},
+            "servo_status": {"servo_2": 1},
+            "bus": {
+                "operation_count": 20,
+                "timeout_count": 0,
+                "serial_packet_error_count": 0,
+                "hardware_error_flags": {"servo_2": 1},
+                "hardware_errors": {"servo_2": ["voltage"]},
+                "servo_status": {"servo_2": 1},
+                "voltages_v": {"servo_2": 12.2},
+            },
             "error": "",
         }
         with (
@@ -5103,6 +5364,306 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertTrue(payload["calibrated"])
         self.assertEqual(payload["temperatures_c"]["servo_2"], 41.5)
         self.assertEqual(payload["voltage_v"], 12.2)
+        self.assertTrue(joint["communication_ok"])
+        self.assertEqual(joint["temperature_c"], 41.5)
+        self.assertEqual(joint["voltage_v"], 12.2)
+        self.assertEqual(joint["hardware_error_flags"], 1)
+        self.assertEqual(joint["hardware_errors"], ["voltage"])
+        self.assertEqual(joint["servo_status"], 1)
+        self.assertEqual(payload["bus"]["operation_count"], 20)
+
+    def test_robot_monitor_targets_include_local_usb_robots(self):
+        local = {
+            "id": "local-usb-abc",
+            "name": "Workshop arm · COM4",
+            "kind": "local_usb",
+            "available": True,
+            "profile_id": "workshop_arm",
+            "hardware_id": "SERIAL-42",
+            "port": "COM4",
+        }
+        with patch.object(
+            server,
+            "_local_robot_monitor_targets",
+            return_value=[local],
+        ):
+            response = self.client.get("/robot-monitor-targets")
+
+        self.assertEqual(response.status_code, 200)
+        targets = response.json()["targets"]
+        self.assertIn(local, targets)
+
+    def test_robot_monitor_targets_accept_none_for_raw_usb_discovery(self):
+        raw = {
+            "id": "local-usb-raw",
+            "name": "Raw servos · COM4",
+            "kind": "local_usb",
+            "available": True,
+            "profile_id": "",
+            "requested_profile_id": "none",
+            "raw_mode": True,
+            "hardware_id": "SERIAL-42",
+            "port": "COM4",
+        }
+        with patch.object(
+            server,
+            "_local_robot_monitor_targets",
+            return_value=[raw],
+        ) as targets:
+            response = self.client.get(
+                "/robot-monitor-targets?profile_id=none"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["profile_id"], "none")
+        self.assertIn(raw, response.json()["targets"])
+        targets.assert_called_once_with("none")
+
+    def test_local_usb_raw_monitor_maps_uncalibrated_ticks(self):
+        def raw_monitor(_ctx):
+            return {
+                "available": True,
+                "position_unit": "ticks",
+                "velocity_unit": "ticks/s",
+                "torque_enabled": False,
+                "joints": [{
+                    "name": "servo_2",
+                    "semantic_name": "Servo 2",
+                    "servo_id": 2,
+                    "position": 833.0,
+                    "velocity": 0.0,
+                    "raw_position": 833,
+                    "communication_ok": True,
+                    "voltage_v": 11.9,
+                    "temperature_c": 32.0,
+                    "hardware_error_flags": 1,
+                    "hardware_errors": ["voltage"],
+                }],
+                "warnings": [
+                    "servo_2 (servo 2) hardware warning 0x01: voltage"
+                ],
+                "errors": [],
+                "diagnostics": {
+                    "operation_count": 3,
+                    "scan_miss_count": 30,
+                    "serial_packet_error_count": 0,
+                },
+                "provider": {
+                    "package": "blacknode-drivers",
+                    "component": "feetech",
+                },
+                "report": "Raw read-only scan found servo ID 2.",
+            }
+
+        target = {
+            "id": "local-usb-raw",
+            "name": "Raw servos · COM4",
+            "kind": "local_usb",
+            "available": True,
+            "raw_mode": True,
+            "hardware_id": "SERIAL-42",
+            "port": "COM4",
+            "hardware": {"recommended": {"path": "COM4"}},
+        }
+        with patch.dict(
+            server._NODE_REGISTRY,
+            {"RobotRawMonitor": raw_monitor},
+        ):
+            snapshot = server._local_robot_monitor_snapshot(target)
+
+        self.assertTrue(snapshot["available"])
+        payload = snapshot["payload"]
+        self.assertTrue(payload["raw_mode"])
+        self.assertFalse(payload["calibrated"])
+        self.assertEqual(payload["position_unit"], "ticks")
+        self.assertEqual(payload["joints"][0]["raw_position"], 833)
+        self.assertEqual(payload["bus"]["scan_miss_count"], 30)
+        self.assertEqual(
+            payload["faults"][0]["details"]["joint"],
+            "servo_2",
+        )
+
+    def test_local_usb_monitor_maps_provider_diagnostics(self):
+        def control(_ctx):
+            return {
+                "data_ready": True,
+                "command_ok": True,
+                "torque_enabled": False,
+                "pose": {
+                    "shoulder_pan": -7.56,
+                    "shoulder_lift": -106.79,
+                },
+                "warnings": [
+                    "shoulder_lift (servo 2) hardware warning 0x01: voltage"
+                ],
+                "servos": {
+                    "shoulder_pan": {
+                        "servo_id": 1,
+                        "communication_ok": True,
+                        "ticks": 1962,
+                        "position_deg": -7.56,
+                        "torque_enabled": False,
+                        "voltage_v": 11.9,
+                        "temperature_c": 35.0,
+                        "servo_status": 0,
+                        "hardware_error_flags": 0,
+                        "hardware_errors": [],
+                    },
+                    "shoulder_lift": {
+                        "servo_id": 2,
+                        "communication_ok": True,
+                        "ticks": 833,
+                        "position_deg": -106.79,
+                        "torque_enabled": False,
+                        "voltage_v": 11.9,
+                        "temperature_c": 32.0,
+                        "servo_status": 1,
+                        "hardware_error_flags": 1,
+                        "hardware_errors": ["voltage"],
+                    },
+                },
+                "diagnostics": {
+                    "operation_count": 3,
+                    "serial_packet_error_count": 0,
+                },
+                "report": "Live local USB telemetry.",
+            }
+
+        target = {
+            "id": "local-usb-abc",
+            "name": "Workshop arm · COM4",
+            "kind": "local_usb",
+            "available": True,
+            "profile_id": "workshop_arm",
+            "hardware_id": "SERIAL-42",
+            "port": "COM4",
+            "profile": {
+                "id": "workshop_arm",
+                "display_name": "Workshop arm",
+                "joints": [{
+                    "id": "shoulder_pan",
+                    "display_name": "Shoulder pan",
+                    "servo_id": 1,
+                    "safe_min_deg": -110.0,
+                    "safe_max_deg": 110.0,
+                }, {
+                    "id": "shoulder_lift",
+                    "display_name": "Shoulder lift",
+                    "servo_id": 2,
+                    "safe_min_deg": -110.0,
+                    "safe_max_deg": 110.0,
+                }],
+            },
+            "hardware": {"recommended": {"path": "COM4"}},
+            "calibration": {
+                "profile_id": "workshop_arm",
+                "hardware_id": "SERIAL-42",
+            },
+        }
+        with patch.dict(
+            server._NODE_REGISTRY,
+            {"RobotCalibrationControl": control},
+        ):
+            snapshot = server._local_robot_monitor_snapshot(target)
+
+        self.assertTrue(snapshot["available"])
+        self.assertFalse(snapshot["stale"])
+        payload = snapshot["payload"]
+        self.assertFalse(payload["torque_enabled"])
+        self.assertEqual(len(payload["faults"]), 1)
+        self.assertEqual(
+            payload["faults"][0]["details"]["joint"],
+            "shoulder_lift",
+        )
+        healthy_joint = next(
+            item for item in payload["joints"]
+            if item["name"] == "shoulder_pan"
+        )
+        self.assertEqual(healthy_joint["hardware_error_flags"], 0)
+        self.assertEqual(healthy_joint["hardware_errors"], [])
+        joint = next(
+            item for item in payload["joints"]
+            if item["name"] == "shoulder_lift"
+        )
+        self.assertEqual(joint["servo_id"], 2)
+        self.assertEqual(joint["raw_position"], 833)
+        self.assertEqual(joint["voltage_v"], 11.9)
+        self.assertEqual(joint["temperature_c"], 32.0)
+        self.assertEqual(joint["hardware_error_flags"], 1)
+        self.assertEqual(joint["hardware_errors"], ["voltage"])
+        self.assertEqual(payload["bus"]["serial_packet_error_count"], 0)
+
+    def test_local_usb_monitor_serializes_reads_and_keeps_last_good_pose(self):
+        device_id = "local-usb-stable"
+        target = {"id": device_id}
+        good = {
+            "type": "robot_telemetry",
+            "robot_id": device_id,
+            "available": True,
+            "stale": False,
+            "payload": {
+                "connected": True,
+                "joints": [{"name": "shoulder", "position": 12.5}],
+            },
+        }
+        failed = {
+            "type": "robot_telemetry",
+            "robot_id": device_id,
+            "available": False,
+            "stale": True,
+            "message": "serial port is temporarily busy",
+        }
+        with server._robot_monitor_cache_lock:
+            server._robot_monitor_snapshot_cache.pop(device_id, None)
+            server._robot_monitor_device_locks.pop(device_id, None)
+        try:
+            with (
+                patch.object(
+                    server,
+                    "_local_robot_monitor_target",
+                    return_value=target,
+                ),
+                patch.object(
+                    server,
+                    "_local_robot_monitor_snapshot",
+                    return_value=good,
+                ) as snapshot,
+            ):
+                first = server._device_monitor_snapshot(device_id)
+                second = server._device_monitor_snapshot(device_id)
+
+            self.assertTrue(first["available"])
+            self.assertEqual(second["payload"]["joints"][0]["position"], 12.5)
+            snapshot.assert_called_once_with(target)
+
+            with server._robot_monitor_cache_lock:
+                server._robot_monitor_snapshot_cache[device_id]["sampled_at"] = 0.0
+            with (
+                patch.object(
+                    server,
+                    "_local_robot_monitor_target",
+                    return_value=target,
+                ),
+                patch.object(
+                    server,
+                    "_local_robot_monitor_snapshot",
+                    return_value=failed,
+                ),
+            ):
+                retry = server._device_monitor_snapshot(device_id)
+
+            self.assertTrue(retry["available"])
+            self.assertTrue(retry["stale"])
+            self.assertEqual(
+                retry["payload"]["joints"][0]["position"],
+                12.5,
+            )
+            self.assertIn("keeping the last good", retry["message"])
+            self.assertIn("temporarily busy", retry["transient_error"])
+        finally:
+            with server._robot_monitor_cache_lock:
+                server._robot_monitor_snapshot_cache.pop(device_id, None)
+                server._robot_monitor_device_locks.pop(device_id, None)
 
     def test_deployment_monitor_preserves_semantic_joint_servo_ids(self):
         payload = server._monitor_payload_from_device_state({
@@ -5123,14 +5684,63 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "servo_ids": {"shoulder_lift": 2},
                 "raw_positions": {"shoulder_lift": 2190},
                 "calibrated": True,
+                "bus": {
+                    "operation_count": 20,
+                    "timeout_count": 0,
+                    "serial_packet_error_count": 0,
+                    "hardware_error_flags": {"shoulder_lift": 1},
+                    "hardware_errors": {"shoulder_lift": ["voltage"]},
+                    "servo_status": {"shoulder_lift": 1},
+                    "voltages_v": {"shoulder_lift": 11.9},
+                },
             },
+            "temperatures_c": {"shoulder_lift": 32.0},
+            "voltage_v": 11.9,
         })
 
         joint = payload["joints"][0]
         self.assertEqual(joint["name"], "shoulder_lift")
         self.assertEqual(joint["servo_id"], 2)
         self.assertEqual(joint["raw_position"], 2190)
+        self.assertTrue(joint["communication_ok"])
+        self.assertEqual(joint["temperature_c"], 32.0)
+        self.assertEqual(joint["voltage_v"], 11.9)
+        self.assertEqual(joint["hardware_error_flags"], 1)
+        self.assertEqual(joint["hardware_errors"], ["voltage"])
+        self.assertEqual(joint["servo_status"], 1)
+        self.assertEqual(payload["bus"]["timeout_count"], 0)
         self.assertTrue(payload["calibrated"])
+
+    def test_monitor_metadata_merges_status_summary_with_live_calibration(self):
+        payload = server._monitor_payload_with_status_metadata(
+            {
+                "calibrated": False,
+                "calibration": {
+                    "profile_id": "",
+                    "topology": {"1": "shoulder_pan", "2": "shoulder_lift"},
+                },
+            },
+            {
+                "calibrated": True,
+                "calibration": {
+                    "name": "Workshop arm",
+                    "profile_id": "so_arm101_v002",
+                    "hardware_id": "SERIAL-42",
+                },
+            },
+        )
+
+        self.assertTrue(payload["calibrated"])
+        self.assertEqual(payload["calibration"]["name"], "Workshop arm")
+        self.assertEqual(payload["calibration"]["profile_id"], "so_arm101_v002")
+        self.assertEqual(payload["calibration"]["hardware_id"], "SERIAL-42")
+        self.assertEqual(payload["calibration"]["joint_count"], 2)
+
+        unknown = server._monitor_payload_with_status_metadata(
+            {"calibration": {"profile_id": "so_arm101_v002"}},
+            {},
+        )
+        self.assertNotIn("calibrated", unknown)
 
     def test_old_device_service_reports_calibration_upgrade_action(self):
         response = io.BytesIO(b'{"ok": false, "error": "not found"}')

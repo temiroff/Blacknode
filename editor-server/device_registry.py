@@ -777,7 +777,90 @@ class DeviceRegistry:
             host = hosts.get(host_id)
             if host is None:
                 raise KeyError(host_id)
+            if host.get("inspection_only"):
+                raise DeviceRegistryError(
+                    "This compute device is registered for read-only inspection. "
+                    "Install or pair Blacknode Runtime before using runtime APIs."
+                )
             return RuntimeDeviceClient(host["runtime_url"], host["runtime_token"])
+
+    def register_inspection_host(
+        self,
+        *,
+        name: str,
+        runtime_url: str,
+        ssh_host: str,
+        ssh_port: int,
+        ssh_username: str,
+        host_fingerprint: str,
+        inspection: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist a credential-free SSH inspection target for graph selection."""
+        clean_url = normalize_base_url(runtime_url)
+        clean_host = str(ssh_host or "").strip()
+        clean_username = str(ssh_username or "").strip()
+        clean_fingerprint = str(host_fingerprint or "").strip()
+        if not clean_host or not clean_username or not clean_fingerprint:
+            raise DeviceRegistryError(
+                "SSH host, username, and confirmed host fingerprint are required."
+            )
+        try:
+            clean_port = int(ssh_port)
+        except (TypeError, ValueError) as exc:
+            raise DeviceRegistryError("SSH port must be a number.") from exc
+        if not 1 <= clean_port <= 65535:
+            raise DeviceRegistryError("SSH port must be between 1 and 65535.")
+        snapshot = json.loads(json.dumps(inspection))
+        now = _iso_now()
+        with self._lock:
+            hosts, records = self._load_payload()
+            hosts, _changed = self._materialize_hosts(hosts, records)
+            existing = next(
+                (item for item in hosts.values() if item.get("runtime_url") == clean_url),
+                None,
+            )
+            host_id = existing["id"] if existing else _host_id(clean_url)
+            host = {
+                "id": host_id,
+                "name": (
+                    str(name or "").strip()
+                    or str(snapshot.get("hostname") or "").strip()
+                    or clean_host
+                ),
+                "runtime_url": clean_url,
+                "runtime_token": str((existing or {}).get("runtime_token") or ""),
+                "runtime_token_fingerprint": str(
+                    (existing or {}).get("runtime_token_fingerprint") or ""
+                ),
+                "remote_device_id": str(
+                    (existing or {}).get("remote_device_id") or ""
+                ),
+                "paused": bool((existing or {}).get("paused", False)),
+                "inspection_only": not bool(
+                    (existing or {}).get("runtime_token")
+                ),
+                "inspection_connection": {
+                    "ssh_host": clean_host,
+                    "ssh_port": clean_port,
+                    "ssh_username": clean_username,
+                    "host_fingerprint": clean_fingerprint,
+                },
+                "last_inspection": snapshot,
+                "inspection_updated_at": now,
+                "created_at": str((existing or {}).get("created_at") or now),
+                "updated_at": now,
+            }
+            if (existing or {}).get("managed_runtime"):
+                host["managed_runtime"] = dict(existing["managed_runtime"])
+            hosts[host_id] = host
+            self._save_payload(hosts, records)
+            public = self._public_host(host)
+            public["robots"] = [
+                self._public(record)
+                for record in records.values()
+                if str(record.get("host_id") or "") == host_id
+            ]
+            return public
 
     def pair_host(
         self,
@@ -807,6 +890,48 @@ class DeviceRegistry:
                 (item for item in hosts.values() if item.get("runtime_url") == clean_url),
                 None,
             )
+            if existing is None and managed_runtime:
+                requested_identity = (
+                    str(managed_runtime.get("ssh_host") or "").strip(),
+                    int(managed_runtime.get("ssh_port") or 22),
+                    str(managed_runtime.get("ssh_username") or "").strip(),
+                    str(managed_runtime.get("host_fingerprint") or "").strip(),
+                )
+                existing = next(
+                    (
+                        item
+                        for item in hosts.values()
+                        if item.get("inspection_only")
+                        and (
+                            str(
+                                (item.get("inspection_connection") or {}).get(
+                                    "ssh_host"
+                                )
+                                or ""
+                            ).strip(),
+                            int(
+                                (item.get("inspection_connection") or {}).get(
+                                    "ssh_port"
+                                )
+                                or 22
+                            ),
+                            str(
+                                (item.get("inspection_connection") or {}).get(
+                                    "ssh_username"
+                                )
+                                or ""
+                            ).strip(),
+                            str(
+                                (item.get("inspection_connection") or {}).get(
+                                    "host_fingerprint"
+                                )
+                                or ""
+                            ).strip(),
+                        )
+                        == requested_identity
+                    ),
+                    None,
+                )
             now = _iso_now()
             host_id = existing["id"] if existing else _host_id(clean_url)
             created_at = existing.get("created_at") if existing else now
@@ -855,9 +980,19 @@ class DeviceRegistry:
                 "runtime_token_fingerprint": token_fingerprint(clean_token),
                 "remote_device_id": remote_id,
                 "paused": False,
+                "inspection_only": False,
                 "created_at": created_at or now,
                 "updated_at": now,
             }
+            if (existing or {}).get("last_inspection"):
+                host["last_inspection"] = dict(existing["last_inspection"])
+                host["inspection_updated_at"] = str(
+                    existing.get("inspection_updated_at") or ""
+                )
+            if (existing or {}).get("inspection_connection"):
+                host["inspection_connection"] = dict(
+                    existing["inspection_connection"]
+                )
             if management:
                 host["managed_runtime"] = management
             hosts[host_id] = host

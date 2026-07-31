@@ -20,6 +20,16 @@ import server  # noqa: E402
 
 
 class EditorRuntimeTests(unittest.TestCase):
+    def test_robot_calibration_runtime_is_managed_through_generic_node(self):
+        self.assertEqual(
+            server._RUNTIME_MODULES["robot_calibration_control"],
+            "blacknode.pkg.blacknode_robot.calibration_control",
+        )
+        self.assertEqual(
+            server._RUNTIME_REGISTRY_ANCHORS["robot_calibration_control"],
+            "RobotCalibrationControl",
+        )
+
     def test_isaac_runtime_is_managed_through_registered_bridge_state(self):
         self.assertEqual(server._RUNTIME_MODULES["isaac"], "blacknode.pkg.blacknode_isaac.runtime")
         self.assertEqual(server._RUNTIME_REGISTRY_ANCHORS["isaac"], "IsaacPolicyBridge")
@@ -225,6 +235,169 @@ class EditorRuntimeTests(unittest.TestCase):
             prepare_cook.assert_not_called()
         finally:
             server._session.node_meta.pop("recorder-control-test", None)
+
+    def test_connected_servo_command_routes_only_through_live_motion_control(self):
+        servo_id = "servo-control-test"
+        motion_id = "motion-control-test"
+        server._session.node_meta[servo_id] = {
+            "id": servo_id,
+            "type": "RobotServo",
+            "params": {"servo_id": 2, "joint_name": "shoulder_lift"},
+        }
+        server._session.node_meta[motion_id] = {
+            "id": motion_id,
+            "type": "ROS2JointSliders",
+            "params": {"run_id": "arm-live"},
+        }
+        edge = {
+            "from": servo_id,
+            "from_port": "command",
+            "to": motion_id,
+            "to_port": "command",
+        }
+        server._session.graph._edges.append(edge)
+        command = {
+            "kind": "blacknode.joint-command-request",
+            "schema_version": 1,
+            "joint_name": "shoulder_lift",
+            "servo_id": 2,
+            "position_rad": 0.25,
+            "issued_at": 123.0,
+            "requires_motion_authorization": True,
+        }
+        routed = []
+
+        def move(run_id, request):
+            routed.append((run_id, request))
+            return {"ok": True, "commanded": True, "report": "moved shoulder_lift"}
+
+        try:
+            with patch.object(server, "_runtime_callable", return_value=move):
+                response = TestClient(server.app).post(
+                    f"/nodes/{motion_id}/control",
+                    json={
+                        "action": "joint-command",
+                        "payload": {"source_node_id": servo_id, "command": command},
+                    },
+                )
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json()["outputs"]["commanded"])
+            self.assertEqual(routed, [("arm-live", command)])
+
+            server._session.graph._edges.remove(edge)
+            disconnected = TestClient(server.app).post(
+                f"/nodes/{motion_id}/control",
+                json={
+                    "action": "joint-command",
+                    "payload": {"source_node_id": servo_id, "command": command},
+                },
+            )
+            self.assertEqual(disconnected.status_code, 409)
+        finally:
+            server._session.node_meta.pop(servo_id, None)
+            server._session.node_meta.pop(motion_id, None)
+            if edge in server._session.graph._edges:
+                server._session.graph._edges.remove(edge)
+            for key in [key for key in server._session.graph._cache if key[0] == motion_id]:
+                server._session.graph._cache.pop(key, None)
+
+    def test_robot_servo_arms_and_commands_directly_from_its_own_control(self):
+        node_id = "standalone-servo-test"
+        server._session.node_meta[node_id] = {
+            "id": node_id,
+            "type": "RobotServo",
+            "params": {
+                "robot_id": "local-usb-test-arm",
+                "profile_id": "test_arm",
+                "servo_id": 2,
+                "joint_name": "shoulder_lift",
+            },
+        }
+        command = {
+            "kind": "blacknode.joint-command-request",
+            "schema_version": 1,
+            "joint_name": "shoulder_lift",
+            "servo_id": 2,
+            "position_rad": 0.25,
+            "issued_at": 123.0,
+            "requires_motion_authorization": True,
+        }
+        calls = []
+
+        def arm(run_id, context):
+            calls.append(("arm", run_id, context))
+            return {"ok": True, "armed": True, "report": "armed"}
+
+        def move(run_id, request):
+            calls.append(("move", run_id, request))
+            return {
+                "ok": True,
+                "armed": True,
+                "commanded": True,
+                "report": "moved shoulder_lift",
+            }
+
+        def disarm(run_id):
+            calls.append(("disarm", run_id))
+            return {"ok": True, "armed": False, "report": "disarmed"}
+
+        functions = {
+            "arm_servo_motion": arm,
+            "command_servo_motion": move,
+            "disarm_servo_motion": disarm,
+        }
+
+        def runtime_callable(_label, _module, function_name):
+            return functions.get(function_name)
+
+        target = {
+            "available": True,
+            "raw_mode": False,
+            "hardware_id": "usb:test-arm",
+            "hardware": {"recommended": {"path": "COM7"}},
+            "profile": {"id": "test_arm", "joints": []},
+            "calibration": {
+                "profile_id": "test_arm",
+                "hardware_id": "usb:test-arm",
+                "joints": {},
+            },
+        }
+        try:
+            with (
+                patch.object(server, "_runtime_callable", side_effect=runtime_callable),
+                patch.object(server, "_local_robot_monitor_target", return_value=target),
+            ):
+                client = TestClient(server.app)
+                armed = client.post(
+                    f"/nodes/{node_id}/control",
+                    json={
+                        "action": "arm",
+                        "payload": {
+                            "robot_id": "local-usb-test-arm",
+                            "profile_id": "test_arm",
+                        },
+                    },
+                )
+                moved = client.post(
+                    f"/nodes/{node_id}/control",
+                    json={"action": "joint-command", "payload": {"command": command}},
+                )
+                disarmed = client.post(
+                    f"/nodes/{node_id}/control",
+                    json={"action": "disarm"},
+                )
+
+            self.assertEqual(armed.status_code, 200)
+            self.assertTrue(armed.json()["outputs"]["armed"])
+            self.assertEqual(moved.status_code, 200)
+            self.assertTrue(moved.json()["outputs"]["commanded"])
+            self.assertEqual(disarmed.status_code, 200)
+            self.assertFalse(disarmed.json()["outputs"]["armed"])
+            self.assertEqual(calls[0][0:2], ("arm", f"robot-servo:{node_id}"))
+            self.assertEqual(calls[1], ("move", f"robot-servo:{node_id}", command))
+            self.assertEqual(calls[2], ("disarm", f"robot-servo:{node_id}"))
+        finally:
+            server._session.node_meta.pop(node_id, None)
 
     def test_act_training_control_reports_progress_and_stops_without_cooking_graph(self):
         node_id = "training-control-test"

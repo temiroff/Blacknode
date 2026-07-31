@@ -34,7 +34,9 @@ When building a workflow:
    package index.
 3. Use `PythonFn` only for a small adapter owned by that one graph.
 4. If a reusable capability is genuinely missing, switch to
-   `blacknode-development` and add a core, custom, community, or package node.
+   `blacknode-development`. For hardware, transport, simulation, or replay
+   implementations, follow [Provider Authoring](provider-authoring.md); for
+   other behavior, add a core, custom, community, or package node.
 5. Test the new capability, then return to `blacknode-workflow` to build,
    validate, and run the final graph.
 
@@ -48,6 +50,13 @@ the device, and press **Software**. Enter the SSH password when the device is
 remote, press **Check updates**, then use **Update all** or the **Update**
 action on the Runtime or Hardware package card. Use the package card's
 **Restart** button when that service needs to restart.
+
+For a new remote computer that should remain unchanged, open **Add device →
+Remote SSH**, confirm its host key, and use **Confirm and inspect**. Review the
+read-only system and ROS 2 capability report, then choose **Close — device
+saved**. Use `ComputeDevice` → `DeviceInspect` in a workflow when the inspection
+snapshot should feed downstream graph nodes. Treat that snapshot as captured
+state; live streams and control require a managed provider.
 
 Agent instructions should point users to these controls for setup, package
 updates, restarts, deployment, and removal. SSH commands, `git pull`,
@@ -462,6 +471,8 @@ git status -sb
 - `python/blacknode/graph.py`: lazy graph execution engine.
 - `python/blacknode/node.py`: node decorator and port parsing.
 - `python/blacknode/nodes/*.py`: built-in node implementations and port definitions.
+- `docs/provider-authoring.md`: capability ownership, provider lifecycle,
+  profile binding, adapters, and compatibility tests.
 - `editor-server/server.py`: editor persistence, workflow routes, template routes.
 - `editor/src/components/TemplateGallery.tsx`: UI that lists and loads tracked templates.
 - `editor/src/api.ts`: frontend API client.
