@@ -6,6 +6,9 @@ capability, ROS 2 interfaces, frames, calibration, and mounting extrinsics.
 Workflows consume the stable capability and attachment ID; provider-specific
 topics and launch commands stay in the device configuration.
 
+See [Provider Authoring](provider-authoring.md) to add a provider component,
+bind it to a robot profile, and prove it against the shared contract.
+
 ## Lifecycle model
 
 An enabled attachment has an explicit managed-service lifecycle:
@@ -111,6 +114,30 @@ Manage robot
 
 Advanced provider and ROS fields stay collapsed. The robot summary shows only
 attachment count and health.
+
+## Build and promote an add-on
+
+An add-on moves through one consistent graph:
+
+```text
+mock or replay provider
+  → stable capability
+  → preview, health, and feature tests
+  → RobotAttachment
+  → RobotCapabilityProfile
+  → explicit RobotProfileSave
+```
+
+For depth cameras, open **Depth Camera Component Lab**. The graph runs with
+deterministic mock data, exercises the same `DepthCamera` contract used by the
+ROS 2 adapter, and creates a `depth_camera` attachment. Replace the test
+provider with `DepthROS2Subscribe` for the physical device; the obstacle
+feature, attachment, and robot profile connections remain stable.
+
+Use replay data during development and CI. Attachments are promoted only after
+freshness, interface, frame, identity, and mount-transform checks pass. Saving
+the profile is a separate visible action, so testing the component does not
+modify the managed robot.
 
 ## Streaming and remote clients
 

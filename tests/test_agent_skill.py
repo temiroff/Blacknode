@@ -8,6 +8,40 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class AgentSkillTests(unittest.TestCase):
+    def test_provider_authoring_is_documented_and_routed_by_development_skill(self):
+        guide = (ROOT / "docs" / "provider-authoring.md").read_text(
+            encoding="utf-8",
+        )
+        skill_paths = [
+            ROOT / "skills" / "blacknode-development" / "SKILL.md",
+            ROOT / ".agents" / "skills" / "blacknode-development" / "SKILL.md",
+        ]
+
+        for phrase in (
+            "Provider Authoring",
+            "Choose the owner first",
+            "Find or define the contract",
+            "Connect the binding to the implementation",
+            "Bind the provider to a robot",
+            "Prove compatibility",
+            "mock or replay provider",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, guide)
+
+        for path in skill_paths:
+            with self.subTest(path=str(path)):
+                self.assertIn(
+                    "docs/provider-authoring.md",
+                    path.read_text(encoding="utf-8"),
+                )
+
+        self.assertEqual(
+            skill_paths[0].read_text(encoding="utf-8"),
+            skill_paths[1].read_text(encoding="utf-8"),
+            "canonical and repository-local development skills must stay synchronized",
+        )
+
     def test_blacknode_skill_is_available_in_canonical_and_agents_paths(self):
         paths = [
             ROOT / "skills" / "blacknode-workflow" / "SKILL.md",

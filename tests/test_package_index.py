@@ -131,11 +131,13 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert drivers["components"]["feetech"]["node_types"] == [
         "FeetechBusConfig",
         "FeetechBusProbe",
+        "FeetechCalibrationProvider",
     ]
     assert set(drivers["components"]) == {"feetech"}
     assert drivers["components"]["feetech"]["adapters"]["ros2"]["default"] is False
     assert payload["nodes"]["FeetechROS2Adapter"]["package"] == "blacknode-drivers"
     assert payload["nodes"]["FeetechBusProbe"]["package"] == "blacknode-drivers"
+    assert payload["nodes"]["FeetechCalibrationProvider"]["package"] == "blacknode-drivers"
     assert "CUDAKernelLab" not in payload["nodes"]
     assert "CUDACustomKernel" not in payload["nodes"]
     assert payload["nodes"]["ROS2TopicList"]["package"] == "blacknode-ros2"
@@ -144,6 +146,8 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["RobotDiscovery"]["package"] == "blacknode-robot"
     assert payload["nodes"]["RobotMonitor"]["package"] == "blacknode-robot"
     assert payload["nodes"]["RobotCapabilityInspect"]["package"] == "blacknode-robot"
+    assert payload["nodes"]["RobotCalibrationControl"]["package"] == "blacknode-robot"
+    assert payload["nodes"]["RobotCalibrationMockProvider"]["package"] == "blacknode-robot"
     assert payload["nodes"]["HardwareCapabilities"]["package"] == "blacknode-robot"
     assert payload["nodes"]["RobotServo"]["package"] == "blacknode-robot"
     assert payload["nodes"]["EpisodeRecorder"] == {
@@ -171,6 +175,10 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["BaseSafetyGate"]["package"] == "blacknode-motion"
     assert payload["nodes"]["Camera"]["package"] == "blacknode-perception"
     assert payload["nodes"]["CameraStream"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["DepthCamera"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["DepthCameraDeviceSelect"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["DepthCameraTestProvider"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["DepthObstacleWarning"]["package"] == "blacknode-perception"
     assert payload["nodes"]["ACTTraining"] == {
         "package": "blacknode-training",
         "git_url": "https://github.com/temiroff/blacknode-training.git",
@@ -341,3 +349,46 @@ def test_workflow_adapter_requirement_adds_missing_official_package():
     assert result["code"] == "missing_packages"
     assert result["missing_packages"][0]["name"] == "blacknode-drivers"
     assert result["missing_adapters"][0]["reason"] == "package is not installed"
+
+
+def test_compact_adapter_misplaced_as_component_is_normalized():
+    workflow = _workflow("FeetechROS2Adapter")
+    workflow["metadata"]["required_components"] = [
+        "blacknode-drivers/feetech@ros2",
+    ]
+    installed = {
+        "blacknode-drivers": {
+            "ok": True,
+            "version": "0.1.0",
+            "components": {
+                "feetech": {
+                    "enabled": True,
+                    "adapters": {"ros2": {"enabled": False}},
+                },
+            },
+        },
+    }
+
+    assert template_component_requirements(workflow) == [{
+        "package": "blacknode-drivers",
+        "component": "feetech",
+        "version": "",
+        "git_url": "https://github.com/temiroff/blacknode-drivers.git",
+    }]
+    assert template_adapter_requirements(workflow) == [{
+        "package": "blacknode-drivers",
+        "component": "feetech",
+        "adapter": "ros2",
+        "version": "",
+        "git_url": "https://github.com/temiroff/blacknode-drivers.git",
+    }]
+
+    result = resolve_workflow_dependencies(
+        workflow,
+        available_node_types={"FeetechROS2Adapter", "NestedNode"},
+        installed_packages=installed,
+    )
+
+    assert result["code"] == "missing_adapters"
+    assert result["missing_components"] == []
+    assert result["missing_adapters"][0]["reason"] == "adapter is disabled"

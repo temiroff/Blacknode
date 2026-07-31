@@ -1,6 +1,6 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib, math
+import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib, math, copy
 import urllib.error, urllib.parse, urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -291,6 +291,7 @@ class UpdateParamReq(BaseModel):
 
 class NodeControlReq(BaseModel):
     action: str
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 class PickDirectoryReq(BaseModel):
     initial_path: str = ""
@@ -463,6 +464,8 @@ class SshDeviceReq(SshProbeReq):
 
 class InspectDeviceHostReq(SshDeviceReq):
     host_fingerprint: str
+    name: str = ""
+    save_inspection: bool = False
 
 class InstallDeviceHostReq(InspectDeviceHostReq):
     name: str = ""
@@ -618,6 +621,8 @@ _RUNTIME_MODULES = {
     "ros2": "blacknode.pkg.blacknode_ros2.ros2_runtime",
     "ros2_live": "blacknode.pkg.blacknode_skills.follow.leader_follower_runtime",
     "joint_control": "blacknode.pkg.blacknode_motion.arm.adapters.ros2.joint_motion",
+    "robot_servo_motion": "blacknode.pkg.blacknode_motion.arm.servo_control",
+    "robot_calibration_control": "blacknode.pkg.blacknode_robot.calibration_control",
     "vision": "blacknode.pkg.blacknode_perception.cv2_runtime",
     "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
     "robot": "blacknode.pkg.blacknode_robot.robot",
@@ -634,6 +639,7 @@ _RUNTIME_REGISTRY_ANCHORS = {
     "robot": "RobotDriverLauncher",
     "isaac": "IsaacPolicyBridge",
     "joint_control": "ROS2ManualMove",
+    "robot_calibration_control": "RobotCalibrationControl",
 }
 
 _RUNTIME_CALLABLE_ALIASES = {
@@ -1444,10 +1450,34 @@ def _node_def_payload(name: str, fn: Any) -> dict[str, Any]:
 
 @app.get("/node-defs")
 def list_node_defs():
-    return {
+    definitions = {
         name: _node_def_payload(name, fn)
         for name, fn in sorted(_NODE_REGISTRY.items())
     }
+    # Enum metadata is captured when a package module loads, but robot profiles
+    # can be created while the editor is running. Refresh Robot's choices from
+    # disk for every schema request so Properties and other schema consumers do
+    # not require a server restart to discover a newly saved profile.
+    robot_definition = definitions.get("Robot")
+    if isinstance(robot_definition, dict):
+        try:
+            profile_ids = [
+                str(profile.get("id") or "").strip()
+                for profile in _available_robot_profiles({
+                    "node_meta": _session.node_meta,
+                })
+                if str(profile.get("id") or "").strip() not in {"", "auto"}
+            ]
+        except (OSError, ValueError):
+            profile_ids = []
+        if profile_ids:
+            input_choices = {
+                key: list(values)
+                for key, values in (robot_definition.get("input_choices") or {}).items()
+            }
+            input_choices["profile_id"] = profile_ids
+            robot_definition["input_choices"] = input_choices
+    return definitions
 
 @app.get("/graph")
 def get_graph():
@@ -1594,6 +1624,14 @@ def add_node(req: AddNodeReq):
 def remove_node(node_id: str):
     if node_id not in _session.node_meta:
         raise HTTPException(404, "Node not found")
+    if _session.node_meta[node_id].get("type") == "RobotServo":
+        disarm = _runtime_callable(
+            "robot_servo_motion",
+            _RUNTIME_MODULES["robot_servo_motion"],
+            "disarm_servo_motion",
+        )
+        if disarm is not None:
+            disarm(f"robot-servo:{node_id}")
     del _session.node_meta[node_id]
     _session.graph._edges = [
         e for e in _session.graph._edges
@@ -1611,6 +1649,18 @@ def update_param(node_id: str, req: UpdateParamReq):
         raise HTTPException(404, "Node not found")
     meta = _session.node_meta[node_id]
     old_params = dict(meta.get("params", {}))
+    if (
+        meta.get("type") == "RobotServo"
+        and req.key in {"robot_id", "profile_id", "servo_id", "joint_name", "units"}
+        and old_params.get(req.key) != req.value
+    ):
+        disarm = _runtime_callable(
+            "robot_servo_motion",
+            _RUNTIME_MODULES["robot_servo_motion"],
+            "disarm_servo_motion",
+        )
+        if disarm is not None:
+            disarm(f"robot-servo:{node_id}")
     meta["params"][req.key] = req.value
     _session.graph._nodes[node_id]["params"][req.key] = req.value
     _session.graph._mark_dirty(node_id)
@@ -1651,6 +1701,157 @@ def control_node(node_id: str, req: NodeControlReq):
     meta = _session.node_meta.get(node_id)
     if meta is None:
         raise HTTPException(404, "Node not found")
+    if meta.get("type") == "RobotServo":
+        action = str(req.action or "").strip().lower()
+        if action not in {"arm", "disarm", "joint-command", "status"}:
+            raise HTTPException(
+                400,
+                "RobotServo supports arm, disarm, joint-command, or status",
+            )
+        run_id = f"robot-servo:{node_id}"
+        function_name = {
+            "arm": "arm_servo_motion",
+            "disarm": "disarm_servo_motion",
+            "joint-command": "command_servo_motion",
+            "status": "servo_motion_status",
+        }[action]
+        control_fn = _runtime_callable(
+            "robot_servo_motion",
+            _RUNTIME_MODULES["robot_servo_motion"],
+            function_name,
+        )
+        if control_fn is None:
+            raise HTTPException(503, "blacknode-motion Servo control is not loaded")
+
+        def reject_servo_command(detail: str) -> None:
+            disarm_fn = _runtime_callable(
+                "robot_servo_motion",
+                _RUNTIME_MODULES["robot_servo_motion"],
+                "disarm_servo_motion",
+            )
+            if disarm_fn is not None:
+                try:
+                    disarm_fn(run_id)
+                except Exception:
+                    pass
+            raise HTTPException(409, detail)
+
+        try:
+            if action == "arm":
+                robot_id = str(req.payload.get("robot_id") or "").strip()
+                profile_id = _monitor_profile_selection(
+                    req.payload.get("profile_id")
+                    or meta.get("params", {}).get("profile_id")
+                )
+                if not robot_id.startswith("local-usb-"):
+                    raise HTTPException(
+                        409,
+                        "Standalone Servo motion currently requires a Local USB robot target",
+                    )
+                target = _local_robot_monitor_target(robot_id, profile_id)
+                if target is None or not target.get("available"):
+                    raise HTTPException(409, "The selected Local USB robot is unavailable")
+                if target.get("raw_mode"):
+                    raise HTTPException(409, "Select a calibrated robot profile before motion")
+                profile = dict(target.get("profile") or {})
+                calibration = dict(target.get("calibration") or {})
+                result = dict(control_fn(run_id, {
+                    "robot_id": robot_id,
+                    "profile": profile,
+                    "hardware": dict(target.get("hardware") or {}),
+                    "hardware_id": str(target.get("hardware_id") or ""),
+                    "calibration": calibration,
+                }))
+            elif action == "joint-command":
+                command = (
+                    dict(req.payload.get("command") or {})
+                    if isinstance(req.payload.get("command"), dict)
+                    else {}
+                )
+                try:
+                    servo_id = int(meta.get("params", {}).get("servo_id") or 1)
+                    command_servo_id = int(command.get("servo_id") or 0)
+                except (TypeError, ValueError):
+                    reject_servo_command("Servo command has an invalid ID")
+                joint_name = str(meta.get("params", {}).get("joint_name") or "").strip()
+                if command_servo_id != servo_id:
+                    reject_servo_command("Servo command ID does not match this node")
+                if not joint_name or str(command.get("joint_name") or "") != joint_name:
+                    reject_servo_command(
+                        "Servo command joint does not match live telemetry"
+                    )
+                result = dict(control_fn(run_id, command))
+            else:
+                result = dict(control_fn(run_id))
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if not result.get("ok", False):
+            raise HTTPException(409, str(result.get("report") or "Servo motion was blocked"))
+        outputs = {
+            key: value
+            for key, value in result.items()
+            if key != "ok"
+        }
+        return {"ok": True, "node_id": node_id, "outputs": outputs}
+    if meta.get("type") == "ROS2JointSliders":
+        if req.action != "joint-command":
+            raise HTTPException(400, "ROS2JointSliders supports the joint-command control")
+        source_id = str(req.payload.get("source_node_id") or "").strip()
+        source_meta = _session.node_meta.get(source_id)
+        if source_meta is None or source_meta.get("type") != "RobotServo":
+            raise HTTPException(409, "Connect a RobotServo command output before moving")
+        connected = any(
+            edge.get("from") == source_id
+            and edge.get("from_port") == "command"
+            and edge.get("to") == node_id
+            and edge.get("to_port") == "command"
+            for edge in _session.graph._edges
+        )
+        if not connected:
+            raise HTTPException(
+                409,
+                "Connect RobotServo.command to ROS2JointSliders.command before moving",
+            )
+        command = (
+            dict(req.payload.get("command") or {})
+            if isinstance(req.payload.get("command"), dict)
+            else {}
+        )
+        source_params = dict(source_meta.get("params") or {})
+        try:
+            source_servo_id = int(source_params.get("servo_id") or 1)
+            command_servo_id = int(command.get("servo_id") or 0)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(409, "The Servo command has an invalid servo ID") from exc
+        if command_servo_id != source_servo_id:
+            raise HTTPException(409, "The Servo command does not match the connected Servo ID")
+        source_joint = str(source_params.get("joint_name") or "").strip()
+        command_joint = str(command.get("joint_name") or "").strip()
+        if not source_joint or command_joint != source_joint:
+            raise HTTPException(
+                409,
+                "The Servo joint identity is not synchronized with its live telemetry",
+            )
+        control_fn = _runtime_callable(
+            "joint_control",
+            _RUNTIME_MODULES["joint_control"],
+            "set_joint_slider_command",
+        )
+        if control_fn is None:
+            raise HTTPException(503, "blacknode-motion live joint control is not loaded")
+        run_id = str(meta.get("params", {}).get("run_id") or "joint_sliders").strip() or "joint_sliders"
+        result = dict(control_fn(run_id, command))
+        if not result.get("ok", False):
+            raise HTTPException(409, str(result.get("report") or "Joint command was blocked"))
+        outputs = {
+            "commanded": bool(result.get("commanded")),
+            "report": str(result.get("report") or "Joint command accepted"),
+        }
+        for port, value in outputs.items():
+            _session.graph._cache[(node_id, port)] = value
+        return {"ok": True, "node_id": node_id, "outputs": outputs}
     if meta.get("type") == "TrajectorySmoother":
         if req.action != "apply":
             raise HTTPException(400, "TrajectorySmoother supports the apply control")
@@ -3255,17 +3456,113 @@ def probe_device_host_ssh(req: SshProbeReq):
         raise HTTPException(400, str(exc)) from exc
 
 
+def _classify_inspected_ros2_graph(
+    inspection: dict[str, Any],
+) -> dict[str, Any]:
+    graph = (
+        dict(inspection.get("ros2_graph") or {})
+        if isinstance(inspection.get("ros2_graph"), dict)
+        else {}
+    )
+    topics = list(graph.get("topics") or [])
+    nodes = list(graph.get("nodes") or [])
+    services = list(graph.get("services") or [])
+    graph.setdefault("available", False)
+    graph.setdefault("state", "unavailable")
+    graph.setdefault("read_only", True)
+    graph.setdefault("daemon_used", False)
+    graph.setdefault("errors", [])
+    graph.update({
+        "found": False,
+        "capabilities": [],
+        "unclassified": [],
+        "inventory": {
+            "topics": topics,
+            "nodes": nodes,
+            "services": services,
+        },
+        "report": "",
+    })
+    if not graph["available"]:
+        errors = [
+            str(value or "").strip()
+            for value in graph.get("errors", [])
+            if str(value or "").strip()
+        ]
+        graph["report"] = (
+            errors[0]
+            if errors
+            else "The remote ROS 2 graph is unavailable."
+        )
+        inspection["ros2_graph"] = graph
+        return inspection
+
+    discover = _NODE_REGISTRY.get("RobotROSCapabilityDiscover")
+    if not callable(discover):
+        graph["report"] = (
+            "The ROS 2 graph was read successfully. Enable the "
+            "blacknode-robot capabilities component to classify it."
+        )
+        inspection["ros2_graph"] = graph
+        return inspection
+    try:
+        classified = discover({
+            "topics": topics,
+            "nodes": nodes,
+            "services": services,
+        })
+    except Exception as exc:
+        graph["errors"] = [
+            *list(graph.get("errors") or []),
+            f"Capability classification failed: {exc}",
+        ]
+        graph["report"] = (
+            "The ROS 2 graph was read, but capability classification failed."
+        )
+        inspection["ros2_graph"] = graph
+        return inspection
+    if isinstance(classified, dict):
+        graph.update({
+            key: classified.get(key)
+            for key in (
+                "found",
+                "capabilities",
+                "unclassified",
+                "inventory",
+                "report",
+            )
+        })
+    inspection["ros2_graph"] = graph
+    return inspection
+
+
 @app.post("/device-hosts/inspect")
 def inspect_device_host(req: InspectDeviceHostReq):
     try:
-        return inspect_runtime(
+        inspection = inspect_runtime(
             host=req.host,
             port=req.port,
             username=req.username,
             password=req.password,
             host_fingerprint=req.host_fingerprint,
         )
-    except DeviceInstallError as exc:
+        inspection = _classify_inspected_ros2_graph(inspection)
+        if req.save_inspection:
+            runtime_host = f"[{req.host}]" if ":" in req.host else req.host
+            inspection["device"] = _device_registry.register_inspection_host(
+                name=req.name,
+                runtime_url=f"http://{runtime_host}:8766",
+                ssh_host=req.host,
+                ssh_port=req.port,
+                ssh_username=req.username,
+                host_fingerprint=str(
+                    inspection.get("host_fingerprint")
+                    or req.host_fingerprint
+                ),
+                inspection=inspection,
+            )
+        return inspection
+    except (DeviceInstallError, DeviceRegistryError) as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
@@ -5904,9 +6201,9 @@ def get_device_status(device_id: str):
 
 
 @app.get("/devices/{device_id}/monitor")
-def get_device_monitor(device_id: str):
+def get_device_monitor(device_id: str, profile_id: str = "auto"):
     try:
-        return _device_monitor_snapshot(device_id)
+        return _device_monitor_snapshot(device_id, profile_id)
     except KeyError as exc:
         raise HTTPException(404, "Device not found") from exc
     except DeviceRegistryError as exc:
@@ -6548,6 +6845,133 @@ def list_graph_calibrations():
         "profiles": _available_robot_profiles(workflow),
         "calibrations": _local_calibration_candidates(workflow),
         "selected": _workflow_calibration_selection(workflow),
+    }
+
+
+def _profile_editor_node(
+    node_id: str,
+    type_name: str,
+    pos: list[float],
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    fn = _NODE_REGISTRY.get(type_name)
+    if fn is None:
+        raise HTTPException(503, f"{type_name} is unavailable; reload blacknode-robot")
+    definition = _node_def_payload(type_name, fn)
+    return {
+        "id": node_id,
+        "type": type_name,
+        "pos": pos,
+        "params": params,
+        "inputs": list(definition["inputs"]),
+        "outputs": list(definition["outputs"]),
+        "input_types": dict(definition["input_types"]),
+        "output_types": dict(definition["output_types"]),
+        "input_defaults": dict(definition["input_defaults"]),
+        "input_choices": dict(definition["input_choices"]),
+        "variadic_input": definition["variadic_input"],
+        "promoted_inputs": definition["primary_inputs"],
+        "promoted_outputs": definition["primary_outputs"],
+        "live_capable": bool(definition["live_capable"]),
+    }
+
+
+@app.get("/graph/profiles/{profile_id}/editor")
+def robot_profile_editor_graph(profile_id: str):
+    clean_id = str(profile_id or "").strip()
+    if not clean_id or clean_id == "auto":
+        raise HTTPException(400, "Select a concrete robot profile to edit.")
+    profile_path = _robot_profiles_root() / clean_id / "profile.json"
+    profile: dict[str, Any] | None = None
+    if profile_path.is_file():
+        try:
+            value = json.loads(profile_path.read_text(encoding="utf-8"))
+            profile = value if isinstance(value, dict) else None
+        except (OSError, json.JSONDecodeError) as exc:
+            raise HTTPException(409, f"Could not read profile '{clean_id}': {exc}") from exc
+    if profile is None:
+        robot_fn = _NODE_REGISTRY.get("Robot")
+        module = sys.modules.get(getattr(robot_fn, "__module__", "")) if robot_fn else None
+        load_profile = getattr(module, "load_profile", None)
+        if callable(load_profile):
+            profile, _path = load_profile(clean_id)
+    if not isinstance(profile, dict):
+        raise HTTPException(404, f"Robot profile '{clean_id}' was not found.")
+    joints = [
+        dict(joint)
+        for joint in (profile.get("joints") or [])
+        if isinstance(joint, dict) and joint.get("id")
+    ]
+    joints.sort(key=lambda joint: (int(joint.get("servo_id") or 0), str(joint.get("id"))))
+    if not joints:
+        raise HTTPException(409, "This profile has no editable joints.")
+    if len(joints) > 16:
+        raise HTTPException(409, "The visual profile editor currently supports up to 16 joints.")
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+    for index, joint in enumerate(joints):
+        node_id = f"joint_{index + 1}"
+        nodes.append(_profile_editor_node(
+            node_id,
+            "RobotJointDefinition",
+            [40.0 + (index % 3) * 340.0, 40.0 + (index // 3) * 300.0],
+            {
+                "joint_id": str(joint.get("id")),
+                "display_name": str(joint.get("display_name") or joint.get("id")),
+                "servo_id": int(joint.get("servo_id") or index + 1),
+                "min_deg": float(joint.get("min_deg", joint.get("safe_min_deg", -90.0))),
+                "max_deg": float(joint.get("max_deg", joint.get("safe_max_deg", 90.0))),
+                "home_ticks": int(joint.get("home_ticks") or 2048),
+                "invert": bool(joint.get("invert", False)),
+                "velocity_limit": float(joint.get("velocity_limit") or 0.0),
+                "torque_limit": float(joint.get("torque_limit") or 0.0),
+            },
+        ))
+        edges.append({
+            "from": node_id,
+            "from_port": "joint",
+            "to": "joints",
+            "to_port": f"joint_{index + 1}",
+        })
+    driver = profile.get("driver") if isinstance(profile.get("driver"), dict) else {}
+    match = profile.get("match") if isinstance(profile.get("match"), dict) else {}
+    rows = (len(joints) + 2) // 3
+    nodes.extend([
+        _profile_editor_node("joints", "RobotJointList", [1080.0, 170.0 + rows * 150.0], {}),
+        _profile_editor_node("definition", "RobotDefinition", [1440.0, 110.0 + rows * 150.0], {
+            "profile_id": str(profile.get("id") or clean_id),
+            "display_name": str(profile.get("display_name") or clean_id),
+            "protocol": str(profile.get("protocol") or "custom"),
+            "driver_script": str(driver.get("script") or ""),
+            "command_template": str(driver.get("command_template") or ""),
+            "baudrate": int(driver.get("baudrate") or 1_000_000),
+            "vendor_id": str(match.get("vendor_id") or ""),
+            "product_id": str(match.get("product_id") or ""),
+            "transport": str(driver.get("transport") or "auto"),
+            "host": str(driver.get("host") or "127.0.0.1"),
+            "port": int(driver.get("port") or 9090),
+            "state_topic": str(driver.get("state_topic") or "/joint_states"),
+            "command_topic": str(driver.get("command_topic") or "/joint_commands"),
+            "config_topic": str(driver.get("config_topic") or "/joint_config"),
+            "control_topic": str(driver.get("control_topic") or "/robot_control"),
+            "rate_hz": float(driver.get("rate_hz") or 15.0),
+            "units": str(driver.get("units") or "degrees"),
+        }),
+        _profile_editor_node("save", "RobotProfileSave", [1850.0, 170.0 + rows * 150.0], {"overwrite": True}),
+        _profile_editor_node("out", "Output", [2220.0, 190.0 + rows * 150.0], {"label": f"Saved {clean_id}"}),
+    ])
+    edges.extend([
+        {"from": "joints", "from_port": "joints", "to": "definition", "to_port": "joints"},
+        {"from": "definition", "from_port": "profile", "to": "save", "to_port": "profile"},
+        {"from": "save", "from_port": "report", "to": "out", "to_port": "value"},
+    ])
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "metadata": {
+            "description": f"Edit existing robot profile {clean_id}.",
+            "required_packages": ["blacknode-robot"],
+        },
     }
 
 
@@ -7701,6 +8125,12 @@ def _monitor_payload_from_device_state(payload: dict[str, Any]) -> dict[str, Any
     )
     raw_positions = dict(values.get("raw_positions") or {})
     servo_ids = dict(values.get("servo_ids") or {})
+    bus = values.get("bus") if isinstance(values.get("bus"), dict) else {}
+    temperatures_c = dict(payload.get("temperatures_c") or {})
+    voltages_v = dict(bus.get("voltages_v") or {})
+    hardware_error_flags = dict(bus.get("hardware_error_flags") or {})
+    hardware_errors = dict(bus.get("hardware_errors") or {})
+    servo_status = dict(bus.get("servo_status") or {})
     calibration = (
         values.get("calibration")
         if isinstance(values.get("calibration"), dict)
@@ -7735,6 +8165,20 @@ def _monitor_payload_from_device_state(payload: dict[str, Any]) -> dict[str, Any
             item["servo_id"] = int(servo_match.group(1))
         if name in raw_positions and isinstance(raw_positions[name], int):
             item["raw_position"] = int(raw_positions[name])
+        if bus:
+            item["communication_ok"] = True
+        if isinstance(temperatures_c.get(name), (int, float)):
+            item["temperature_c"] = float(temperatures_c[name])
+        if isinstance(voltages_v.get(name), (int, float)):
+            item["voltage_v"] = float(voltages_v[name])
+        if isinstance(hardware_error_flags.get(name), int):
+            item["hardware_error_flags"] = int(hardware_error_flags[name])
+        if isinstance(hardware_errors.get(name), list):
+            item["hardware_errors"] = [
+                str(value) for value in hardware_errors[name]
+            ]
+        if isinstance(servo_status.get(name), int):
+            item["servo_status"] = int(servo_status[name])
         raw_limits = limits.get(name)
         if isinstance(raw_limits, dict):
             try:
@@ -7754,15 +8198,662 @@ def _monitor_payload_from_device_state(payload: dict[str, Any]) -> dict[str, Any
         "joints": joints,
         "error": str(payload.get("error") or ""),
         "faults": list(payload.get("faults") or []),
-        "temperatures_c": dict(payload.get("temperatures_c") or {}),
+        "temperatures_c": temperatures_c,
         "voltage_v": payload.get("voltage_v"),
+        "voltages_v": voltages_v,
+        "bus": dict(bus),
         "calibrated": values.get("calibrated"),
         "calibration": calibration,
     }
 
 
-def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
+def _monitor_payload_with_status_metadata(
+    payload: dict[str, Any],
+    status: dict[str, Any],
+) -> dict[str, Any]:
+    """Fill stable robot identity metadata missing from live driver samples."""
+    result = dict(payload)
+    telemetry_calibration = (
+        result.get("calibration")
+        if isinstance(result.get("calibration"), dict)
+        else {}
+    )
+    status_calibration = (
+        status.get("calibration")
+        if isinstance(status.get("calibration"), dict)
+        else {}
+    )
+    calibration = {
+        **status_calibration,
+        **telemetry_calibration,
+    }
+    if calibration:
+        for field in (
+            "name",
+            "profile_id",
+            "hardware_id",
+            "activated_at",
+            "digest",
+        ):
+            if not calibration.get(field) and status_calibration.get(field):
+                calibration[field] = status_calibration[field]
+        expected_joint_count = calibration.get("joint_count")
+        if not isinstance(expected_joint_count, int) or isinstance(
+            expected_joint_count,
+            bool,
+        ):
+            topology = calibration.get("topology")
+            calibrated_joints = calibration.get("joints")
+            if isinstance(topology, dict) and topology:
+                calibration["joint_count"] = len(topology)
+            elif isinstance(calibrated_joints, dict) and calibrated_joints:
+                calibration["joint_count"] = len(calibrated_joints)
+        result["calibration"] = calibration
+
+    status_calibrated = status.get("calibrated")
+    if isinstance(status_calibrated, bool):
+        result["calibrated"] = status_calibrated
+    return result
+
+
+def _monitor_profile_selection(value: Any) -> str:
+    selected = str(value or "auto").strip()
+    return selected if selected else "auto"
+
+
+def _local_robot_monitor_targets(
+    requested_profile_id: str = "auto",
+) -> list[dict[str, Any]]:
+    """Discover local USB robots and resolve each through the Robot contract."""
+    discover = _NODE_REGISTRY.get("RobotUSBDiscovery")
+    robot_node = _NODE_REGISTRY.get("Robot")
+    raw_monitor = _NODE_REGISTRY.get("RobotRawMonitor")
+    selection = _monitor_profile_selection(requested_profile_id)
+    raw_mode = selection.lower() == "none"
+    if discover is None or (robot_node is None and not raw_mode):
+        return []
+    try:
+        discovered = discover({"probe_open": False})
+    except Exception:
+        return []
+    targets: list[dict[str, Any]] = []
+    for device in discovered.get("devices") or []:
+        if not isinstance(device, dict):
+            continue
+        serial_port = str(device.get("path") or "").strip()
+        if not serial_port or device.get("accessible") is False:
+            continue
+        hardware = {
+            "found": True,
+            "ready": bool(device.get("accessible", True)),
+            "port": serial_port,
+            "serial": str(
+                device.get("serial")
+                or device.get("serial_number")
+                or serial_port
+            ),
+            "devices": [dict(device)],
+            "recommended": dict(device),
+            "permissions": dict(discovered.get("permissions") or {}),
+            "report": str(discovered.get("report") or ""),
+        }
+        if raw_mode:
+            resolved = {
+                "profile": {},
+                "calibration": {},
+                "hardware_id": hardware["serial"],
+                "report": (
+                    "Raw read-only mode discovers responding servo IDs and "
+                    "shows uncalibrated register values."
+                    if raw_monitor is not None
+                    else "RobotRawMonitor is unavailable; reload blacknode-robot."
+                ),
+            }
+        else:
+            try:
+                resolved = robot_node({
+                    "profile_id": selection,
+                    "hardware": hardware,
+                    "auto_discover": False,
+                    "action": "check",
+                    "require_hardware": True,
+                    "serial_port": serial_port,
+                })
+            except Exception as exc:
+                resolved = {
+                    "profile": {},
+                    "calibration": {},
+                    "hardware_id": hardware["serial"],
+                    "report": f"{type(exc).__name__}: {exc}",
+                }
+        profile = (
+            resolved.get("profile")
+            if isinstance(resolved.get("profile"), dict)
+            else {}
+        )
+        profile_id = str(profile.get("id") or "").strip()
+        hardware_id = str(
+            resolved.get("hardware_id")
+            or hardware.get("serial")
+            or serial_port
+        ).strip()
+        target_token = json.dumps(
+            [serial_port, hardware_id, profile_id],
+            separators=(",", ":"),
+        ).encode("utf-8")
+        target_id = (
+            "local-usb-"
+            + hashlib.sha256(target_token).hexdigest()[:16]
+        )
+        profile_name = str(
+            profile.get("display_name")
+            or profile_id
+            or ("Raw servos" if raw_mode else "Unmatched robot")
+        )
+        targets.append({
+            "id": target_id,
+            "name": f"{profile_name} · {serial_port}",
+            "kind": "local_usb",
+            "available": bool(
+                hardware.get("ready")
+                and ((raw_mode and raw_monitor is not None) or profile_id)
+            ),
+            "profile_id": profile_id,
+            "requested_profile_id": selection,
+            "raw_mode": raw_mode,
+            "hardware_id": hardware_id,
+            "port": serial_port,
+            "profile": dict(profile),
+            "hardware": hardware,
+            "calibration": (
+                dict(resolved.get("calibration"))
+                if isinstance(resolved.get("calibration"), dict)
+                else {}
+            ),
+            "message": str(resolved.get("report") or ""),
+        })
+    return targets
+
+
+def _local_robot_monitor_target(
+    target_id: str,
+    profile_id: str = "auto",
+) -> dict[str, Any] | None:
+    return next(
+        (
+            target
+            for target in _local_robot_monitor_targets(profile_id)
+            if target["id"] == target_id
+        ),
+        None,
+    )
+
+
+@app.get("/robot-monitor-targets")
+def list_robot_monitor_targets(profile_id: str = "auto"):
+    selection = _monitor_profile_selection(profile_id)
+    try:
+        registered = _device_registry.list()
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    targets = [
+        {
+            "id": str(device.get("id") or ""),
+            "name": str(device.get("name") or device.get("id") or "Robot"),
+            "kind": "registered",
+            "available": not bool(device.get("paused")),
+            "hardware_id": str(device.get("remote_device_id") or ""),
+            "device": device,
+        }
+        for device in registered
+        if str(device.get("id") or "")
+    ]
+    targets.extend(
+        _local_robot_monitor_targets()
+        if selection == "auto"
+        else _local_robot_monitor_targets(selection)
+    )
+    profiles = [
+        profile
+        for profile in _available_robot_profiles({})
+        if str(profile.get("id") or "").lower() not in {"auto", "none"}
+    ]
+    return {
+        "targets": targets,
+        "profiles": profiles,
+        "profile_id": selection,
+    }
+
+
+def _local_raw_robot_monitor_snapshot(
+    target: dict[str, Any],
+    now: str,
+) -> dict[str, Any]:
+    """Read one profile-free sample through a registered read-only provider."""
+    target_id = str(target.get("id") or "")
+    target_name = str(target.get("name") or target_id)
+    raw_monitor = _NODE_REGISTRY.get("RobotRawMonitor")
+    if raw_monitor is None:
+        return {
+            "type": "robot_telemetry",
+            "robot_id": target_id,
+            "robot_name": target_name,
+            "source": "hardware",
+            "source_label": f"Local USB raw · {target.get('port') or ''}",
+            "available": False,
+            "stale": True,
+            "received_at": now,
+            "message": "RobotRawMonitor is unavailable; reload blacknode-robot.",
+        }
+    result = raw_monitor({
+        "hardware": dict(target.get("hardware") or {}),
+        "max_servo_id": 32,
+        "__run_mode__": "once",
+    })
+    joints = [
+        dict(value)
+        for value in (result.get("joints") or [])
+        if isinstance(value, dict)
+    ]
+    warnings = [str(value) for value in (result.get("warnings") or []) if value]
+    errors = [str(value) for value in (result.get("errors") or []) if value]
+    faults: list[dict[str, Any]] = []
+    for joint in joints:
+        flags = int(joint.get("hardware_error_flags") or 0)
+        if not flags:
+            continue
+        message = next(
+            (
+                warning
+                for warning in warnings
+                if warning.startswith(f"{joint.get('name')} (")
+            ),
+            (
+                f"{joint.get('name')} hardware warning 0x{flags:02x}: "
+                + (
+                    ", ".join(
+                        str(value)
+                        for value in (joint.get("hardware_errors") or [])
+                    )
+                    or "vendor status"
+                )
+            ),
+        )
+        faults.append({
+            "kind": "blacknode.fault-state",
+            "schema_version": 1,
+            "code": "hardware-warning",
+            "message": message,
+            "severity": "warning",
+            "active": True,
+            "details": {
+                "joint": str(joint.get("name") or ""),
+                "servo_id": int(joint.get("servo_id") or 0),
+                "flags": flags,
+                "decoded": list(joint.get("hardware_errors") or []),
+            },
+        })
+    temperatures_c = {
+        str(joint.get("name") or ""): float(joint["temperature_c"])
+        for joint in joints
+        if isinstance(joint.get("temperature_c"), (int, float))
+        and not isinstance(joint.get("temperature_c"), bool)
+    }
+    voltages_v = {
+        str(joint.get("name") or ""): float(joint["voltage_v"])
+        for joint in joints
+        if isinstance(joint.get("voltage_v"), (int, float))
+        and not isinstance(joint.get("voltage_v"), bool)
+    }
+    available = bool(result.get("available") and joints)
+    return {
+        "type": "robot_telemetry",
+        "robot_id": target_id,
+        "robot_name": target_name,
+        "source": "hardware",
+        "source_label": f"Local USB raw · {target.get('port') or ''}",
+        "available": available,
+        "stale": not available,
+        "sequence": int(time.time() * 1000),
+        "sent_at": now,
+        "received_at": now,
+        "payload": {
+            "connected": available,
+            "armed": False,
+            "torque_enabled": result.get("torque_enabled"),
+            "raw_mode": True,
+            "position_unit": str(result.get("position_unit") or "ticks"),
+            "velocity_unit": str(result.get("velocity_unit") or "ticks/s"),
+            "joints": joints,
+            "error": "\n".join(errors),
+            "faults": faults,
+            "temperatures_c": temperatures_c,
+            "voltage_v": min(voltages_v.values()) if voltages_v else None,
+            "voltages_v": voltages_v,
+            "bus": dict(result.get("diagnostics") or {}),
+            "calibrated": False,
+            "calibration": {
+                "hardware_id": str(target.get("hardware_id") or ""),
+                "joint_count": 0,
+            },
+            "provider": dict(result.get("provider") or {}),
+        },
+        "message": str(result.get("report") or "\n".join(errors)),
+    }
+
+
+def _local_robot_monitor_snapshot(target: dict[str, Any]) -> dict[str, Any]:
+    """Read one local USB robot sample through its bound provider."""
+    now = datetime.now().astimezone().isoformat(timespec="milliseconds")
+    target_id = str(target.get("id") or "")
+    target_name = str(target.get("name") or target_id)
+    if target.get("raw_mode"):
+        return _local_raw_robot_monitor_snapshot(target, now)
+    profile = (
+        target.get("profile")
+        if isinstance(target.get("profile"), dict)
+        else {}
+    )
+    if not target.get("available") or not profile:
+        return {
+            "type": "robot_telemetry",
+            "robot_id": target_id,
+            "robot_name": target_name,
+            "source": "hardware",
+            "source_label": f"Local USB · {target.get('port') or ''}",
+            "available": False,
+            "stale": True,
+            "received_at": now,
+            "message": str(
+                target.get("message")
+                or "Select or save one matching robot profile for this USB device."
+            ),
+        }
+    control = _NODE_REGISTRY.get("RobotCalibrationControl")
+    if control is None:
+        return {
+            "type": "robot_telemetry",
+            "robot_id": target_id,
+            "robot_name": target_name,
+            "source": "hardware",
+            "source_label": f"Local USB · {target.get('port') or ''}",
+            "available": False,
+            "stale": True,
+            "received_at": now,
+            "message": "RobotCalibrationControl is unavailable; reload blacknode-robot.",
+        }
+    motion_sample = _runtime_callable(
+        "robot_servo_motion",
+        _RUNTIME_MODULES["robot_servo_motion"],
+        "sample_servo_motion_for_robot",
+    )
+    result = motion_sample(target_id) if motion_sample is not None else None
+    if not isinstance(result, dict):
+        result = control({
+            "action": "check",
+            "profile": profile,
+            "hardware": dict(target.get("hardware") or {}),
+            "__run_mode__": "once",
+        })
+    pose = {
+        str(name): float(value)
+        for name, value in dict(result.get("pose") or {}).items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+    servos = {
+        str(name): dict(value)
+        for name, value in dict(result.get("servos") or {}).items()
+        if isinstance(value, dict)
+    }
+    joints = []
+    for raw_joint in profile.get("joints") or []:
+        if not isinstance(raw_joint, dict):
+            continue
+        name = str(raw_joint.get("id") or "").strip()
+        if not name or name not in pose:
+            continue
+        servo = servos.get(name, {})
+        item: dict[str, Any] = {
+            "name": name,
+            "semantic_name": str(
+                raw_joint.get("display_name")
+                or name
+            ),
+            "servo_id": int(
+                servo.get("servo_id")
+                or raw_joint.get("servo_id")
+                or 0
+            ),
+            "position": pose[name],
+            "velocity": 0.0,
+            "communication_ok": bool(
+                servo.get("communication_ok", True)
+            ),
+        }
+        for field in (
+            "ticks",
+            "temperature_c",
+            "voltage_v",
+            "hardware_error_flags",
+            "hardware_errors",
+            "servo_status",
+        ):
+            if servo.get(field) is not None:
+                item[
+                    "raw_position" if field == "ticks" else field
+                ] = servo[field]
+        try:
+            item["lower_limit"] = float(
+                raw_joint.get("safe_min_deg", raw_joint.get("min_deg"))
+            )
+            item["upper_limit"] = float(
+                raw_joint.get("safe_max_deg", raw_joint.get("max_deg"))
+            )
+        except (TypeError, ValueError):
+            pass
+        joints.append(item)
+    diagnostics = dict(result.get("diagnostics") or {})
+    hardware_error_flags = {
+        name: int(servo.get("hardware_error_flags") or 0)
+        for name, servo in servos.items()
+    }
+    hardware_errors = {
+        name: list(servo.get("hardware_errors") or [])
+        for name, servo in servos.items()
+        if servo.get("hardware_errors")
+    }
+    servo_status = {
+        name: int(servo.get("servo_status") or 0)
+        for name, servo in servos.items()
+        if servo.get("servo_status") is not None
+    }
+    voltages_v = {
+        name: float(servo["voltage_v"])
+        for name, servo in servos.items()
+        if isinstance(servo.get("voltage_v"), (int, float))
+    }
+    temperatures_c = {
+        name: float(servo["temperature_c"])
+        for name, servo in servos.items()
+        if isinstance(servo.get("temperature_c"), (int, float))
+    }
+    bus = {
+        **diagnostics,
+        "hardware_error_flags": hardware_error_flags,
+        "hardware_errors": hardware_errors,
+        "servo_status": servo_status,
+        "voltages_v": voltages_v,
+    }
+    warnings = [str(value) for value in (result.get("warnings") or [])]
+    faults: list[dict[str, Any]] = []
+    joint_warning_messages: set[str] = set()
+    for name, servo in servos.items():
+        flags = int(servo.get("hardware_error_flags") or 0)
+        if not flags:
+            continue
+        warning = next(
+            (
+                value
+                for value in warnings
+                if value.startswith(f"{name} (")
+            ),
+            (
+                f"{name} (servo {servo.get('servo_id') or '?'}) "
+                f"hardware warning 0x{flags:02x}: "
+                + (
+                    ", ".join(str(value) for value in (servo.get("hardware_errors") or []))
+                    or "vendor status"
+                )
+            ),
+        )
+        joint_warning_messages.add(warning)
+        faults.append({
+            "kind": "blacknode.fault-state",
+            "schema_version": 1,
+            "code": "hardware-warning",
+            "message": warning,
+            "severity": "warning",
+            "active": True,
+            "details": {
+                "joint": name,
+                "servo_id": int(servo.get("servo_id") or 0),
+                "flags": flags,
+                "decoded": list(servo.get("hardware_errors") or []),
+            },
+        })
+    faults.extend(
+        {
+            "kind": "blacknode.fault-state",
+            "schema_version": 1,
+            "code": "hardware-warning",
+            "message": warning,
+            "severity": "warning",
+            "active": True,
+        }
+        for warning in warnings
+        if warning not in joint_warning_messages
+    )
+    calibration = dict(target.get("calibration") or {})
+    calibration.setdefault("profile_id", str(profile.get("id") or ""))
+    calibration.setdefault("hardware_id", str(target.get("hardware_id") or ""))
+    available = bool(result.get("data_ready") and joints)
+    return {
+        "type": "robot_telemetry",
+        "robot_id": target_id,
+        "robot_name": target_name,
+        "source": "hardware",
+        "source_label": f"Local USB · {target.get('port') or ''}",
+        "available": available,
+        "stale": not available,
+        "sequence": int(time.time() * 1000),
+        "sent_at": now,
+        "received_at": now,
+        "payload": {
+            "connected": available,
+            "armed": result.get("torque_enabled") is True,
+            "torque_enabled": result.get("torque_enabled"),
+            "position_unit": "degree",
+            "velocity_unit": "degree/s",
+            "joints": joints,
+            "error": "" if result.get("command_ok") else str(result.get("report") or ""),
+            "faults": faults,
+            "temperatures_c": temperatures_c,
+            "voltage_v": min(voltages_v.values()) if voltages_v else None,
+            "voltages_v": voltages_v,
+            "bus": bus,
+            "calibrated": bool(target.get("calibration")),
+            "calibration": calibration,
+        },
+        "message": str(result.get("report") or ""),
+    }
+
+
+_ROBOT_MONITOR_SAMPLE_INTERVAL_SECONDS = 0.1
+_ROBOT_MONITOR_STALE_GRACE_SECONDS = 1.5
+_robot_monitor_cache_lock = threading.Lock()
+_robot_monitor_device_locks: dict[str, threading.Lock] = {}
+_robot_monitor_snapshot_cache: dict[str, dict[str, Any]] = {}
+
+
+def _robot_monitor_device_lock(device_id: str) -> threading.Lock:
+    with _robot_monitor_cache_lock:
+        return _robot_monitor_device_locks.setdefault(
+            device_id,
+            threading.Lock(),
+        )
+
+
+def _cached_local_robot_monitor_snapshot(
+    device_id: str,
+    profile_id: str = "auto",
+) -> dict[str, Any]:
+    """Serialize local bus reads and preserve one brief failed sample as stale."""
+    target = _local_robot_monitor_target(device_id, profile_id)
+    if target is None:
+        raise KeyError(device_id)
+    physical_key = str(
+        target.get("hardware_id")
+        or target.get("port")
+        or device_id
+    )
+    selection = _monitor_profile_selection(profile_id)
+    cache_key = (
+        device_id
+        if selection == "auto"
+        else f"{device_id}\0{selection}"
+    )
+    lock = _robot_monitor_device_lock(physical_key)
+    with lock:
+        sampled_at = time.monotonic()
+        with _robot_monitor_cache_lock:
+            cached = _robot_monitor_snapshot_cache.get(cache_key)
+            if (
+                cached
+                and sampled_at - float(cached.get("sampled_at") or 0.0)
+                < _ROBOT_MONITOR_SAMPLE_INTERVAL_SECONDS
+            ):
+                return copy.deepcopy(cached["latest"])
+
+        snapshot = _local_robot_monitor_snapshot(target)
+        sampled_at = time.monotonic()
+        with _robot_monitor_cache_lock:
+            cached = _robot_monitor_snapshot_cache.setdefault(cache_key, {})
+            if snapshot.get("available"):
+                cached["last_good"] = copy.deepcopy(snapshot)
+                cached["last_good_at"] = sampled_at
+                latest = snapshot
+            else:
+                last_good = cached.get("last_good")
+                last_good_at = float(cached.get("last_good_at") or 0.0)
+                age = sampled_at - last_good_at
+                if (
+                    isinstance(last_good, dict)
+                    and age <= _ROBOT_MONITOR_STALE_GRACE_SECONDS
+                ):
+                    latest = copy.deepcopy(last_good)
+                    latest["stale"] = True
+                    latest["age_seconds"] = max(0.0, age)
+                    latest["message"] = (
+                        "Telemetry retrying; keeping the last good joint "
+                        "positions visible."
+                    )
+                    latest["transient_error"] = str(
+                        snapshot.get("message") or ""
+                    )
+                else:
+                    latest = snapshot
+            cached["latest"] = copy.deepcopy(latest)
+            cached["sampled_at"] = sampled_at
+        return copy.deepcopy(latest)
+
+
+def _device_monitor_snapshot(
+    device_id: str,
+    profile_id: str = "auto",
+) -> dict[str, Any]:
     """Return one normalized robot-state sample from the current bus owner."""
+    if device_id.startswith("local-usb-"):
+        return _cached_local_robot_monitor_snapshot(device_id, profile_id)
     device = _device_registry.get_public(device_id)
     if device is None:
         raise KeyError(device_id)
@@ -7810,6 +8901,11 @@ def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
             if available
             else None
         )
+        if isinstance(monitor_payload, dict):
+            monitor_payload = _monitor_payload_with_status_metadata(
+                monitor_payload,
+                status,
+            )
         return {
             "type": "robot_telemetry",
             "robot_id": device_id,
@@ -7856,6 +8952,39 @@ def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
     )
     calibration_topology = dict(calibration.get("topology") or {})
     calibration_joints = dict(calibration.get("joints") or {})
+    status_values = (
+        status.get("values")
+        if isinstance(status.get("values"), dict)
+        else {}
+    )
+    status_bus = (
+        status.get("bus")
+        if isinstance(status.get("bus"), dict)
+        else status_values.get("bus")
+        if isinstance(status_values.get("bus"), dict)
+        else {}
+    )
+    temperatures_c = dict(status.get("temperatures_c") or {})
+    voltages_v = dict(
+        status.get("voltages_v")
+        or status_bus.get("voltages_v")
+        or {}
+    )
+    hardware_error_flags = dict(
+        status.get("hardware_error_flags")
+        or status_bus.get("hardware_error_flags")
+        or {}
+    )
+    hardware_errors = dict(
+        status.get("hardware_errors")
+        or status_bus.get("hardware_errors")
+        or {}
+    )
+    servo_status = dict(
+        status.get("servo_status")
+        or status_bus.get("servo_status")
+        or {}
+    )
 
     def hardware_joint(name: str) -> dict[str, Any]:
         item: dict[str, Any] = {
@@ -7872,6 +9001,20 @@ def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
                 item["semantic_name"] = semantic_name
         if isinstance(raw_positions.get(name), int):
             item["raw_position"] = int(raw_positions[name])
+        if status_bus:
+            item["communication_ok"] = True
+        if isinstance(temperatures_c.get(name), (int, float)):
+            item["temperature_c"] = float(temperatures_c[name])
+        if isinstance(voltages_v.get(name), (int, float)):
+            item["voltage_v"] = float(voltages_v[name])
+        if isinstance(hardware_error_flags.get(name), int):
+            item["hardware_error_flags"] = int(hardware_error_flags[name])
+        if isinstance(hardware_errors.get(name), list):
+            item["hardware_errors"] = [
+                str(value) for value in hardware_errors[name]
+            ]
+        if isinstance(servo_status.get(name), int):
+            item["servo_status"] = int(servo_status[name])
 
         raw_limit = status_limits.get(name)
         if isinstance(raw_limit, dict):
@@ -7925,7 +9068,7 @@ def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
         "sequence": int(time.time() * 1000),
         "sent_at": now,
         "received_at": now,
-        "payload": {
+        "payload": _monitor_payload_with_status_metadata({
             "connected": bool(status.get("connected")),
             "armed": bool(status.get("armed")),
             "torque_enabled": status.get("torque_enabled"),
@@ -7938,11 +9081,13 @@ def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
             ],
             "error": error,
             "faults": faults,
-            "temperatures_c": dict(status.get("temperatures_c") or {}),
+            "temperatures_c": temperatures_c,
             "voltage_v": status.get("voltage_v"),
+            "voltages_v": voltages_v,
+            "bus": dict(status_bus),
             "calibrated": status.get("calibrated"),
             "calibration": calibration,
-        },
+        }, status),
         "message": (
             "Receiving state from Robot Hardware."
             if available
@@ -7956,12 +9101,26 @@ def _device_monitor_snapshot(device_id: str) -> dict[str, Any]:
 
 @app.websocket("/api/devices/{device_id}/monitor/ws")
 @app.websocket("/devices/{device_id}/monitor/ws")
-async def device_monitor_socket(websocket: WebSocket, device_id: str):
+async def device_monitor_socket(
+    websocket: WebSocket,
+    device_id: str,
+    profile_id: str = "auto",
+):
     await websocket.accept()
+    receive_task = asyncio.create_task(websocket.receive())
     try:
         while True:
+            if receive_task.done():
+                message = receive_task.result()
+                if message.get("type") == "websocket.disconnect":
+                    return
+                receive_task = asyncio.create_task(websocket.receive())
             try:
-                snapshot = await asyncio.to_thread(_device_monitor_snapshot, device_id)
+                snapshot = await asyncio.to_thread(
+                    _device_monitor_snapshot,
+                    device_id,
+                    profile_id,
+                )
             except KeyError:
                 await websocket.send_json({
                     "type": "robot_telemetry",
@@ -7983,10 +9142,30 @@ async def device_monitor_socket(websocket: WebSocket, device_id: str):
                     ),
                     "message": f"Monitoring temporarily unavailable: {exc}",
                 }
-            await websocket.send_json(snapshot)
-            await asyncio.sleep(0.1)
-    except (WebSocketDisconnect, RuntimeError):
+            try:
+                await websocket.send_json(snapshot)
+            except Exception:
+                return
+            done, _pending = await asyncio.wait(
+                {receive_task},
+                timeout=_ROBOT_MONITOR_SAMPLE_INTERVAL_SECONDS,
+            )
+            if done:
+                message = receive_task.result()
+                if message.get("type") == "websocket.disconnect":
+                    return
+                receive_task = asyncio.create_task(websocket.receive())
+    except (WebSocketDisconnect, RuntimeError, OSError, asyncio.CancelledError):
         return
+    finally:
+        if not receive_task.done():
+            receive_task.cancel()
+        with contextlib.suppress(
+            asyncio.CancelledError,
+            WebSocketDisconnect,
+            RuntimeError,
+        ):
+            await receive_task
 
 
 @app.get("/devices/{device_id}/deployments")
@@ -9707,17 +10886,26 @@ def setup_package(name: str):
 def set_package_component(name: str, component: str, action: str):
     if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", name):
         raise HTTPException(400, "Invalid package name")
-    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", component):
+    component_name, separator, adapter_name = component.partition("@")
+    if not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", component_name):
         raise HTTPException(400, "Invalid component name")
+    if separator and not re.fullmatch(r"[a-zA-Z0-9._-]{1,80}", adapter_name):
+        raise HTTPException(400, "Invalid adapter name")
     if action not in {"enable", "disable", "reset"}:
         raise HTTPException(400, "Component action must be enable, disable, or reset")
     try:
-        if action == "enable":
-            info = bn_ensure_component_enabled(name, component)
+        if adapter_name and action == "enable":
+            info = bn_ensure_adapter_enabled(name, component_name, adapter_name)
+        elif adapter_name and action == "disable":
+            info = bn_set_adapter_enabled(name, component_name, adapter_name, False)
+        elif adapter_name:
+            info = bn_reset_component(name, component_name, adapter_name)
+        elif action == "enable":
+            info = bn_ensure_component_enabled(name, component_name)
         elif action == "disable":
-            info = bn_set_component_enabled(name, component, False)
+            info = bn_set_component_enabled(name, component_name, False)
         else:
-            info = bn_reset_component(name, component)
+            info = bn_reset_component(name, component_name)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:

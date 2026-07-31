@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { NodeResizer } from '@reactflow/node-resizer'
 import { Handle, Position, type NodeProps } from 'reactflow'
 
 import {
   api,
-  type HardwareDevice,
+  type DeviceRobotProfile,
+  type RobotMonitorTarget,
   type RobotTelemetryJoint,
   type RobotTelemetrySample,
 } from '../api'
@@ -11,6 +13,7 @@ import {
   subscribeRobotTelemetry,
   type RobotMonitorConnection,
 } from '../robotTelemetryStream'
+import { hardwareWarningHint } from '../robotTelemetryDiagnostics'
 import { useStore, type NodeData } from '../store'
 import NodeFrame from './NodeFrame'
 
@@ -21,8 +24,10 @@ type JointTrace = {
 
 export default function RobotMonitorNode({ id, data, selected }: NodeProps<NodeData>) {
   const updateParam = useStore(state => state.updateParam)
-  const [robots, setRobots] = useState<HardwareDevice[]>([])
+  const [robots, setRobots] = useState<RobotMonitorTarget[]>([])
+  const [profiles, setProfiles] = useState<DeviceRobotProfile[]>([])
   const [listError, setListError] = useState('')
+  const profileId = String(data.params?.profile_id || 'auto').trim() || 'auto'
   const robotId = String(data.params?.robot_id || '').trim()
   const savedName = String(data.params?.robot_name || '').trim()
   const selectedRobot = robots.find(robot => robot.id === robotId)
@@ -30,10 +35,11 @@ export default function RobotMonitorNode({ id, data, selected }: NodeProps<NodeD
 
   useEffect(() => {
     let active = true
-    api.listDevices()
+    api.listRobotMonitorTargets(profileId)
       .then(result => {
         if (!active) return
-        setRobots(result.devices)
+        setRobots(result.targets)
+        setProfiles(result.profiles || [])
         setListError('')
       })
       .catch(error => {
@@ -41,12 +47,38 @@ export default function RobotMonitorNode({ id, data, selected }: NodeProps<NodeD
         setListError(error instanceof Error ? error.message : String(error))
       })
     return () => { active = false }
-  }, [])
+  }, [profileId])
 
   const chooseRobot = async (nextId: string) => {
     const robot = robots.find(item => item.id === nextId)
     await updateParam(id, 'robot_id', nextId)
     await updateParam(id, 'robot_name', robot?.name || '')
+  }
+
+  const chooseProfile = async (nextProfileId: string) => {
+    const current = robots.find(item => item.id === robotId)
+    await updateParam(id, 'profile_id', nextProfileId)
+    try {
+      const result = await api.listRobotMonitorTargets(nextProfileId)
+      setRobots(result.targets)
+      setProfiles(result.profiles || [])
+      setListError('')
+      if (current?.kind === 'local_usb') {
+        const replacement = result.targets.find(item => (
+          item.kind === 'local_usb'
+          && (
+            item.hardware_id === current.hardware_id
+            || item.port === current.port
+          )
+        ))
+        if (replacement) {
+          await updateParam(id, 'robot_id', replacement.id)
+          await updateParam(id, 'robot_name', replacement.name)
+        }
+      }
+    } catch (error) {
+      setListError(error instanceof Error ? error.message : String(error))
+    }
   }
 
   return (
@@ -56,38 +88,91 @@ export default function RobotMonitorNode({ id, data, selected }: NodeProps<NodeD
       selected={selected}
       color="#00b8d9"
       nodeType={data.type}
-      style={{ width: '100%', minWidth: 620 }}
+      style={{
+        width: '100%',
+        height: '100%',
+        minWidth: 620,
+        minHeight: 260,
+        display: 'flex',
+        flexDirection: 'column',
+      }}
     >
+      <NodeResizer
+        minWidth={620}
+        minHeight={260}
+        isVisible={selected}
+        lineStyle={{ borderColor: '#00b8d9' }}
+        handleStyle={{
+          background: '#00b8d9',
+          borderColor: '#00b8d9',
+          width: 8,
+          height: 8,
+          borderRadius: 2,
+        }}
+      />
+
       <header className="bn-robot-monitor-node-title">
         <div>
           <span>ROBOT MONITOR</span>
           <strong>{robotName}</strong>
         </div>
-        <label
-          className="nodrag"
+        <div
+          className="bn-robot-monitor-node-pickers nodrag"
           onMouseDown={event => event.stopPropagation()}
           onClick={event => event.stopPropagation()}
         >
-          <span>Robot</span>
-          <select
-            value={robotId}
-            onChange={event => void chooseRobot(event.target.value)}
-            aria-label="Robot to monitor"
-          >
-            <option value="">Choose a robot…</option>
-            {robots.map(robot => (
-              <option key={robot.id} value={robot.id}>{robot.name}</option>
-            ))}
-            {robotId && !selectedRobot && (
-              <option value={robotId}>{savedName || robotId} (unavailable)</option>
-            )}
-          </select>
-        </label>
+          <label>
+            <span>Profile</span>
+            <select
+              value={profileId}
+              onChange={event => void chooseProfile(event.target.value)}
+              aria-label="Profile for local USB monitoring"
+            >
+              <option value="auto">Auto · match this hardware</option>
+              <option value="none">None · raw read-only</option>
+              {profiles.map(profile => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name} · {profile.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Robot</span>
+            <select
+              value={robotId}
+              onChange={event => void chooseRobot(event.target.value)}
+              aria-label="Robot to monitor"
+            >
+              <option value="">Choose a robot…</option>
+              {robots.some(robot => robot.kind === 'local_usb') && (
+                <optgroup label="Local USB">
+                  {robots.filter(robot => robot.kind === 'local_usb').map(robot => (
+                    <option key={robot.id} value={robot.id} disabled={!robot.available}>
+                      {robot.name}{robot.available ? '' : ' (profile needed)'}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {robots.some(robot => robot.kind === 'registered') && (
+                <optgroup label="Registered robots">
+                  {robots.filter(robot => robot.kind === 'registered').map(robot => (
+                    <option key={robot.id} value={robot.id}>{robot.name}</option>
+                  ))}
+                </optgroup>
+              )}
+              {robotId && !selectedRobot && (
+                <option value={robotId}>{savedName || robotId} (unavailable)</option>
+              )}
+            </select>
+          </label>
+        </div>
       </header>
 
       <RobotLiveMonitor
         robotId={robotId}
         robotName={robotName}
+        profileId={profileId}
         emptyMessage={listError}
       />
 
@@ -105,10 +190,12 @@ export default function RobotMonitorNode({ id, data, selected }: NodeProps<NodeD
 export function RobotLiveMonitor({
   robotId,
   robotName,
+  profileId = 'auto',
   emptyMessage,
 }: {
   robotId: string
   robotName: string
+  profileId?: string
   emptyMessage: string
 }) {
   const [sample, setSample] = useState<RobotTelemetrySample | null>(null)
@@ -131,6 +218,7 @@ export function RobotLiveMonitor({
 
     return subscribeRobotTelemetry(
       robotId,
+      profileId,
       nextSample => {
         let next = nextSample
         const sourceKey = `${next.source || 'unknown'}:${next.source_label || ''}`
@@ -181,13 +269,13 @@ export function RobotLiveMonitor({
       },
       setConnection,
     )
-  }, [robotId])
+  }, [profileId, robotId])
 
   const joints = sample?.payload?.joints || []
   const cameras = sample?.payload?.camera_streams || []
   const sourceLabel = sample?.source === 'deployment'
     ? `Deployment · ${sample.source_label || sample.deployment?.name || 'workflow'}`
-    : 'Robot Hardware'
+    : sample?.source_label || 'Robot Hardware'
   const stateLabel = connection !== 'live'
     ? connection
     : sample?.stale
@@ -199,6 +287,26 @@ export function RobotLiveMonitor({
   const armed = sample?.payload?.armed ?? sample?.deployment?.motion_armed
   const torque = sample?.payload?.torque_enabled
   const battery = sample?.payload?.battery
+  const calibrated = sample?.payload?.calibrated
+  const calibration = sample?.payload?.calibration
+  const rawMode = sample?.payload?.raw_mode === true
+  const topologyJointCount = Object.keys(calibration?.topology || {}).length
+  const calibratedJointCount = Object.keys(calibration?.joints || {}).length
+  const expectedJointCount = Number(calibration?.joint_count)
+    || topologyJointCount
+    || calibratedJointCount
+  const jointCoverageComplete = expectedJointCount > 0 && joints.length === expectedJointCount
+  const calibrationLabel = rawMode
+    ? 'Needs profile'
+    : calibrated === true
+    ? calibration?.name || 'Active'
+    : calibrated === false
+      ? calibration && Object.keys(calibration).length > 0 ? 'Not active' : 'None'
+      : calibration && Object.keys(calibration).length > 0 ? 'Reported' : 'Unknown'
+  const bus = sample?.payload?.bus
+  const hardwareWarningCount = joints.filter(
+    joint => Number(joint.hardware_error_flags || 0) !== 0,
+  ).length
 
   return (
     <section
@@ -253,6 +361,38 @@ export function RobotLiveMonitor({
             value={sample?.source === 'deployment' ? 'Deployment' : 'Hardware'}
             tone="live"
           />
+          <MonitorFact
+            label="Profile"
+            value={rawMode ? 'None · raw' : calibration?.profile_id || 'Unknown'}
+            tone={rawMode ? 'warning' : calibration?.profile_id ? 'ok' : 'muted'}
+          />
+          <MonitorFact
+            label="Calibration"
+            value={calibrationLabel}
+            tone={calibrated === true ? 'ok' : calibrated === false ? 'warning' : 'muted'}
+          />
+          <MonitorFact
+            label="Joint coverage"
+            value={expectedJointCount > 0 ? `${joints.length} / ${expectedJointCount}` : String(joints.length)}
+            tone={jointCoverageComplete ? 'ok' : expectedJointCount > 0 ? 'warning' : 'muted'}
+          />
+          <MonitorFact
+            label="Servo warnings"
+            value={String(hardwareWarningCount)}
+            tone={hardwareWarningCount ? 'warning' : joints.length ? 'ok' : 'muted'}
+          />
+          <MonitorFact
+            label="Bus timeouts"
+            value={bus?.timeout_count == null ? 'Unknown' : String(bus.timeout_count)}
+            tone={bus?.timeout_count ? 'warning' : bus ? 'ok' : 'muted'}
+          />
+          <MonitorFact
+            label="Packet errors"
+            value={bus?.serial_packet_error_count == null
+              ? 'Unknown'
+              : String(bus.serial_packet_error_count)}
+            tone={bus?.serial_packet_error_count ? 'warning' : bus ? 'ok' : 'muted'}
+          />
         </div>
       )}
 
@@ -279,6 +419,7 @@ export function RobotLiveMonitor({
         <>
           <div className="bn-robot-monitor-meta">
             <span>{joints.length} joints</span>
+            {calibration?.hardware_id && <span title={calibration.hardware_id}>Hardware {calibration.hardware_id}</span>}
             <span>{cameras.length} streams</span>
             <span>{sample.payload?.position_unit || 'degree'}</span>
             <span>
@@ -286,6 +427,7 @@ export function RobotLiveMonitor({
                 ? new Date(sample.received_at).toLocaleTimeString()
                 : 'now'}
             </span>
+            {bus?.operation_count != null && <span>{bus.operation_count} bus operations</span>}
           </div>
 
           {cameras.length > 0 && (
@@ -303,7 +445,12 @@ export function RobotLiveMonitor({
 
           {joints.length > 0 ? (
             <div className="bn-robot-monitor-grid">
-              {joints.map(joint => (
+              {[...joints]
+                .sort((left, right) => (
+                  Number(left.servo_id ?? Number.MAX_SAFE_INTEGER)
+                  - Number(right.servo_id ?? Number.MAX_SAFE_INTEGER)
+                ))
+                .map(joint => (
                 <JointMonitorCard
                   key={joint.name}
                   joint={joint}
@@ -311,7 +458,7 @@ export function RobotLiveMonitor({
                   positionUnit={sample.payload?.position_unit || 'degree'}
                   velocityUnit={sample.payload?.velocity_unit || 'degree/s'}
                 />
-              ))}
+                ))}
             </div>
           ) : (
             <div className="bn-robot-monitor-empty" role="status">
@@ -359,11 +506,21 @@ function JointMonitorCard({
     && Number.isFinite(upperLimit)
     && Number(upperLimit) > Number(lowerLimit)
   const unit = shortUnit(positionUnit)
+  const hardwareFlags = Number(joint.hardware_error_flags || 0)
+  const hardwareErrors = joint.hardware_errors || []
+  const warning = hardwareFlags !== 0
 
   return (
-    <article className="bn-joint-monitor-card">
+    <article className={`bn-joint-monitor-card${warning ? ' is-warning' : ''}`}>
       <div className="bn-joint-monitor-title">
-        <strong title={joint.name}>{joint.name.replace(/_/g, ' ')}</strong>
+        <div>
+          <strong title={joint.semantic_name || joint.name}>
+            {(joint.semantic_name || joint.name).replace(/_/g, ' ')}
+          </strong>
+          <small>
+            {joint.servo_id == null ? joint.name : `Servo ID ${joint.servo_id}`}
+          </small>
+        </div>
         <span>{joint.position.toFixed(2)} {unit}</span>
       </div>
       <TelemetrySparkline
@@ -382,6 +539,20 @@ function JointMonitorCard({
         <span>Speed</span>
         <strong>{joint.velocity.toFixed(2)} {shortUnit(velocityUnit)}</strong>
       </div>
+      <div className="bn-joint-monitor-diagnostics">
+        <span>Raw <strong>{joint.raw_position ?? '—'}</strong></span>
+        <span>Response <strong>{joint.communication_ok === false ? 'Failed' : 'OK'}</strong></span>
+        <span>Voltage <strong>{joint.voltage_v == null ? '—' : `${joint.voltage_v.toFixed(2)} V`}</strong></span>
+        <span>Temp <strong>{joint.temperature_c == null ? '—' : `${joint.temperature_c.toFixed(1)} °C`}</strong></span>
+        <span>Status <strong>{`0x${hardwareFlags.toString(16).padStart(2, '0')}`}</strong></span>
+      </div>
+      {warning && (
+        <div className="bn-joint-monitor-warning">
+          <strong>Hardware warning</strong>
+          <span>{hardwareErrors.join(', ') || 'Vendor status flag reported'}</span>
+          <small>{hardwareWarningHint(joint)}</small>
+        </div>
+      )}
     </article>
   )
 }

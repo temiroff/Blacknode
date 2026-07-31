@@ -447,10 +447,39 @@ export default function Inspector() {
 
   const [open, setOpen]             = useState(true)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [robotProfileChoices, setRobotProfileChoices] = useState<string[]>([])
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
 
   useEffect(() => { setShowAdvanced(false) }, [selectedId])
+  useEffect(() => {
+    if (node?.data.type !== 'Robot') {
+      setRobotProfileChoices([])
+      return
+    }
+    let cancelled = false
+    const loadProfiles = () => {
+      void api.listGraphCalibrations()
+        .then(result => {
+          if (!cancelled) {
+            setRobotProfileChoices(
+              (result.profiles ?? [])
+                .map(profile => profile.id)
+                .filter(profileId => profileId && profileId !== 'auto'),
+            )
+          }
+        })
+        .catch(() => {
+          // Keep the last usable list; the on-node refresh reports API errors.
+        })
+    }
+    loadProfiles()
+    window.addEventListener('blacknode:robot-profiles-changed', loadProfiles)
+    return () => {
+      cancelled = true
+      window.removeEventListener('blacknode:robot-profiles-changed', loadProfiles)
+    }
+  }, [node?.data.type, selectedId])
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -619,7 +648,14 @@ export default function Inspector() {
                 const type = (data.input_types as Record<string, string>)?.[inp] ?? 'Any'
                 const def  = (data.input_defaults as Record<string, unknown>)?.[inp]
                           ?? nodeDefs[data.type]?.input_defaults?.[inp]
-                const choices = nodeDefs[data.type]?.input_choices?.[inp]
+                const schemaChoices = nodeDefs[data.type]?.input_choices?.[inp]
+                const choices = data.type === 'Robot' && inp === 'profile_id'
+                  ? (
+                      robotProfileChoices.length > 0
+                        ? robotProfileChoices
+                        : (schemaChoices ?? []).filter(choice => choice !== 'auto')
+                    )
+                  : schemaChoices
                 const isOllamaModel = inp === 'model' && data.inputs.includes('provider')
                   && String(
                     data.params.provider
@@ -1649,6 +1685,11 @@ function EnumControl({ value, defaultValue, choices, onChange }: {
         borderLeft: `2px solid ${color}`,
       }}
     >
+      {!choices.includes(current) && (
+        <option value={current} disabled>
+          {current === 'auto' ? 'Select a saved profile…' : `${current} (unavailable)`}
+        </option>
+      )}
       {choices.map(opt => (
         <option key={opt} value={opt}>{opt}</option>
       ))}

@@ -336,6 +336,7 @@ editor computer.
   [Datasets](docs/episode-datasets.md) ·
   [Policy training](docs/robot-policy-training.md)
 - Platform: [Packages](docs/packages.md) ·
+  [Provider authoring](docs/provider-authoring.md) ·
   [Projects](docs/projects.md) ·
   [Device deployment](docs/deployment-architecture.md) ·
   [Workflow schema](docs/workflow-schema.md) ·

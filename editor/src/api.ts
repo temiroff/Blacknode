@@ -225,6 +225,20 @@ export interface HardwareDevice {
   updated_at: string
 }
 
+export interface RobotMonitorTarget {
+  id: string
+  name: string
+  kind: 'registered' | 'local_usb'
+  available: boolean
+  profile_id?: string
+  requested_profile_id?: string
+  raw_mode?: boolean
+  hardware_id?: string
+  port?: string
+  message?: string
+  device?: HardwareDevice
+}
+
 export interface ComputeDevice {
   id: string
   name: string
@@ -235,6 +249,15 @@ export interface ComputeDevice {
   created_at: string
   updated_at: string
   robots: HardwareDevice[]
+  inspection_only?: boolean
+  inspection_updated_at?: string
+  last_inspection?: SshRuntimeInspection
+  inspection_connection?: {
+    ssh_host: string
+    ssh_port: number
+    ssh_username: string
+    host_fingerprint: string
+  }
   managed_runtime?: {
     management_mode?: 'ssh' | 'local'
     ssh_host?: string
@@ -329,13 +352,66 @@ export interface SshHostEnvironment {
   runtime_setup_packages: string[]
 }
 
+export interface SshRos2CapabilityCandidate {
+  kind: 'blacknode.robot-capability-candidate'
+  schema_version: 1
+  capability: string
+  confidence: 'high' | 'medium' | 'low'
+  score: number
+  state_topics: string[]
+  command_topics: string[]
+  safe_to_read: boolean
+  requires_confirmation: boolean
+  evidence: Array<{
+    capability: string
+    kind: 'topic'
+    name: string
+    message_type: string
+    role: 'state' | 'metadata' | 'command'
+    score: number
+    reason: string
+  }>
+}
+
+export interface SshRos2GraphInspection {
+  available: boolean
+  state: 'available' | 'partial' | 'empty' | 'unavailable' | 'unsupported' | string
+  distribution: string
+  domain_id: string
+  read_only: true
+  daemon_used: false
+  topics: string[]
+  nodes: string[]
+  services: string[]
+  errors: string[]
+  found: boolean
+  capabilities: SshRos2CapabilityCandidate[]
+  unclassified: Array<{
+    name: string
+    message_types: string[]
+  }>
+  inventory: {
+    topics: Array<{
+      name: string
+      message_types: string[]
+    }> | string[]
+    nodes: string[]
+    services: string[]
+    classified_topic_count?: number
+    unclassified_topic_count?: number
+  }
+  report: string
+}
+
 export interface SshRuntimeInspection {
   ok: boolean
   host_fingerprint: string
   instances: SshRuntimeInstance[]
   environment: SshHostEnvironment
+  ros2_graph: SshRos2GraphInspection
   suggested_port: number
   suggested_instance_id: string
+  device?: ComputeDevice
 }
 
 export interface DeviceRuntimeStatus {
@@ -453,6 +529,12 @@ export interface RobotTelemetryJoint {
   raw_position?: number
   lower_limit?: number
   upper_limit?: number
+  communication_ok?: boolean
+  temperature_c?: number
+  voltage_v?: number
+  hardware_error_flags?: number
+  hardware_errors?: string[]
+  servo_status?: number
 }
 
 export interface RobotTelemetrySample {
@@ -477,6 +559,7 @@ export interface RobotTelemetrySample {
     connected: boolean
     armed?: boolean
     torque_enabled?: boolean | null
+    raw_mode?: boolean
     position_unit: string
     velocity_unit: string
     joints: RobotTelemetryJoint[]
@@ -486,6 +569,9 @@ export interface RobotTelemetrySample {
       name?: string
       profile_id?: string
       hardware_id?: string
+      activated_at?: string
+      joint_count?: number
+      digest?: string
       topology?: Record<string, string>
       joints?: Record<string, {
         safe_min_deg?: number
@@ -505,6 +591,22 @@ export interface RobotTelemetrySample {
     }>
     temperatures_c?: Record<string, number>
     voltage_v?: number
+    voltages_v?: Record<string, number>
+    bus?: {
+      operation_count?: number
+      timeout_count?: number
+      serial_packet_error_count?: number
+      serial_packet_error_rate?: number
+      exception_count?: number
+      hardware_error_count?: number
+      scan_miss_count?: number
+      hardware_error_flags?: Record<string, number>
+      hardware_errors?: Record<string, string[]>
+      servo_status?: Record<string, number>
+      voltages_v?: Record<string, number>
+      last_full_feedback_time?: number
+      last_diagnostic_time?: number
+    }
     battery?: {
       level?: number
       voltage?: number
@@ -519,9 +621,10 @@ export interface RobotTelemetrySample {
   message?: string
 }
 
-export function deviceMonitorSocketUrl(id: string): string {
+export function deviceMonitorSocketUrl(id: string, profileId = 'auto'): string {
   const path = `${BASE}/devices/${encodeURIComponent(id)}/monitor/ws`
   const url = new URL(path, window.location.href)
+  url.searchParams.set('profile_id', String(profileId || 'auto'))
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.toString()
 }
@@ -1283,13 +1386,24 @@ export const api = {
       calibrations: DeviceCalibrationCandidate[]
       selected: { profile_id: string; hardware_id: string } | null
     }>('GET', '/graph/calibrations', undefined, 10000),
+  robotProfileEditorGraph: (profileId: string) =>
+    req<GraphSnapshot>(
+      'GET',
+      `/graph/profiles/${encodeURIComponent(profileId)}/editor`,
+      undefined,
+      10000,
+    ),
   addNode:   (type_name: string, pos: [number,number], params = {}) =>
     req<BnNodeMeta>('POST', '/nodes', { type_name, pos, params }),
   removeNode: (id: string)                  => req('DELETE', `/nodes/${id}`),
   updateParam:(id: string, key: string, value: unknown) =>
     req('PATCH', `/nodes/${id}/params`, { key, value }, 10000),
-  controlNode:(id: string, action: string) =>
-    req<{ ok: boolean; node_id: string; outputs: Record<string, unknown> }>('POST', `/nodes/${id}/control`, { action }),
+  controlNode:(id: string, action: string, payload: Record<string, unknown> = {}) =>
+    req<{ ok: boolean; node_id: string; outputs: Record<string, unknown> }>(
+      'POST',
+      `/nodes/${id}/control`,
+      { action, payload },
+    ),
   pickDirectory:(initialPath = '', title = '') =>
     req<{ selected: string; cancelled: boolean }>(
       'POST',
@@ -1389,6 +1503,8 @@ export const api = {
     username: string,
     password: string,
     hostFingerprint: string,
+    name = '',
+    register = false,
   ) =>
     req<SshRuntimeInspection>(
       'POST',
@@ -1399,6 +1515,8 @@ export const api = {
         username,
         password,
         host_fingerprint: hostFingerprint,
+        name,
+        save_inspection: register,
       },
       60000,
     ),
@@ -1597,6 +1715,15 @@ export const api = {
       onProgress,
     ),
   listDevices:      () => req<{ devices: HardwareDevice[] }>('GET', '/devices'),
+  listRobotMonitorTargets: (profileId = 'auto') =>
+    req<{
+      targets: RobotMonitorTarget[]
+      profiles: DeviceRobotProfile[]
+      profile_id: string
+    }>(
+      'GET',
+      `/robot-monitor-targets?profile_id=${encodeURIComponent(profileId || 'auto')}`,
+    ),
   pairDevice:       (name: string, baseUrl: string, token: string, runtimeToken = '') =>
     req<{
       device: HardwareDevice

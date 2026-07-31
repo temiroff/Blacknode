@@ -292,7 +292,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "default": True,
                     "node_types": [
                         "FeetechBusConfig",
-                        "FeetechBusProbe"
+                        "FeetechBusProbe",
+                        "FeetechCalibrationProvider"
                     ],
                     "adapters": {
                         "ros2": {
@@ -324,6 +325,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "node_types": [
                 "FeetechBusConfig",
                 "FeetechBusProbe",
+                "FeetechCalibrationProvider",
                 "FeetechROS2Adapter"
             ]
         },
@@ -513,6 +515,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "calibration",
                     "default": True,
                     "node_types": [
+                        "RobotCalibrationControl",
+                        "RobotCalibrationMockProvider",
                         "RobotCalibrationRecorder"
                     ]
                 },
@@ -566,6 +570,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "Robot",
                 "RobotAttachment",
                 "RobotAttachmentList",
+                "RobotCalibrationControl",
+                "RobotCalibrationMockProvider",
                 "RobotCalibrationRecorder",
                 "RobotCapabilityBinding",
                 "RobotCapabilityInspect",
@@ -631,7 +637,12 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "depth": {
                     "name": "depth",
                     "default": True,
-                    "node_types": [],
+                    "node_types": [
+                        "DepthCamera",
+                        "DepthCameraDeviceSelect",
+                        "DepthCameraTestProvider",
+                        "DepthObstacleWarning"
+                    ],
                     "adapters": {
                         "ros2": {
                             "name": "ros2",
@@ -707,6 +718,10 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "CameraStream",
                 "DetectionPrompt",
                 "DetectionStream",
+                "DepthCamera",
+                "DepthCameraDeviceSelect",
+                "DepthCameraTestProvider",
+                "DepthObstacleWarning",
                 "DepthROS2Subscribe",
                 "FramePrompt",
                 "ReasoningDashboard",
@@ -1115,6 +1130,9 @@ def template_component_requirements(workflow: Mapping[str, Any]) -> list[dict[st
             separator = "/" if package and component else ""
         else:
             continue
+        component_name, adapter_separator, adapter = component.partition("@")
+        if adapter_separator and component_name and adapter:
+            component = component_name
         if not separator or not package or not component:
             continue
         indexed = _CORE_PACKAGES.get(package, {})
@@ -1132,9 +1150,26 @@ def template_adapter_requirements(workflow: Mapping[str, Any]) -> list[dict[str,
     metadata = workflow.get("metadata")
     if not isinstance(metadata, Mapping):
         return []
-    raw_requirements = metadata.get("required_adapters")
-    if not isinstance(raw_requirements, list):
-        return []
+    raw_requirements: list[Any] = []
+    declared_adapters = metadata.get("required_adapters")
+    if isinstance(declared_adapters, list):
+        raw_requirements.extend(declared_adapters)
+    # Older templates sometimes placed compact component@adapter references in
+    # required_components. Preserve those saved workflows by resolving both the
+    # parent component and the nested adapter.
+    declared_components = metadata.get("required_components")
+    if isinstance(declared_components, list):
+        raw_requirements.extend(
+            raw
+            for raw in declared_components
+            if (
+                isinstance(raw, str)
+                and "@" in raw.partition("/")[2]
+            ) or (
+                isinstance(raw, Mapping)
+                and "@" in str(raw.get("component") or "")
+            )
+        )
     requirements: dict[tuple[str, str, str], dict[str, str]] = {}
     for raw in raw_requirements:
         if isinstance(raw, str):
@@ -1146,7 +1181,10 @@ def template_adapter_requirements(workflow: Mapping[str, Any]) -> list[dict[str,
             component = str(raw.get("component") or "").strip()
             adapter = str(raw.get("adapter") or "").strip()
             version = str(raw.get("version") or "").strip()
-            separator = "@" if adapter else ""
+            if not adapter:
+                component, separator, adapter = component.partition("@")
+            else:
+                separator = "@"
             component_separator = "/" if package and component else ""
         else:
             continue

@@ -30,6 +30,7 @@ import json
 import os
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import urllib.request
@@ -210,6 +211,90 @@ def host_environment():
         "runtime_setup_packages": ["git", "python3-pip", "python3-venv"],
     }
 
+def ros2_graph(environment):
+    # Inspect the live graph without starting the persistent ROS 2 CLI daemon.
+    ros = environment.get("ros2") or {}
+    selected = str(ros.get("selected_distribution") or "")
+    report = {
+        "available": False,
+        "state": "unavailable",
+        "distribution": selected,
+        "domain_id": str(os.environ.get("ROS_DOMAIN_ID") or "0"),
+        "read_only": True,
+        "daemon_used": False,
+        "topics": [],
+        "nodes": [],
+        "services": [],
+        "errors": [],
+    }
+    if not ros.get("available") or not selected:
+        report["errors"].append("ROS 2 was not detected on this computer.")
+        return report
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", selected):
+        report["errors"].append("The selected ROS 2 distribution name is invalid.")
+        return report
+    setup = Path("/opt/ros") / selected / "setup.bash"
+    if not setup.is_file():
+        report["errors"].append(
+            f"ROS 2 setup was not found at {setup}."
+        )
+        return report
+
+    def ros_command(arguments, timeout=15.0):
+        invocation = " ".join(
+            shlex.quote(str(value))
+            for value in ["ros2", *arguments]
+        )
+        shell = (
+            f"source {shlex.quote(str(setup))} >/dev/null 2>&1"
+            f" && {invocation}"
+        )
+        return command(["bash", "-c", shell], timeout=timeout)
+
+    help_result = ros_command(["topic", "list", "--help"])
+    if "--no-daemon" not in (help_result.stdout + help_result.stderr):
+        report["state"] = "unsupported"
+        report["errors"].append(
+            "This ROS 2 CLI cannot inspect the graph without starting its "
+            "background daemon, so Blacknode skipped graph discovery."
+        )
+        return report
+
+    commands = {
+        "topics": ["topic", "list", "-t", "--no-daemon"],
+        "nodes": ["node", "list", "--no-daemon"],
+        "services": ["service", "list", "-t", "--no-daemon"],
+    }
+    succeeded = 0
+    for key, arguments in commands.items():
+        result = ros_command(arguments)
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            report["errors"].append(
+                f"{key} inventory failed"
+                + (f": {detail[:300]}" if detail else ".")
+            )
+            continue
+        report[key] = [
+            line.strip()[:512]
+            for line in result.stdout.splitlines()
+            if line.strip()
+        ][:2000]
+        succeeded += 1
+    report["available"] = succeeded > 0
+    report["state"] = (
+        "available"
+        if succeeded == len(commands)
+        else "partial"
+        if succeeded
+        else "unavailable"
+    )
+    if report["available"] and not any(
+        report[key] for key in ("topics", "nodes", "services")
+    ):
+        report["state"] = "empty"
+    return report
+
 ids = {"default"}
 organized_root = home / "Blacknode" / "devices"
 legacy_side_root = home / "blacknode-runtimes"
@@ -311,9 +396,11 @@ used_ids = {item["instance_id"] for item in instances}
 counter = 2
 while f"instance-{counter}" in used_ids:
     counter += 1
+environment = host_environment()
 print("__BLACKNODE_RUNTIME_INSPECTION__=" + json.dumps({
     "instances": instances,
-    "environment": host_environment(),
+    "environment": environment,
+    "ros2_graph": ros2_graph(environment),
     "used_ports": sorted(used),
     "suggested_port": suggested_port,
     "suggested_instance_id": f"instance-{counter}",
@@ -579,6 +666,11 @@ def _public_inspection(payload: dict[str, Any]) -> dict[str, Any]:
             for key, value in item.items()
             if not str(key).startswith("_")
         })
+    ros2_graph = (
+        payload.get("ros2_graph")
+        if isinstance(payload.get("ros2_graph"), dict)
+        else {}
+    )
     return {
         "ok": True,
         "instances": instances,
@@ -587,6 +679,34 @@ def _public_inspection(payload: dict[str, Any]) -> dict[str, Any]:
             if isinstance(payload.get("environment"), dict)
             else {}
         ),
+        "ros2_graph": {
+            "available": bool(ros2_graph.get("available")),
+            "state": str(ros2_graph.get("state") or "unavailable")[:32],
+            "distribution": str(ros2_graph.get("distribution") or "")[:64],
+            "domain_id": str(ros2_graph.get("domain_id") or "0")[:32],
+            "read_only": True,
+            "daemon_used": False,
+            "topics": [
+                str(value or "")[:512]
+                for value in (ros2_graph.get("topics") or [])
+                if str(value or "").strip()
+            ][:2000],
+            "nodes": [
+                str(value or "")[:512]
+                for value in (ros2_graph.get("nodes") or [])
+                if str(value or "").strip()
+            ][:2000],
+            "services": [
+                str(value or "")[:512]
+                for value in (ros2_graph.get("services") or [])
+                if str(value or "").strip()
+            ][:2000],
+            "errors": [
+                str(value or "")[:500]
+                for value in (ros2_graph.get("errors") or [])
+                if str(value or "").strip()
+            ][:20],
+        },
         "suggested_port": int(payload.get("suggested_port") or 0),
         "suggested_instance_id": str(payload.get("suggested_instance_id") or "instance-2"),
     }

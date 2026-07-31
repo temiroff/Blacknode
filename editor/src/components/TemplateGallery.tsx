@@ -17,6 +17,20 @@ interface TemplateGalleryProps {
   openInNewTab?: boolean
 }
 
+function normalizedEnableTarget(
+  target: { package: string; component: string; adapter?: string },
+): { package: string; component: string; adapter?: string } {
+  const separator = target.component.indexOf('@')
+  if (separator < 0) return target
+  const component = target.component.slice(0, separator)
+  const compactAdapter = target.component.slice(separator + 1)
+  return {
+    ...target,
+    component,
+    adapter: target.adapter || compactAdapter || undefined,
+  }
+}
+
 function templateTags(template: TemplateMeta): string[] {
   const tags = [
     ...(template.categories ?? []).filter(category => category !== 'Custom'),
@@ -199,14 +213,23 @@ export default function TemplateGallery({
   ) => {
     event.stopPropagation()
     if (enabling || installing) return
-    const label = target.adapter
-      ? `${target.package}/${target.component}@${target.adapter}`
-      : `${target.package}/${target.component}`
+    const normalized = normalizedEnableTarget(target)
+    const label = normalized.adapter
+      ? `${normalized.package}/${normalized.component}@${normalized.adapter}`
+      : `${normalized.package}/${normalized.component}`
     setEnabling({ slug: template.slug, label })
     try {
-      await api.setPackageComponent(target.package, target.component, true)
-      if (target.adapter) {
-        await api.setPackageAdapter(target.package, target.component, target.adapter, true)
+      if (normalized.adapter) {
+        // Adapter activation transactionally enables its parent component and
+        // dependency graph, so a separate component request is unnecessary.
+        await api.setPackageAdapter(
+          normalized.package,
+          normalized.component,
+          normalized.adapter,
+          true,
+        )
+      } else {
+        await api.setPackageComponent(normalized.package, normalized.component, true)
       }
       await loadNodeTypes()
       await refreshTemplates()

@@ -3,7 +3,11 @@ import { Handle, Position, NodeProps, useReactFlow, useUpdateNodeInternals } fro
 import { NodeResizer } from '@reactflow/node-resizer'
 import '@reactflow/node-resizer/dist/style.css'
 import { useStore } from '../store'
-import { api, type DeviceCalibrationCandidate } from '../api'
+import {
+  api,
+  type DeviceCalibrationCandidate,
+  type DeviceRobotProfile,
+} from '../api'
 import { portColor, portVisualColor } from '../portColors'
 import { headerColor } from '../categories'
 import { isWireOnlyInput } from '../inputControls'
@@ -477,6 +481,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const loadDriverStatus = useStore(s => s.loadDriverStatus)
   const workflowMetadata = useStore(s => s.workflowMetadata)
   const setWorkflowRequirements = useStore(s => s.setWorkflowRequirements)
+  const openGraphAsTab = useStore(s => s.openGraphAsTab)
   const qualifiedType = useQualifiedTypeLabel(data.type)
   const driverName  = TRIGGER_DRIVER[data.type]
   const driverLive  = driverName ? Boolean(driverStatus[driverName]?.live) : false
@@ -555,12 +560,16 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const updateNodeInternals = useUpdateNodeInternals()
   const color       = headerColor(data.type)
   const isToolBox   = data.type === 'ToolBox'
+  const isRobotJointDefinition = data.type === 'RobotJointDefinition'
   const isRobotJointList = data.type === 'RobotJointList'
   const variadicInput = data.variadic_input ?? null
   const isVariadic = Boolean(variadicInput)
-  const isManualMove = data.type === 'ROS2ManualMove'
+  const isManualMove = (
+    data.type === 'ROS2ManualMove'
+    || data.type === 'RobotCalibrationControl'
+  )
   const isRobot = data.type === 'Robot'
-  const robotProfileId = String(data.params?.profile_id ?? '').trim()
+  const robotProfileId = String(data.params?.profile_id ?? 'auto').trim() || 'auto'
   const requiredCapabilities = Array.isArray(workflowMetadata.required_capabilities)
     ? workflowMetadata.required_capabilities.map(String)
     : []
@@ -570,8 +579,11 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   )
     ? workflowMetadata.device_calibration
     : null
+  const [robotProfiles, setRobotProfiles] = useState<DeviceRobotProfile[]>([])
   const [robotCalibrations, setRobotCalibrations] = useState<DeviceCalibrationCandidate[]>([])
   const [robotCalibrationsLoading, setRobotCalibrationsLoading] = useState(false)
+  const [robotProfilePending, setRobotProfilePending] = useState(false)
+  const [robotProfileEditPending, setRobotProfileEditPending] = useState(false)
   const [robotCalibrationPending, setRobotCalibrationPending] = useState(false)
   const [robotCalibrationError, setRobotCalibrationError] = useState('')
   const matchingRobotCalibrations = robotCalibrations.filter(
@@ -586,12 +598,31 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       && calibration.hardware_id === selectedRobotCalibration?.hardware_id
     ),
   )
-  const loadRobotCalibrations = async () => {
+  const selectableRobotProfiles = robotProfiles.filter(profile => profile.id !== 'auto')
+  const robotProfileChoices = Array.from(new Map([
+    ...(robotProfileId !== 'auto'
+      ? [[
+          robotProfileId,
+          selectableRobotProfiles.find(profile => profile.id === robotProfileId) ?? {
+            id: robotProfileId,
+            name: robotProfileId,
+            saved: false,
+            calibration_count: 0,
+          },
+        ] as const]
+      : []),
+    ...selectableRobotProfiles.map(profile => [profile.id, profile] as const),
+  ]).values())
+  const selectedRobotProfileChoice = robotProfileChoices.find(
+    profile => profile.id === robotProfileId,
+  )
+  const loadRobotSetup = async () => {
     if (!isRobot) return
     setRobotCalibrationsLoading(true)
     setRobotCalibrationError('')
     try {
       const result = await api.listGraphCalibrations()
+      setRobotProfiles(result.profiles ?? [])
       setRobotCalibrations(result.calibrations ?? [])
     } catch (err) {
       setRobotCalibrationError(err instanceof Error ? err.message : String(err))
@@ -606,7 +637,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     setRobotCalibrationError('')
     void api.listGraphCalibrations()
       .then(result => {
-        if (!cancelled) setRobotCalibrations(result.calibrations ?? [])
+        if (!cancelled) {
+          setRobotProfiles(result.profiles ?? [])
+          setRobotCalibrations(result.calibrations ?? [])
+        }
       })
       .catch(err => {
         if (!cancelled) {
@@ -618,6 +652,55 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       })
     return () => { cancelled = true }
   }, [isRobot, robotProfileId])
+  useEffect(() => {
+    if (!isRobot) return
+    const refresh = () => { void loadRobotSetup() }
+    window.addEventListener('blacknode:robot-profiles-changed', refresh)
+    return () => window.removeEventListener('blacknode:robot-profiles-changed', refresh)
+  }, [isRobot])
+  const selectRobotProfile = async (profileId: string) => {
+    if (!profileId || profileId === robotProfileId) return
+    setRobotProfilePending(true)
+    setRobotCalibrationError('')
+    try {
+      await updateParam(id, 'profile_id', profileId)
+      if (
+        selectedRobotCalibration
+        && selectedRobotCalibration.profile_id !== profileId
+      ) {
+        await setWorkflowRequirements(requiredCapabilities, null)
+      }
+      await loadRobotSetup()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setRobotCalibrationError(message)
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: { kind: 'error', title: 'Robot profile selection failed', message },
+      }))
+    } finally {
+      setRobotProfilePending(false)
+    }
+  }
+  const editRobotProfile = async () => {
+    if (!robotProfileId || robotProfileId === 'auto' || robotProfileEditPending) return
+    setRobotProfileEditPending(true)
+    try {
+      const graph = await api.robotProfileEditorGraph(robotProfileId)
+      const profile = selectableRobotProfiles.find(item => item.id === robotProfileId)
+      await openGraphAsTab(`Edit ${profile?.name || robotProfileId}`, graph)
+      window.dispatchEvent(new Event('blacknode:fit-view'))
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: 'Could not open profile editor',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
+    } finally {
+      setRobotProfileEditPending(false)
+    }
+  }
   const selectRobotCalibration = async (value: string) => {
     const calibration = robotCalibrations.find(
       item => `${item.profile_id}\u0000${item.hardware_id}` === value,
@@ -715,10 +798,23 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     : streamPreview ?? (isImageSrc(inlineDashboardImage) ? inlineDashboardImage : null)
   const streamUrl = typeof data.portResults?.stream_url === 'string' ? data.portResults.stream_url : ''
   const streamActive = LIVE_STREAM_NODE_TYPES.has(data.type) && data.portResults?.streaming === true && streamUrl.length > 0
-  const manualMoveLive = data.type === 'ROS2ManualMove' && data.portResults?.live === true
+  const manualMoveLive = isManualMove && data.portResults?.live === true
   const manualMoveReady = manualMoveLive && data.portResults?.data_ready === true
   const manualMoveMode = data.portResults?.mode === 'released' ? 'RELEASED' : 'HOLD'
   const manualMoveJointCount = Array.isArray(data.portResults?.joints) ? data.portResults.joints.length : 0
+  const manualMovePoseEntries = isManualMove && data.portResults?.pose && typeof data.portResults.pose === 'object'
+    ? Object.entries(data.portResults.pose as Record<string, unknown>)
+      .filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+      .sort(([left], [right]) => left.localeCompare(right))
+    : []
+  const manualMoveWarnings = isManualMove && Array.isArray(data.portResults?.warnings)
+    ? data.portResults.warnings.length
+    : 0
+  const manualMoveReport = isManualMove && (
+    data.portResults?.command_ok === false || manualMoveWarnings > 0
+  )
+    ? String(data.portResults?.report ?? '')
+    : ''
   const selectedManualAction = String(data.params?.action ?? 'check').toLowerCase()
   const releaseSelected = selectedManualAction === 'release' || selectedManualAction === 'enter'
   const holdSelected = selectedManualAction === 'hold' || selectedManualAction === 'exit'
@@ -1476,6 +1572,52 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       )}
 
       <div className="bn-node-parameter-area">
+      {isRobotJointDefinition && (
+        <div
+          className="bn-joint-definition-fields nodrag"
+          onMouseDown={e => e.stopPropagation()}
+          onKeyDown={e => e.stopPropagation()}
+        >
+          <div className="bn-joint-definition-fields-head">
+            <span>Joint identity</span>
+            <strong>Servo {String(data.params?.servo_id ?? 1)}</strong>
+          </div>
+          <div className="bn-joint-definition-fields-grid">
+            <label>
+              <span>Servo ID</span>
+              <input
+                key={`servo-${String(data.params?.servo_id ?? 1)}`}
+                type="number"
+                min={1}
+                step={1}
+                defaultValue={Number(data.params?.servo_id ?? 1)}
+                onBlur={e => {
+                  const next = Math.max(1, Math.trunc(Number(e.target.value) || 1))
+                  e.target.value = String(next)
+                  void updateParam(id, 'servo_id', next)
+                }}
+              />
+            </label>
+            <label>
+              <span>Joint ID</span>
+              <input
+                type="text"
+                value={String(data.params?.joint_id ?? 'joint')}
+                spellCheck={false}
+                onChange={e => { void updateParam(id, 'joint_id', e.target.value) }}
+              />
+            </label>
+            <label>
+              <span>Display name</span>
+              <input
+                type="text"
+                value={String(data.params?.display_name ?? 'Joint')}
+                onChange={e => { void updateParam(id, 'display_name', e.target.value) }}
+              />
+            </label>
+          </div>
+        </div>
+      )}
       {isRobot && (
         <div className="nodrag" onMouseDown={e => e.stopPropagation()}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, margin: '6px 8px 0' }}>
@@ -1507,12 +1649,26 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
               <span style={{ color: 'var(--tx2)', fontSize: 12, fontWeight: 700, flex: 1 }}>
-                Calibration used for deployment
+                Robot profile &amp; calibration
               </span>
               <button
+                disabled={robotProfileId === 'auto' || robotProfileEditPending}
+                title="Open the selected profile as editable joint nodes in a new tab"
+                onClick={e => { e.stopPropagation(); void editRobotProfile() }}
+                style={{
+                  padding: '1px 6px', borderRadius: 4, border: '1px solid var(--accent)',
+                  background: 'rgba(99,102,241,.12)', color: 'var(--tx1)',
+                  cursor: robotProfileId === 'auto' || robotProfileEditPending ? 'default' : 'pointer',
+                  fontSize: 11, fontWeight: 700,
+                  opacity: robotProfileId === 'auto' ? 0.55 : 1,
+                }}
+              >
+                {robotProfileEditPending ? 'Opening…' : 'Edit profile'}
+              </button>
+              <button
                 disabled={robotCalibrationsLoading}
-                title="Refresh saved calibrations"
-                onClick={e => { e.stopPropagation(); void loadRobotCalibrations() }}
+                title="Refresh saved profiles and calibrations"
+                onClick={e => { e.stopPropagation(); void loadRobotSetup() }}
                 style={{
                   padding: '1px 5px', borderRadius: 4, border: '1px solid var(--line)',
                   background: 'var(--lift)', color: 'var(--tx2)',
@@ -1522,14 +1678,63 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                 {robotCalibrationsLoading ? '…' : '⟳'}
               </button>
             </div>
+            <label style={{
+              display: 'block', color: 'var(--tx3)', fontSize: 11,
+              marginBottom: 3,
+            }}>
+              Profile
+            </label>
+            <select
+              aria-label="Robot profile"
+              title={selectedRobotProfileChoice
+                ? `${selectedRobotProfileChoice.name} · ${selectedRobotProfileChoice.id}`
+                : 'Select a saved robot profile'}
+              value={robotProfileId === 'auto' ? '' : robotProfileId}
+              disabled={robotProfilePending}
+              onFocus={() => { void loadRobotSetup() }}
+              onChange={e => { void selectRobotProfile(e.target.value) }}
+              style={{
+                boxSizing: 'border-box', width: '100%', minWidth: 0,
+                background: 'var(--lift)', color: 'var(--tx1)',
+                border: '1px solid var(--line)', borderRadius: 5, padding: '3px 5px',
+                fontFamily: 'var(--font-ui)', fontSize: 12, marginBottom: 6,
+              }}
+            >
+              {robotProfileId === 'auto' && (
+                <option value="" disabled>Select a saved profile…</option>
+              )}
+              {robotProfileChoices.map(profile => (
+                <option value={profile.id} key={profile.id}>
+                  {profile.name === profile.id
+                    ? profile.id
+                    : profile.name}
+                </option>
+              ))}
+            </select>
+            {selectedRobotProfileChoice && (
+              <div className="bn-robot-node-profile-summary">
+                <strong>{selectedRobotProfileChoice.name}</strong>
+                <span>
+                  ID: {selectedRobotProfileChoice.id}
+                  {' · '}
+                  {selectedRobotProfileChoice.calibration_count
+                    ? `${selectedRobotProfileChoice.calibration_count} calibration${selectedRobotProfileChoice.calibration_count === 1 ? '' : 's'}`
+                    : 'No saved calibration'}
+                </span>
+              </div>
+            )}
+            <label style={{
+              display: 'block', color: 'var(--tx3)', fontSize: 11,
+              marginBottom: 3,
+            }}>
+              Calibration
+            </label>
             <select
               aria-label="Calibration used for deployment"
               value={selectedRobotCalibrationKey}
               disabled={robotCalibrationPending || robotCalibrationsLoading}
               onFocus={() => {
-                if (!robotCalibrations.length && !robotCalibrationsLoading) {
-                  void loadRobotCalibrations()
-                }
+                void loadRobotSetup()
               }}
               onChange={e => { void selectRobotCalibration(e.target.value) }}
               style={{
@@ -1934,6 +2139,31 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               {manualMovePending === 'hold' ? 'Holding…' : `${holdSelected ? '✓ ' : ''}Hold position`}
             </button>
           </div>
+          {manualMovePoseEntries.length > 0 && (
+            <div style={{
+              marginTop: 8, display: 'grid', gridTemplateColumns: 'minmax(110px, 1fr) auto',
+              gap: '3px 10px', fontFamily: 'var(--font-mono)', fontSize: 12,
+            }}>
+              {manualMovePoseEntries.map(([joint, value]) => (
+                <div key={joint} style={{ display: 'contents' }}>
+                  <span style={{ color: 'var(--tx2)' }}>{joint}</span>
+                  <span style={{ color: 'var(--tx1)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {value.toFixed(2)}°
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {manualMoveReport && (
+            <div style={{
+              marginTop: 7, padding: '5px 7px', borderRadius: 5,
+              border: '1px solid var(--warn)', background: 'rgba(245,158,11,.08)',
+              color: 'var(--warn)', fontFamily: 'var(--font-ui)', fontSize: 11,
+              lineHeight: 1.35, whiteSpace: 'pre-wrap',
+            }}>
+              {manualMoveReport}
+            </div>
+          )}
           <div style={{ marginTop: 6, color: 'var(--tx3)', fontFamily: 'var(--font-ui)', fontSize: 11, lineHeight: 1.35 }}>
             Go live never changes torque by itself; it only keeps supported outputs updating.
           </div>

@@ -89,11 +89,27 @@ recovery when an editor action is unavailable.
 
 For remote SSH setup, choose **Add device → Remote SSH** and enter the
 computer's IP address, username, and password. Blacknode first displays the
-SSH host-key fingerprint for confirmation. After confirmation it installs the
-Runtime and Robot Hardware packages, configures runtime port `8766` in UFW when
-UFW is active, and pairs the Runtime with the editor. The Hardware environment
-is ready for connected-robot configuration and starts with motion disarmed. The
-SSH password remains in memory for that setup request and is not saved.
+SSH host-key fingerprint for confirmation. **Confirm and inspect** performs a
+read-only pre-install check of the operating system, accelerator, ROS 2
+installation, existing Runtime instances, occupied ports, and live ROS graph.
+ROS graph inspection lists topics, nodes, and services with transient
+`--no-daemon` queries; it does not publish messages, call services, start the
+ROS CLI daemon, or change device files and settings. The confirmed computer is
+saved as an **INSPECTED** read-only device, including its sanitized system and
+ROS 2 snapshot. Choose **Close — device saved** to end there.
+
+Open the **Inspect a Compute Device** template to use that snapshot in a graph.
+Select the computer on `ComputeDevice`; `DeviceInspect` then exposes the
+environment, ROS graph inventory, capability candidates, and unclassified
+interfaces. Saved workflows contain the stable device ID and public snapshot,
+never the SSH password or a pairing token.
+
+Installation remains a separate explicit action after the inspection report.
+It installs the Runtime and Robot Hardware packages, configures runtime port
+`8766` in UFW when UFW is active, and pairs the Runtime with the editor. The
+Hardware environment is ready for connected-robot configuration and starts
+with motion disarmed. The SSH password remains in memory for that request and
+is not saved.
 
 Managed Linux installations use one visible root per stable Runtime instance:
 
