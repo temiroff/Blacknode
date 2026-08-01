@@ -133,6 +133,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "FeetechBusConfig",
         "FeetechBusProbe",
         "FeetechCalibrationProvider",
+        "FeetechRawMonitorProvider",
     ]
     assert set(drivers["components"]) == {"feetech"}
     assert drivers["components"]["feetech"]["adapters"]["ros2"]["default"] is False
