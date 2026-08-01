@@ -430,7 +430,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "ROS2Launch",
                         "ROS2PackageExecutables",
                         "ROS2PythonNode",
-                        "ROS2Run"
+                        "ROS2Run",
+                        "ROS2WorkspaceBuild"
                     ],
                     "dependencies": {
                         "requires": [{"component": "core"}]
@@ -474,7 +475,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "ROS2TopicPublisher",
                 "ROS2TopicRelay",
                 "ROS2TopicSubscriber",
-                "ROS2VisualDashboard"
+                "ROS2VisualDashboard",
+                "ROS2WorkspaceBuild"
             ]
         },
         "blacknode-robot": {
@@ -528,6 +530,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "capabilities",
                     "default": True,
                     "node_types": [
+                        "ComputeDevice",
+                        "DeviceInspect",
                         "RobotAttachment",
                         "RobotAttachmentList",
                         "RobotCapabilityBinding",
@@ -537,6 +541,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "RobotConnectionDashboard",
                         "RobotDiscovery",
                         "RobotMonitor",
+                        "RobotRawMonitor",
+                        "RobotRawMonitorMockProvider",
+                        "RobotROSCapabilityDiscover",
                         "RobotROSInterfaceCheck",
                         "RobotUSBDiscovery"
                     ]
@@ -570,6 +577,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "git_url": "https://github.com/temiroff/blacknode-robot.git",
             "description": "Robot contracts, connected-device lifecycle, normalized telemetry, profiles, and driver launch.",
             "node_types": [
+                "ComputeDevice",
+                "DeviceInspect",
                 "HardwareCapabilities",
                 "Robot",
                 "RobotAttachment",
@@ -594,6 +603,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "RobotProfileList",
                 "RobotProfileLoad",
                 "RobotProfileSave",
+                "RobotRawMonitor",
+                "RobotRawMonitorMockProvider",
+                "RobotROSCapabilityDiscover",
                 "RobotROSInterfaceCheck",
                 "RobotServo",
                 "RobotUSBDiscovery"
@@ -929,6 +941,62 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "IsaacPolicyBridge",
                 "IsaacPolicyRuntime",
                 "IsaacPolicySafetyGate"
+            ]
+        },
+        "blacknode-newton": {
+            "name": "blacknode-newton",
+            "layer": "simulation",
+            "components": {
+                "runtime": {
+                    "name": "runtime",
+                    "default": True,
+                    "node_types": [
+                        "NewtonJointCommand",
+                        "NewtonSimulation",
+                        "NewtonUSDScene",
+                        "NewtonViewerConfig"
+                    ]
+                },
+                "viewer-viser": {
+                    "name": "viewer-viser",
+                    "default": True,
+                    "node_types": [],
+                    "dependencies": {
+                        "requires": [{"component": "runtime"}]
+                    }
+                },
+                "viewer-ovrtx": {
+                    "name": "viewer-ovrtx",
+                    "default": False,
+                    "node_types": [],
+                    "dependencies": {
+                        "requires": [{"component": "runtime"}]
+                    }
+                },
+                "rosbridge": {
+                    "name": "rosbridge",
+                    "default": False,
+                    "node_types": ["NewtonROSBridge"],
+                    "dependencies": {
+                        "requires": [
+                            {"component": "runtime"},
+                            {
+                                "package": "blacknode-ros2",
+                                "component": "rosbridge",
+                                "version": ">=0.5,<1"
+                            }
+                        ]
+                    }
+                }
+            },
+            "git_url": "https://github.com/temiroff/blacknode-newton.git",
+            "description": "Interactive Newton physics sessions, browser visualization, and safe articulation teleoperation for Blacknode.",
+            "node_types": [
+                "NewtonJointCommand",
+                "NewtonROSBridge",
+                "NewtonSimulation",
+                "NewtonUSDScene",
+                "NewtonViewerConfig"
             ]
         }
     }

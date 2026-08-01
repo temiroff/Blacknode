@@ -154,13 +154,18 @@ class ComputeDeviceInspectionTests(unittest.TestCase):
             inspection["environment"]["runtime"]["device_id"],
             "jetson-device",
         )
-        self.assertIn(
-            "depth_camera",
-            {
-                item["capability"]
-                for item in inspection["ros2_graph"]["capabilities"]
-            },
-        )
+        capabilities = {
+            item["capability"]
+            for item in inspection["ros2_graph"]["capabilities"]
+        }
+        if "RobotROSCapabilityDiscover" in server._NODE_REGISTRY:
+            self.assertIn("depth_camera", capabilities)
+        else:
+            self.assertEqual(capabilities, set())
+            self.assertIn(
+                "blacknode-robot capabilities component",
+                inspection["ros2_graph"]["report"],
+            )
         self.assertNotIn("password", json.dumps(inspection).lower())
 
     def test_editor_cook_injects_live_state_without_saving_it(self):

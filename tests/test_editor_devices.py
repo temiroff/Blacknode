@@ -406,6 +406,14 @@ class EditorDeviceApiTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def test_existing_robot_profile_opens_as_editable_joint_graph(self):
+        required_nodes = {
+            "RobotDefinition",
+            "RobotJointDefinition",
+            "RobotJointList",
+            "RobotProfileSave",
+        }
+        if not required_nodes.issubset(server._NODE_REGISTRY):
+            self.skipTest("blacknode-robot profile nodes are not installed")
         robots_root = Path(self._tmp.name) / "robots"
         profile_dir = robots_root / "editable_arm"
         profile_dir.mkdir(parents=True)
