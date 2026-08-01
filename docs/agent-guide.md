@@ -54,9 +54,11 @@ action on the Runtime or Hardware package card. Use the package card's
 For a new remote computer that should remain unchanged, open **Add device →
 Remote SSH**, confirm its host key, and use **Confirm and inspect**. Review the
 read-only system and ROS 2 capability report, then choose **Close — device
-saved**. Use `ComputeDevice` → `DeviceInspect` in a workflow when the inspection
-snapshot should feed downstream graph nodes. Treat that snapshot as captured
-state; live streams and control require a managed provider.
+saved**. Install or pair Runtime from that device's visible controls to enable
+live workflow use. `ComputeDevice` → `DeviceInspect` reads current ROS state
+through the authenticated paired Runtime immediately before each editor cook;
+routine live reads do not ask for the SSH password. Streams and control remain
+managed provider operations.
 
 Agent instructions should point users to these controls for setup, package
 updates, restarts, deployment, and removal. SSH commands, `git pull`,

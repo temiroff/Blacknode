@@ -331,6 +331,7 @@ function reactNodeType(typeName: string): string {
   if (typeName === 'SubnetInput') return 'subnetinput'
   if (typeName === 'SubnetOutput') return 'subnetoutput'
   if (typeName === 'ComputeDevice') return 'computedevice'
+  if (typeName === 'ROS2GraphExplorer') return 'ros2graphexplorer'
   if (typeName === 'RobotMonitor') return 'robotmonitor'
   if (typeName === 'RobotServo') return 'robotservo'
   return OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode'
@@ -389,7 +390,8 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'ROS2VisualDashboard' ? { style: { width: 840, height: 760 } } : {}),
     ...(meta.type === 'ROS2Run' ? { style: { width: 520, height: 360 } } : {}),
     ...(meta.type === 'ROS2MotionDashboard' ? { style: { width: 860, height: 720 } } : {}),
-    ...(meta.type === 'ComputeDevice' ? { style: { width: 460, height: 260 } } : {}),
+    ...(meta.type === 'ComputeDevice' ? { style: { width: 460, height: 460 } } : {}),
+    ...(meta.type === 'ROS2GraphExplorer' ? { style: { width: 1040, height: 760 } } : {}),
     ...(meta.type === 'RobotMonitor' ? { style: { width: 760 } } : {}),
     ...(meta.type === 'RobotServo' ? { style: { width: 360 } } : {}),
   }
@@ -601,6 +603,18 @@ function clearReplayData(data: NodeData): NodeData {
   return rest
 }
 
+function clearReplayDataPreservingRuntime(data: NodeData): NodeData {
+  const results = data.portResults
+  const runtimeActive = Boolean(
+    results?.running === true
+    || results?.live === true
+    || results?.streaming === true
+    || results?.launched === true,
+  )
+  const cleared = clearReplayData(data)
+  return runtimeActive && results ? { ...cleared, portResults: results } : cleared
+}
+
 function clearCookResults(data: NodeData): NodeData {
   const {
     cookResult: _cookResult,
@@ -673,7 +687,10 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
       },
     }
   }
-  if (data.type === 'ROS2Run') {
+  if (data.type === 'ROS2Run'
+    || data.type === 'ROS2TopicPublisher'
+    || data.type === 'ROS2TopicSubscriber'
+    || data.type === 'ROS2PythonNode') {
     return {
       ...base,
       cookResult: undefined,
@@ -1609,7 +1626,11 @@ export const useStore = create<Store>((set, get) => ({
         const owned = (port: string) =>
           String(node.data.params?.[port] ?? node.data.input_defaults?.[port] ?? '')
         const streamId = owned('stream_id')
-        const runId = owned('run_id')
+        const runId = node.data.type === 'ROS2TopicPublisher'
+          ? `topic-publisher:${owned('topic') || '/chatter'}`
+          : node.data.type === 'ROS2TopicSubscriber'
+            ? `topic-subscriber:${owned('topic') || '/chatter'}`
+            : owned('run_id')
         // node_id is exact: the runtime records which node started the work.
         // The id ports are the fallback for runtimes that do not report it yet.
         const mine = (item: unknown, port: string, value: string) => {
@@ -1637,6 +1658,12 @@ export const useStore = create<Store>((set, get) => ({
                 preview: text(record.stream_url) || text(record.snapshot_url),
               } : {}),
               ...(run ? { running: true, run_id: runId } : {}),
+              ...(run && text(record.viewer_url) ? {
+                viewer_url: text(record.viewer_url),
+                session: record,
+                phase: text(record.phase),
+                armed: record.armed === true,
+              } : {}),
             },
           },
         }
@@ -1650,10 +1677,12 @@ export const useStore = create<Store>((set, get) => ({
       const items = Object.values(status.modules ?? {}).flatMap(moduleStatus =>
         Array.isArray(moduleStatus?.node_outputs) ? moduleStatus.node_outputs : []
       )
-      if (items.length === 0) return
+      const managedRuns = Array.isArray(status.managed_runs) ? status.managed_runs : []
       set(s => ({
         nodes: propagateLiveTerminalValues(s.nodes.map(node => {
-          const runId = String(node.data.params?.run_id ?? 'robot_teach')
+          const runId = node.data.type === 'ROS2TopicSubscriber'
+            ? `topic-subscriber:${String(node.data.params?.topic ?? node.data.input_defaults?.topic ?? '/chatter')}`
+            : String(node.data.params?.run_id ?? node.data.input_defaults?.run_id ?? 'robot_teach')
           const item = items.find(raw => {
             if (!raw || typeof raw !== 'object') return false
             const record = raw as Record<string, unknown>
@@ -1661,14 +1690,50 @@ export const useStore = create<Store>((set, get) => ({
             const nodeType = String(record.node_type ?? '')
             return nodeType === node.data.type && String(record.run_id ?? '') === runId
           })
-          if (!item || typeof item !== 'object') return node
-          const outputs = (item as Record<string, unknown>).outputs
-          if (!outputs || typeof outputs !== 'object' || Array.isArray(outputs)) return node
+          const managedRun = managedRuns.find(raw => {
+            if (!raw || typeof raw !== 'object') return false
+            const record = raw as Record<string, unknown>
+            return String(record.run_id ?? '') === runId
+              && (node.data.type === 'NewtonSimulation' ? record.runtime === 'newton' : true)
+          }) as Record<string, unknown> | undefined
+          const outputs = item && typeof item === 'object'
+            ? (item as Record<string, unknown>).outputs
+            : undefined
+          const liveOutputs = outputs && typeof outputs === 'object' && !Array.isArray(outputs)
+            ? outputs as Record<string, unknown>
+            : {}
+          const managedOutputs = managedRun ? {
+            running: managedRun.running === true,
+            armed: managedRun.armed === true,
+            phase: String(managedRun.phase ?? ''),
+            viewer_url: String(managedRun.viewer_url ?? ''),
+            session: managedRun,
+            positions: managedRun.positions ?? managedRun.positions_radians ?? {},
+            positions_radians: managedRun.positions_radians ?? {},
+            rigid_bodies: managedRun.rigid_body_positions_m ?? {},
+          } : {}
+          if (Object.keys(liveOutputs).length === 0 && Object.keys(managedOutputs).length === 0) {
+            if (node.data.type !== 'NewtonSimulation' || !node.data.portResults?.viewer_url) return node
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                portResults: {
+                  ...(node.data.portResults ?? {}),
+                  running: false,
+                  armed: false,
+                  phase: 'stopped',
+                  viewer_url: '',
+                  session: {},
+                },
+              },
+            }
+          }
           return {
             ...node,
             data: {
               ...node.data,
-              portResults: { ...(node.data.portResults ?? {}), ...(outputs as Record<string, unknown>) },
+              portResults: { ...(node.data.portResults ?? {}), ...liveOutputs, ...managedOutputs },
             },
           }
         }), s.edges),
@@ -3419,14 +3484,14 @@ export const useStore = create<Store>((set, get) => ({
         ...n,
         data: targetIds.has(n.id)
           ? {
-              ...clearReplayData(n.data),
+              ...clearReplayDataPreservingRuntime(n.data),
               cooking: true,
               cookError: undefined,
               cookResult: undefined,
               cookPort: targetPorts.get(n.id) ?? port,
             }
           : {
-              ...clearReplayData(n.data),
+              ...clearReplayDataPreservingRuntime(n.data),
               cooking: false,
             },
       })),
@@ -3498,7 +3563,9 @@ export const useStore = create<Store>((set, get) => ({
       }),
       runReplay: EMPTY_REPLAY,
       nodes: s.nodes.map(n =>
-        n.data.cooking ? { ...n, data: { ...clearReplayData(n.data), cooking: false } } : { ...n, data: clearReplayData(n.data) }
+        n.data.cooking
+          ? { ...n, data: { ...clearReplayDataPreservingRuntime(n.data), cooking: false } }
+          : { ...n, data: clearReplayDataPreservingRuntime(n.data) }
       ),
     }))
   },
@@ -3538,6 +3605,9 @@ export const useStore = create<Store>((set, get) => ({
           n.data.type === 'Output' ||
           n.data.type === 'OutputImage' ||
           n.data.type === 'ROS2Run' ||
+          n.data.type === 'ROS2PythonNode' ||
+          n.data.type === 'ROS2TopicPublisher' ||
+          n.data.type === 'ROS2TopicSubscriber' ||
           n.data.type === 'ROS2Launch'
         )
         return {
@@ -3601,7 +3671,7 @@ export const useStore = create<Store>((set, get) => ({
       runReplay: EMPTY_REPLAY,
       nodes: s.nodes.map(node => ({
         ...node,
-        data: clearReplayData(node.data),
+        data: clearReplayDataPreservingRuntime(node.data),
       })),
     }))
   },

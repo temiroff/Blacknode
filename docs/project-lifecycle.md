@@ -95,52 +95,76 @@ installation, existing Runtime instances, occupied ports, and live ROS graph.
 ROS graph inspection lists topics, nodes, and services with transient
 `--no-daemon` queries; it does not publish messages, call services, start the
 ROS CLI daemon, or change device files and settings. The confirmed computer is
-saved as an **INSPECTED** read-only device, including its sanitized system and
-ROS 2 snapshot. Choose **Close — device saved** to end there.
+saved as an **INSPECTED** read-only device for the pre-install decision. Choose
+**Close — device saved** to end there.
 
-Open the **Inspect a Compute Device** template to use that snapshot in a graph.
-Select the computer on `ComputeDevice`; `DeviceInspect` then exposes the
-environment, ROS graph inventory, capability candidates, and unclassified
-interfaces. Saved workflows contain the stable device ID and public snapshot,
-never the SSH password or a pairing token.
+For workflow use, install or pair the Runtime and open **Inspect a Compute
+Device**. Select the computer on `ComputeDevice`; immediately before each editor
+cook, Blacknode reads current ROS state through the authenticated Runtime and
+`DeviceInspect` exposes the graph inventory, capability candidates, and
+unclassified interfaces. Saved workflows contain the stable device ID and
+display identity, never live machine state, an SSH password, or a pairing token.
 
 Installation remains a separate explicit action after the inspection report.
-It installs the Runtime and Robot Hardware packages, configures runtime port
-`8766` in UFW when UFW is active, and pairs the Runtime with the editor. The
-Hardware environment is ready for connected-robot configuration and starts
-with motion disarmed. The SSH password remains in memory for that request and
-is not saved.
+**Install Runtime only** is the default for a new compute device. Before the
+installation begins, the editor lists the package, directory, service, port,
+and firewall changes and requires explicit confirmation. It installs and pairs
+the managed Runtime while leaving Robot Hardware, NVIDIA drivers, CUDA, ROS 2,
+and Docker configuration in place. The editor computer downloads a verified
+Linux bundle for the inspected architecture, including a managed Python 3.11
+runtime, Blacknode Runtime, Blacknode core, and target-compatible wheels. It
+then transfers that bundle over the pinned SSH connection and installs from
+local files. The device does not contact GitHub or PyPI, run `apt-get update`,
+install Ubuntu packages, or replace its system Python. This PC-assisted path
+works when the editor runs on Windows; Windows stages Linux artifacts and does
+not build a Windows virtual environment for the device. A verified bundle is
+cached under `.blacknode/device-install-cache`, allowing later matching-device
+installs while the editor computer is also offline.
+
+Port `8766` is used when available; an occupied port is preserved and the
+installer reports the newly reserved port. When UFW is active, the Runtime-only
+rule admits the editor computer's verified SSH source address. The SSH password
+remains in memory for that request and is not saved.
+
+Choose **Install complete robot device** when the computer also owns connected
+robot hardware. That action adds the Robot Hardware package and environment to
+the same managed stack. The Hardware environment starts with motion disarmed.
 
 Managed Linux installations use one visible root per stable Runtime instance:
 
 ```text
 ~/Blacknode/devices/<instance-id>/
   install.json
+  python/                   # managed Linux Python for PC-assisted setup
+  core/                     # pinned Blacknode core source
   runtime/
     packages/
-  hardware/
+  hardware/                 # complete robot device only
   secrets/
 ```
 
-The Runtime, its synchronized workflow packages, and an isolated Robot Hardware
-checkout therefore have one ownership boundary that the Devices panel can show
-and uninstall precisely. Multiple robots attached to the same Runtime share its
-`runtime/packages/` store. A separate complete stack receives another stable
-instance directory. Device display-name changes do not rename these paths.
-Legacy `~/blacknode-runtime`, `~/blacknode-runtimes`, and Hardware checkout
-locations remain discoverable and manageable.
+The Runtime and its synchronized workflow packages have one ownership boundary
+that the Devices panel can show and uninstall precisely. A complete robot
+device adds its Robot Hardware checkout to that same boundary. Multiple robots
+attached to the same Runtime share its `runtime/packages/` store. A separate
+complete stack receives another stable instance directory. Device display-name
+changes do not rename these paths. Legacy `~/blacknode-runtime`,
+`~/blacknode-runtimes`, and Hardware checkout locations remain discoverable and
+manageable.
 
-A Runtime-only managed device created by an older editor can add the organized
-Hardware checkout in place from **Attach robot → Install Hardware package**.
-This preserves the Runtime pairing and does not require deleting the device.
+A Runtime-only managed device can add the organized Hardware checkout in place
+from **Attach robot → Install Hardware package**. This preserves the Runtime
+pairing and does not require deleting the device.
 
 **Delete device** stops the selected Runtime and its deployments, removes its
-Runtime checkout, synchronized workflow packages, secret, systemd service, and
-firewall rule, then removes the exact Robot Hardware services registered under
-that device. A Hardware checkout is deleted only when no remaining Hardware
-service uses it. The saved robot registrations and device card are removed
-last. Other Blacknode stacks, system ROS 2, Docker, and operating-system
-packages remain available.
+Runtime checkout, synchronized workflow packages, managed Linux Python,
+Blacknode core checkout, secret, systemd service, and firewall rule, then
+removes the exact Robot Hardware services registered under that device. A
+Hardware checkout is deleted only when no remaining Hardware service uses it.
+The saved robot registrations and device card are removed last. Other
+Blacknode stacks, system ROS 2, Docker, and operating-system packages remain
+available. The editor computer retains its verified installation cache for
+later offline device setup.
 
 When another robot needs complete separation on the same Linux computer,
 choose **Install a complete isolated robot stack** during the SSH review. The

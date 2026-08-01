@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 
@@ -14,21 +14,46 @@ def repeat_text(text: str, times: int = 2) -> str:
     return str(text or "") * int(times or 1)
 `
 
-export default function ScriptEditor() {
+export default function ScriptEditor({ initialFilename }: { initialFilename?: string }) {
   const { loadNodeTypes } = useStore()
   const [code, setCode]     = useState(STARTER)
   const [filename, setFilename] = useState('repeat_text.py')
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null)
   const [running, setRunning] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!initialFilename) return
+    let cancelled = false
+    setLoading(true)
+    setStatus(null)
+    void api.getCustomNodeSource(initialFilename)
+      .then(result => {
+        if (cancelled) return
+        setFilename(result.filename)
+        setCode(result.code)
+        setStatus({ ok: true, msg: `Loaded: ${result.path}` })
+      })
+      .catch(error => {
+        if (!cancelled) {
+          setStatus({ ok: false, msg: error instanceof Error ? error.message : String(error) })
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [initialFilename])
 
   const run = async () => {
     setRunning(true)
     setStatus(null)
     try {
       const res = await api.execNode(code)
-      if (res.new_types.length > 0) {
-        setStatus({ ok: true, msg: `Registered: ${res.new_types.join(', ')}` })
+      const registered = res.registered_types ?? res.new_types
+      if (registered.length > 0) {
+        setStatus({ ok: true, msg: `Registered: ${registered.join(', ')}` })
       } else {
         setStatus({ ok: true, msg: 'Executed — no new node types registered.' })
       }
@@ -46,7 +71,10 @@ export default function ScriptEditor() {
     try {
       const res = await api.saveCustomNode(filename, code)
       const registered = res.new_types.length > 0 ? res.new_types.join(', ') : 'saved file'
-      setStatus({ ok: true, msg: `Saved: ${res.path}\nRegistered: ${registered}` })
+      setStatus({
+        ok: true,
+        msg: `Saved: ${res.path}\nRegistered: ${registered}\nIf ports changed, press Refresh canvas in the top bar to update existing instances.`,
+      })
       await loadNodeTypes()
     } catch (e: any) {
       setStatus({ ok: false, msg: e.message })
@@ -179,7 +207,7 @@ export default function ScriptEditor() {
       <div style={{ padding: '10px 14px', display: 'flex', gap: 8, flexShrink: 0 }}>
         <button
           onClick={run}
-          disabled={running || saving}
+          disabled={running || saving || loading}
           style={{
             flex: 1,
             padding: '7px 0',
@@ -194,11 +222,11 @@ export default function ScriptEditor() {
             opacity: running ? 0.6 : 1,
           }}
         >
-          {running ? 'Running...' : 'Run'}
+          {loading ? 'Loading...' : running ? 'Running...' : 'Run'}
         </button>
         <button
           onClick={save}
-          disabled={running || saving}
+          disabled={running || saving || loading}
           style={{
             flex: 1,
             padding: '7px 0',
@@ -217,7 +245,7 @@ export default function ScriptEditor() {
         </button>
         <button
           onClick={reload}
-          disabled={running || saving}
+          disabled={running || saving || loading}
           style={{
             padding: '7px 12px',
             background: 'transparent',

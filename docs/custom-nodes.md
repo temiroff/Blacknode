@@ -13,6 +13,13 @@ as a community node through GitHub.
 5. Press `Save` to write it into `custom-nodes/`.
 6. Open the node palette and add the new node from its category.
 
+To edit a saved custom node, select its canvas instance, open **Properties**,
+and press **Edit source**. The Script tab loads the exact file from
+`custom-nodes/`; **Save** overwrites and re-registers it. When an edit changes
+input or output ports, press **Refresh canvas** in the top bar. Blacknode reloads
+the custom-node files, updates every existing canvas instance, and removes only
+connections that refer to ports that no longer exist.
+
 Starter node:
 
 ```python

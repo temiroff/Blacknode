@@ -34,6 +34,10 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertEqual(server._RUNTIME_MODULES["isaac"], "blacknode.pkg.blacknode_isaac.runtime")
         self.assertEqual(server._RUNTIME_REGISTRY_ANCHORS["isaac"], "IsaacPolicyBridge")
 
+    def test_newton_runtime_is_managed_through_registered_simulation_state(self):
+        self.assertEqual(server._RUNTIME_MODULES["newton"], "blacknode.pkg.blacknode_newton.runtime")
+        self.assertEqual(server._RUNTIME_REGISTRY_ANCHORS["newton"], "NewtonSimulation")
+
     def test_leader_follower_runtime_is_managed_and_normalized(self):
         self.assertEqual(
             server._RUNTIME_MODULES["ros2_live"],
@@ -489,6 +493,41 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"selected": r"E:\RobotData", "cancelled": False})
         picker.assert_called_once_with(r"C:\Users\robot", "")
+
+    def test_file_picker_endpoint_returns_filtered_native_selection(self):
+        with patch.object(server, "_pick_file", return_value=r"E:\Scenes\robot.usd") as picker:
+            response = TestClient(server.app).post(
+                "/filesystem/pick-file",
+                json={
+                    "initial_path": r"E:\Scenes",
+                    "title": "Open USD scene",
+                    "extensions": [".usd", ".usda", ".usdc"],
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"selected": r"E:\Scenes\robot.usd", "cancelled": False})
+        picker.assert_called_once_with(
+            r"E:\Scenes", "Open USD scene", [".usd", ".usda", ".usdc"]
+        )
+
+    def test_filesystem_browser_lists_directories_and_filtered_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "assets").mkdir()
+            (root / "robot.usd").write_text("#usda 1.0", encoding="utf-8")
+            (root / "notes.txt").write_text("ignore", encoding="utf-8")
+            response = TestClient(server.app).post(
+                "/filesystem/browse",
+                json={"path": str(root), "extensions": [".usd", ".usda", ".usdc"]},
+            )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(Path(payload["path"]), root.resolve())
+        self.assertTrue(payload["roots"])
+        self.assertEqual(
+            [(entry["name"], entry["is_directory"]) for entry in payload["entries"]],
+            [("assets", True), ("robot.usd", False)],
+        )
 
     def test_dataset_frame_endpoint_returns_synchronized_robot_values(self):
         frame = {

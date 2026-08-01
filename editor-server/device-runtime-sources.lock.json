@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "python_minor": "3.11",
+  "runtime": {
+    "repository": "temiroff/blacknode-runtime",
+    "commit": "d0dff2d8f9023fdde0e4613f55ac64af0a8b159c"
+  },
+  "core": {
+    "repository": "temiroff/Blacknode",
+    "commit": "c3bfe64c89167ea7a00d14adb05b1cab20e7ce09"
+  }
+}

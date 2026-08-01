@@ -1,0 +1,7 @@
+# Linux Python 3.11 dependencies staged by the editor for managed Runtime devices.
+# Keep this aligned with the Blacknode core and blacknode-runtime pyproject files.
+anthropic>=0.25
+docker>=7.1
+openai>=1.0
+setuptools>=68
+wheel

@@ -79,6 +79,14 @@ function parameterDisplayHint(nodeType: string, port: string): string {
   return portDisplayHint(port, 'input')
 }
 
+function localCustomNodeFilename(source: string | undefined): string {
+  const normalized = String(source ?? '').replace(/\\/g, '/')
+  if (!normalized.toLowerCase().includes('/custom-nodes/') || !normalized.toLowerCase().endsWith('.py')) {
+    return ''
+  }
+  return normalized.split('/').pop() ?? ''
+}
+
 const INSPECTOR_SECTION_ORDER = ['General', 'Execution', 'Calibration', 'Connection', 'Model'] as const
 type InspectorSection = typeof INSPECTOR_SECTION_ORDER[number]
 
@@ -528,6 +536,7 @@ export default function Inspector() {
     }
 
     const { data } = node
+    const customNodeFile = localCustomNodeFilename(nodeDefs[data.type]?.source)
     const connectedPorts = new Set(
       edges.filter(e => e.target === node.id).map(e => e.targetHandle).filter(Boolean)
     )
@@ -570,11 +579,27 @@ export default function Inspector() {
       <>
         {/* header */}
         <div className="bn-inspector-node-header" style={{ padding: '14px 16px 12px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-          <div style={{ color: 'var(--tx1)', fontWeight: 600, fontSize: 17, marginBottom: 4 }}>
-            {data.type}
-          </div>
-          <div style={{ color: 'var(--tx2)', fontSize: 14, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em' }}>
-            {data.id.slice(0, 14)}…
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: 'var(--tx1)', fontWeight: 600, fontSize: 17, marginBottom: 4 }}>
+                {data.type}
+              </div>
+              <div style={{ color: 'var(--tx2)', fontSize: 14, fontFamily: 'var(--font-mono)', letterSpacing: '0.03em' }}>
+                {data.id.slice(0, 14)}…
+              </div>
+            </div>
+            {customNodeFile && (
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent('blacknode:open-panel', {
+                  detail: { tab: 'script', customNodeFile },
+                }))}
+                style={portModeButtonStyle}
+                title={`Edit custom-nodes/${customNodeFile}`}
+              >
+                Edit source
+              </button>
+            )}
           </div>
         </div>
 

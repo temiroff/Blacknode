@@ -4,13 +4,23 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import ipaddress
 import json
+import os
 import re
 import secrets
+import shutil
 import socket
+import subprocess
+import sys
+import tarfile
+import tempfile
+import threading
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 
@@ -24,6 +34,15 @@ _HARDWARE_PAIRING_INSPECTION_MARKER = "__BLACKNODE_HARDWARE_PAIRINGS__="
 _HARDWARE_ADOPTION_MARKER = "__BLACKNODE_HARDWARE_ADOPTION__="
 _HARDWARE_CONFIGURATION_MARKER = "__BLACKNODE_HARDWARE_CONFIGURATION__="
 _UPDATE_REPORT_MARKER = "__BLACKNODE_UPDATE_REPORT__="
+_OFFLINE_BUNDLE_SCHEMA_VERSION = 1
+_OFFLINE_BUNDLE_LOCK = threading.Lock()
+_PYTHON_STANDALONE_RELEASES_URL = (
+    "https://api.github.com/repos/astral-sh/"
+    "python-build-standalone/releases/latest"
+)
+_RUNTIME_REPOSITORY = "temiroff/blacknode-runtime"
+_CORE_REPOSITORY = "temiroff/Blacknode"
+_OFFLINE_PYTHON_MINOR = "3.11"
 _INSPECTION_SCRIPT = r"""python3 - <<'PY'
 import glob
 import json
@@ -461,6 +480,450 @@ class _Connection:
 
     def close(self) -> None:
         self.client.close()
+
+
+@dataclass(frozen=True)
+class _RuntimeBundle:
+    path: Path
+    architecture: str
+    python_version: str
+    runtime_commit: str
+    core_commit: str
+
+
+def _offline_cache_root() -> Path:
+    configured = str(os.environ.get("BLACKNODE_DEVICE_INSTALL_CACHE") or "").strip()
+    root = (
+        Path(configured).expanduser()
+        if configured
+        else Path(__file__).resolve().parents[1] / ".blacknode" / "device-install-cache"
+    )
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _target_architecture(value: str) -> tuple[str, str]:
+    clean = str(value or "").strip().lower().replace("-", "_")
+    mapping = {
+        "aarch64": ("aarch64", "manylinux2014_aarch64"),
+        "arm64": ("aarch64", "manylinux2014_aarch64"),
+        "x86_64": ("x86_64", "manylinux2014_x86_64"),
+        "amd64": ("x86_64", "manylinux2014_x86_64"),
+    }
+    selected = mapping.get(clean)
+    if selected is None:
+        raise DeviceInstallError(
+            f"PC-assisted Runtime setup does not support Linux architecture "
+            f"'{value or 'unknown'}' yet."
+        )
+    return selected
+
+
+def _request_json(url: str, *, timeout: float = 30.0) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "Blacknode-device-installer/1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = response.read(4 * 1024 * 1024 + 1)
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise DeviceInstallError(
+            "The editor computer could not download Runtime installation metadata. "
+            "Connect this computer to the internet or reuse a cached device bundle."
+        ) from exc
+    if len(payload) > 4 * 1024 * 1024:
+        raise DeviceInstallError("Runtime installation metadata exceeded 4 MB.")
+    try:
+        decoded = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DeviceInstallError("Runtime installation metadata was invalid.") from exc
+    if not isinstance(decoded, dict):
+        raise DeviceInstallError("Runtime installation metadata was incomplete.")
+    return decoded
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _download_cached(
+    url: str,
+    destination: Path,
+    *,
+    expected_sha256: str = "",
+    max_bytes: int = 512 * 1024 * 1024,
+) -> Path:
+    expected = str(expected_sha256 or "").strip().lower()
+    if destination.is_file():
+        if not expected or secrets.compare_digest(_sha256_file(destination), expected):
+            return destination
+        destination.unlink()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Blacknode-device-installer/1"},
+    )
+    temporary = destination.with_name(
+        f".{destination.name}.{secrets.token_hex(6)}.download"
+    )
+    total = 0
+    digest = hashlib.sha256()
+    try:
+        with urllib.request.urlopen(request, timeout=120.0) as response, temporary.open("wb") as target:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise DeviceInstallError(
+                        f"Downloaded artifact {destination.name} exceeded its safety limit."
+                    )
+                digest.update(chunk)
+                target.write(chunk)
+        actual = digest.hexdigest()
+        if expected and not secrets.compare_digest(actual, expected):
+            raise DeviceInstallError(
+                f"Checksum verification failed for {destination.name}."
+            )
+        os.replace(temporary, destination)
+        return destination
+    except DeviceInstallError:
+        temporary.unlink(missing_ok=True)
+        raise
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        temporary.unlink(missing_ok=True)
+        raise DeviceInstallError(
+            f"The editor computer could not download {destination.name}."
+        ) from exc
+
+
+def _repository_snapshot(
+    repository: str,
+    commit: str,
+    downloads: Path,
+) -> tuple[Path, str]:
+    commit = str(commit or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise DeviceInstallError(
+            f"{repository} does not have a valid pinned installation commit."
+        )
+    filename = repository.rsplit("/", 1)[-1].lower()
+    archive = _download_cached(
+        f"https://github.com/{repository}/archive/{commit}.tar.gz",
+        downloads / f"{filename}-{commit}.tar.gz",
+        max_bytes=128 * 1024 * 1024,
+    )
+    return archive, commit
+
+
+def _runtime_source_lock() -> dict[str, dict[str, str]]:
+    lock_path = Path(__file__).with_name("device-runtime-sources.lock.json")
+    try:
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DeviceInstallError(
+            "The editor installation is missing its Runtime source lock."
+        ) from exc
+    if (
+        not isinstance(payload, dict)
+        or int(payload.get("schema_version") or 0) != 1
+        or str(payload.get("python_minor") or "") != _OFFLINE_PYTHON_MINOR
+    ):
+        raise DeviceInstallError("The Runtime source lock is incompatible.")
+    expected = {
+        "runtime": _RUNTIME_REPOSITORY,
+        "core": _CORE_REPOSITORY,
+    }
+    result: dict[str, dict[str, str]] = {}
+    for key, expected_repository in expected.items():
+        item = payload.get(key)
+        if not isinstance(item, dict):
+            raise DeviceInstallError(f"The Runtime source lock is missing {key}.")
+        repository = str(item.get("repository") or "").strip()
+        commit = str(item.get("commit") or "").strip().lower()
+        if repository != expected_repository or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise DeviceInstallError(f"The Runtime source lock has invalid {key} data.")
+        result[key] = {"repository": repository, "commit": commit}
+    return result
+
+
+def _standalone_python(
+    target_arch: str,
+    downloads: Path,
+) -> tuple[Path, str, str]:
+    release = _request_json(_PYTHON_STANDALONE_RELEASES_URL)
+    candidates: list[tuple[tuple[int, ...], dict[str, Any], str]] = []
+    escaped_python_minor = re.escape(_OFFLINE_PYTHON_MINOR)
+    pattern = re.compile(
+        rf"^cpython-({escaped_python_minor}\.\d+)\+"
+        rf"[^-]+-{re.escape(target_arch)}-unknown-linux-gnu-install_only\.tar\.gz$"
+    )
+    for item in release.get("assets", []):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "")
+        match = pattern.fullmatch(name)
+        if not match:
+            continue
+        version = match.group(1)
+        candidates.append((tuple(int(part) for part in version.split(".")), item, version))
+    if not candidates:
+        raise DeviceInstallError(
+            f"No verified Python {_OFFLINE_PYTHON_MINOR} Linux {target_arch} bundle "
+            "was found for PC-assisted installation."
+        )
+    _version_key, asset, python_version = max(candidates, key=lambda value: value[0])
+    digest_value = str(asset.get("digest") or "").strip().lower()
+    digest_match = re.fullmatch(r"sha256:([0-9a-f]{64})", digest_value)
+    if not digest_match:
+        raise DeviceInstallError(
+            "The standalone Python release did not provide a SHA-256 digest."
+        )
+    url = str(asset.get("browser_download_url") or "").strip()
+    name = str(asset.get("name") or "").strip()
+    if not url.startswith("https://github.com/") or not name:
+        raise DeviceInstallError("The standalone Python release URL was invalid.")
+    archive = _download_cached(
+        url,
+        downloads / name,
+        expected_sha256=digest_match.group(1),
+        max_bytes=192 * 1024 * 1024,
+    )
+    return archive, python_version, digest_match.group(1)
+
+
+def _prepare_wheelhouse(cache_root: Path, platform_tag: str) -> Path:
+    lock_path = Path(__file__).with_name("device-runtime-requirements.lock")
+    try:
+        lock_payload = lock_path.read_bytes()
+    except OSError as exc:
+        raise DeviceInstallError(
+            "The editor installation is missing its Linux Runtime dependency lock."
+        ) from exc
+    requirements_key = hashlib.sha256(lock_payload).hexdigest()[:12]
+    wheelhouse = cache_root / f"wheelhouse-cp311-{platform_tag}-{requirements_key}"
+    if wheelhouse.is_dir() and any(wheelhouse.glob("*.whl")):
+        return wheelhouse
+    temporary = cache_root / f".{wheelhouse.name}.{secrets.token_hex(6)}.tmp"
+    shutil.rmtree(temporary, ignore_errors=True)
+    temporary.mkdir(parents=True)
+    command = [
+        sys.executable,
+        "-m",
+        "pip",
+        "download",
+        "--disable-pip-version-check",
+        "--dest",
+        str(temporary),
+        "--only-binary=:all:",
+        "--platform",
+        platform_tag,
+        "--implementation",
+        "cp",
+        "--python-version",
+        "311",
+        "--abi",
+        "cp311",
+        "--no-deps",
+        "--require-hashes",
+        "--requirement",
+        str(lock_path),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=600.0,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise DeviceInstallError(
+            "The Windows editor could not prepare Linux Runtime wheels."
+        ) from exc
+    if completed.returncode != 0:
+        detail = "\n".join(
+            value.strip()
+            for value in (completed.stdout, completed.stderr)
+            if value and value.strip()
+        )[-1600:]
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise DeviceInstallError(
+            "The Windows editor could not prepare the locked Linux dependencies."
+            + (f" {detail}" if detail else "")
+        )
+    if not any(temporary.glob("*.whl")):
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise DeviceInstallError(
+            "The Windows editor produced an empty Linux wheelhouse."
+        )
+    if wheelhouse.exists():
+        shutil.rmtree(wheelhouse)
+    os.replace(temporary, wheelhouse)
+    return wheelhouse
+
+
+def _read_cached_runtime_bundle(path: Path, architecture: str) -> _RuntimeBundle | None:
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            member = archive.getmember("manifest.json")
+            extracted = archive.extractfile(member)
+            if extracted is None:
+                return None
+            payload = json.loads(extracted.read().decode("utf-8"))
+    except (OSError, KeyError, tarfile.TarError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or int(payload.get("schema_version") or 0) != _OFFLINE_BUNDLE_SCHEMA_VERSION
+        or str(payload.get("architecture") or "") != architecture
+    ):
+        return None
+    return _RuntimeBundle(
+        path=path,
+        architecture=architecture,
+        python_version=str(payload.get("python_version") or ""),
+        runtime_commit=str(payload.get("runtime_commit") or ""),
+        core_commit=str(payload.get("core_commit") or ""),
+    )
+
+
+def _latest_cached_runtime_bundle(cache_root: Path, architecture: str) -> _RuntimeBundle | None:
+    candidates = sorted(
+        cache_root.glob(f"runtime-offline-v{_OFFLINE_BUNDLE_SCHEMA_VERSION}-{architecture}-*.tar.gz"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for candidate in candidates:
+        bundle = _read_cached_runtime_bundle(candidate, architecture)
+        if bundle is not None:
+            return bundle
+    return None
+
+
+def _prepare_runtime_bundle(
+    architecture: str,
+    report: Callable[[int, str], None],
+) -> _RuntimeBundle:
+    target_arch, platform_tag = _target_architecture(architecture)
+    cache_root = _offline_cache_root()
+    with _OFFLINE_BUNDLE_LOCK:
+        report(8, f"Preparing Linux {target_arch} Runtime on this computer")
+        try:
+            downloads = cache_root / "downloads"
+            sources = _runtime_source_lock()
+            python_archive, python_version, python_sha = _standalone_python(
+                target_arch,
+                downloads,
+            )
+            runtime_archive, runtime_commit = _repository_snapshot(
+                sources["runtime"]["repository"],
+                sources["runtime"]["commit"],
+                downloads,
+            )
+            core_archive, core_commit = _repository_snapshot(
+                sources["core"]["repository"],
+                sources["core"]["commit"],
+                downloads,
+            )
+            bundle_name = (
+                f"runtime-offline-v{_OFFLINE_BUNDLE_SCHEMA_VERSION}-{target_arch}-"
+                f"py{python_version}-{runtime_commit[:10]}-{core_commit[:10]}.tar.gz"
+            )
+            bundle_path = cache_root / bundle_name
+            cached = _read_cached_runtime_bundle(bundle_path, target_arch)
+            if cached is not None:
+                report(12, "Using the verified PC installation cache")
+                return cached
+            report(10, "Downloading Linux wheels on this computer")
+            wheelhouse = _prepare_wheelhouse(cache_root, platform_tag)
+            artifacts: list[tuple[Path, str]] = [
+                (python_archive, "python.tar.gz"),
+                (runtime_archive, "runtime-source.tar.gz"),
+                (core_archive, "core-source.tar.gz"),
+            ]
+            artifacts.extend(
+                (wheel, f"wheelhouse/{wheel.name}")
+                for wheel in sorted(wheelhouse.glob("*.whl"))
+            )
+            manifest = {
+                "schema_version": _OFFLINE_BUNDLE_SCHEMA_VERSION,
+                "delivery_mode": "pc_assisted",
+                "architecture": target_arch,
+                "python_version": python_version,
+                "python_sha256": python_sha,
+                "runtime_commit": runtime_commit,
+                "core_commit": core_commit,
+                "artifacts": [
+                    {
+                        "path": archive_name,
+                        "size": source.stat().st_size,
+                        "sha256": _sha256_file(source),
+                    }
+                    for source, archive_name in artifacts
+                ],
+            }
+            temporary = bundle_path.with_name(
+                f".{bundle_path.name}.{secrets.token_hex(6)}.tmp"
+            )
+            manifest_file = cache_root / f".manifest-{secrets.token_hex(6)}.json"
+            try:
+                manifest_file.write_text(
+                    json.dumps(manifest, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                with tarfile.open(temporary, "w:gz") as archive:
+                    archive.add(manifest_file, arcname="manifest.json")
+                    for source, archive_name in artifacts:
+                        archive.add(source, arcname=archive_name)
+                os.replace(temporary, bundle_path)
+            finally:
+                temporary.unlink(missing_ok=True)
+                manifest_file.unlink(missing_ok=True)
+            report(12, "Verified the PC-assisted Runtime bundle")
+            return _RuntimeBundle(
+                path=bundle_path,
+                architecture=target_arch,
+                python_version=python_version,
+                runtime_commit=runtime_commit,
+                core_commit=core_commit,
+            )
+        except DeviceInstallError:
+            cached = _latest_cached_runtime_bundle(cache_root, target_arch)
+            if cached is not None:
+                report(12, "Using the cached offline Runtime bundle")
+                return cached
+            raise
+
+
+def _upload_sftp_file(
+    sftp: Any,
+    local_path: Path,
+    remote_path: str,
+    progress: Callable[[int], None] | None = None,
+) -> None:
+    size = max(1, local_path.stat().st_size)
+    written = 0
+    with local_path.open("rb") as source, sftp.file(remote_path, "wb") as target:
+        while True:
+            chunk = source.read(1024 * 1024)
+            if not chunk:
+                break
+            target.write(chunk)
+            written += len(chunk)
+            if progress is not None:
+                progress(min(100, int(written * 100 / size)))
+    sftp.chmod(remote_path, 0o600)
 
 
 def _connect(
@@ -1591,7 +2054,7 @@ def install_runtime(
     username: str,
     password: str,
     host_fingerprint: str,
-    action: str = "install",
+    action: str = "runtime_only",
     instance_id: str = "",
     progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
@@ -1619,17 +2082,25 @@ def install_runtime(
     clean_action = str(action or "").strip().lower()
     if clean_action not in {
         "install",
+        "runtime_only",
         "reuse",
         "replace",
+        "replace_runtime",
         "side_by_side",
         "isolated_stack",
     }:
         connection.close()
         raise DeviceInstallError(
-            "Choose install, reuse, replace, side_by_side, or isolated_stack."
+            "Choose runtime_only, install, reuse, replace_runtime, replace, "
+            "side_by_side, or isolated_stack."
         )
     started = time.monotonic()
     token = ""
+    firewall_source = ""
+    hardware_preserved = False
+    delivery_mode = "device_online"
+    runtime_bundle: _RuntimeBundle | None = None
+    remote_bundle_path = ""
     remote_token_path = ""
     remote_script_path = ""
     try:
@@ -1640,7 +2111,7 @@ def install_runtime(
             if isinstance(item, dict)
         ]
         remove_old_port = False
-        if clean_action == "install":
+        if clean_action in {"install", "runtime_only"}:
             if instances:
                 raise DeviceInstallError(
                     "An existing runtime was found. Inspect the device and choose "
@@ -1648,7 +2119,7 @@ def install_runtime(
                 )
             selected_instance = "default"
             runtime_port = int(inspection.get("suggested_port") or 0)
-        elif clean_action in {"reuse", "replace"}:
+        elif clean_action in {"reuse", "replace", "replace_runtime"}:
             selected_instance = _clean_instance_id(instance_id or "default")
             existing = _find_instance(inspection, selected_instance)
             if not existing:
@@ -1657,7 +2128,7 @@ def install_runtime(
                     "Inspect the device again."
                 )
             runtime_port = int(existing.get("port") or 0)
-            if clean_action == "replace" and runtime_port < 1:
+            if clean_action in {"replace", "replace_runtime"} and runtime_port < 1:
                 runtime_port = int(inspection.get("suggested_port") or 0)
             if clean_action == "reuse":
                 if not existing.get("healthy") or not existing.get("token_available"):
@@ -1699,7 +2170,28 @@ def install_runtime(
                 "No available runtime port was found between 8766 and 8865."
             )
 
+        if clean_action in {"runtime_only", "replace_runtime", "side_by_side"}:
+            environment = (
+                inspection.get("environment")
+                if isinstance(inspection.get("environment"), dict)
+                else {}
+            )
+            operating_system = (
+                environment.get("os")
+                if isinstance(environment.get("os"), dict)
+                else {}
+            )
+            runtime_bundle = _prepare_runtime_bundle(
+                str(operating_system.get("architecture") or ""),
+                report,
+            )
+            delivery_mode = "pc_assisted"
+
         token = secrets.token_urlsafe(32)
+        if runtime_bundle is not None:
+            remote_bundle_path = (
+                f"/tmp/blacknode-runtime-bundle-{secrets.token_hex(8)}.tar.gz"
+            )
         remote_token_path = f"/tmp/blacknode-runtime-token-{secrets.token_hex(8)}"
         remote_script_path = f"/tmp/blacknode-runtime-install-{secrets.token_hex(8)}.sh"
         report(10, "Preparing runtime installation")
@@ -1717,14 +2209,23 @@ instance="$2"
 runtime_port="$3"
 token_source="$4"
 remove_old_port="$5"
+bundle_path="$6"
+[[ "$bundle_path" != "-" ]] || bundle_path=""
 [[ "$instance" == "default" || "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || {
   echo "Invalid Blacknode runtime instance."
   exit 2
 }
 stack_root="$HOME/Blacknode/devices/$instance"
 runtime_dir="$stack_root/runtime"
+core_dir="$stack_root/core"
+python_dir="$stack_root/python"
+bundle_dir="$stack_root/.runtime-install-bundle"
 token_file="$stack_root/secrets/runtime.auth.token"
 hardware_dir="$stack_root/hardware"
+hardware_preserved=false
+if [[ "$action" == "replace_runtime" && -d "$hardware_dir" ]]; then
+  hardware_preserved=true
+fi
 complete_stack=false
 if [[ "$action" == "install" || "$action" == "replace" \
   || "$action" == "isolated_stack" ]]; then
@@ -1755,6 +2256,13 @@ cleanup_install=false
 cleanup_hardware=false
 port_guard=""
 port_file=""
+firewall_source=""
+pc_assisted=false
+delivery_mode="device_online"
+if [[ -n "$bundle_path" && -f "$bundle_path" ]]; then
+  pc_assisted=true
+  delivery_mode="pc_assisted"
+fi
 cleanup_failed_install() {
   exit_code=$?
   if [[ -n "$port_guard" ]]; then
@@ -1768,7 +2276,16 @@ cleanup_failed_install() {
     sudo systemctl disable "$service_name" >/dev/null 2>&1 || true
     sudo rm -f -- "/etc/systemd/system/$service_name" >/dev/null 2>&1 || true
     sudo systemctl daemon-reload >/dev/null 2>&1 || true
+    if command -v ufw >/dev/null 2>&1 \
+      && sudo ufw status 2>/dev/null | grep -qi '^Status: active'; then
+      if [[ -n "$firewall_source" ]]; then
+        sudo ufw --force delete allow from "$firewall_source" \
+          to any port "$runtime_port" proto tcp >/dev/null 2>&1 || true
+      fi
+      sudo ufw --force delete allow "$runtime_port/tcp" >/dev/null 2>&1 || true
+    fi
     rm -rf -- "$runtime_dir"
+    rm -rf -- "$core_dir" "$python_dir" "$bundle_dir"
     rm -f -- "$token_file"
     if [[ "$cleanup_hardware" == true ]]; then
       rm -rf -- "$hardware_dir"
@@ -1785,6 +2302,18 @@ case "$hardware_dir" in
   "$HOME/Blacknode/devices/"*/hardware) ;;
   *) echo "Unsafe Hardware directory."; exit 2 ;;
 esac
+case "$core_dir" in
+  "$HOME/Blacknode/devices/"*/core) ;;
+  *) echo "Unsafe Blacknode core directory."; exit 2 ;;
+esac
+case "$python_dir" in
+  "$HOME/Blacknode/devices/"*/python) ;;
+  *) echo "Unsafe managed Python directory."; exit 2 ;;
+esac
+case "$bundle_dir" in
+  "$HOME/Blacknode/devices/"*/.runtime-install-bundle) ;;
+  *) echo "Unsafe Runtime bundle directory."; exit 2 ;;
+esac
 case "$legacy_runtime_dir" in
   "$HOME/blacknode-runtime"|"$HOME/blacknode-runtimes/"*) ;;
   *) echo "Unsafe legacy Runtime directory."; exit 2 ;;
@@ -1797,7 +2326,7 @@ if [[ "$complete_stack" == true && "$action" != "replace" \
   echo "  $hardware_dir"
   exit 3
 fi
-if [[ "$action" == "replace" ]]; then
+if [[ "$action" == "replace" || "$action" == "replace_runtime" ]]; then
   cleanup_install=true
   sudo systemctl stop "$service_name" >/dev/null 2>&1 || true
   sudo systemctl disable "$service_name" >/dev/null 2>&1 || true
@@ -1809,6 +2338,7 @@ if [[ "$action" == "replace" ]]; then
     sudo ufw --force delete allow "$runtime_port/tcp" >/dev/null 2>&1 || true
   fi
   rm -rf -- "$runtime_dir"
+  rm -rf -- "$core_dir" "$python_dir" "$bundle_dir"
   rm -f -- "$token_file"
   rm -rf -- "$legacy_runtime_dir"
   rm -f -- "$legacy_token_file"
@@ -1859,16 +2389,75 @@ if [[ ! -s "$port_file" ]]; then
 fi
 runtime_port="$(cat "$port_file")"
 echo "__BLACKNODE_RUNTIME_PORT__=$runtime_port"
-progress 28 "Updating package indexes"
-sudo apt-get update
-progress 36 "Checking required system tools"
-sudo apt-get install -y git
 progress 42 "Creating isolated runtime files"
 mkdir -p "$token_dir"
 install -m 0600 "$token_source" "$token_file"
 mkdir -p "$(dirname -- "$runtime_dir")"
-progress 48 "Downloading Blacknode Runtime"
-git clone https://github.com/temiroff/blacknode-runtime.git "$runtime_dir"
+if [[ "$pc_assisted" == true ]]; then
+  progress 28 "Verifying the bundle transferred by the editor"
+  command -v tar >/dev/null 2>&1 || {
+    echo "The device requires the standard tar command for PC-assisted setup."
+    exit 4
+  }
+  rm -rf -- "$bundle_dir"
+  mkdir -p "$bundle_dir"
+  tar -xzf "$bundle_path" -C "$bundle_dir" --no-same-owner --no-same-permissions
+  python3 - "$bundle_dir" <<'PY'
+import hashlib
+import json
+import platform
+import sys
+from pathlib import Path, PurePosixPath
+
+root = Path(sys.argv[1]).resolve()
+manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+if manifest.get("schema_version") != 1:
+    raise SystemExit("Unsupported PC-assisted Runtime bundle.")
+machine = platform.machine().lower().replace("-", "_")
+aliases = {"arm64": "aarch64", "amd64": "x86_64"}
+machine = aliases.get(machine, machine)
+if manifest.get("architecture") != machine:
+    raise SystemExit(
+        f"Runtime bundle targets {manifest.get('architecture')}, not {machine}."
+    )
+for artifact in manifest.get("artifacts", []):
+    relative = str(artifact.get("path") or "")
+    parts = PurePosixPath(relative).parts
+    if not relative or relative.startswith("/") or ".." in parts:
+        raise SystemExit("Runtime bundle contains an unsafe artifact path.")
+    path = (root / Path(*parts)).resolve()
+    if root not in path.parents or not path.is_file():
+        raise SystemExit(f"Runtime bundle artifact is missing: {relative}")
+    expected_size = int(artifact.get("size") or -1)
+    if path.stat().st_size != expected_size:
+        raise SystemExit(f"Runtime bundle artifact size changed: {relative}")
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != artifact.get("sha256"):
+        raise SystemExit(f"Runtime bundle checksum failed: {relative}")
+PY
+  progress 34 "Installing the managed Linux Python"
+  mkdir -p "$python_dir" "$runtime_dir" "$core_dir"
+  tar -xzf "$bundle_dir/python.tar.gz" -C "$python_dir" \
+    --strip-components=1 --no-same-owner --no-same-permissions
+  tar -xzf "$bundle_dir/runtime-source.tar.gz" -C "$runtime_dir" \
+    --strip-components=1 --no-same-owner --no-same-permissions
+  tar -xzf "$bundle_dir/core-source.tar.gz" -C "$core_dir" \
+    --strip-components=1 --no-same-owner --no-same-permissions
+  [[ -x "$python_dir/bin/python3" ]] || {
+    echo "The transferred Linux Python is incomplete."
+    exit 4
+  }
+else
+  progress 28 "Updating package indexes"
+  sudo apt-get update
+  progress 36 "Checking required system tools"
+  sudo apt-get install -y git
+  progress 48 "Downloading Blacknode Runtime"
+  git clone https://github.com/temiroff/blacknode-runtime.git "$runtime_dir"
+fi
 if [[ -n "$service_instance" ]] \
   && ! grep -q 'BLACKNODE_RUNTIME_INSTANCE' "$runtime_dir/install-service.sh"; then
   progress 54 "Enabling independent runtime support"
@@ -1901,10 +2490,30 @@ PY
 fi
 cd "$runtime_dir"
 progress 58 "Creating the Python environment"
-BLACKNODE_AUTH_TOKEN_FILE="$token_file" \
-BLACKNODE_RUNTIME_PORT="$runtime_port" \
-BLACKNODE_RUNTIME_INSTANCE="$service_instance" \
-bash ./setup_ubuntu.sh
+if [[ "$pc_assisted" == true ]]; then
+  "$python_dir/bin/python3" -m venv .venv
+  .venv/bin/python -m pip install \
+    --disable-pip-version-check --no-index \
+    --find-links "$bundle_dir/wheelhouse" \
+    "setuptools>=68" wheel
+  .venv/bin/python -m pip install \
+    --disable-pip-version-check --no-index \
+    --find-links "$bundle_dir/wheelhouse" \
+    --no-build-isolation -e "$core_dir" -e "$runtime_dir"
+  mkdir -p packages
+  BLACKNODE_AUTH_TOKEN_FILE="$token_file" \
+  BLACKNODE_RUNTIME_PORT="$runtime_port" \
+  BLACKNODE_RUNTIME_INSTANCE="$service_instance" \
+  BLACKNODE_CORE_PATH="$core_dir" \
+  bash ./configure.sh
+  bash ./check.sh
+  rm -rf -- "$bundle_dir"
+else
+  BLACKNODE_AUTH_TOKEN_FILE="$token_file" \
+  BLACKNODE_RUNTIME_PORT="$runtime_port" \
+  BLACKNODE_RUNTIME_INSTANCE="$service_instance" \
+  bash ./setup_ubuntu.sh
+fi
 if [[ -n "$service_instance" ]]; then
   progress 78 "Configuring the independent instance"
   BLACKNODE_RUNTIME_INSTANCE="$service_instance" bash ./configure.sh \
@@ -1940,6 +2549,31 @@ port_file=""
 BLACKNODE_RUNTIME_PORT="$runtime_port" \
 BLACKNODE_RUNTIME_INSTANCE="$service_instance" \
 bash ./install-service.sh
+firewall_source=""
+if [[ "$action" == "runtime_only" || "$action" == "replace_runtime" ]] \
+  && command -v ufw >/dev/null 2>&1 \
+  && sudo ufw status 2>/dev/null | grep -qi '^Status: active'; then
+  candidate_source="${SSH_CONNECTION%% *}"
+  if python3 - "$candidate_source" <<'PY'
+import ipaddress
+import sys
+
+ipaddress.ip_address(sys.argv[1])
+PY
+  then
+    sudo ufw --force delete allow "$runtime_port/tcp" >/dev/null 2>&1 || true
+    sudo ufw allow from "$candidate_source" to any port "$runtime_port" \
+      proto tcp comment "Blacknode runtime $instance" >/dev/null
+    firewall_source="$candidate_source"
+    echo "__BLACKNODE_FIREWALL_SOURCE__=$firewall_source"
+  else
+    echo "Could not identify the editor address for the Runtime firewall rule."
+    exit 6
+  fi
+fi
+if [[ "$hardware_preserved" == true ]]; then
+  echo "__BLACKNODE_HARDWARE_PRESERVED__=1"
+fi
 if [[ "${#active_sibling_services[@]}" -gt 0 ]]; then
   progress 92 "Verifying existing runtimes and robot services"
   for sibling_service in "${active_sibling_services[@]}"; do
@@ -1949,7 +2583,8 @@ if [[ "${#active_sibling_services[@]}" -gt 0 ]]; then
     fi
   done
 fi
-if command -v ufw >/dev/null 2>&1 \
+if [[ "$action" != "runtime_only" && "$action" != "replace_runtime" ]] \
+  && command -v ufw >/dev/null 2>&1 \
   && sudo ufw status 2>/dev/null | grep -qi '^Status: active' \
   && sudo systemctl is-active --quiet blacknode-runtime.service; then
   default_port="$(
@@ -1962,7 +2597,8 @@ if command -v ufw >/dev/null 2>&1 \
   fi
 fi
 python3 - "$stack_root/install.json" "$instance" "$runtime_dir" "$hardware_dir" \
-  "$service_name" "$action" <<'PY'
+  "$service_name" "$action" "$firewall_source" "$hardware_preserved" \
+  "$core_dir" "$python_dir" "$delivery_mode" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -1976,10 +2612,17 @@ manifest_path.write_text(json.dumps({
     "packages_dir": str(Path(sys.argv[3]) / "packages"),
     "hardware_dir": (
         sys.argv[4]
-        if sys.argv[6] in {"install", "replace", "isolated_stack"}
+        if (
+            sys.argv[6] in {"install", "replace", "isolated_stack"}
+            or sys.argv[8] == "true"
+        )
         else ""
     ),
     "runtime_service": sys.argv[5],
+    "firewall_source": sys.argv[7],
+    "core_dir": sys.argv[9] if sys.argv[11] == "pc_assisted" else "",
+    "python_dir": sys.argv[10] if sys.argv[11] == "pc_assisted" else "",
+    "delivery_mode": sys.argv[11],
 }, indent=2) + "\\n", encoding="utf-8")
 PY
 install_complete=true
@@ -1987,6 +2630,13 @@ progress 96 "Verifying the runtime service"
 """
         sftp = connection.client.open_sftp()
         try:
+            if runtime_bundle is not None:
+                report(13, "Transferring the Linux Runtime bundle from this computer")
+                _upload_sftp_file(
+                    sftp,
+                    runtime_bundle.path,
+                    remote_bundle_path,
+                )
             with sftp.file(remote_token_path, "w") as remote_token:
                 remote_token.write(token + "\n")
             sftp.chmod(remote_token_path, 0o600)
@@ -1997,7 +2647,7 @@ progress 96 "Verifying the runtime service"
             sftp.close()
 
         def remote_output(line: str) -> None:
-            nonlocal runtime_port
+            nonlocal firewall_source, hardware_preserved, runtime_port
             port_match = re.match(
                 r"^__BLACKNODE_RUNTIME_PORT__=(\d{1,5})$",
                 line.strip(),
@@ -2005,6 +2655,18 @@ progress 96 "Verifying the runtime service"
             if port_match:
                 runtime_port = int(port_match.group(1))
                 report(22, f"Reserved runtime port {runtime_port}")
+                return
+            firewall_match = re.match(
+                r"^__BLACKNODE_FIREWALL_SOURCE__=([^\s]+)$",
+                line.strip(),
+            )
+            if firewall_match:
+                firewall_source = firewall_match.group(1)
+                report(90, f"Restricted runtime access to {firewall_source}")
+                return
+            if line.strip() == "__BLACKNODE_HARDWARE_PRESERVED__=1":
+                hardware_preserved = True
+                report(91, "Preserved the Robot Hardware installation")
                 return
             match = re.match(
                 r"^__BLACKNODE_INSTALL_PROGRESS__=(\d{1,3})\|(.*)$",
@@ -2018,7 +2680,7 @@ progress 96 "Verifying the runtime service"
             (
                 f"bash {remote_script_path} "
                 f"{clean_action} {selected_instance} {runtime_port} {remote_token_path} "
-                f"{1 if remove_old_port else 0}"
+                f"{1 if remove_old_port else 0} {remote_bundle_path or '-'}"
             ),
             stdin_text=_sudo_input(password),
             timeout=900.0,
@@ -2042,23 +2704,44 @@ progress 96 "Verifying the runtime service"
             "install_root": f"~/Blacknode/devices/{selected_instance}",
             "runtime_dir": f"~/Blacknode/devices/{selected_instance}/runtime",
             "packages_dir": f"~/Blacknode/devices/{selected_instance}/runtime/packages",
+            "firewall_source": firewall_source,
+            "delivery_mode": delivery_mode,
+            "core_dir": (
+                f"~/Blacknode/devices/{selected_instance}/core"
+                if delivery_mode == "pc_assisted"
+                else ""
+            ),
+            "python_dir": (
+                f"~/Blacknode/devices/{selected_instance}/python"
+                if delivery_mode == "pc_assisted"
+                else ""
+            ),
+            "python_version": (
+                runtime_bundle.python_version if runtime_bundle is not None else ""
+            ),
             "stack_mode": (
                 "isolated"
-                if clean_action in {"install", "replace", "isolated_stack"}
+                if (
+                    clean_action in {"install", "replace", "isolated_stack"}
+                    or hardware_preserved
+                )
                 else "runtime_only"
             ),
             "hardware_dir": (
                 f"~/Blacknode/devices/{selected_instance}/hardware"
-                if clean_action in {"install", "replace", "isolated_stack"}
+                if (
+                    clean_action in {"install", "replace", "isolated_stack"}
+                    or hardware_preserved
+                )
                 else ""
             ),
         }
     finally:
-        if remote_script_path or remote_token_path:
+        if remote_script_path or remote_token_path or remote_bundle_path:
             try:
                 _run(
                     connection,
-                    f"rm -f -- {remote_script_path} {remote_token_path}",
+                    f"rm -f -- {remote_script_path} {remote_token_path} {remote_bundle_path}",
                     timeout=10.0,
                 )
             except DeviceInstallError:
@@ -3320,6 +4003,7 @@ def uninstall_runtime(
     host_fingerprint: str,
     instance_id: str,
     runtime_port: int,
+    firewall_source: str = "",
     stack_mode: str = "runtime_only",
     hardware_ports: list[int] | None = None,
     progress: Callable[[dict[str, Any]], None] | None = None,
@@ -3339,6 +4023,14 @@ def uninstall_runtime(
     selected_port = int(runtime_port)
     if selected_port < 1 or selected_port > 65535:
         raise DeviceInstallError("The managed runtime port is invalid.")
+    selected_firewall_source = str(firewall_source or "").strip()
+    if selected_firewall_source:
+        try:
+            ipaddress.ip_address(selected_firewall_source)
+        except ValueError as exc:
+            raise DeviceInstallError(
+                "The managed Runtime firewall source is invalid."
+            ) from exc
     selected_hardware_ports = sorted({
         int(value)
         for value in (hardware_ports or [])
@@ -3366,6 +4058,8 @@ instance="$1"
 runtime_port="$2"
 stack_mode="$3"
 hardware_ports_payload="$4"
+firewall_source="$5"
+[[ "$firewall_source" != "-" ]] || firewall_source=""
 mapfile -t selected_hardware_ports < <(
   python3 - "$hardware_ports_payload" <<'PY'
 import base64
@@ -3378,6 +4072,9 @@ PY
 )
 stack_root="$HOME/Blacknode/devices/$instance"
 organized_runtime_dir="$stack_root/runtime"
+organized_core_dir="$stack_root/core"
+organized_python_dir="$stack_root/python"
+organized_bundle_dir="$stack_root/.runtime-install-bundle"
 organized_token_file="$stack_root/secrets/runtime.auth.token"
 organized_hardware_dir="$stack_root/hardware"
 if [[ "$instance" == "default" ]]; then
@@ -3405,6 +4102,18 @@ case "$runtime_dir" in
   "$HOME/blacknode-runtime"|\
   "$HOME/blacknode-runtimes/"*) ;;
   *) echo "Unsafe runtime directory."; exit 2 ;;
+esac
+case "$organized_core_dir" in
+  "$HOME/Blacknode/devices/"*/core) ;;
+  *) echo "Unsafe Blacknode core directory."; exit 2 ;;
+esac
+case "$organized_python_dir" in
+  "$HOME/Blacknode/devices/"*/python) ;;
+  *) echo "Unsafe managed Python directory."; exit 2 ;;
+esac
+case "$organized_bundle_dir" in
+  "$HOME/Blacknode/devices/"*/.runtime-install-bundle) ;;
+  *) echo "Unsafe Runtime bundle directory."; exit 2 ;;
 esac
 list_hardware_units() {
   {
@@ -3531,11 +4240,16 @@ done
 progress 84 "Removing Runtime files and firewall rule"
 if command -v ufw >/dev/null 2>&1 \
   && sudo ufw status 2>/dev/null | grep -qi '^Status: active'; then
+  if [[ -n "$firewall_source" ]]; then
+    sudo ufw --force delete allow from "$firewall_source" \
+      to any port "$runtime_port" proto tcp >/dev/null 2>&1 || true
+  fi
   sudo ufw --force delete allow "$runtime_port/tcp" >/dev/null 2>&1 || true
 fi
 rm -rf -- "$runtime_dir"
 rm -f -- "$token_file"
 if [[ "$runtime_dir" == "$organized_runtime_dir" ]]; then
+  rm -rf -- "$organized_core_dir" "$organized_python_dir" "$organized_bundle_dir"
   rm -f -- "$stack_root/install.json"
   rmdir -- "$stack_root/secrets" "$stack_root" "$HOME/Blacknode/devices" \
     "$HOME/Blacknode" >/dev/null 2>&1 || true
@@ -3574,7 +4288,7 @@ progress 94 "Finalizing deletion"
             (
                 f"sudo -S -p '' -v && bash {remote_script_path} "
                 f"{selected_instance} {selected_port} {selected_stack_mode} "
-                f"{hardware_ports_payload}"
+                f"{hardware_ports_payload} {selected_firewall_source or '-'}"
             ),
             stdin_text=password + "\n",
             timeout=120.0,
