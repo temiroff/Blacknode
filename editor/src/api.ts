@@ -270,6 +270,11 @@ export interface ComputeDevice {
     install_root?: string
     runtime_dir: string
     packages_dir?: string
+    firewall_source?: string
+    delivery_mode?: 'pc_assisted' | 'device_online'
+    core_dir?: string
+    python_dir?: string
+    python_version?: string
     stack_mode?: 'runtime_only' | 'isolated'
     hardware_dir?: string
     hardware_port?: number
@@ -405,7 +410,12 @@ export interface SshRos2GraphInspection {
 
 export interface SshRuntimeInspection {
   ok: boolean
-  host_fingerprint: string
+  live?: boolean
+  read_only?: boolean
+  checked_at?: string
+  source?: 'paired_runtime' | string
+  error?: string
+  host_fingerprint?: string
   instances: SshRuntimeInstance[]
   environment: SshHostEnvironment
   ros2_graph: SshRos2GraphInspection
@@ -744,6 +754,11 @@ export interface InstallComputeDeviceResult {
     install_root?: string
     runtime_dir: string
     packages_dir?: string
+    firewall_source?: string
+    delivery_mode?: 'pc_assisted' | 'device_online'
+    core_dir?: string
+    python_dir?: string
+    python_version?: string
     stack_mode?: 'runtime_only' | 'isolated'
     hardware_dir?: string
     management_mode?: 'ssh' | 'local'
@@ -828,6 +843,39 @@ export interface GraphSnapshot {
   nodes: any[]
   edges: any[]
   metadata: WorkflowMetadata
+}
+
+export interface FileBrowserListing {
+  path: string
+  parent: string
+  roots: string[]
+  selected: string
+  entries: Array<{
+    name: string
+    path: string
+    is_directory: boolean
+    size: number | null
+  }>
+}
+
+export interface CanvasSchemaNodeChange {
+  id: string
+  type: string
+  added_inputs: string[]
+  removed_inputs: string[]
+  added_outputs: string[]
+  removed_outputs: string[]
+  types_changed: boolean
+  defaults_changed: boolean
+}
+
+export interface CanvasSchemaRefreshResult {
+  ok: boolean
+  loaded: Array<{ path?: string; new_types?: string[] }>
+  failed: Array<{ path?: string; error?: string }>
+  updated_nodes: CanvasSchemaNodeChange[]
+  removed_edges: Array<{ from: string; from_port: string; to: string; to_port: string }>
+  graph?: GraphSnapshot
 }
 
 export interface DeviceCalibrationCandidate {
@@ -1035,6 +1083,30 @@ export interface RuntimeStatus {
   detached_count?: number
   report?: string
   error?: string
+}
+
+export interface NewtonWorkspaceStatus {
+  kind: 'blacknode.newton-workspace'
+  schema_version: 1
+  open: boolean
+  simulation_running: boolean
+  running: boolean
+  paused: boolean
+  phase: string
+  armed: boolean
+  viewer_url: string
+  viewer_provider?: string
+  available_viewers?: string[]
+  asset_path: string
+  scene_label: string
+  dynamic_body_count: number
+  authored_dynamic_body_names?: string[]
+  usd_mesh_count?: number
+  usd_meshes_with_normals?: number
+  usd_collision_mesh_count?: number
+  warning: string
+  last_error: string
+  frame_count: number
 }
 
 export interface ConsoleEntry {
@@ -1410,6 +1482,19 @@ export const api = {
       '/filesystem/pick-directory',
       { initial_path: initialPath, title },
     ),
+  pickFile:(initialPath = '', title = '', extensions: string[] = []) =>
+    req<{ selected: string; cancelled: boolean }>(
+      'POST',
+      '/filesystem/pick-file',
+      { initial_path: initialPath, title, extensions },
+    ),
+  browseFiles:(path = '', extensions: string[] = []) =>
+    req<FileBrowserListing>(
+      'POST',
+      '/filesystem/browse',
+      { path, extensions },
+      15000,
+    ),
   datasetFrame:(token: string, index: number) =>
     req<Record<string, unknown>>('GET', `/dataset/frame/${encodeURIComponent(token)}?index=${Math.max(0, Math.floor(index))}`),
   trimDatasetEpisode:(token: string, frameIndex: number, side: 'before' | 'after') =>
@@ -1432,6 +1517,15 @@ export const api = {
     req<{ value: unknown; port: string }>('POST', '/cook', { node_id, port }),
   stopCook:   () => req<RuntimeStopResult>('POST', '/cook/stop'),
   runtimeStatus: () => req<RuntimeStatus>('GET', '/runtime/status'),
+  newtonWorkspaceStatus: () =>
+    req<NewtonWorkspaceStatus>('GET', '/newton/workspace'),
+  controlNewtonWorkspace: (action: string, payload: Record<string, unknown> = {}) =>
+    req<NewtonWorkspaceStatus>(
+      'POST',
+      `/newton/workspace/${encodeURIComponent(action)}`,
+      { payload },
+      action === 'open_usd' ? 120000 : 30000,
+    ),
   consoleLog: (limit = 100) => req<ConsoleLog>('GET', `/console?limit=${limit}`),
   consoleClear: () => req<{ ok: boolean }>('POST', '/console/clear'),
   consoleRun: (id: string) => req<Record<string, unknown>>('POST', `/console/run/${encodeURIComponent(id)}`),
@@ -1449,13 +1543,17 @@ export const api = {
   cookSubgraphGraphStream: (subnet_id: string, targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal, run_mode: 'once' | 'live' = 'once') =>
     streamCook(`/nodes/${subnet_id}/cook-graph-stream`, { targets: targets.map(target => ({ node_id: target.id, port: target.port })), run_mode }, `${targets.length} subnet terminal nodes`, onEvent, signal),
   reset:      ()                             => req('POST', '/reset'),
-  execNode:   (code: string)                 => req<{ ok: boolean; new_types: string[] }>('POST', '/exec-node', { code }),
+  execNode:   (code: string)                 => req<{ ok: boolean; new_types: string[]; registered_types: string[] }>('POST', '/exec-node', { code }),
   saveCustomNode: (filename: string, code: string) =>
     req<{ ok: boolean; path: string; new_types: string[] }>('POST', '/custom-nodes', { filename, code }),
   reloadCustomNodes: () =>
     req<{ ok: boolean; loaded: Array<Record<string, unknown>>; failed: Array<Record<string, unknown>> }>('POST', '/custom-nodes/reload'),
+  refreshCanvasSchemas: () =>
+    req<CanvasSchemaRefreshResult>('POST', '/graph/refresh-node-schemas'),
   listCustomNodes: () =>
     req<{ directory: string; files: string[]; registered: BnNodeDef[] }>('GET', '/custom-nodes'),
+  getCustomNodeSource: (filename: string) =>
+    req<{ filename: string; path: string; code: string }>('GET', `/custom-nodes/source?filename=${encodeURIComponent(filename)}`),
   getDriverStatus:  () => req<Record<string, DriverStatus>>('GET', '/drivers/status', undefined, 3000),
   listDrivers:      () => req<DriverInfo[]>('GET', '/drivers'),
   installDriver:    (name: string) => req<DriverInstallResult>('POST', `/drivers/${name}/install`),
@@ -1552,7 +1650,14 @@ export const api = {
     username: string,
     password: string,
     hostFingerprint: string,
-    action: 'install' | 'reuse' | 'replace' | 'side_by_side' | 'isolated_stack',
+    action:
+      | 'runtime_only'
+      | 'install'
+      | 'reuse'
+      | 'replace_runtime'
+      | 'replace'
+      | 'side_by_side'
+      | 'isolated_stack',
     instanceId: string,
     onProgress: (progress: DeviceInstallProgress) => void = () => {},
   ) =>
@@ -1575,6 +1680,13 @@ export const api = {
       `/device-hosts/${encodeURIComponent(id)}/runtime-status`,
       undefined,
       7000,
+    ),
+  computeDeviceLiveInspection: (id: string) =>
+    req<SshRuntimeInspection>(
+      'GET',
+      `/device-hosts/${encodeURIComponent(id)}/live-inspection`,
+      undefined,
+      90000,
     ),
   pairRobot: (hostId: string, name: string, baseUrl: string, token: string) =>
     req<{

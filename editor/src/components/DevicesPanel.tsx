@@ -69,8 +69,10 @@ type ServiceCheckState =
   | 'unchecked'
 
 type RuntimeInstallAction =
+  | 'runtime_only'
   | 'install'
   | 'reuse'
+  | 'replace_runtime'
   | 'replace'
   | 'side_by_side'
   | 'isolated_stack'
@@ -506,8 +508,9 @@ export default function DevicesPanel({
   const [sshPassword, setSshPassword] = useState('')
   const [sshProbe, setSshProbe] = useState<SshDeviceProbe | null>(null)
   const [sshInspection, setSshInspection] = useState<SshRuntimeInspection | null>(null)
-  const [installAction, setInstallAction] = useState<RuntimeInstallAction>('install')
+  const [installAction, setInstallAction] = useState<RuntimeInstallAction>('runtime_only')
   const [installInstanceId, setInstallInstanceId] = useState('default')
+  const [installChangesConfirmed, setInstallChangesConfirmed] = useState(false)
   const [installProgress, setInstallProgress] = useState<DeviceInstallProgress | null>(null)
   const [actionProgress, setActionProgress] = useState<Record<string, DeviceActionProgress>>({})
   const [showRuntimeControl, setShowRuntimeControl] = useState(false)
@@ -1157,8 +1160,9 @@ export default function DevicesPanel({
     setSshPassword('')
     setSshProbe(null)
     setSshInspection(null)
-    setInstallAction('install')
+    setInstallAction('runtime_only')
     setInstallInstanceId('default')
+    setInstallChangesConfirmed(false)
     setInstallProgress(null)
   }
 
@@ -1178,6 +1182,36 @@ export default function DevicesPanel({
       if (runtimeUrl === LOCAL_RUNTIME_URL) setRuntimeUrl(DEFAULT_RUNTIME_URL)
       if (deviceName === 'Local computer') setDeviceName('')
     }
+  }
+
+  const openInspectedRuntimeSetup = (device: ComputeDevice) => {
+    const connection = device.inspection_connection
+    if (!connection?.ssh_host || !connection.host_fingerprint) {
+      setError('This inspection has no verified SSH identity. Inspect the device again.')
+      return
+    }
+    const environment = device.last_inspection?.environment
+    setSelectedDeviceId(null)
+    setShowDeviceForm(true)
+    setSetupMode('automatic')
+    setDeviceName(device.name)
+    setSshHost(connection.ssh_host)
+    setSshPort(connection.ssh_port || 22)
+    setSshUsername(connection.ssh_username || '')
+    setSshPassword('')
+    setSshProbe({
+      ok: true,
+      host_fingerprint: connection.host_fingerprint,
+      os: environment?.os.name || 'Linux device',
+      architecture: environment?.os.architecture || '',
+      hostname: device.name,
+    })
+    setSshInspection(null)
+    setInstallAction('runtime_only')
+    setInstallInstanceId('default')
+    setInstallChangesConfirmed(false)
+    setInstallProgress(null)
+    setError(null)
   }
 
   const manualPair = async (event: FormEvent) => {
@@ -1261,11 +1295,16 @@ export default function DevicesPanel({
       await probeSsh()
       return
     }
+    if (sshInspection && installAction !== 'reuse' && !installChangesConfirmed) {
+      setError('Confirm the listed device changes before installing.')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
       if (!sshInspection) {
         setInstallProgress(null)
+        setInstallChangesConfirmed(false)
         const inspection = await api.inspectComputeDeviceSsh(
           sshHost.trim(),
           sshPort,
@@ -1282,10 +1321,10 @@ export default function DevicesPanel({
           setInstallAction('reuse')
           setInstallInstanceId(reusable.instance_id)
         } else if (inspection.instances.length) {
-          setInstallAction('replace')
+          setInstallAction('replace_runtime')
           setInstallInstanceId(inspection.instances[0].instance_id)
         } else {
-          setInstallAction('install')
+          setInstallAction('runtime_only')
           setInstallInstanceId('default')
         }
         return
@@ -2721,8 +2760,9 @@ export default function DevicesPanel({
                         </article>
                       </div>
                       <p>
-                        Runtime setup may install missing {sshInspection.environment.runtime_setup_packages.join(', ')}.
-                        It does not replace NVIDIA drivers, CUDA, ROS 2, or Docker.
+                        {['runtime_only', 'replace_runtime', 'side_by_side'].includes(installAction)
+                          ? 'Runtime setup is staged by this editor computer and does not change Ubuntu packages, NVIDIA drivers, CUDA, ROS 2, or Docker.'
+                          : `Complete robot setup may install missing ${sshInspection.environment.runtime_setup_packages.join(', ')}. It does not replace NVIDIA drivers, CUDA, ROS 2, or Docker.`}
                       </p>
                     </div>
                   )}
@@ -2806,6 +2846,7 @@ export default function DevicesPanel({
                           onChange={() => {
                             setInstallAction('reuse')
                             setInstallInstanceId(instance.instance_id)
+                            setInstallChangesConfirmed(false)
                           }}
                         />
                         <span>
@@ -2819,23 +2860,49 @@ export default function DevicesPanel({
                       </label>,
                       <label
                         key={`replace-${instance.instance_id}`}
-                        className={installAction === 'replace' && installInstanceId === instance.instance_id ? 'is-selected is-danger' : ''}
+                        className={installAction === 'replace_runtime' && installInstanceId === instance.instance_id ? 'is-selected is-danger' : ''}
                       >
                         <input
                           type="radio"
                           name="runtime-install-action"
-                          checked={installAction === 'replace' && installInstanceId === instance.instance_id}
+                          checked={installAction === 'replace_runtime' && installInstanceId === instance.instance_id}
                           onChange={() => {
-                            setInstallAction('replace')
+                            setInstallAction('replace_runtime')
                             setInstallInstanceId(instance.instance_id)
+                            setInstallChangesConfirmed(false)
                           }}
                         />
                         <span>
                           <strong>Reinstall {instance.instance_id === 'default' ? 'existing runtime' : instance.instance_id}</strong>
-                          <small>Stops it and replaces its files, state, service, and token on port {instance.port}.</small>
+                          <small>
+                            Stops and replaces this Runtime, service, and token on port {instance.port}.
+                            Robot Hardware files and services stay in place.
+                          </small>
                         </span>
                       </label>,
                     ])}
+                    {sshInspection.instances.length === 0 && (
+                      <label className={installAction === 'runtime_only' ? 'is-selected' : ''}>
+                        <input
+                          type="radio"
+                          name="runtime-install-action"
+                          checked={installAction === 'runtime_only'}
+                          onChange={() => {
+                            setInstallAction('runtime_only')
+                            setInstallInstanceId('default')
+                            setInstallChangesConfirmed(false)
+                          }}
+                        />
+                        <span>
+                          <strong>Install Runtime only</strong>
+                          <small>
+                            This computer transfers a verified Linux bundle and creates the managed
+                            compute Runtime on port {sshInspection.suggested_port}. Robot Hardware
+                            stays untouched.
+                          </small>
+                        </span>
+                      </label>
+                    )}
                     {sshInspection.instances.length === 0 && (
                       <label className={installAction === 'install' ? 'is-selected' : ''}>
                         <input
@@ -2845,6 +2912,7 @@ export default function DevicesPanel({
                           onChange={() => {
                             setInstallAction('install')
                             setInstallInstanceId('default')
+                            setInstallChangesConfirmed(false)
                           }}
                         />
                         <span>
@@ -2865,13 +2933,15 @@ export default function DevicesPanel({
                           onChange={() => {
                             setInstallAction('side_by_side')
                             setInstallInstanceId(sshInspection.suggested_instance_id)
+                            setInstallChangesConfirmed(false)
                           }}
                         />
                         <span>
                           <strong>Install a separate runtime</strong>
                           <small>
                             Keeps every existing installation untouched. Creates {sshInspection.suggested_instance_id}
-                            {' '}on available port {sshInspection.suggested_port}.
+                            {' '}on available port {sshInspection.suggested_port} from a bundle
+                            transferred by this computer.
                           </small>
                         </span>
                       </label>
@@ -2885,6 +2955,7 @@ export default function DevicesPanel({
                           onChange={() => {
                             setInstallAction('isolated_stack')
                             setInstallInstanceId(sshInspection.suggested_instance_id)
+                            setInstallChangesConfirmed(false)
                           }}
                         />
                         <span>
@@ -2898,6 +2969,78 @@ export default function DevicesPanel({
                       </label>
                     )}
                   </div>
+                  {installAction !== 'reuse' && (
+                    <div className={`bn-runtime-change-plan${installAction === 'replace_runtime' ? ' is-danger' : ''}`} role="note">
+                      <div className="bn-runtime-change-plan-head">
+                        <div>
+                          <strong>Changes on this device</strong>
+                          <span>
+                            {installAction === 'runtime_only'
+                              ? 'Compute Runtime only'
+                              : installAction === 'replace_runtime'
+                                ? 'Runtime reinstall; Hardware preserved'
+                                : installAction === 'side_by_side'
+                                  ? 'Separate Runtime only'
+                                  : 'Complete Runtime and Robot Hardware stack'}
+                          </span>
+                        </div>
+                        <span className="bn-preserved-badge">
+                          Port {installAction === 'replace_runtime'
+                            ? sshInspection.instances.find(instance => instance.instance_id === installInstanceId)?.port || sshInspection.suggested_port
+                            : sshInspection.suggested_port}
+                        </span>
+                      </div>
+                      <ul>
+                        <li>
+                          Creates <code>~/Blacknode/devices/{installInstanceId}/runtime</code>,
+                          a private Python environment, pairing token, and system service.
+                        </li>
+                        {['runtime_only', 'replace_runtime', 'side_by_side'].includes(installAction) ? (
+                          <li>
+                            This Windows editor downloads and verifies the Linux bundle, then
+                            transfers it over SSH. The device does not need internet, run an
+                            Ubuntu package update, or change its system Python.
+                          </li>
+                        ) : (
+                          <li>
+                            Complete robot setup updates package indexes and installs missing
+                            setup tools. NVIDIA drivers, CUDA, ROS 2, and Docker stay unchanged.
+                          </li>
+                        )}
+                        <li>
+                          Uses the displayed port when it remains free; an occupied port is never
+                          taken over. A newly available port is reported before pairing.
+                        </li>
+                        {installAction === 'runtime_only' && (
+                          <li>
+                            Keeps Robot Hardware uninstalled. When UFW is active, Runtime access
+                            is restricted to this editor computer.
+                          </li>
+                        )}
+                        {installAction === 'replace_runtime' && (
+                          <li>
+                            Replaces only the selected Runtime checkout, token, and service.
+                            Existing Robot Hardware files and services are preserved.
+                          </li>
+                        )}
+                        {['install', 'isolated_stack'].includes(installAction) && (
+                          <li>
+                            Installs a separate Robot Hardware checkout and environment. Motion
+                            remains disarmed until explicitly authorized.
+                          </li>
+                        )}
+                      </ul>
+                      <label className="bn-runtime-change-confirm">
+                        <input
+                          type="checkbox"
+                          checked={installChangesConfirmed}
+                          onChange={event => setInstallChangesConfirmed(event.target.checked)}
+                          disabled={busy}
+                        />
+                        <span>I reviewed these changes and authorize this installation.</span>
+                      </label>
+                    </div>
+                  )}
                 </div>
               )}
             </>
@@ -3017,7 +3160,16 @@ export default function DevicesPanel({
             ) : (
               <button
                 type="submit"
-                disabled={busy || (setupMode === 'local' && !localInstallDir.trim())}
+                disabled={
+                  busy
+                  || (setupMode === 'local' && !localInstallDir.trim())
+                  || (
+                    setupMode === 'automatic'
+                    && Boolean(sshInspection)
+                    && installAction !== 'reuse'
+                    && !installChangesConfirmed
+                  )
+                }
                 style={primaryButton}
               >
                 {busy
@@ -3028,10 +3180,12 @@ export default function DevicesPanel({
                     ? sshInspection
                       ? installAction === 'reuse'
                         ? 'Pair existing runtime'
-                        : installAction === 'replace'
+                        : installAction === 'replace_runtime' || installAction === 'replace'
                           ? 'Reinstall runtime'
                           : installAction === 'isolated_stack'
                             ? 'Install isolated stack'
+                            : installAction === 'runtime_only'
+                              ? 'Install Runtime only'
                             : installAction === 'install'
                               ? 'Install robot device'
                               : 'Install runtime'
@@ -3246,11 +3400,21 @@ export default function DevicesPanel({
 
           {selectedDevice.inspection_only && (
             <div className="bn-device-inspection-only" role="status">
-              <strong>Read-only inspection device</strong>
-              <span>
-                The saved system and ROS 2 snapshot is available to ComputeDevice
-                nodes. Blacknode Runtime and physical control are not enabled.
-              </span>
+              <div>
+                <strong>Inspected compute device</strong>
+                <span>
+                  Install the managed Runtime to make this computer available for live
+                  workflow execution. Robot Hardware remains a separate choice.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => openInspectedRuntimeSetup(selectedDevice)}
+                disabled={busy}
+                className="bn-device-action-button is-primary"
+              >
+                Install Runtime
+              </button>
             </div>
           )}
 
@@ -4597,7 +4761,7 @@ export default function DevicesPanel({
                     ? selectedDevice.managed_runtime.hardware_dir
                       ? `Stops the local Runtime on port ${selectedDevice.managed_runtime.runtime_port} and Robot Hardware on port ${selectedDevice.managed_runtime.hardware_port}.`
                       : `Stops the local Runtime on port ${selectedDevice.managed_runtime.runtime_port}.`
-                    : `Stops ${selectedDevice.managed_runtime.service_name} and its deployments; deletes ${selectedDevice.managed_runtime.runtime_dir}, its workflow packages, token, service and port ${selectedDevice.managed_runtime.runtime_port} firewall rule; and deletes this device's ${selectedDevice.robots.length} Robot Hardware service${selectedDevice.robots.length === 1 ? '' : 's'} plus Hardware files when no other device uses them.${selectedDevice.managed_runtime.install_root ? ` The empty ${selectedDevice.managed_runtime.install_root} stack folder is also removed.` : ''}`}
+                    : `Stops ${selectedDevice.managed_runtime.service_name} and its deployments; deletes ${selectedDevice.managed_runtime.runtime_dir}, its workflow packages${selectedDevice.managed_runtime.delivery_mode === 'pc_assisted' ? ', managed Linux Python and Blacknode core' : ''}, token, service and port ${selectedDevice.managed_runtime.runtime_port} firewall rule; and deletes this device's ${selectedDevice.robots.length} Robot Hardware service${selectedDevice.robots.length === 1 ? '' : 's'} plus Hardware files when no other device uses them.${selectedDevice.managed_runtime.install_root ? ` The empty ${selectedDevice.managed_runtime.install_root} stack folder is also removed.` : ''}`}
                   {selectedDeviceManagedLocally
                     ? selectedDevice.managed_runtime.hardware_dir
                       ? selectedDevice.managed_runtime.owned_install

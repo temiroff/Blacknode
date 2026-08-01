@@ -7,17 +7,79 @@ import {
   type ComputeDevice,
   type SshRuntimeInspection,
 } from '../api'
+import { portColor, portVisualColor } from '../portColors'
+import { portDisplayName } from '../portLabels'
 import { useStore, type NodeData } from '../store'
 import NodeFrame from './NodeFrame'
+import NodeGlyph from './NodeGlyph'
 
 
-const OUTPUTS = [
-  ['configured', '#f59e0b'],
-  ['inspection_available', '#f59e0b'],
-  ['device', '#a855f7'],
-  ['inspection', '#a855f7'],
-  ['report', '#38bdf8'],
-] as const
+const OUTPUTS = ['configured', 'inspection_available', 'device', 'inspection', 'report'] as const
+
+const OUTPUT_TYPE_FALLBACKS: Record<(typeof OUTPUTS)[number], string> = {
+  configured: 'Bool',
+  inspection_available: 'Bool',
+  device: 'Dict',
+  inspection: 'Dict',
+  report: 'Text',
+}
+
+function DeviceOutputPort({
+  name,
+  type,
+}: {
+  name: (typeof OUTPUTS)[number]
+  type: string
+}) {
+  const color = portColor(type)
+  const visualColor = portVisualColor(type)
+
+  return (
+    <div
+      className="bn-port-row"
+      data-direction="output"
+      style={{
+        position: 'relative',
+        display: 'flex',
+        minHeight: 27,
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        gap: 5,
+        padding: '4px 12px 4px 10px',
+        '--bn-port-color': visualColor,
+      } as React.CSSProperties}
+    >
+      <Handle
+        type="source"
+        position={Position.Right}
+        id={name}
+        title={`${name}: ${type}`}
+        style={{
+          right: -5,
+          width: 9,
+          height: 9,
+          border: `1.5px solid ${color}`,
+          borderRadius: 3,
+          background: color,
+        }}
+      />
+      <span className="bn-compute-device-port-label">
+        {portDisplayName(name, 'output')}
+      </span>
+      <span
+        className="bn-port-type-pill"
+        title={`${portDisplayName(name, 'output')}: ${type}`}
+        style={{
+          borderColor: `${visualColor}66`,
+          background: `${visualColor}16`,
+          color: visualColor,
+        }}
+      >
+        {type.toUpperCase()}
+      </span>
+    </div>
+  )
+}
 
 
 export default function ComputeDeviceNode({
@@ -28,15 +90,12 @@ export default function ComputeDeviceNode({
   const updateParam = useStore(state => state.updateParam)
   const [devices, setDevices] = useState<ComputeDevice[]>([])
   const [error, setError] = useState('')
+  const [liveInspection, setLiveInspection] = useState<SshRuntimeInspection | null>(null)
+  const [checkingLive, setCheckingLive] = useState(false)
   const deviceId = String(data.params?.device_id || '').trim()
   const deviceName = String(data.params?.device_name || '').trim()
-  const inspection = (
-    data.params?.inspection && typeof data.params.inspection === 'object'
-      ? data.params.inspection
-      : {}
-  ) as SshRuntimeInspection
   const selectedDevice = devices.find(device => device.id === deviceId)
-  const graph = inspection.ros2_graph
+  const graph = liveInspection?.ros2_graph
   const capabilityCount = graph?.capabilities?.length || 0
 
   const loadDevices = async () => {
@@ -55,19 +114,49 @@ export default function ComputeDeviceNode({
     void loadDevices()
   }, [])
 
+  const refreshLive = async (nextDeviceId = deviceId) => {
+    if (!nextDeviceId) {
+      setLiveInspection(null)
+      setError('')
+      return
+    }
+    setCheckingLive(true)
+    try {
+      const result = await api.computeDeviceLiveInspection(nextDeviceId)
+      setLiveInspection(result)
+      setError(result.ok ? '' : result.error || result.ros2_graph?.report || 'Runtime is unavailable')
+    } catch (reason) {
+      setLiveInspection(null)
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setCheckingLive(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshLive(deviceId)
+  }, [deviceId])
+
   const saveSelection = async (device: ComputeDevice | undefined) => {
     await updateParam(id, 'device_id', device?.id || '')
     await updateParam(id, 'device_name', device?.name || '')
-    await updateParam(id, 'inspection', device?.last_inspection || {})
+    // Keep credentials and captured machine state out of saved workflows.
+    // The editor injects current state immediately before every cook.
+    await updateParam(id, 'inspection', {})
   }
 
   const chooseDevice = async (nextId: string) => {
     await saveSelection(devices.find(device => device.id === nextId))
   }
 
-  const refreshSnapshot = async () => {
+  const refreshDevice = async () => {
     const current = await loadDevices()
-    await saveSelection(current.find(device => device.id === deviceId))
+    const selected = current.find(device => device.id === deviceId)
+    if (!selected) {
+      setLiveInspection(null)
+      return
+    }
+    await refreshLive(selected.id)
   }
 
   return (
@@ -81,14 +170,14 @@ export default function ComputeDeviceNode({
         width: '100%',
         height: '100%',
         minWidth: 420,
-        minHeight: 220,
+        minHeight: 460,
         display: 'flex',
         flexDirection: 'column',
       }}
     >
       <NodeResizer
         minWidth={420}
-        minHeight={220}
+        minHeight={460}
         isVisible={selected}
         lineStyle={{ borderColor: '#14b8a6' }}
         handleStyle={{
@@ -100,17 +189,36 @@ export default function ComputeDeviceNode({
         }}
       />
 
-      <header className="bn-compute-device-node-title">
-        <div>
-          <span>COMPUTE DEVICE</span>
-          <strong>{selectedDevice?.name || deviceName || 'Choose a device'}</strong>
+      <header
+        className="bn-node-header bn-compute-device-node-title"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 6,
+          padding: '6px 10px',
+          borderRadius: '8px 8px 0 0',
+          background: '#14b8a6',
+        }}
+      >
+        <NodeGlyph type={data.type} className="bn-node-header-glyph" />
+        <div className="bn-compute-device-node-identity">
+          <strong className="bn-node-title">
+            {selectedDevice?.name || deviceName || 'Choose a device'}
+          </strong>
+          <span className="bn-node-type">Compute Device</span>
         </div>
-        <span className={inspection.ok ? 'is-ready' : 'is-idle'}>
-          {inspection.ok ? 'INSPECTED' : 'NO SNAPSHOT'}
-        </span>
+        <div
+          className="bn-node-runtime-state"
+          data-tone={liveInspection?.live ? 'ready' : 'idle'}
+          title={liveInspection?.live ? 'Current state returned by the paired Runtime' : 'Paired Runtime is not live'}
+        >
+          <i />
+          <span>{checkingLive ? 'Checking' : liveInspection?.live ? 'Live' : 'Offline'}</span>
+        </div>
       </header>
 
-      <div className="bn-compute-device-node-body nodrag">
+      <div className="bn-node-parameter-area bn-compute-device-node-body nodrag">
         <label>
           <span>Registered device</span>
           <select
@@ -146,33 +254,28 @@ export default function ComputeDeviceNode({
         </div>
 
         <div className="bn-compute-device-node-actions">
-          <button type="button" onClick={() => void refreshSnapshot()}>
-            Refresh saved snapshot
+          <button type="button" disabled={checkingLive} onClick={() => void refreshDevice()}>
+            {checkingLive ? 'Checking Runtime…' : 'Refresh live device'}
           </button>
           <small>
             {error
-              || (selectedDevice?.inspection_updated_at
-                ? `Captured ${new Date(selectedDevice.inspection_updated_at).toLocaleString()}`
-                : 'Inspect this target from Devices to capture a snapshot.')}
+              || (liveInspection?.checked_at
+                ? `Live ROS state checked ${new Date(liveInspection.checked_at).toLocaleTimeString()}`
+                : 'Run once reads current state from the paired Runtime; no SSH password is needed.')}
           </small>
         </div>
       </div>
 
-      {OUTPUTS.map(([port, color], index) => (
-        <Handle
-          key={port}
-          type="source"
-          position={Position.Right}
-          id={port}
-          title={port}
-          style={{
-            background: color,
-            width: 9,
-            height: 9,
-            top: 48 + index * 27,
-          }}
-        />
-      ))}
+      <div className="bn-node-ports bn-compute-device-node-ports">
+        <div className="bn-port-section-label is-output">Outputs</div>
+        {OUTPUTS.map(port => (
+          <DeviceOutputPort
+            key={port}
+            name={port}
+            type={data.output_types?.[port] || OUTPUT_TYPE_FALLBACKS[port]}
+          />
+        ))}
+      </div>
     </NodeFrame>
   )
 }

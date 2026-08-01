@@ -297,6 +297,15 @@ class PickDirectoryReq(BaseModel):
     initial_path: str = ""
     title: str = ""
 
+class PickFileReq(BaseModel):
+    initial_path: str = ""
+    title: str = ""
+    extensions: list[str] = Field(default_factory=list)
+
+class BrowseFilesReq(BaseModel):
+    path: str = ""
+    extensions: list[str] = Field(default_factory=list)
+
 class DatasetTrimReq(BaseModel):
     token: str
     frame_index: int
@@ -469,7 +478,7 @@ class InspectDeviceHostReq(SshDeviceReq):
 
 class InstallDeviceHostReq(InspectDeviceHostReq):
     name: str = ""
-    action: str = "install"
+    action: str = "runtime_only"
     instance_id: str = ""
 
 class InstallLocalDeviceHostReq(BaseModel):
@@ -629,6 +638,7 @@ _RUNTIME_MODULES = {
     "dataset": "blacknode.pkg.blacknode_dataset.runtime",
     "training": "blacknode.pkg.blacknode_training.runtime",
     "isaac": "blacknode.pkg.blacknode_isaac.runtime",
+    "newton": "blacknode.pkg.blacknode_newton.runtime",
 }
 
 # Package reloads replace node functions before sys.modules is always updated.
@@ -638,6 +648,7 @@ _RUNTIME_MODULES = {
 _RUNTIME_REGISTRY_ANCHORS = {
     "robot": "RobotDriverLauncher",
     "isaac": "IsaacPolicyBridge",
+    "newton": "NewtonSimulation",
     "joint_control": "ROS2ManualMove",
     "robot_calibration_control": "RobotCalibrationControl",
 }
@@ -1510,6 +1521,126 @@ def get_graph():
     }
 
 
+def _port_schema_snapshot(meta: dict) -> dict[str, Any]:
+    return {
+        "inputs": list(meta.get("inputs", [])),
+        "outputs": list(meta.get("outputs", [])),
+        "input_types": dict(meta.get("input_types", {})),
+        "output_types": dict(meta.get("output_types", {})),
+        "input_defaults": dict(meta.get("input_defaults", {})),
+        "variadic_input": copy.deepcopy(meta.get("variadic_input")),
+        "live_capable": bool(meta.get("live_capable", False)),
+    }
+
+
+def _schema_change_payload(node_id: str, type_name: str, before: dict, after: dict) -> dict:
+    old_inputs = set(before["inputs"])
+    new_inputs = set(after["inputs"])
+    old_outputs = set(before["outputs"])
+    new_outputs = set(after["outputs"])
+    return {
+        "id": node_id,
+        "type": type_name,
+        "added_inputs": sorted(new_inputs - old_inputs),
+        "removed_inputs": sorted(old_inputs - new_inputs),
+        "added_outputs": sorted(new_outputs - old_outputs),
+        "removed_outputs": sorted(old_outputs - new_outputs),
+        "types_changed": (
+            before["input_types"] != after["input_types"]
+            or before["output_types"] != after["output_types"]
+        ),
+        "defaults_changed": before["input_defaults"] != after["input_defaults"],
+    }
+
+
+def _refresh_canvas_node_schemas() -> dict[str, Any]:
+    """Persist current registry schemas into every node on the active canvas."""
+    updated_nodes: list[dict[str, Any]] = []
+
+    for node_id, meta in _session.node_meta.items():
+        type_name = str(meta.get("type") or "")
+        fn = _NODE_REGISTRY.get(type_name)
+        if fn is None or type_name in _SUBGRAPH_NODE_TYPES:
+            continue
+
+        before = _port_schema_snapshot(meta)
+        old_inputs = set(before["inputs"])
+        inputs = list(getattr(fn, "_bn_inputs", before["inputs"]))
+        outputs = list(getattr(fn, "_bn_outputs", before["outputs"]))
+        meta["inputs"] = inputs
+        meta["outputs"] = outputs
+        meta["input_types"] = dict(getattr(fn, "_bn_input_types", before["input_types"]))
+        meta["output_types"] = dict(getattr(fn, "_bn_output_types", before["output_types"]))
+        meta["input_defaults"] = dict(getattr(fn, "_bn_input_defaults", before["input_defaults"]))
+        meta["live_capable"] = bool(getattr(fn, "_bn_live_capable", False))
+
+        declared_variadic = getattr(fn, "_bn_variadic_input", None)
+        if declared_variadic is None:
+            meta.pop("variadic_input", None)
+        else:
+            meta["variadic_input"] = dict(declared_variadic)
+
+        # Remove values that belonged to ports deleted from the node definition,
+        # while preserving labels and any other editor-only parameters.
+        params = dict(meta.get("params", {}))
+        for port in old_inputs - set(inputs):
+            params.pop(port, None)
+        meta["params"] = params
+
+        for key, allowed in (("promoted_inputs", inputs), ("promoted_outputs", outputs)):
+            promoted = meta.get(key)
+            if isinstance(promoted, list):
+                meta[key] = [port for port in promoted if port in allowed]
+
+        _sync_dynamic_node_meta(meta, _session.graph._edges)
+        after = _port_schema_snapshot(meta)
+        if before != after:
+            updated_nodes.append(_schema_change_payload(node_id, type_name, before, after))
+            _session.graph._dirty.add(node_id)
+
+    valid_edges: list[dict] = []
+    removed_edges: list[dict] = []
+    for edge in _session.graph._edges:
+        source = _session.node_meta.get(edge.get("from"))
+        target = _session.node_meta.get(edge.get("to"))
+        source_valid = source is not None and edge.get("from_port") in source.get("outputs", [])
+        target_valid = target is not None and edge.get("to_port") in target.get("inputs", [])
+        if source_valid and target_valid:
+            valid_edges.append(edge)
+        else:
+            removed_edges.append(dict(edge))
+    _session.graph._edges = valid_edges
+
+    # Dynamic nodes can expose an extra connection slot based on the final edge set.
+    for meta in _session.node_meta.values():
+        _sync_dynamic_node_meta(meta, valid_edges)
+
+    _save()
+    return {
+        "updated_nodes": updated_nodes,
+        "removed_edges": removed_edges,
+    }
+
+
+@app.post("/graph/refresh-node-schemas")
+def refresh_canvas_node_schemas():
+    report = discover_node_modules([Path(_CUSTOM_NODES_DIR)])
+    if report.get("failed"):
+        return {
+            "ok": False,
+            **report,
+            "updated_nodes": [],
+            "removed_edges": [],
+        }
+    changes = _refresh_canvas_node_schemas()
+    return {
+        "ok": True,
+        **report,
+        **changes,
+        "graph": get_graph(),
+    }
+
+
 @app.post("/graph")
 def set_graph(req: SetGraphReq):
     _restore_session_from_nodes(req.nodes, req.edges, metadata=req.metadata)
@@ -1933,6 +2064,48 @@ def _pick_directory(initial_path: str = "", title: str = "") -> str:
         root.destroy()
 
 
+def _pick_file(
+    initial_path: str = "",
+    title: str = "",
+    extensions: list[str] | None = None,
+) -> str:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:  # pragma: no cover - depends on the local Python GUI build
+        raise RuntimeError(f"native file picker is unavailable: {exc}") from exc
+    initial = Path(str(initial_path or "")).expanduser()
+    initial_dir = initial.parent if initial.is_file() else initial
+    if not initial_dir.is_dir():
+        initial_dir = Path.home()
+    clean_extensions = []
+    for raw in list(extensions or []):
+        extension = str(raw or "").strip().lower()
+        if extension and not extension.startswith("."):
+            extension = f".{extension}"
+        if extension and extension.replace(".", "").isalnum():
+            clean_extensions.append(extension)
+    filetypes = []
+    if clean_extensions:
+        label = ", ".join(extension.upper().lstrip(".") for extension in clean_extensions)
+        filetypes.append((f"{label} files", " ".join(f"*{extension}" for extension in clean_extensions)))
+    filetypes.append(("All files", "*.*"))
+    root = tk.Tk()
+    try:
+        root.withdraw()
+        root.attributes("-topmost", True)
+        root.update()
+        return str(filedialog.askopenfilename(
+            parent=root,
+            title=str(title or "Choose a file"),
+            initialdir=str(initial_dir),
+            initialfile=initial.name if initial.is_file() else "",
+            filetypes=filetypes,
+        ) or "")
+    finally:
+        root.destroy()
+
+
 @app.post("/filesystem/pick-directory")
 def pick_directory(req: PickDirectoryReq):
     try:
@@ -1940,6 +2113,73 @@ def pick_directory(req: PickDirectoryReq):
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
     return {"selected": selected, "cancelled": not bool(selected)}
+
+
+@app.post("/filesystem/pick-file")
+def pick_file(req: PickFileReq):
+    try:
+        selected = _pick_file(req.initial_path, req.title, req.extensions)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    if selected and req.extensions:
+        allowed = {
+            (extension if str(extension).startswith(".") else f".{extension}").lower()
+            for extension in req.extensions
+            if str(extension or "").strip()
+        }
+        if allowed and Path(selected).suffix.lower() not in allowed:
+            raise HTTPException(400, f"Selected file must use one of: {', '.join(sorted(allowed))}")
+    return {"selected": selected, "cancelled": not bool(selected)}
+
+
+def _filesystem_roots() -> list[str]:
+    if os.name == "nt":
+        return [f"{letter}:\\" for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" if Path(f"{letter}:\\").is_dir()]
+    return ["/"]
+
+
+@app.post("/filesystem/browse")
+def browse_files(req: BrowseFilesReq):
+    raw_path = str(req.path or "").strip()
+    requested = Path(raw_path).expanduser() if raw_path and not raw_path.startswith("package://") else Path.home()
+    selected = ""
+    if requested.is_file():
+        selected = str(requested.resolve())
+        requested = requested.parent
+    if not requested.is_dir():
+        requested = Path.home()
+    try:
+        current = requested.resolve()
+        allowed = {
+            (extension if str(extension).startswith(".") else f".{extension}").lower()
+            for extension in req.extensions
+            if str(extension or "").strip()
+        }
+        entries = []
+        for child in current.iterdir():
+            try:
+                is_directory = child.is_dir()
+                if not is_directory and allowed and child.suffix.lower() not in allowed:
+                    continue
+                entries.append({
+                    "name": child.name,
+                    "path": str(child.resolve()),
+                    "is_directory": is_directory,
+                    "size": None if is_directory else child.stat().st_size,
+                })
+            except (OSError, RuntimeError):
+                continue
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(400, f"Could not browse {current}: {exc}") from exc
+    entries.sort(key=lambda item: (not item["is_directory"], item["name"].casefold()))
+    parent = current.parent
+    return {
+        "path": str(current),
+        "parent": str(parent) if parent != current else "",
+        "roots": _filesystem_roots(),
+        "selected": selected,
+        "entries": entries[:5000],
+    }
 
 
 @app.patch("/nodes/{node_id}/ports")
@@ -2225,6 +2465,7 @@ def cook(req: CookReq):
     workflow = _run_workflow_snapshot(req.node_id, req.port)
     run_id = _run_store.begin(node_id=req.node_id, port=req.port, node_type=node_type, workflow=workflow)
     try:
+        _refresh_live_compute_device_params()
         _begin_fresh_cook()
         _run_store.record_event(run_id, {"type": "start", "node_id": req.node_id, "port": req.port})
         proxy  = bn.NodeProxy(_session.graph, req.node_id, node_type, {})
@@ -2945,6 +3186,7 @@ def cook_stream(req: CookReq):
     node_type = _session.node_meta.get(req.node_id, {}).get("type", "")
     workflow = _run_workflow_snapshot(req.node_id, req.port)
     run_id = _run_store.begin(node_id=req.node_id, port=req.port, node_type=node_type, workflow=workflow)
+    _refresh_live_compute_device_params()
     stop_event = _prepare_cook()
     _begin_fresh_cook()
     headers = {"X-Blacknode-Run-Id": run_id}
@@ -2984,6 +3226,7 @@ def cook_graph_stream(req: CookGraphReq):
         node_type="Graph",
         workflow=workflow,
     )
+    _refresh_live_compute_device_params()
     stop_event = _prepare_cook()
     _begin_fresh_cook()
     headers = {"X-Blacknode-Run-Id": run_id}
@@ -3210,6 +3453,39 @@ def stop_runtime():
     _stop_active_cook()
     _begin_fresh_cook()
     return _stop_runtime_services()
+
+
+class NewtonWorkspaceActionReq(BaseModel):
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+def _control_newton_workspace(action: str, payload: dict[str, Any] | None = None):
+    control_fn = _runtime_callable(
+        "newton", _RUNTIME_MODULES["newton"], "control_workspace"
+    )
+    if control_fn is None:
+        raise HTTPException(
+            503,
+            "The Newton workspace is unavailable. Install and enable the blacknode-newton runtime and a viewer component.",
+        )
+    try:
+        return dict(control_fn(action, dict(payload or {})))
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.get("/newton/workspace")
+def newton_workspace_status():
+    return _control_newton_workspace("status")
+
+
+@app.post("/newton/workspace/{action}")
+def newton_workspace_action(action: str, req: NewtonWorkspaceActionReq):
+    return _control_newton_workspace(action, req.payload)
 
 
 # ── Paired hardware devices ──────────────────────────────────────────────────
@@ -3536,6 +3812,168 @@ def _classify_inspected_ros2_graph(
     return inspection
 
 
+def _device_host_live_inspection(host_id: str) -> dict[str, Any]:
+    """Read current Runtime and ROS state through the paired device API."""
+    try:
+        host = _device_registry.get_host_public(host_id)
+    except DeviceRegistryError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    if host is None:
+        raise HTTPException(404, "Compute device not found")
+    if host.get("paused"):
+        raise HTTPException(409, "The compute device Runtime is stopped.")
+    try:
+        client = _device_registry.host_client(host_id)
+        manifest = client.manifest()
+        diagnostics = client.ros2_diagnostics()
+    except (DeviceRegistryError, KeyError) as exc:
+        raise HTTPException(
+            409,
+            "A paired, running Blacknode Runtime is required for live device "
+            "data. Install or pair the Runtime from Devices; an SSH password "
+            "is not required after pairing.",
+        ) from exc
+    if (
+        manifest.get("service") != "blacknode-runtime"
+        or manifest.get("protocol_version") != 1
+    ):
+        raise HTTPException(409, "The paired Runtime identity is incompatible.")
+
+    topics = [
+        str(value or "").strip()
+        for value in diagnostics.get("topics", [])
+        if str(value or "").strip()
+    ]
+    nodes = [
+        str(value or "").strip()
+        for value in diagnostics.get("nodes", [])
+        if str(value or "").strip()
+    ]
+    services = [
+        str(value or "").strip()
+        for value in diagnostics.get("services", [])
+        if str(value or "").strip()
+    ]
+    errors = [
+        str(value or "").strip()
+        for value in diagnostics.get("warnings", [])
+        if str(value or "").strip()
+    ]
+    diagnostics_ok = bool(diagnostics.get("ok"))
+    inspection = {
+        "ok": diagnostics_ok,
+        "live": diagnostics_ok,
+        "read_only": True,
+        "checked_at": str(
+            diagnostics.get("checked_at")
+            or datetime.now().astimezone().isoformat(timespec="seconds")
+        ),
+        "source": "paired_runtime",
+        "environment": {
+            "policy": "preserve",
+            "os": {"name": "", "version": "", "architecture": ""},
+            "python": {"version": "", "executable": ""},
+            "nvidia": {
+                "available": False,
+                "gpus": [],
+                "driver_version": "",
+                "driver_cuda_version": "",
+                "cuda_toolkit_version": "",
+                "nvidia_smi": False,
+                "nvcc": False,
+                "preserved": True,
+            },
+            "ros2": {
+                "available": bool(diagnostics.get("available")),
+                "distributions": [],
+                "selected_distribution": "",
+                "ros2_on_path": bool(diagnostics.get("available")),
+                "preserved": True,
+            },
+            "docker": {
+                "available": False,
+                "client_version": "",
+                "server_version": "",
+                "daemon_running": False,
+                "service_enabled": False,
+                "preserved": True,
+            },
+            "runtime_setup_packages": [],
+            "runtime": {
+                "device_id": str(manifest.get("device_id") or ""),
+                "version": str(manifest.get("runtime_version") or ""),
+                "protocol_version": manifest.get("protocol_version"),
+            }
+        },
+        "host_fingerprint": "",
+        "instances": [],
+        "suggested_port": 0,
+        "suggested_instance_id": "",
+        "ros2_graph": {
+            "available": bool(diagnostics.get("available")),
+            "state": "available" if diagnostics_ok else "unavailable",
+            "distribution": "",
+            "domain_id": "",
+            "read_only": True,
+            "daemon_used": False,
+            "topics": topics,
+            "nodes": nodes,
+            "services": services,
+            "errors": errors,
+            "diagnostics_summary": str(diagnostics.get("summary") or ""),
+        },
+    }
+    return _classify_inspected_ros2_graph(inspection)
+
+
+def _refresh_live_compute_device_params() -> None:
+    """Inject ephemeral live state immediately before an editor cook."""
+    for node in _session.graph._nodes.values():
+        if str(node.get("type") or "") != "ComputeDevice":
+            continue
+        params = node.get("params")
+        if not isinstance(params, dict):
+            continue
+        device_id = str(params.get("device_id") or "").strip()
+        if not device_id:
+            params["inspection"] = {}
+            continue
+        try:
+            params["inspection"] = _device_host_live_inspection(device_id)
+        except HTTPException as exc:
+            params["inspection"] = {
+                "ok": False,
+                "live": False,
+                "read_only": True,
+                "checked_at": datetime.now().astimezone().isoformat(
+                    timespec="seconds"
+                ),
+                "source": "paired_runtime",
+                "environment": {},
+                "ros2_graph": {
+                    "available": False,
+                    "state": "unavailable",
+                    "read_only": True,
+                    "daemon_used": False,
+                    "topics": [],
+                    "nodes": [],
+                    "services": [],
+                    "errors": [str(exc.detail)],
+                    "found": False,
+                    "capabilities": [],
+                    "unclassified": [],
+                    "inventory": {"topics": [], "nodes": [], "services": []},
+                    "report": str(exc.detail),
+                },
+                "error": str(exc.detail),
+            }
+
+
+@app.get("/device-hosts/{host_id}/live-inspection")
+def get_device_host_live_inspection(host_id: str):
+    return _device_host_live_inspection(host_id)
+
+
 @app.post("/device-hosts/inspect")
 def inspect_device_host(req: InspectDeviceHostReq):
     try:
@@ -3605,6 +4043,11 @@ def _install_device_host_payload(
             "install_root": installed.get("install_root", ""),
             "runtime_dir": installed["runtime_dir"],
             "packages_dir": installed.get("packages_dir", ""),
+            "firewall_source": installed.get("firewall_source", ""),
+            "delivery_mode": installed.get("delivery_mode", "device_online"),
+            "core_dir": installed.get("core_dir", ""),
+            "python_dir": installed.get("python_dir", ""),
+            "python_version": installed.get("python_version", ""),
             "stack_mode": installed.get("stack_mode", "runtime_only"),
             "hardware_dir": installed.get("hardware_dir", ""),
         },
@@ -5083,6 +5526,7 @@ def _uninstall_device_host_payload(
                 host_fingerprint=str(managed.get("host_fingerprint") or ""),
                 instance_id=str(managed.get("instance_id") or "default"),
                 runtime_port=int(managed.get("runtime_port") or 0),
+                firewall_source=str(managed.get("firewall_source") or ""),
                 stack_mode=str(managed.get("stack_mode") or "runtime_only"),
                 hardware_ports=sorted(hardware_ports),
                 progress=progress,
@@ -10806,12 +11250,20 @@ def _custom_node_globals() -> dict[str, Any]:
 @app.post("/exec-node")
 def exec_node(req: ExecNodeReq):
     import traceback
-    before = set(_NODE_REGISTRY.keys())
+    before = dict(_NODE_REGISTRY)
     globs: dict = _custom_node_globals()
     try:
         exec(compile(req.code, "<custom>", "exec"), globs)
-        new_types = sorted(set(_NODE_REGISTRY.keys()) - before)
-        return {"ok": True, "new_types": new_types}
+        registered_types = sorted(
+            name for name, fn in _NODE_REGISTRY.items()
+            if before.get(name) is not fn
+        )
+        new_types = sorted(name for name in registered_types if name not in before)
+        return {
+            "ok": True,
+            "new_types": new_types,
+            "registered_types": registered_types,
+        }
     except Exception:
         raise HTTPException(400, traceback.format_exc())
 
@@ -10828,6 +11280,21 @@ def list_custom_nodes():
         if getattr(fn, "_bn_source_path", "")
     ]
     return {"directory": str(custom_dir), "files": files, "registered": registered}
+
+
+@app.get("/custom-nodes/source")
+def get_custom_node_source(filename: str):
+    custom_dir = Path(_CUSTOM_NODES_DIR).resolve()
+    path = (custom_dir / _safe_custom_node_filename(filename)).resolve()
+    if custom_dir not in path.parents:
+        raise HTTPException(400, "Invalid custom node path")
+    if not path.is_file():
+        raise HTTPException(404, f"Custom node file '{path.name}' was not found")
+    return {
+        "filename": path.name,
+        "path": str(path),
+        "code": path.read_text(encoding="utf-8"),
+    }
 
 
 @app.get("/packages")

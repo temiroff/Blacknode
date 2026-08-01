@@ -43,6 +43,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert set(payload["packages"]) == {
         "blacknode-agent",
         "blacknode-motion",
+        "blacknode-newton",
         "blacknode-cuda",
         "blacknode-dataset",
         "blacknode-drivers",
@@ -142,6 +143,10 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert "CUDACustomKernel" not in payload["nodes"]
     assert payload["nodes"]["ROS2TopicList"]["package"] == "blacknode-ros2"
     assert payload["nodes"]["ROS2TopicPublisher"]["package"] == "blacknode-ros2"
+    assert payload["nodes"]["ROS2TopicSubscriber"]["package"] == "blacknode-ros2"
+    assert payload["nodes"]["ROS2PythonNode"]["package"] == "blacknode-ros2"
+    assert "ROS2TopicPublish" not in payload["nodes"]
+    assert payload["nodes"]["ROS2GraphExplorer"]["package"] == "blacknode-ros2"
     assert "ROS2DemoPublisher" not in payload["nodes"]
     assert payload["nodes"]["RobotDiscovery"]["package"] == "blacknode-robot"
     assert payload["nodes"]["RobotMonitor"]["package"] == "blacknode-robot"

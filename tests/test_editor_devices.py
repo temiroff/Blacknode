@@ -8,6 +8,7 @@ import re
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import unittest
@@ -609,14 +610,26 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn('runtime_dir="$stack_root/runtime"', script)
         self.assertIn('hardware_dir="$stack_root/hardware"', script)
         self.assertIn('"$action" == "install" || "$action" == "replace"', script)
+        self.assertNotIn('"$action" == "runtime_only" ]]; then\n  complete_stack=true', script)
+        self.assertIn('"$action" == "replace" || "$action" == "replace_runtime"', script)
         self.assertIn('if [[ "$complete_stack" == true && ! -d "$hardware_dir" ]]', script)
         self.assertIn('"packages_dir": str(Path(sys.argv[3]) / "packages")', script)
         self.assertIn(
-            'if sys.argv[6] in {"install", "replace", "isolated_stack"}',
+            'sys.argv[6] in {"install", "replace", "isolated_stack"}',
             script,
         )
         self.assertIn('BLACKNODE_HARDWARE_INSTANCE="$service_instance"', script)
         self.assertIn("does not support isolated stacks yet", script)
+        self.assertIn(
+            'if [[ "$action" == "runtime_only" || "$action" == "replace_runtime" ]]',
+            script,
+        )
+        self.assertIn('sudo ufw allow from "$candidate_source" to any port "$runtime_port"', script)
+        self.assertIn('"firewall_source": sys.argv[7]', script)
+        self.assertIn('delivery_mode="pc_assisted"', script)
+        self.assertIn('--disable-pip-version-check --no-index', script)
+        self.assertIn('rm -rf -- "$core_dir" "$python_dir" "$bundle_dir"', script)
+        self.assertIn('__BLACKNODE_HARDWARE_PRESERVED__=1', script)
         self.assertNotIn("keep_sudo_alive", script)
 
         self.assertIn(
@@ -647,9 +660,105 @@ class EditorDeviceApiTests(unittest.TestCase):
             script,
         )
 
-        self.assertEqual(len(python_blocks), 3)
+        self.assertEqual(len(python_blocks), 5)
         for index, python_block in enumerate(python_blocks, start=1):
             compile(python_block, f"<remote-install-python-{index}>", "exec")
+
+    def test_windows_editor_builds_and_reuses_linux_arm64_runtime_bundle(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            python_archive = root / "python.tar.gz"
+            runtime_archive = root / "runtime.tar.gz"
+            core_archive = root / "core.tar.gz"
+            wheelhouse = root / "wheels"
+            wheelhouse.mkdir()
+            python_archive.write_bytes(b"linux-python")
+            runtime_archive.write_bytes(b"runtime-source")
+            core_archive.write_bytes(b"core-source")
+            (wheelhouse / "dependency-1.0-py3-none-any.whl").write_bytes(b"wheel")
+            progress = []
+            with (
+                patch.dict(
+                    os.environ,
+                    {"BLACKNODE_DEVICE_INSTALL_CACHE": str(root / "cache")},
+                ),
+                patch.object(
+                    device_installer,
+                    "_standalone_python",
+                    return_value=(python_archive, "3.11.14", "a" * 64),
+                ),
+                patch.object(
+                    device_installer,
+                    "_repository_snapshot",
+                    side_effect=[
+                        (runtime_archive, "b" * 40),
+                        (core_archive, "c" * 40),
+                    ],
+                ),
+                patch.object(
+                    device_installer,
+                    "_prepare_wheelhouse",
+                    return_value=wheelhouse,
+                ),
+            ):
+                bundle = device_installer._prepare_runtime_bundle(
+                    "aarch64",
+                    lambda percent, message: progress.append((percent, message)),
+                )
+
+            self.assertEqual(bundle.architecture, "aarch64")
+            self.assertEqual(bundle.python_version, "3.11.14")
+            with tarfile.open(bundle.path, "r:gz") as archive:
+                names = set(archive.getnames())
+                manifest_file = archive.extractfile("manifest.json")
+                self.assertIsNotNone(manifest_file)
+                manifest = json.loads(manifest_file.read().decode("utf-8"))
+            self.assertIn("python.tar.gz", names)
+            self.assertIn("runtime-source.tar.gz", names)
+            self.assertIn("core-source.tar.gz", names)
+            self.assertIn("wheelhouse/dependency-1.0-py3-none-any.whl", names)
+            self.assertEqual(manifest["delivery_mode"], "pc_assisted")
+            self.assertEqual(manifest["architecture"], "aarch64")
+            self.assertTrue(any("verified" in message.lower() for _, message in progress))
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {"BLACKNODE_DEVICE_INSTALL_CACHE": str(root / "cache")},
+                ),
+                patch.object(
+                    device_installer,
+                    "_standalone_python",
+                    side_effect=device_installer.DeviceInstallError("editor offline"),
+                ),
+            ):
+                cached = device_installer._prepare_runtime_bundle(
+                    "arm64",
+                    lambda _percent, _message: None,
+                )
+            self.assertEqual(cached.path, bundle.path)
+
+    def test_pc_assisted_runtime_rejects_unsupported_device_architecture(self):
+        with self.assertRaisesRegex(
+            device_installer.DeviceInstallError,
+            "does not support Linux architecture 'armv7l'",
+        ):
+            device_installer._target_architecture("armv7l")
+
+    def test_pc_assisted_linux_lock_excludes_windows_packages(self):
+        dependency_lock = (
+            EDITOR_SERVER_DIR / "device-runtime-requirements.lock"
+        ).read_text(encoding="utf-8")
+        source_lock = device_installer._runtime_source_lock()
+
+        self.assertIn("pydantic-core==", dependency_lock)
+        self.assertIn("docker==", dependency_lock)
+        self.assertNotIn("pywin32", dependency_lock.lower())
+        self.assertEqual(
+            source_lock["runtime"]["repository"],
+            "temiroff/blacknode-runtime",
+        )
+        self.assertRegex(source_lock["core"]["commit"], r"^[0-9a-f]{40}$")
 
     def test_hardware_pairing_discovery_reads_only_verified_service_files(self):
         token = "hardware-pairing-token-1234567890"
@@ -973,7 +1082,7 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         self.assertIn(" default 8766", commands[0])
 
-    def test_reinstall_of_incomplete_instance_uses_next_available_port(self):
+    def test_runtime_reinstall_uses_next_port_and_preserves_hardware(self):
         class RemoteFile(io.StringIO):
             def __enter__(self):
                 return self
@@ -1005,18 +1114,29 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "token_available": False,
             }],
             "suggested_port": 8768,
+            "environment": {"os": {"architecture": "aarch64"}},
         }
         commands = []
+        bundle = device_installer._RuntimeBundle(
+            path=Path("cached-runtime-bundle.tar.gz"),
+            architecture="aarch64",
+            python_version="3.11.14",
+            runtime_commit="a" * 40,
+            core_commit="b" * 40,
+        )
 
         def fake_run(_connection, command, **kwargs):
             commands.append(command)
             if "on_output" in kwargs:
                 kwargs["on_output"]("__BLACKNODE_RUNTIME_PORT__=8769")
+                kwargs["on_output"]("__BLACKNODE_HARDWARE_PRESERVED__=1")
             return ""
 
         with (
             patch.object(device_installer, "_connect", return_value=connection),
             patch.object(device_installer, "_inspect_connection", return_value=inspection),
+            patch.object(device_installer, "_prepare_runtime_bundle", return_value=bundle),
+            patch.object(device_installer, "_upload_sftp_file"),
             patch.object(device_installer, "_run", side_effect=fake_run),
         ):
             result = device_installer.install_runtime(
@@ -1025,12 +1145,92 @@ class EditorDeviceApiTests(unittest.TestCase):
                 username="robot",
                 password="ssh-password",
                 host_fingerprint="SHA256:trusted-device-key",
-                action="replace",
+                action="replace_runtime",
                 instance_id="instance-2",
             )
 
         self.assertEqual(result["runtime_port"], 8769)
-        self.assertIn("replace instance-2 8768", commands[0])
+        self.assertEqual(result["stack_mode"], "isolated")
+        self.assertEqual(
+            result["hardware_dir"],
+            "~/Blacknode/devices/instance-2/hardware",
+        )
+        self.assertIn("replace_runtime instance-2 8768", commands[0])
+
+    def test_runtime_only_install_records_restricted_compute_stack(self):
+        class RemoteFile(io.StringIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+                return False
+
+        class Sftp:
+            def file(self, _path, _mode):
+                return RemoteFile()
+
+            def chmod(self, _path, _mode):
+                return None
+
+            def close(self):
+                return None
+
+        connection = SimpleNamespace(
+            client=SimpleNamespace(open_sftp=lambda: Sftp()),
+            fingerprint="SHA256:trusted-device-key",
+            close=lambda: None,
+        )
+        commands = []
+        bundle = device_installer._RuntimeBundle(
+            path=Path("cached-runtime-bundle.tar.gz"),
+            architecture="aarch64",
+            python_version="3.11.14",
+            runtime_commit="a" * 40,
+            core_commit="b" * 40,
+        )
+
+        def fake_run(_connection, command, **kwargs):
+            commands.append(command)
+            if "on_output" in kwargs:
+                kwargs["on_output"]("__BLACKNODE_RUNTIME_PORT__=8766")
+                kwargs["on_output"]("__BLACKNODE_FIREWALL_SOURCE__=192.168.1.20")
+            return ""
+
+        with (
+            patch.object(device_installer, "_connect", return_value=connection),
+            patch.object(
+                device_installer,
+                "_inspect_connection",
+                return_value={
+                    "instances": [],
+                    "suggested_port": 8766,
+                    "environment": {"os": {"architecture": "aarch64"}},
+                },
+            ),
+            patch.object(device_installer, "_prepare_runtime_bundle", return_value=bundle),
+            patch.object(device_installer, "_upload_sftp_file"),
+            patch.object(device_installer, "_run", side_effect=fake_run),
+        ):
+            result = device_installer.install_runtime(
+                host="192.168.1.87",
+                port=22,
+                username="robot",
+                password="ssh-password",
+                host_fingerprint="SHA256:trusted-device-key",
+                action="runtime_only",
+            )
+
+        self.assertEqual(result["stack_mode"], "runtime_only")
+        self.assertEqual(result["hardware_dir"], "")
+        self.assertEqual(result["firewall_source"], "192.168.1.20")
+        self.assertEqual(result["delivery_mode"], "pc_assisted")
+        self.assertEqual(result["python_version"], "3.11.14")
+        self.assertEqual(
+            result["python_dir"],
+            "~/Blacknode/devices/default/python",
+        )
+        self.assertIn("runtime_only default 8766", commands[0])
 
     def test_default_isolated_stack_uninstall_streams_remote_cleanup_progress(self):
         uploaded = []
@@ -2525,16 +2725,23 @@ class EditorDeviceApiTests(unittest.TestCase):
             "runtime_token": runtime.token,
             "host_fingerprint": "SHA256:trusted-device-key",
             "elapsed_seconds": 12.3,
-            "action": "install",
+            "action": "runtime_only",
             "instance_id": "default",
             "runtime_port": 8766,
             "service_name": "blacknode-runtime.service",
             "install_root": "~/Blacknode/devices/default",
             "runtime_dir": "~/Blacknode/devices/default/runtime",
             "packages_dir": "~/Blacknode/devices/default/runtime/packages",
+            "firewall_source": "192.168.1.20",
+            "delivery_mode": "pc_assisted",
+            "core_dir": "~/Blacknode/devices/default/core",
+            "python_dir": "~/Blacknode/devices/default/python",
+            "python_version": "3.11.15",
+            "stack_mode": "runtime_only",
+            "hardware_dir": "",
         }
         with (
-            patch.object(server, "install_runtime", return_value=install_result),
+            patch.object(server, "install_runtime", return_value=install_result) as install,
             patch("device_registry.urllib.request.urlopen", side_effect=runtime),
         ):
             response = self.client.post("/device-hosts/install", json={
@@ -2566,6 +2773,14 @@ class EditorDeviceApiTests(unittest.TestCase):
             managed["packages_dir"],
             "~/Blacknode/devices/default/runtime/packages",
         )
+        self.assertEqual(managed["firewall_source"], "192.168.1.20")
+        self.assertEqual(managed["delivery_mode"], "pc_assisted")
+        self.assertEqual(managed["core_dir"], "~/Blacknode/devices/default/core")
+        self.assertEqual(managed["python_dir"], "~/Blacknode/devices/default/python")
+        self.assertEqual(managed["python_version"], "3.11.15")
+        self.assertEqual(managed["stack_mode"], "runtime_only")
+        self.assertEqual(managed["hardware_dir"], "")
+        self.assertEqual(install.call_args.kwargs["action"], "runtime_only")
 
     def test_automatic_install_stream_reports_progress_and_finishes_pairing(self):
         runtime = _HardwareService("generated-runtime-token")
@@ -3042,6 +3257,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             host_fingerprint="SHA256:trusted-device-key",
             instance_id="instance-2",
             runtime_port=8767,
+            firewall_source="",
             stack_mode="runtime_only",
             hardware_ports=[8765],
             progress=None,

@@ -490,6 +490,9 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [streamStopPending, setStreamStopPending] = useState(false)
   const [streamStartPending, setStreamStartPending] = useState(false)
   const [rosRunStopPending, setRosRunStopPending] = useState(false)
+  const [rosPythonStopPending, setRosPythonStopPending] = useState(false)
+  const [topicPublisherStopPending, setTopicPublisherStopPending] = useState(false)
+  const [topicSubscriberStopPending, setTopicSubscriberStopPending] = useState(false)
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
   const [episodePending, setEpisodePending] = useState<null | 'start' | 'pause' | 'resume' | 'save' | 'stop' | 'discard'>(null)
@@ -913,6 +916,19 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     && Object.keys(data.portResults ?? {}).length > 0
   const rosRunActive = data.type === 'ROS2Run' && data.portResults?.running === true
   const rosRunId = typeof data.portResults?.run_id === 'string' ? data.portResults.run_id : 'ros2_run'
+  const rosPythonActive = data.type === 'ROS2PythonNode' && data.portResults?.running === true
+  const rosPythonRunId = String(data.params?.run_id ?? data.portResults?.run_id ?? 'ros2_python_node')
+  const rosPythonSource = String(
+    data.params?.source_mode === 'inline'
+      ? 'inline code'
+      : data.params?.script_path ?? data.portResults?.script ?? 'Python script',
+  )
+  const topicPublisherActive = data.type === 'ROS2TopicPublisher' && data.portResults?.running === true
+  const topicPublisherName = String(data.params?.node_name ?? '').trim().replace(/^\/+/, '')
+  const topicPublisherTopic = String(data.params?.topic ?? '/chatter').trim() || '/chatter'
+  const topicSubscriberActive = data.type === 'ROS2TopicSubscriber' && data.portResults?.running === true
+  const topicSubscriberName = String(data.params?.node_name ?? 'blacknode_subscriber').trim().replace(/^\/+/, '')
+  const topicSubscriberTopic = String(data.params?.topic ?? '/chatter').trim() || '/chatter'
 
   // Ordered by urgency: a running process outranks a waiting one, which
   // outranks a passive "this result is stale" note.
@@ -935,6 +951,36 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         label: rosRunStopPending ? 'Stopping...' : 'Stop run',
         pending: rosRunStopPending,
         onClick: () => { void onStopROS2Run() },
+      },
+    }
+    : rosPythonActive ? {
+      text: 'ROS2 PYTHON RUNNING',
+      tone: 'ok',
+      title: `${rosPythonRunId} is running from ${rosPythonSource}`,
+      action: {
+        label: rosPythonStopPending ? 'Stopping...' : 'Stop',
+        pending: rosPythonStopPending,
+        onClick: () => { void onStopROS2PythonNode() },
+      },
+    }
+    : topicPublisherActive ? {
+      text: 'LIVE • PUBLISHING',
+      tone: 'ok',
+      title: `${topicPublisherName ? `/${topicPublisherName} is` : 'ROS 2 node is'} publishing on ${topicPublisherTopic}`,
+      action: {
+        label: topicPublisherStopPending ? 'Stopping...' : 'Stop',
+        pending: topicPublisherStopPending,
+        onClick: () => { void onStopTopicPublisher() },
+      },
+    }
+    : topicSubscriberActive ? {
+      text: 'LIVE • SUBSCRIBING',
+      tone: 'ok',
+      title: `/${topicSubscriberName || 'blacknode_subscriber'} is subscribing to ${topicSubscriberTopic}`,
+      action: {
+        label: topicSubscriberStopPending ? 'Stopping...' : 'Stop',
+        pending: topicSubscriberStopPending,
+        onClick: () => { void onStopTopicSubscriber() },
       },
     }
     : liveBlocked || liveWaiting ? {
@@ -967,7 +1013,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     ? { label: 'Error', tone: 'error' }
     : data.cooking || data.replayStatus === 'running' || data.replayStatus === 'model' || data.replayStatus === 'tool'
       ? { label: data.replayStatus === 'model' ? 'Reasoning' : data.replayStatus === 'tool' ? 'Using tool' : 'Running', tone: 'running' }
-      : streamActive || rosRunActive || manualMoveLive || genericNodeLive || liveServiceRunning
+      : streamActive || rosRunActive || rosPythonActive || topicPublisherActive || topicSubscriberActive || manualMoveLive || genericNodeLive || liveServiceRunning
         ? { label: liveWaiting ? 'Waiting' : 'Live', tone: liveWaiting ? 'waiting' : 'live' }
         : snapshotResult || data.cookResult !== undefined || Object.keys(data.portResults ?? {}).length > 0
           ? { label: 'Ready', tone: 'ready' }
@@ -1137,6 +1183,51 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         // Keep the stop control responsive even if the editor cannot write the param.
       }
       setRosRunStopPending(false)
+    }
+  }
+
+  const onStopROS2PythonNode = async () => {
+    setRosPythonStopPending(true)
+    try {
+      await updateParam(id, 'action', 'stop')
+      await cookNode(id, 'report')
+    } finally {
+      try {
+        await updateParam(id, 'action', 'start')
+      } catch {
+        // The script is already stopped; leave the visual control responsive.
+      }
+      setRosPythonStopPending(false)
+    }
+  }
+
+  const onStopTopicPublisher = async () => {
+    setTopicPublisherStopPending(true)
+    try {
+      await updateParam(id, 'action', 'stop')
+      await cookNode(id, 'report')
+    } finally {
+      try {
+        await updateParam(id, 'action', 'start')
+      } catch {
+        // The publisher is already stopped; leave the visual control responsive.
+      }
+      setTopicPublisherStopPending(false)
+    }
+  }
+
+  const onStopTopicSubscriber = async () => {
+    setTopicSubscriberStopPending(true)
+    try {
+      await updateParam(id, 'action', 'stop')
+      await cookNode(id, 'report')
+    } finally {
+      try {
+        await updateParam(id, 'action', 'start')
+      } catch {
+        // The subscriber is already stopped; leave the visual control responsive.
+      }
+      setTopicSubscriberStopPending(false)
     }
   }
 

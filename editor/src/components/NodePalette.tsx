@@ -167,6 +167,7 @@ export default function NodePalette() {
   const [deploymentReturnDeviceId, setDeploymentReturnDeviceId] = useState('')
   const [templateSearch, setTemplateSearch] = useState('')
   const [templateOpenInNewTab, setTemplateOpenInNewTab] = useState(true)
+  const [scriptEditRequest, setScriptEditRequest] = useState<{ filename: string; key: number } | null>(null)
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set())
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
 
@@ -226,12 +227,19 @@ export default function NodePalette() {
         tab?: Tab
         deviceId?: string
         returnDeviceId?: string
+        customNodeFile?: string
       }>).detail
       const tab = detail?.tab
       if (!tab || (tab !== 'deployments' && !TABS.some(item => item.id === tab))) return
       if (tab === 'deployments') {
         setDeploymentTargetId(String(detail?.deviceId || ''))
         setDeploymentReturnDeviceId(String(detail?.returnDeviceId || ''))
+      }
+      if (tab === 'script' && detail?.customNodeFile) {
+        setScriptEditRequest(current => ({
+          filename: String(detail.customNodeFile),
+          key: (current?.key ?? 0) + 1,
+        }))
       }
       openPanel(tab)
     }
@@ -788,7 +796,10 @@ export default function NodePalette() {
             {/* ── SCRIPT ── */}
             {activeTab === 'script' && (
               <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                <ScriptEditor />
+                <ScriptEditor
+                  key={scriptEditRequest?.key ?? 'new'}
+                  initialFilename={scriptEditRequest?.filename}
+                />
               </div>
             )}
 

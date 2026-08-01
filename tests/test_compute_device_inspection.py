@@ -103,6 +103,92 @@ class ComputeDeviceInspectionTests(unittest.TestCase):
         ):
             registry.host_client(device["id"])
 
+    def test_live_inspection_uses_paired_runtime_without_ssh_password(self):
+        registry = server._device_registry
+        device = registry.pair_host(
+            name="Jetson",
+            runtime_url="http://192.168.55.1:8766",
+            runtime_token="runtime-secret-value-that-is-long-enough",
+            manifest={
+                "service": "blacknode-runtime",
+                "protocol_version": 1,
+                "device_id": "jetson-device",
+            },
+        )
+
+        class Runtime:
+            def manifest(self):
+                return {
+                    "service": "blacknode-runtime",
+                    "protocol_version": 1,
+                    "runtime_version": "0.3.13",
+                    "device_id": "jetson-device",
+                }
+
+            def ros2_diagnostics(self):
+                return {
+                    "ok": True,
+                    "available": True,
+                    "checked_at": "2026-07-31T09:00:00+00:00",
+                    "summary": "Found a depth camera.",
+                    "topics": [
+                        "/camera/depth/image_raw [sensor_msgs/msg/Image]",
+                        "/camera/depth/camera_info [sensor_msgs/msg/CameraInfo]",
+                    ],
+                    "nodes": ["/depth_camera"],
+                    "services": [],
+                    "warnings": [],
+                }
+
+        with patch.object(registry, "host_client", return_value=Runtime()):
+            response = self.client.get(
+                f"/device-hosts/{device['id']}/live-inspection"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        inspection = response.json()
+        self.assertTrue(inspection["ok"])
+        self.assertTrue(inspection["live"])
+        self.assertEqual(inspection["source"], "paired_runtime")
+        self.assertEqual(
+            inspection["environment"]["runtime"]["device_id"],
+            "jetson-device",
+        )
+        self.assertIn(
+            "depth_camera",
+            {
+                item["capability"]
+                for item in inspection["ros2_graph"]["capabilities"]
+            },
+        )
+        self.assertNotIn("password", json.dumps(inspection).lower())
+
+    def test_editor_cook_injects_live_state_without_saving_it(self):
+        original_nodes = server._session.graph._nodes
+        server._session.graph._nodes = {
+            "device": {
+                "type": "ComputeDevice",
+                "params": {
+                    "device_id": "jetson-01",
+                    "inspection": {"old": True},
+                },
+            }
+        }
+        live = {"ok": True, "live": True, "checked_at": "now"}
+        try:
+            with patch.object(
+                server,
+                "_device_host_live_inspection",
+                return_value=live,
+            ) as inspect:
+                server._refresh_live_compute_device_params()
+        finally:
+            nodes = server._session.graph._nodes
+            server._session.graph._nodes = original_nodes
+
+        inspect.assert_called_once_with("jetson-01")
+        self.assertEqual(nodes["device"]["params"]["inspection"], live)
+
     def test_pairing_runtime_upgrades_matching_inspection_device_in_place(self):
         registry = server._device_registry
         inspected = registry.register_inspection_host(

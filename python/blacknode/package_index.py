@@ -405,9 +405,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "node_types": [
                         "ROS2TopicEcho",
                         "ROS2TopicList",
-                        "ROS2TopicPublish",
                         "ROS2TopicPublisher",
-                        "ROS2TopicRelay"
+                        "ROS2TopicRelay",
+                        "ROS2TopicSubscriber"
                     ],
                     "dependencies": {
                         "requires": [{"component": "core"}]
@@ -429,6 +429,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "node_types": [
                         "ROS2Launch",
                         "ROS2PackageExecutables",
+                        "ROS2PythonNode",
                         "ROS2Run"
                     ],
                     "dependencies": {
@@ -439,6 +440,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "diagnostics",
                     "default": True,
                     "node_types": [
+                        "ROS2GraphExplorer",
                         "ROS2InterfaceShow",
                         "ROS2NodeList",
                         "ROS2Status",
@@ -455,10 +457,12 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "node_types": [
                 "ROS2BridgeEcho",
                 "ROS2BridgePublish",
+                "ROS2GraphExplorer",
                 "ROS2InterfaceShow",
                 "ROS2Launch",
                 "ROS2NodeList",
                 "ROS2PackageExecutables",
+                "ROS2PythonNode",
                 "ROS2RosbridgeServer",
                 "ROS2RosbridgeStatus",
                 "ROS2Run",
@@ -467,9 +471,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "ROS2SystemCheck",
                 "ROS2TopicEcho",
                 "ROS2TopicList",
-                "ROS2TopicPublish",
                 "ROS2TopicPublisher",
                 "ROS2TopicRelay",
+                "ROS2TopicSubscriber",
                 "ROS2VisualDashboard"
             ]
         },

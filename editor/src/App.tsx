@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import ReactFlow, {
   Background, Controls, MiniMap,
   BackgroundVariant, ReactFlowInstance, Edge, Connection, SelectionMode,
@@ -12,6 +13,9 @@ import ValueNode from './components/ValueNode'
 import ModelNode from './components/ModelNode'
 import OutputNode from './components/OutputNode'
 import ComputeDeviceNode from './components/ComputeDeviceNode'
+import ROS2GraphExplorerNode from './components/ROS2GraphExplorerNode'
+import SimulationViewerPane from './components/SimulationViewerPane'
+import LocalFilePicker from './components/LocalFilePicker'
 import RobotMonitorNode from './components/RobotMonitorNode'
 import RobotServoNode from './components/RobotServoNode'
 import SubnetNode from './components/SubnetNode'
@@ -24,7 +28,7 @@ import NodeSearch from './components/NodeSearch'
 import { portColor, portVisualColor, portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
-import { api, type FrameworkExportTarget, type WorkflowMetadata } from './api'
+import { api, type FrameworkExportTarget, type NewtonWorkspaceStatus, type WorkflowMetadata } from './api'
 import { inferGraphRunTargets } from './graphRun'
 import { copyTextToClipboard } from './clipboard'
 
@@ -34,6 +38,7 @@ const NODE_TYPES = {
   modelnode: ModelNode,
   outputnode: OutputNode,
   computedevice: ComputeDeviceNode,
+  ros2graphexplorer: ROS2GraphExplorerNode,
   robotmonitor: RobotMonitorNode,
   robotservo: RobotServoNode,
   subnetnode: SubnetNode,
@@ -45,6 +50,8 @@ const TAB_H = 52  // workflow tab bar height
 const THEME_STORAGE_KEY = 'blacknode-theme'
 const UI_TEST_STORAGE_KEY = 'blacknode-ui-test'
 const NODE_DENSITY_STORAGE_KEY = 'blacknode-node-density'
+const SIMULATION_VIEWER_HEIGHT_STORAGE_KEY = 'blacknode-simulation-viewer-height'
+const USD_FILE_EXTENSIONS = ['.usd', '.usda', '.usdc']
 
 function loadDarkThemePreference() {
   try {
@@ -63,6 +70,15 @@ function loadNodeDensityPreference(): 'detailed' | 'compact' {
     return window.localStorage.getItem(NODE_DENSITY_STORAGE_KEY) === 'compact' ? 'compact' : 'detailed'
   } catch {
     return 'detailed'
+  }
+}
+
+function loadSimulationViewerHeight(): number {
+  try {
+    const value = Number(window.localStorage.getItem(SIMULATION_VIEWER_HEIGHT_STORAGE_KEY))
+    return Number.isFinite(value) && value >= 180 ? value : 420
+  } catch {
+    return 420
   }
 }
 
@@ -177,6 +193,20 @@ export default function App() {
   const [exportingTarget, setExportingTarget] = useState('')
   const [importingFile, setImportingFile] = useState(false)
   const [runtimeStopPending, setRuntimeStopPending] = useState(false)
+  const [refreshingCanvas, setRefreshingCanvas] = useState(false)
+  const [openingUsd, setOpeningUsd] = useState(false)
+  const [usdPickerInitialPath, setUsdPickerInitialPath] = useState<string | null>(null)
+  const [simulationViewerVisible, setSimulationViewerVisible] = useState(true)
+  const [simulationViewerDetached, setSimulationViewerDetached] = useState(false)
+  const [simulationViewerHeight, setSimulationViewerHeight] = useState(loadSimulationViewerHeight)
+  const [simulationViewerMenuOpen, setSimulationViewerMenuOpen] = useState(false)
+  const [simulationViewerMenuPosition, setSimulationViewerMenuPosition] = useState({ top: 0, left: 0 })
+  const [newtonWorkspace, setNewtonWorkspace] = useState<NewtonWorkspaceStatus | null>(null)
+  const [newtonWorkspaceAvailable, setNewtonWorkspaceAvailable] = useState(false)
+  const [newtonWorkspaceBusy, setNewtonWorkspaceBusy] = useState(false)
+  const lastSimulationViewerUrl = useRef('')
+  const simulationViewerMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const simulationViewerMenuRef = useRef<HTMLDivElement | null>(null)
   const updatePendingCloseName = useCallback((draftName: string) => {
     setPendingClose(current => current ? { ...current, draftName } : current)
   }, [])
@@ -198,6 +228,196 @@ export default function App() {
   const activeTab = tabs.find(tab => tab.id === activeTabId)
   const menuTab = tabMenu ? tabs.find(tab => tab.id === tabMenu.tabId) : null
   const pendingCloseTab = pendingClose ? tabs.find(tab => tab.id === pendingClose.tabId) : null
+  const simulationViewer = useMemo(() => {
+    for (const node of nodes) {
+      if (node.data.type !== 'NewtonSimulation') continue
+      const results = node.data.portResults ?? {}
+      const session = results.session && typeof results.session === 'object'
+        ? results.session as Record<string, unknown>
+        : {}
+      const url = String(results.viewer_url ?? session.viewer_url ?? '').trim()
+      if (!url || (results.running !== true && session.running !== true)) continue
+      return {
+        url,
+        label: String(node.data.params?.run_id ?? node.data.input_defaults?.run_id ?? 'Newton simulation'),
+        phase: String(results.phase ?? session.phase ?? 'running'),
+        armed: results.armed === true || session.armed === true,
+      }
+    }
+    return null
+  }, [nodes])
+
+  const activeSimulationViewer = useMemo(() => {
+    if (newtonWorkspace?.open && newtonWorkspace.viewer_url) {
+      return {
+        url: newtonWorkspace.viewer_url,
+        label: 'Newton',
+        phase: newtonWorkspace.phase,
+        armed: newtonWorkspace.armed,
+        workspace: true,
+      }
+    }
+    return simulationViewer ? { ...simulationViewer, workspace: false } : null
+  }, [newtonWorkspace, simulationViewer])
+
+  const attachSimulationViewer = useCallback(() => {
+    setSimulationViewerDetached(false)
+    setSimulationViewerVisible(true)
+  }, [])
+
+  const detachSimulationViewer = useCallback(() => {
+    if (!activeSimulationViewer) return
+    setSimulationViewerDetached(true)
+    setSimulationViewerVisible(true)
+  }, [activeSimulationViewer])
+
+  const controlNewtonWorkspace = useCallback(async (
+    action: string,
+    payload: Record<string, unknown> = {},
+  ) => {
+    if (newtonWorkspaceBusy) return null
+    setNewtonWorkspaceBusy(true)
+    try {
+      const status = await api.controlNewtonWorkspace(action, payload)
+      setNewtonWorkspaceAvailable(true)
+      setNewtonWorkspace(status)
+      if (status.open) setSimulationViewerVisible(true)
+      return status
+    } catch (error) {
+      setNotice({
+        kind: 'error',
+        title: 'Newton workspace action failed',
+        message: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    } finally {
+      setNewtonWorkspaceBusy(false)
+    }
+  }, [newtonWorkspaceBusy])
+
+  const openNewtonWorkspace = useCallback(() => {
+    void controlNewtonWorkspace('open')
+  }, [controlNewtonWorkspace])
+
+  const handleOpenUsd = useCallback(() => {
+    if (openingUsd || usdPickerInitialPath !== null) return
+    if (!newtonWorkspaceAvailable) {
+      setNotice({
+        kind: 'warning',
+        title: 'Newton workspace is unavailable',
+        message: 'Install and enable the blacknode-newton runtime and a viewer component first.',
+      })
+      return
+    }
+    setUsdPickerInitialPath(String(newtonWorkspace?.asset_path ?? ''))
+  }, [newtonWorkspace?.asset_path, newtonWorkspaceAvailable, openingUsd, usdPickerInitialPath])
+
+  const handleUsdSelected = useCallback(async (selected: string) => {
+    if (!selected || openingUsd) return
+    setUsdPickerInitialPath(null)
+    setOpeningUsd(true)
+    try {
+      const status = await api.controlNewtonWorkspace('open_usd', { asset_path: selected })
+      setNewtonWorkspaceAvailable(true)
+      setNewtonWorkspace(status)
+      setSimulationViewerVisible(true)
+      setNotice({
+        kind: 'info',
+        title: 'USD scene opened in Newton',
+        message: status.warning || `${selected} is loaded and simulation is stopped at its initial state.`,
+      })
+    } catch (error) {
+      setNotice({
+        kind: 'error',
+        title: 'Could not open USD scene',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setOpeningUsd(false)
+    }
+  }, [openingUsd])
+
+  useEffect(() => {
+    if (!nodeTypes.includes('NewtonSimulation')) {
+      setNewtonWorkspaceAvailable(false)
+      setNewtonWorkspace(null)
+      return
+    }
+    let cancelled = false
+    const refresh = async () => {
+      try {
+        const status = await api.newtonWorkspaceStatus()
+        if (cancelled) return
+        setNewtonWorkspaceAvailable(true)
+        setNewtonWorkspace(status)
+      } catch {
+        if (!cancelled) setNewtonWorkspaceAvailable(false)
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(() => {
+      if (newtonWorkspace?.open) void refresh()
+    }, 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [newtonWorkspace?.open, nodeTypes])
+
+  useLayoutEffect(() => {
+    if (!simulationViewerMenuOpen) return
+    const positionMenu = () => {
+      const trigger = simulationViewerMenuTriggerRef.current
+      if (!trigger) return
+      const bounds = trigger.getBoundingClientRect()
+      const width = 210
+      setSimulationViewerMenuPosition({
+        top: bounds.bottom + 7,
+        left: Math.max(8, Math.min(window.innerWidth - width - 8, bounds.right - width)),
+      })
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (simulationViewerMenuTriggerRef.current?.contains(target)) return
+      if (simulationViewerMenuRef.current?.contains(target)) return
+      setSimulationViewerMenuOpen(false)
+    }
+    positionMenu()
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    window.addEventListener('resize', positionMenu)
+    window.addEventListener('scroll', positionMenu, true)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      window.removeEventListener('resize', positionMenu)
+      window.removeEventListener('scroll', positionMenu, true)
+    }
+  }, [simulationViewerMenuOpen])
+
+  useEffect(() => {
+    if (!activeSimulationViewer) {
+      setSimulationViewerDetached(false)
+    }
+  }, [activeSimulationViewer])
+
+  useEffect(() => {
+    const url = activeSimulationViewer?.url ?? ''
+    if (url && url !== lastSimulationViewerUrl.current) {
+      lastSimulationViewerUrl.current = url
+      if (!simulationViewerDetached) setSimulationViewerVisible(true)
+    }
+  }, [activeSimulationViewer?.url, simulationViewerDetached])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        SIMULATION_VIEWER_HEIGHT_STORAGE_KEY,
+        String(Math.round(simulationViewerHeight)),
+      )
+    } catch {
+      // The resized split remains active for this editor session.
+    }
+  }, [simulationViewerHeight])
 
   useLayoutEffect(() => {
     const theme = isDark ? 'dark' : 'light'
@@ -1078,6 +1298,48 @@ export default function App() {
     fitCurrentCanvas(320)
   }, [fitCurrentCanvas, organizeNodes])
 
+  const handleRefreshCanvas = useCallback(async () => {
+    if (refreshingCanvas) return
+    setRefreshingCanvas(true)
+    try {
+      const result = await api.refreshCanvasSchemas()
+      if (!result.ok) {
+        const failedFile = result.failed[0]?.path?.split(/[\\/]/).pop()
+        throw new Error(failedFile
+          ? `Could not reload ${failedFile}. Open it in Script to fix the Python error.`
+          : 'A custom-node file could not be reloaded. Open Script to check its Python code.')
+      }
+      await Promise.all([loadNodeTypes(), loadGraph()])
+      const fileCount = result.loaded.length
+      const nodeCount = result.updated_nodes.length
+      const edgeCount = result.removed_edges.length
+      const parts = [
+        `Reloaded ${fileCount} custom-node file${fileCount === 1 ? '' : 's'}`,
+        `updated ${nodeCount} canvas node${nodeCount === 1 ? '' : 's'}`,
+      ]
+      if (edgeCount) {
+        parts.push(`removed ${edgeCount} connection${edgeCount === 1 ? '' : 's'} to deleted ports`)
+      }
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'info',
+          title: 'Canvas refreshed',
+          message: `${parts.join(', ')}.`,
+        },
+      }))
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: 'Refresh failed',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
+    } finally {
+      setRefreshingCanvas(false)
+    }
+  }, [loadGraph, loadNodeTypes, refreshingCanvas])
+
   const handleRunGraph = useCallback(async (runMode: 'once' | 'live' = 'once') => {
     const targets = inferGraphRunTargets(nodes, edges)
     if (targets.length === 0) {
@@ -1197,6 +1459,7 @@ export default function App() {
     && n.data.portResults?.streaming === true
   )).length
   const managedRunCount = nodes.filter(n => n.data.type === 'ROS2Run' && n.data.portResults?.running === true).length
+  const simulationRunCount = nodes.filter(n => n.data.type === 'NewtonSimulation' && n.data.portResults?.running === true).length
   const controllerNodes = nodes.filter(n => (
     n.data.type === 'RobotFollow'
     || n.data.type === 'ROS2LeaderFollower'
@@ -1217,9 +1480,9 @@ export default function App() {
   )).length
   const liveCapableCount = nodes.filter(n => n.data.live_capable).length
   const runOnceNodeCount = Math.max(0, nodes.length - liveCapableCount)
-  const activelyUpdatingCount = liveStreamCount + managedRunCount + controllerCount + manualMoveCount + liveDashboardCount + liveOutputCount
+  const activelyUpdatingCount = liveStreamCount + managedRunCount + simulationRunCount + controllerCount + manualMoveCount + liveDashboardCount + liveOutputCount
   const lastRunNodeCount = Math.max(0, nodes.length - activelyUpdatingCount - blockedControllerCount - waitingControllerCount)
-  const runtimeActive = liveStreamCount > 0 || managedRunCount > 0 || controllerRunningCount > 0 || manualMoveCount > 0
+  const runtimeActive = liveStreamCount > 0 || managedRunCount > 0 || simulationRunCount > 0 || controllerRunningCount > 0 || manualMoveCount > 0
   const visibleEdges = useMemo(() => {
     const nodesById = new Map(nodes.map(node => [node.id, node]))
     return edges.map(edge => {
@@ -1357,6 +1620,7 @@ export default function App() {
               >
                 {importingFile ? 'Importing...' : 'Import'}
               </button>
+
             </div>
 
             <div className="bn-topbar-group bn-topbar-run-group" aria-label="Run controls">
@@ -1408,11 +1672,151 @@ export default function App() {
             <div className="bn-topbar-group bn-topbar-view-group" aria-label="View controls">
               <span className="bn-topbar-group-label">View</span>
               <button
+                className={`bn-top-button bn-simulation-viewer-toggle${activeSimulationViewer && (simulationViewerVisible || simulationViewerDetached) ? ' is-visible' : ''}`}
+                type="button"
+                disabled={!newtonWorkspaceAvailable || newtonWorkspaceBusy}
+                onClick={() => {
+                  if (newtonWorkspace?.open) setSimulationViewerVisible(true)
+                  else openNewtonWorkspace()
+                }}
+                title={simulationViewerDetached
+                  ? 'Show the floating Newton workspace inside Blacknode'
+                  : newtonWorkspace?.open
+                    ? 'Show the Newton workspace above the node canvas'
+                    : 'Open Newton with an empty stage'}
+              >
+                {newtonWorkspaceBusy ? 'Opening Newton…' : newtonWorkspace?.open ? `Newton${simulationViewerDetached ? ' ◫' : ''}` : 'Open Newton'}
+              </button>
+              <div className="bn-simulation-viewer-menu">
+                <button
+                  ref={simulationViewerMenuTriggerRef}
+                  type="button"
+                  className="bn-top-button bn-simulation-viewer-menu-trigger"
+                  title="Viewer options"
+                  aria-label="Viewer options"
+                  aria-haspopup="menu"
+                  aria-expanded={simulationViewerMenuOpen}
+                  onClick={() => setSimulationViewerMenuOpen(open => !open)}
+                >
+                  ▾
+                </button>
+                {simulationViewerMenuOpen && createPortal(
+                <div
+                  ref={simulationViewerMenuRef}
+                  className="bn-simulation-viewer-menu-items is-portal"
+                  role="menu"
+                  style={simulationViewerMenuPosition}
+                >
+                  {!activeSimulationViewer && (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          void controlNewtonWorkspace('open', { provider: 'viser' })
+                          setSimulationViewerMenuOpen(false)
+                        }}
+                      >
+                        Open with Viser
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!newtonWorkspace?.available_viewers?.includes('ovrtx')}
+                        title={newtonWorkspace?.available_viewers?.includes('ovrtx')
+                          ? 'Open the RTX renderer inside Blacknode'
+                          : 'Enable the optional viewer-ovrtx package component first'}
+                        onClick={() => {
+                          void controlNewtonWorkspace('open', { provider: 'ovrtx' })
+                          setSimulationViewerMenuOpen(false)
+                        }}
+                      >
+                        Open with OVRT (RTX)
+                      </button>
+                    </>
+                  )}
+                  {activeSimulationViewer && (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setSimulationViewerVisible(visible => !visible)
+                          setSimulationViewerMenuOpen(false)
+                        }}
+                      >
+                        {simulationViewerVisible ? 'Hide Newton' : 'Show Newton'}
+                      </button>
+                      {simulationViewerDetached ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            attachSimulationViewer()
+                            setSimulationViewerMenuOpen(false)
+                          }}
+                        >
+                          Attach Newton above canvas
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            detachSimulationViewer()
+                            setSimulationViewerMenuOpen(false)
+                          }}
+                        >
+                          Float Newton in editor
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={newtonWorkspace?.viewer_provider === 'viser'}
+                        onClick={() => {
+                          void controlNewtonWorkspace('set_viewer', { provider: 'viser' })
+                          setSimulationViewerMenuOpen(false)
+                        }}
+                      >
+                        Use Viser renderer
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={newtonWorkspace?.viewer_provider === 'ovrtx'
+                          || !newtonWorkspace?.available_viewers?.includes('ovrtx')}
+                        title={newtonWorkspace?.available_viewers?.includes('ovrtx')
+                          ? 'Restart this scene with the RTX renderer'
+                          : 'Enable the optional viewer-ovrtx package component first'}
+                        onClick={() => {
+                          void controlNewtonWorkspace('set_viewer', { provider: 'ovrtx' })
+                          setSimulationViewerMenuOpen(false)
+                        }}
+                      >
+                        Use OVRT (RTX) renderer
+                      </button>
+                    </>
+                  )}
+                </div>,
+                document.body,
+                )}
+              </div>
+              <button
                 className="bn-top-button"
                 onClick={() => void handleOrganize()}
                 title="Organize current graph"
               >
                 Organize
+              </button>
+
+              <button
+                className="bn-top-button"
+                onClick={() => void handleRefreshCanvas()}
+                disabled={!serverOk || cookActive || refreshingCanvas}
+                title="Reload custom-node files and update sockets on existing canvas nodes"
+              >
+                {refreshingCanvas ? 'Refreshing…' : 'Refresh canvas'}
               </button>
 
               <button
@@ -1769,6 +2173,16 @@ export default function App() {
           )
         })()}
 
+        {usdPickerInitialPath !== null && (
+          <LocalFilePicker
+            title="Open a USD scene in Newton"
+            initialPath={usdPickerInitialPath}
+            extensions={USD_FILE_EXTENSIONS}
+            onSelect={path => void handleUsdSelected(path)}
+            onCancel={() => setUsdPickerInitialPath(null)}
+          />
+        )}
+
         {pendingClose && pendingCloseTab && (
           <div
             role="dialog"
@@ -1974,7 +2388,40 @@ export default function App() {
           )
         })()}
 
-        <ReactFlow
+        <div className="bn-workspace-split" style={{ top: canvasPad }}>
+          {activeSimulationViewer && (
+            <SimulationViewerPane
+              url={activeSimulationViewer.url}
+              label={activeSimulationViewer.label}
+              phase={activeSimulationViewer.phase}
+              armed={activeSimulationViewer.armed}
+              visible={simulationViewerVisible}
+              floating={simulationViewerDetached}
+              height={simulationViewerHeight}
+              onHeightChange={setSimulationViewerHeight}
+              onDetach={detachSimulationViewer}
+              onAttach={attachSimulationViewer}
+              onClose={() => setSimulationViewerVisible(false)}
+              workspace={activeSimulationViewer.workspace}
+              sceneLabel={newtonWorkspace?.scene_label}
+              simulationRunning={newtonWorkspace?.simulation_running}
+              busy={newtonWorkspaceBusy || openingUsd}
+              warning={newtonWorkspace?.warning}
+              onNewStage={() => void controlNewtonWorkspace('new')}
+              onOpenUsd={handleOpenUsd}
+              onPlay={() => void controlNewtonWorkspace('play')}
+              onStop={() => void controlNewtonWorkspace('stop')}
+              onReset={() => void controlNewtonWorkspace('reset')}
+              onCloseWorkspace={() => {
+                void controlNewtonWorkspace('close').then(() => {
+                  setSimulationViewerVisible(false)
+                  setSimulationViewerDetached(false)
+                })
+              }}
+            />
+          )}
+          <div className="bn-canvas-region">
+          <ReactFlow
           nodes={visibleNodes}
           edges={visibleEdges}
           nodeTypes={NODE_TYPES}
@@ -2012,6 +2459,12 @@ export default function App() {
             selectNode(node.id)
             setNodeMenu({ x: e.clientX, y: e.clientY, nodeId: node.id })
           }}
+          // Wheel zoom is a canvas invariant, including while the pointer is
+          // over a node. Use a deliberately unused suppression class so a
+          // custom node cannot accidentally reintroduce React Flow's default
+          // `nowheel` zoom dead zone.
+          zoomOnScroll={true}
+          noWheelClassName="bn-canvas-wheel-suppression-disabled"
           minZoom={0.05}
           fitView
           fitViewOptions={{ padding: 0.24, maxZoom: 1 }}
@@ -2019,7 +2472,7 @@ export default function App() {
           selectionKeyCode="Control"
           multiSelectionKeyCode="Control"
           selectionMode={SelectionMode.Partial}
-          style={{ paddingTop: canvasPad }}
+          style={{ paddingTop: 0 }}
           defaultEdgeOptions={{ animated: false }}
         >
           <Background
@@ -2058,7 +2511,9 @@ export default function App() {
               </div>
             </div>
           )}
-        </ReactFlow>
+          </ReactFlow>
+          </div>
+        </div>
 
         <div className="bn-execution-status-strip" role="status" aria-label="Blacknode execution status">
           <span className={`bn-status-item ${serverOk ? 'is-active' : 'is-error'}`}>
@@ -2072,6 +2527,10 @@ export default function App() {
           <span className={`bn-status-item ${managedRunCount > 0 ? 'is-active' : 'is-muted'}`}>
             <i />
             ROS 2 {managedRunCount > 0 ? `${managedRunCount} active` : 'idle'}
+          </span>
+          <span className={`bn-status-item ${simulationRunCount > 0 ? 'is-active' : 'is-muted'}`}>
+            <i />
+            Simulation {simulationRunCount > 0 ? `${simulationRunCount} active` : 'idle'}
           </span>
           <span className={`bn-status-item ${
             blockedControllerCount > 0

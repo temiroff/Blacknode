@@ -42,3 +42,23 @@ def test_refined_devices_only_show_reported_health_signals():
 
     for invented_metric in ("CPU 18%", "RAM 5.2 GB", "Temp 51°", "RTX4090"):
         assert invented_metric not in devices
+
+
+def test_remote_device_setup_defaults_to_reviewed_runtime_only_install():
+    devices = (
+        ROOT / "editor" / "src" / "components" / "DevicesPanel.tsx"
+    ).read_text(encoding="utf-8")
+    styles = (ROOT / "editor" / "src" / "index.css").read_text(encoding="utf-8")
+
+    assert "useState<RuntimeInstallAction>('runtime_only')" in devices
+    assert "Install Runtime only" in devices
+    assert "verified Linux bundle" in devices
+    assert "Changes on this device" in devices
+    assert "installChangesConfirmed" in devices
+    assert "authorize this installation" in devices
+    assert "openInspectedRuntimeSetup" in devices
+    assert "Install Runtime" in devices
+    assert "workflow execution" in devices
+    assert "This Windows editor downloads" in devices
+    assert "does not need internet" in devices
+    assert "bn-runtime-change-plan" in styles
