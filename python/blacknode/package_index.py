@@ -293,7 +293,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "node_types": [
                         "FeetechBusConfig",
                         "FeetechBusProbe",
-                        "FeetechCalibrationProvider"
+                        "FeetechCalibrationProvider",
+                        "FeetechRawMonitorProvider"
                     ],
                     "adapters": {
                         "ros2": {
@@ -326,6 +327,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "FeetechBusConfig",
                 "FeetechBusProbe",
                 "FeetechCalibrationProvider",
+                "FeetechRawMonitorProvider",
                 "FeetechROS2Adapter"
             ]
         },
