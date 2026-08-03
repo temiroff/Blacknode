@@ -615,6 +615,41 @@ class RuntimeDeviceClient(HardwareDeviceClient):
     def ros2_diagnostics(self) -> dict[str, Any]:
         return self._request("GET", "/diagnostics/ros2", timeout=90.0)
 
+    def ros2_topic_status(self, stream_id: str) -> dict[str, Any]:
+        return self._request("GET", self._ros2_topic_endpoint(stream_id), timeout=5.0)
+
+    def start_ros2_topic(
+        self,
+        stream_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"{self._ros2_topic_endpoint(stream_id)}/start",
+            payload=payload,
+            timeout=max(30.0, float(payload.get("timeout") or 10.0) + 15.0),
+        )
+
+    def read_ros2_topic_once(
+        self,
+        stream_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"{self._ros2_topic_endpoint(stream_id)}/once",
+            payload=payload,
+            timeout=max(30.0, float(payload.get("timeout") or 10.0) + 15.0),
+        )
+
+    def stop_ros2_topic(self, stream_id: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"{self._ros2_topic_endpoint(stream_id)}/stop",
+            payload={},
+            timeout=30.0,
+        )
+
     def get_service(self, service_id: str) -> dict[str, Any]:
         return self._request("GET", self._service_endpoint(service_id), timeout=30.0)
 
@@ -667,6 +702,13 @@ class RuntimeDeviceClient(HardwareDeviceClient):
         if not clean_id:
             raise DeviceRegistryError("Managed service ID is required.")
         return f"/services/{urllib.parse.quote(clean_id, safe='')}"
+
+    @staticmethod
+    def _ros2_topic_endpoint(stream_id: str) -> str:
+        clean_id = str(stream_id or "").strip()
+        if not clean_id:
+            raise DeviceRegistryError("ROS 2 topic stream ID is required.")
+        return f"/ros2/topics/{urllib.parse.quote(clean_id, safe='')}"
 
 
 class DeviceRegistry:

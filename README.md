@@ -78,6 +78,9 @@ Blacknode installs and pairs the Runtime from the editor. The SSH password is
 used only for the current request and is not saved. Inspection, installation,
 and robot discovery do not arm or move the robot.
 
+To stream a device ROS 2 topic into the editor, connect
+`ComputeDevice.device` to `ROS2.device`, set the topic, and start the node.
+
 Other pairing paths:
 
 - Choose **Local computer** to deploy on the editor computer.
