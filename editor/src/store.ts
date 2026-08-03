@@ -690,6 +690,7 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
   if (data.type === 'ROS2Run'
     || data.type === 'ROS2TopicPublisher'
     || data.type === 'ROS2TopicSubscriber'
+    || data.type === 'ROS2'
     || data.type === 'ROS2PythonNode') {
     return {
       ...base,
@@ -1628,7 +1629,7 @@ export const useStore = create<Store>((set, get) => ({
         const streamId = owned('stream_id')
         const runId = node.data.type === 'ROS2TopicPublisher'
           ? `topic-publisher:${owned('topic') || '/chatter'}`
-          : node.data.type === 'ROS2TopicSubscriber'
+          : node.data.type === 'ROS2TopicSubscriber' || node.data.type === 'ROS2'
             ? `topic-subscriber:${owned('topic') || '/chatter'}`
             : owned('run_id')
         // node_id is exact: the runtime records which node started the work.
@@ -1680,7 +1681,7 @@ export const useStore = create<Store>((set, get) => ({
       const managedRuns = Array.isArray(status.managed_runs) ? status.managed_runs : []
       set(s => ({
         nodes: propagateLiveTerminalValues(s.nodes.map(node => {
-          const runId = node.data.type === 'ROS2TopicSubscriber'
+          const runId = node.data.type === 'ROS2TopicSubscriber' || node.data.type === 'ROS2'
             ? `topic-subscriber:${String(node.data.params?.topic ?? node.data.input_defaults?.topic ?? '/chatter')}`
             : String(node.data.params?.run_id ?? node.data.input_defaults?.run_id ?? 'robot_teach')
           const item = items.find(raw => {
@@ -3608,6 +3609,7 @@ export const useStore = create<Store>((set, get) => ({
           n.data.type === 'ROS2PythonNode' ||
           n.data.type === 'ROS2TopicPublisher' ||
           n.data.type === 'ROS2TopicSubscriber' ||
+          n.data.type === 'ROS2' ||
           n.data.type === 'ROS2Launch'
         )
         return {
