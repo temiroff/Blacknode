@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import base64
 import io
 import json
@@ -1490,6 +1491,8 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn('enabled_matches+=("$unit")', uploaded[0])
         self.assertIn('"/etc/systemd/system/$unit"', uploaded[0])
         self.assertIn("Discovered units:", uploaded[0])
+        self.assertNotIn("import tomllib", uploaded[0])
+        self.assertNotIn(".removesuffix(", uploaded[0])
         self.assertIn(
             "Repair Hardware did not create exactly one persistent service",
             uploaded[0],
@@ -1568,7 +1571,35 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn('"show",', commands[0])
         self.assertIn("Repair Hardware will reconcile", commands[0])
         remote_python = commands[0].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+        self.assertNotIn("import tomllib", remote_python)
+        self.assertNotIn(".removesuffix(", remote_python)
         compile(remote_python, "<managed-update-check>", "exec")
+        ast.parse(remote_python, feature_version=(3, 7))
+        parsed = ast.parse(remote_python)
+        project_version = next(
+            node
+            for node in parsed.body
+            if isinstance(node, ast.FunctionDef) and node.name == "project_version"
+        )
+        namespace = {"re": re}
+        exec(
+            compile(
+                ast.fix_missing_locations(ast.Module(
+                    body=[project_version],
+                    type_ignores=[],
+                )),
+                "<managed-update-version-parser>",
+                "exec",
+            ),
+            namespace,
+        )
+        self.assertEqual(
+            namespace["project_version"](
+                "[build-system]\nrequires = []\n\n"
+                "[project]\nname = 'blacknode-runtime'\nversion = '0.4.1'\n"
+            ),
+            "0.4.1",
+        )
 
     def test_workflow_requirements_are_normalized_and_exposed_by_graph(self):
         original_metadata = dict(server._session.metadata)
