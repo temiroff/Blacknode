@@ -10,11 +10,13 @@ def test_point_cloud_viewer_exposes_spatial_orientation_and_scale():
 
     assert "LiDAR forward" in source
     assert "filtered laser returns" in source
-    assert "2D XY plane" in source
+    assert "3D orbit · LaserScan lies on XY plane" in source
     assert "meterLabel" in source
     assert "angle_min_rad" in source
     assert "angle_max_rad" in source
     assert "CURRENT SCAN" in source
+    assert "accumulated returns" in source
+    assert "history is sensor-local" in source
 
 
 def test_point_cloud_viewer_has_direct_camera_navigation():
@@ -22,7 +24,11 @@ def test_point_cloud_viewer_has_direct_camera_navigation():
 
     assert "onWheel" in source
     assert "onPointerMove" in source
-    assert "right-drag rotate" in source
+    assert "drag orbit" in source
+    assert "Shift/right-drag pan" in source
     assert "double-click fit" in source
-    assert "Rotate left" in source
-    assert "Rotate right" in source
+    assert "Orbit left" in source
+    assert "Orbit right" in source
+    assert "Tilt camera up" in source
+    assert "pitch:" in source
+    assert "onClear" in source

@@ -495,6 +495,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [topicPublisherStopPending, setTopicPublisherStopPending] = useState(false)
   const [topicSubscriberStopPending, setTopicSubscriberStopPending] = useState(false)
   const [viewerStopPending, setViewerStopPending] = useState(false)
+  const [viewerClearPending, setViewerClearPending] = useState(false)
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
   const [episodePending, setEpisodePending] = useState<null | 'start' | 'pause' | 'resume' | 'save' | 'stop' | 'discard'>(null)
@@ -1299,6 +1300,21 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         // The Viewer is already stopped; leave the visual control responsive.
       }
       setViewerStopPending(false)
+    }
+  }
+
+  const onClearViewer = async () => {
+    setViewerClearPending(true)
+    try {
+      await updateParam(id, 'action', 'clear')
+      await cookNode(id, 'report')
+    } finally {
+      try {
+        await updateParam(id, 'action', 'start')
+      } catch {
+        // Keep the history control responsive if the node was removed mid-action.
+      }
+      setViewerClearPending(false)
     }
   }
 
@@ -2429,7 +2445,13 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
 
       {isDatasetBrowser && <DatasetBrowserPanel id={id} data={data} />}
 
-      {isViewer && <PointCloudViewer scene={data.portResults?.scene} />}
+      {isViewer && (
+        <PointCloudViewer
+          scene={data.portResults?.scene}
+          onClear={() => { void onClearViewer() }}
+          clearPending={viewerClearPending}
+        />
+      )}
 
       {isDatasetCreate && (
         <div style={{
