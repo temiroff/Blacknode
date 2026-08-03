@@ -124,8 +124,27 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert all(dataset[name]["default"] for name in {"recording", "replay", "validation"})
     assert not any(dataset[name]["default"] for name in {"evaluation", "export", "publishing"})
     cuda = payload["packages"]["blacknode-cuda"]["components"]
-    assert set(cuda) == {"capability", "image-processing", "tensor-operations", "benchmarks"}
+    assert set(cuda) == {
+        "capability",
+        "image-processing",
+        "spatial-processing",
+        "tensor-operations",
+        "benchmarks",
+    }
     assert cuda["benchmarks"]["default"] is False
+    assert cuda["spatial-processing"]["node_types"] == [
+        "WarpLaserScanFilter",
+        "WarpLiDARViewer",
+        "WarpSLAMDiscoveryViewer",
+    ]
+    perception = payload["packages"]["blacknode-perception"]["components"]
+    assert perception["lidar"]["default"] is True
+    assert perception["lidar"]["node_types"] == ["LiDAR", "LiDARTestProvider"]
+    assert perception["lidar"]["adapters"]["ros2"]["node_types"] == [
+        "LiDARROS2Scan",
+        "LiDARROS2WarpViewer",
+    ]
+    assert payload["nodes"]["LiDARROS2Scan"]["package"] == "blacknode-perception"
     drivers = payload["packages"]["blacknode-drivers"]
     assert drivers["layer"] == "drivers"
     assert drivers["components"]["feetech"]["default"] is True

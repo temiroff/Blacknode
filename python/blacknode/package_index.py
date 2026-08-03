@@ -351,6 +351,15 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "CUDAImageFilterStream"
                     ]
                 },
+                "spatial-processing": {
+                    "name": "spatial-processing",
+                    "default": True,
+                    "node_types": [
+                        "WarpLaserScanFilter",
+                        "WarpLiDARViewer",
+                        "WarpSLAMDiscoveryViewer"
+                    ]
+                },
                 "tensor-operations": {
                     "name": "tensor-operations",
                     "default": True,
@@ -376,7 +385,10 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "CUTLASSGemm",
                 "GPUCapability",
                 "GPURequirement",
-                "TensorCoreGEMM"
+                "TensorCoreGEMM",
+                "WarpLaserScanFilter",
+                "WarpLiDARViewer",
+                "WarpSLAMDiscoveryViewer"
             ]
         },
         "blacknode-ros2": {
@@ -673,8 +685,35 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "lidar": {
                     "name": "lidar",
-                    "default": False,
-                    "node_types": []
+                    "default": True,
+                    "node_types": [
+                        "LiDAR",
+                        "LiDARTestProvider"
+                    ],
+                    "adapters": {
+                        "ros2": {
+                            "name": "ros2",
+                            "default": True,
+                            "node_types": [
+                                "LiDARROS2Scan",
+                                "LiDARROS2WarpViewer"
+                            ],
+                            "dependencies": {
+                                "requires": [
+                                    {
+                                        "package": "blacknode-ros2",
+                                        "component": "core",
+                                        "version": ">=0.4.0,<1.0.0"
+                                    },
+                                    {
+                                        "package": "blacknode-cuda",
+                                        "component": "spatial-processing",
+                                        "version": ">=0.3.0,<1.0.0"
+                                    }
+                                ]
+                            }
+                        }
+                    }
                 },
                 "imu": {
                     "name": "imu",
@@ -742,6 +781,10 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "DepthObstacleWarning",
                 "DepthROS2Subscribe",
                 "FramePrompt",
+                "LiDAR",
+                "LiDARROS2Scan",
+                "LiDARROS2WarpViewer",
+                "LiDARTestProvider",
                 "ReasoningDashboard",
                 "ReasoningStream",
                 "VLM",
