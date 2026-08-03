@@ -14,6 +14,10 @@ hardware, perception, motion, AI, data, training, and simulation. Blacknode
 validates those connections, runs the graph, and keeps its results available
 for inspection and replay.
 
+![Blacknode Newton simulation and rendering workspace](docs/images/blacknode-newton-simulation-rendering.png)
+
+*Newton simulation, rendering passes, robot telemetry, and workflow controls in Blacknode.*
+
 A Project brings the complete application together:
 
 ```text
