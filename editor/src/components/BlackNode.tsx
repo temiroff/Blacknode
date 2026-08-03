@@ -619,6 +619,16 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const selectedRobotProfileChoice = robotProfileChoices.find(
     profile => profile.id === robotProfileId,
   )
+  const appliedRobotCalibration = (
+    data.portResults?.calibration
+    && typeof data.portResults.calibration === 'object'
+  ) ? data.portResults.calibration as Record<string, unknown> : null
+  const appliedRobotCalibrationCandidate = appliedRobotCalibration
+    ? robotCalibrations.find(calibration => (
+        calibration.profile_id === String(appliedRobotCalibration.profile_id || '')
+        && calibration.hardware_id === String(appliedRobotCalibration.hardware_id || '')
+      ))
+    : undefined
   const loadRobotSetup = async () => {
     if (!isRobot) return
     setRobotCalibrationsLoading(true)
@@ -661,6 +671,33 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     window.addEventListener('blacknode:robot-profiles-changed', refresh)
     return () => window.removeEventListener('blacknode:robot-profiles-changed', refresh)
   }, [isRobot])
+  useEffect(() => {
+    if (
+      !isRobot
+      || selectedRobotCalibration
+      || !appliedRobotCalibrationCandidate
+      || robotCalibrationPending
+    ) return
+    let cancelled = false
+    setRobotCalibrationPending(true)
+    setRobotCalibrationError('')
+    void setWorkflowRequirements(requiredCapabilities, {
+      profile_id: appliedRobotCalibrationCandidate.profile_id,
+      hardware_id: appliedRobotCalibrationCandidate.hardware_id,
+    }).catch(err => {
+      if (!cancelled) {
+        setRobotCalibrationError(err instanceof Error ? err.message : String(err))
+      }
+    }).finally(() => {
+      if (!cancelled) setRobotCalibrationPending(false)
+    })
+    return () => { cancelled = true }
+  }, [
+    isRobot,
+    selectedRobotCalibrationKey,
+    appliedRobotCalibrationCandidate?.profile_id,
+    appliedRobotCalibrationCandidate?.hardware_id,
+  ])
   const selectRobotProfile = async (profileId: string) => {
     if (!profileId || profileId === robotProfileId) return
     setRobotProfilePending(true)
@@ -1796,9 +1833,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               )}
               {robotProfileChoices.map(profile => (
                 <option value={profile.id} key={profile.id}>
-                  {profile.name === profile.id
-                    ? profile.id
-                    : profile.name}
+                  {profile.name === profile.id ? profile.id : `${profile.name} · ${profile.id}`}
+                  {profile.calibration_count
+                    ? ` · ${profile.calibration_count} calibration${profile.calibration_count === 1 ? '' : 's'}`
+                    : ' · no calibration'}
                 </option>
               ))}
             </select>
@@ -1824,9 +1862,6 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               aria-label="Calibration used for deployment"
               value={selectedRobotCalibrationKey}
               disabled={robotCalibrationPending || robotCalibrationsLoading}
-              onFocus={() => {
-                void loadRobotSetup()
-              }}
               onChange={e => { void selectRobotCalibration(e.target.value) }}
               style={{
                 boxSizing: 'border-box', width: '100%', minWidth: 0,

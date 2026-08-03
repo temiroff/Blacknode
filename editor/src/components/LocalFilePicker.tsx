@@ -118,7 +118,7 @@ export default function LocalFilePicker({
           {loading && <div className="bn-local-file-picker-message">Opening folder…</div>}
           {!loading && error && <div className="bn-local-file-picker-message is-error">{error}</div>}
           {!loading && !error && listing?.entries.length === 0 && (
-            <div className="bn-local-file-picker-message">No matching USD files or folders here.</div>
+            <div className="bn-local-file-picker-message">No matching scene files or folders here.</div>
           )}
           {!loading && !error && listing?.entries.map(entry => (
             <button
@@ -135,7 +135,7 @@ export default function LocalFilePicker({
                 if (!entry.is_directory) onSelect(entry.path)
               }}
             >
-              <span className="bn-local-file-picker-icon">{entry.is_directory ? '▸' : 'USD'}</span>
+              <span className="bn-local-file-picker-icon">{entry.is_directory ? '▸' : 'FILE'}</span>
               <span className="bn-local-file-picker-name">{entry.name}</span>
               <span className="bn-local-file-picker-size">{formatSize(entry.size)}</span>
             </button>
@@ -143,7 +143,7 @@ export default function LocalFilePicker({
         </div>
 
         <footer>
-          <span title={selected}>{selected || 'Choose a USD file'}</span>
+          <span title={selected}>{selected || 'Choose a scene file'}</span>
           <button type="button" onClick={onCancel}>Cancel</button>
           <button type="button" className="is-primary" disabled={!selected} onClick={() => onSelect(selected)}>
             Open file

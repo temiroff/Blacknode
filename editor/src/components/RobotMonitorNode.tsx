@@ -22,6 +22,8 @@ type JointTrace = {
   velocity: number[]
 }
 
+type NewtonMirrorState = 'idle' | 'connecting' | 'live' | 'following' | 'waiting' | 'error'
+
 export default function RobotMonitorNode({ id, data, selected }: NodeProps<NodeData>) {
   const updateParam = useStore(state => state.updateParam)
   const [robots, setRobots] = useState<RobotMonitorTarget[]>([])
@@ -205,6 +207,17 @@ export function RobotLiveMonitor({
   const [traces, setTraces] = useState<Record<string, JointTrace>>({})
   const previous = useRef<Record<string, { position: number; at: number }>>({})
   const activeSource = useRef('')
+  const [newtonMirrorEnabled, setNewtonMirrorEnabled] = useState(false)
+  const [newtonMirrorState, setNewtonMirrorState] = useState<NewtonMirrorState>('idle')
+  const [newtonMirrorError, setNewtonMirrorError] = useState('')
+  const [newtonHomeBusy, setNewtonHomeBusy] = useState(false)
+  const newtonHomeBusyRef = useRef(false)
+  const newtonMirrorEnabledRef = useRef(false)
+  const newtonMirrorSource = useRef('')
+  const newtonMirrorRequest = useRef(false)
+  const newtonMirrorPending = useRef<RobotTelemetrySample | null>(null)
+  const newtonMirrorRetryAt = useRef(0)
+  const newtonMirrorGeneration = useRef(0)
 
   useEffect(() => {
     setSample(null)
@@ -216,7 +229,113 @@ export function RobotLiveMonitor({
       return
     }
 
-    return subscribeRobotTelemetry(
+    const mirrorSource = `robot-monitor:${robotId}:${profileId}`
+    newtonMirrorSource.current = mirrorSource
+    if (newtonMirrorEnabledRef.current) setNewtonMirrorState('connecting')
+    const forwardToNewton = (next: RobotTelemetrySample) => {
+      if (!newtonMirrorEnabledRef.current) return
+      const payload = next.payload
+      if (
+        !next.available
+        || next.stale
+        || !payload?.connected
+        || payload.raw_mode === true
+        || payload.calibrated !== true
+        || !payload.joints?.length
+      ) {
+        setNewtonMirrorState('waiting')
+        return
+      }
+      if (newtonMirrorRequest.current) {
+        newtonMirrorPending.current = next
+        return
+      }
+      if (Date.now() < newtonMirrorRetryAt.current) return
+      const positions = Object.fromEntries(
+        payload.joints
+          .filter(joint => joint.name && Number.isFinite(joint.position))
+          .map(joint => [joint.name, joint.position]),
+      )
+      const homePositions = Object.fromEntries(
+        Object.entries(payload.calibration?.joints || {})
+          .filter(([, joint]) => Number.isFinite(joint.home_offset_deg))
+          .map(([name, joint]) => [name, Number(joint.home_offset_deg)]),
+      )
+      if (Object.keys(positions).length === 0) {
+        setNewtonMirrorState('waiting')
+        return
+      }
+      const timestamp = Date.parse(next.received_at || next.sent_at || '')
+      newtonMirrorRequest.current = true
+      const samplePayload = {
+        source: mirrorSource,
+        positions,
+        position_unit: payload.position_unit,
+        home_positions: homePositions,
+        home_position_unit: payload.calibration?.units || 'degree',
+        observed_at: Number.isFinite(timestamp) ? timestamp / 1000 : undefined,
+        age_seconds: Number.isFinite(next.age_seconds) ? next.age_seconds : 0,
+        stale_after_seconds: 0.5,
+        available: next.available,
+        stale: next.stale,
+        connected: payload.connected,
+        calibrated: payload.calibrated,
+        follow: true,
+      }
+      const sendFreshSample = async () => {
+        let status = await api.controlNewtonStream('robot_monitor_sample', samplePayload)
+        if (
+          newtonMirrorEnabledRef.current
+          && status.open
+          && status.simulation_running
+          && !status.armed
+        ) {
+          // The stale-data watchdog deliberately disarms Newton after a gap.
+          // The still-enabled Drive control remains the operator's explicit
+          // simulation-only authorization, so restore stream ownership when
+          // fresh calibrated telemetry resumes and replay this latest sample.
+          const restarted = await api.controlNewtonStream('start_robot_monitor_follow', {
+            source: mirrorSource,
+            stale_after_seconds: 0.5,
+          })
+          if (
+            newtonMirrorEnabledRef.current
+            && restarted.accepted
+            && restarted.armed
+            && restarted.simulation_running
+          ) {
+            status = await api.controlNewtonStream('robot_monitor_sample', samplePayload)
+          } else {
+            status = restarted
+          }
+        }
+        return status
+      }
+      void sendFreshSample().then(status => {
+        setNewtonMirrorError('')
+        setNewtonMirrorState(
+          status.accepted && status.armed && status.simulation_running ? 'following' : 'waiting',
+        )
+      }).catch(error => {
+        setNewtonMirrorError(error instanceof Error ? error.message : String(error))
+        setNewtonMirrorState('error')
+        newtonMirrorRetryAt.current = Date.now() + 1000
+      }).finally(() => {
+        newtonMirrorRequest.current = false
+        if (newtonMirrorEnabledRef.current) {
+          const pending = newtonMirrorPending.current
+          newtonMirrorPending.current = null
+          if (pending) forwardToNewton(pending)
+        } else {
+          newtonMirrorPending.current = null
+          void api.controlNewtonStream('stop_robot_monitor_follow', {
+            source: mirrorSource,
+          }).catch(() => undefined)
+        }
+      })
+    }
+
+    const unsubscribe = subscribeRobotTelemetry(
       robotId,
       profileId,
       nextSample => {
@@ -266,9 +385,28 @@ export function RobotLiveMonitor({
           })
         }
         setSample(next)
+        forwardToNewton(next)
       },
-      setConnection,
+      nextConnection => {
+        setConnection(nextConnection)
+        if (
+          newtonMirrorEnabledRef.current
+          && (nextConnection === 'offline' || nextConnection === 'connecting')
+        ) setNewtonMirrorState('waiting')
+      },
     )
+    return () => {
+      unsubscribe()
+      newtonMirrorGeneration.current += 1
+      newtonMirrorEnabledRef.current = false
+      setNewtonMirrorEnabled(false)
+      setNewtonMirrorState('idle')
+      newtonMirrorRequest.current = false
+      newtonMirrorPending.current = null
+      void api.controlNewtonStream('stop_robot_monitor_follow', {
+        source: mirrorSource,
+      }).catch(() => undefined)
+    }
   }, [profileId, robotId])
 
   const joints = sample?.payload?.joints || []
@@ -289,6 +427,13 @@ export function RobotLiveMonitor({
   const battery = sample?.payload?.battery
   const calibrated = sample?.payload?.calibrated
   const calibration = sample?.payload?.calibration
+  const calibrationHomePositions = Object.fromEntries(
+    Object.entries(calibration?.joints || {})
+      .filter(([, joint]) => Number.isFinite(joint.home_offset_deg))
+      .map(([name, joint]) => [name, Number(joint.home_offset_deg)]),
+  )
+  const calibrationHomeReady = calibrated === true
+    && Object.keys(calibrationHomePositions).length > 0
   const rawMode = sample?.payload?.raw_mode === true
   const topologyJointCount = Object.keys(calibration?.topology || {}).length
   const calibratedJointCount = Object.keys(calibration?.joints || {}).length
@@ -307,6 +452,92 @@ export function RobotLiveMonitor({
   const hardwareWarningCount = joints.filter(
     joint => Number(joint.hardware_error_flags || 0) !== 0,
   ).length
+  const newtonMirrorEligible = Boolean(
+    robotId
+    && connection === 'live'
+    && sample?.available
+    && !sample.stale
+    && sample.payload?.connected
+    && sample.payload?.calibrated === true
+    && sample.payload?.raw_mode !== true
+    && joints.length,
+  )
+  const toggleNewtonMirror = () => {
+    if (newtonHomeBusyRef.current) return
+    const enabled = !newtonMirrorEnabledRef.current
+    const generation = ++newtonMirrorGeneration.current
+    newtonMirrorEnabledRef.current = enabled
+    setNewtonMirrorEnabled(enabled)
+    setNewtonMirrorError('')
+    newtonMirrorRetryAt.current = 0
+    if (enabled) {
+      setNewtonMirrorState('connecting')
+      const source = newtonMirrorSource.current
+      void api.controlNewtonStream('start_robot_monitor_follow', {
+        source,
+        stale_after_seconds: 0.5,
+      }).then(status => {
+        if (
+          generation !== newtonMirrorGeneration.current
+          || !newtonMirrorEnabledRef.current
+        ) {
+          void api.controlNewtonStream('stop_robot_monitor_follow', { source })
+            .catch(() => undefined)
+          return
+        }
+        setNewtonMirrorState(
+          status.accepted && status.armed && status.simulation_running ? 'following' : 'waiting',
+        )
+      }).catch(error => {
+        if (generation !== newtonMirrorGeneration.current) return
+        newtonMirrorEnabledRef.current = false
+        setNewtonMirrorEnabled(false)
+        setNewtonMirrorState('error')
+        setNewtonMirrorError(error instanceof Error ? error.message : String(error))
+      })
+      return
+    }
+    setNewtonMirrorState('idle')
+    newtonMirrorPending.current = null
+    const source = newtonMirrorSource.current
+    if (source) {
+      void api.controlNewtonStream('stop_robot_monitor_follow', { source })
+        .catch(() => undefined)
+    }
+  }
+
+  const moveNewtonToCalibrationHome = async () => {
+    if (!calibrationHomeReady || newtonHomeBusyRef.current) return
+    const source = newtonMirrorSource.current
+    ++newtonMirrorGeneration.current
+    newtonMirrorEnabledRef.current = false
+    setNewtonMirrorEnabled(false)
+    setNewtonMirrorState('idle')
+    setNewtonMirrorError('')
+    newtonMirrorRetryAt.current = 0
+    newtonMirrorPending.current = null
+    newtonHomeBusyRef.current = true
+    setNewtonHomeBusy(true)
+    try {
+      if (source) {
+        await api.controlNewtonStream('stop_robot_monitor_follow', { source })
+      }
+      await api.controlNewtonWorkspace('robot_monitor_home', {
+        source: `${source || 'robot-monitor'}:calibration-home`,
+        positions: calibrationHomePositions,
+        position_unit: calibration?.units || 'degree',
+        calibrated: true,
+        profile_id: calibration?.profile_id,
+        hardware_id: calibration?.hardware_id,
+      })
+    } catch (error) {
+      setNewtonMirrorState('error')
+      setNewtonMirrorError(error instanceof Error ? error.message : String(error))
+    } finally {
+      newtonHomeBusyRef.current = false
+      setNewtonHomeBusy(false)
+    }
+  }
 
   return (
     <section
@@ -324,6 +555,34 @@ export function RobotLiveMonitor({
         <div className="bn-robot-monitor-status">
           <span className={`is-${stateLabel}`}>{stateLabel.toUpperCase()}</span>
           {sample?.sequence != null && <span>#{sample.sequence}</span>}
+          {newtonMirrorEnabled && (
+            <span
+              className={`bn-robot-monitor-newton-state is-${newtonMirrorState}`}
+              title={newtonMirrorError || 'Calibrated Robot Monitor telemetry is connected to Newton.'}
+            >NEWTON {newtonMirrorState.toUpperCase()}</span>
+          )}
+          <button
+            type="button"
+            className="bn-robot-monitor-newton nodrag"
+            disabled={!calibrationHomeReady || newtonHomeBusy}
+            title={newtonMirrorError || (
+              calibrationHomeReady
+                ? 'Move only the Newton robot to the exact home offsets saved by this calibration. USD joint limits remain enforced.'
+                : 'An active calibration with saved joint home offsets is required.'
+            )}
+            onClick={() => void moveNewtonToCalibrationHome()}
+          >{newtonHomeBusy ? 'Going home…' : 'Calibration home'}</button>
+          <button
+            type="button"
+            className={`bn-robot-monitor-newton nodrag${newtonMirrorEnabled ? ' is-connected' : ''}`}
+            disabled={newtonHomeBusy || (!newtonMirrorEnabled && !newtonMirrorEligible)}
+            title={newtonMirrorError || (
+              newtonMirrorEligible
+                ? 'Start and arm Newton simulation, hide the reference ghost, and drive the visible robot from this calibrated stream. Physical robot motion is unchanged.'
+                : 'Live calibrated joint telemetry is required before driving Newton.'
+            )}
+            onClick={toggleNewtonMirror}
+          >{newtonMirrorEnabled ? 'Stop Newton follow' : 'Drive Newton robot'}</button>
         </div>
       </div>
 

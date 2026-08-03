@@ -92,6 +92,10 @@ def resolve_workflow_dependencies(*args, **kwargs):
     return bn_package_index.resolve_workflow_dependencies(*args, **kwargs)
 
 
+def canonical_package_name(*args, **kwargs):
+    return bn_package_index.canonical_package_name(*args, **kwargs)
+
+
 def template_adapter_requirements(*args, **kwargs):
     return bn_package_index.template_adapter_requirements(*args, **kwargs)
 
@@ -3469,7 +3473,11 @@ def _control_newton_workspace(action: str, payload: dict[str, Any] | None = None
             "The Newton workspace is unavailable. Install and enable the blacknode-newton runtime and a viewer component.",
         )
     try:
-        return dict(control_fn(action, dict(payload or {})))
+        result = dict(control_fn(action, dict(payload or {})))
+        saved_artifact = result.get("saved_artifact")
+        if isinstance(saved_artifact, dict):
+            result["artifact_references"] = _artifact_store.import_value(saved_artifact)
+        return result
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
     except ValueError as exc:
@@ -7108,6 +7116,27 @@ def _available_robot_profiles(workflow: dict[str, Any]) -> list[dict[str, Any]]:
         }
         for profile_id in profile_ids
     }
+    # The enum persists stable profile ids, while the profile registry owns the
+    # operator-facing names. Read both so built-ins and saved profiles are
+    # presented as "full name · id" instead of exposing only the enum token.
+    module = sys.modules.get(getattr(robot_fn, "__module__", "")) if robot_fn else None
+    list_profiles = getattr(module, "list_profiles", None)
+    if callable(list_profiles):
+        try:
+            for profile in list_profiles():
+                if not isinstance(profile, dict):
+                    continue
+                profile_id = str(profile.get("id") or "").strip()
+                if not profile_id:
+                    continue
+                profiles[profile_id] = {
+                    "id": profile_id,
+                    "name": str(profile.get("display_name") or profile_id),
+                    "saved": not bool(profile.get("builtin")),
+                    "calibration_count": 0,
+                }
+        except (OSError, ValueError):
+            pass
     root = _robot_profiles_root()
     if root.is_dir():
         for profile_path in sorted(root.glob("*/profile.json")):
@@ -7433,7 +7462,7 @@ def _workflow_required_packages(workflow: dict[str, Any]) -> list[str]:
         else:
             name = ""
         if name:
-            names.add(name)
+            names.add(canonical_package_name(name))
     return sorted(names)
 
 
@@ -7547,6 +7576,7 @@ def _workflow_target_package_specs(
                 version = str(item.get("version") or "").strip()
             else:
                 continue
+            name = canonical_package_name(name)
             indexed = indexed_packages.get(name)
             if not git_url and isinstance(indexed, dict):
                 git_url = str(indexed.get("git_url") or "").strip()
@@ -7787,6 +7817,22 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
             "The editor can resolve every node and declared package requirement.",
         ))
     else:
+        package_repairs = sorted({
+            (
+                str(item.get("name") or ""),
+                str(item.get("git_url") or ""),
+            )
+            for item in dependencies.get("missing_packages", [])
+            if (
+                isinstance(item, dict)
+                and not bool(item.get("installed"))
+                and str(item.get("name") or "")
+                and str(item.get("git_url") or "")
+            )
+        })
+        installable_package_names = {
+            package for package, _git_url in package_repairs
+        }
         component_repairs = sorted({
             (
                 str(item.get("package") or ""),
@@ -7795,7 +7841,14 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
             for item in dependencies.get("missing_components", [])
             if (
                 isinstance(item, dict)
-                and str(item.get("reason") or "") == "component is disabled"
+                and (
+                    str(item.get("reason") or "") == "component is disabled"
+                    or (
+                        str(item.get("reason") or "") == "package is not installed"
+                        and str(item.get("package") or "")
+                        in installable_package_names
+                    )
+                )
                 and str(item.get("package") or "")
                 and str(item.get("component") or "")
             )
@@ -7812,13 +7865,23 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
                 and str(item.get("reason") or "") in {
                     "adapter is disabled",
                     "parent component is disabled",
+                    "package is not installed",
                 }
+                and (
+                    str(item.get("reason") or "") != "package is not installed"
+                    or str(item.get("package") or "")
+                    in installable_package_names
+                )
                 and str(item.get("package") or "")
                 and str(item.get("component") or "")
                 and str(item.get("adapter") or "")
             )
         })
         dependency_action_data = {
+            "packages": [
+                {"name": package, "git_url": git_url}
+                for package, git_url in package_repairs
+            ],
             "components": [
                 {"package": package, "component": component}
                 for package, component in component_repairs
@@ -7832,7 +7895,9 @@ def validate_device_deployment(device_id: str, req: DeploymentPreflightReq):
                 for package, component, adapter in adapter_repairs
             ],
         }
-        can_repair_dependencies = bool(component_repairs or adapter_repairs)
+        can_repair_dependencies = bool(
+            package_repairs or component_repairs or adapter_repairs
+        )
         checks.append(_preflight_check(
             "local_dependencies",
             "Editor dependencies",
@@ -9212,7 +9277,7 @@ def _local_robot_monitor_snapshot(target: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_ROBOT_MONITOR_SAMPLE_INTERVAL_SECONDS = 0.1
+_ROBOT_MONITOR_SAMPLE_INTERVAL_SECONDS = 0.05
 _ROBOT_MONITOR_STALE_GRACE_SECONDS = 1.5
 _robot_monitor_cache_lock = threading.Lock()
 _robot_monitor_device_locks: dict[str, threading.Lock] = {}

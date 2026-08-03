@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { api } from '../api'
+import { api, type DeviceRobotProfile } from '../api'
 import { useStore } from '../store'
 import { portColor } from '../portColors'
 import { isWireOnlyInput } from '../inputControls'
@@ -455,7 +455,7 @@ export default function Inspector() {
 
   const [open, setOpen]             = useState(true)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [robotProfileChoices, setRobotProfileChoices] = useState<string[]>([])
+  const [robotProfileChoices, setRobotProfileChoices] = useState<DeviceRobotProfile[]>([])
   const [panelWidth, setPanelWidth] = useState(PANEL_DEFAULT_W)
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
 
@@ -472,8 +472,7 @@ export default function Inspector() {
           if (!cancelled) {
             setRobotProfileChoices(
               (result.profiles ?? [])
-                .map(profile => profile.id)
-                .filter(profileId => profileId && profileId !== 'auto'),
+                .filter(profile => profile.id && profile.id !== 'auto'),
             )
           }
         })
@@ -677,10 +676,19 @@ export default function Inspector() {
                 const choices = data.type === 'Robot' && inp === 'profile_id'
                   ? (
                       robotProfileChoices.length > 0
-                        ? robotProfileChoices
+                        ? robotProfileChoices.map(profile => profile.id)
                         : (schemaChoices ?? []).filter(choice => choice !== 'auto')
                     )
                   : schemaChoices
+                const choiceLabels = data.type === 'Robot' && inp === 'profile_id'
+                  ? Object.fromEntries(robotProfileChoices.map(profile => [
+                      profile.id,
+                      `${profile.name === profile.id ? profile.id : `${profile.name} · ${profile.id}`}`
+                        + (profile.calibration_count
+                          ? ` · ${profile.calibration_count} calibration${profile.calibration_count === 1 ? '' : 's'}`
+                          : ' · no calibration'),
+                    ]))
+                  : undefined
                 const isOllamaModel = inp === 'model' && data.inputs.includes('provider')
                   && String(
                     data.params.provider
@@ -762,6 +770,7 @@ export default function Inspector() {
                     value={isOllamaModel ? ollamaModelValue : data.params[inp]}
                     defaultValue={def}
                     choices={choices}
+                    choiceLabels={choiceLabels}
                     connected={connectedPorts.has(inp)}
                     promoted={inputPromoted(inp)}
                     onTogglePort={() => toggleInput(inp)}
@@ -1291,7 +1300,7 @@ function PortVisibilityRow({ label, displayLabel, hint, type, promoted, connecte
   )
 }
 
-function ParamRow({ nodeType, label, displayLabel, hint, type, value, defaultValue, choices, connected, promoted, onTogglePort, onChange, ollamaEndpoint }: {
+function ParamRow({ nodeType, label, displayLabel, hint, type, value, defaultValue, choices, choiceLabels, connected, promoted, onTogglePort, onChange, ollamaEndpoint }: {
   nodeType: string
   label: string
   displayLabel: string
@@ -1300,6 +1309,7 @@ function ParamRow({ nodeType, label, displayLabel, hint, type, value, defaultVal
   value: unknown
   defaultValue: unknown
   choices?: string[]
+  choiceLabels?: Record<string, string>
   connected: boolean
   promoted: boolean
   onTogglePort: () => void
@@ -1390,7 +1400,7 @@ function ParamRow({ nodeType, label, displayLabel, hint, type, value, defaultVal
       ) : colorParam ? (
         <ColorControl value={value} defaultValue={defaultValue} choices={choices} onChange={onChange} />
       ) : choices && choices.length > 0 ? (
-        <EnumControl value={value} defaultValue={defaultValue} choices={choices} onChange={onChange} />
+        <EnumControl value={value} defaultValue={defaultValue} choices={choices} choiceLabels={choiceLabels} onChange={onChange} />
       ) : ollamaEndpoint !== undefined ? (
         <OllamaModelControl value={value} defaultValue={defaultValue} endpointUrl={ollamaEndpoint} onChange={onChange} />
       ) : type === 'Bool' ? (
@@ -1683,8 +1693,8 @@ function HsvColorControl({ value, defaultValue, disabled = false, onChange }: {
   )
 }
 
-function EnumControl({ value, defaultValue, choices, onChange }: {
-  value: unknown; defaultValue: unknown; choices: string[]; onChange: (v: unknown) => void
+function EnumControl({ value, defaultValue, choices, choiceLabels, onChange }: {
+  value: unknown; defaultValue: unknown; choices: string[]; choiceLabels?: Record<string, string>; onChange: (v: unknown) => void
 }) {
   const current = value !== undefined && value !== null ? String(value)
     : defaultValue !== undefined && defaultValue !== null ? String(defaultValue)
@@ -1716,7 +1726,7 @@ function EnumControl({ value, defaultValue, choices, onChange }: {
         </option>
       )}
       {choices.map(opt => (
-        <option key={opt} value={opt}>{opt}</option>
+        <option key={opt} value={opt}>{choiceLabels?.[opt] ?? opt}</option>
       ))}
     </select>
   )

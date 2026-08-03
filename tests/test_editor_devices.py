@@ -444,6 +444,27 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(definition["params"]["baudrate"], 115200)
         self.assertTrue(save["params"]["overwrite"])
 
+    def test_robot_profile_catalog_uses_registry_display_name_for_builtin(self):
+        robot_fn = server._NODE_REGISTRY.get("Robot")
+        if robot_fn is None:
+            self.skipTest("blacknode-robot is not installed")
+        robots_root = Path(self._tmp.name) / "robots"
+        robots_root.mkdir()
+
+        with patch.dict("os.environ", {"BLACKNODE_ROBOTS_DIR": str(robots_root)}):
+            profiles = server._available_robot_profiles({
+                "node_meta": {
+                    "robot": {
+                        "type": "Robot",
+                        "params": {"profile_id": "so_arm101"},
+                    },
+                },
+            })
+
+        builtin = next(item for item in profiles if item["id"] == "so_arm101")
+        self.assertEqual(builtin["name"], "SO-ARM101 (Feetech STS3215 x6)")
+        self.assertFalse(builtin["saved"])
+
     def test_runtime_inspection_keeps_remote_token_paths_private(self):
         output = (
             "remote preface\n"
@@ -6215,10 +6236,88 @@ class EditorDeviceApiTests(unittest.TestCase):
             "enable_editor_dependencies",
         )
         self.assertEqual(dependency_check["action_data"], {
+            "packages": [],
             "components": [],
             "adapters": [{
                 "package": "blacknode-drivers",
                 "component": "feetech",
+                "adapter": "ros2",
+            }],
+        })
+        self.assertTrue(dependency_check["blocking"])
+
+    def test_preflight_returns_install_action_for_missing_editor_package(self):
+        hardware = _HardwareService()
+        dependency_report = {
+            "ok": False,
+            "code": "missing_packages",
+            "message": (
+                "Missing package: blacknode-motion. Required components need "
+                "attention: blacknode-motion/joint-control (package is not "
+                "installed). Required adapters need attention: "
+                "blacknode-motion/joint-control@ros2 (package is not installed)"
+            ),
+            "missing_packages": [{
+                "name": "blacknode-motion",
+                "git_url": "https://github.com/temiroff/blacknode-motion.git",
+                "node_types": [],
+                "source": "template",
+                "installed": False,
+                "load_error": "",
+            }],
+            "missing_components": [{
+                "package": "blacknode-motion",
+                "component": "joint-control",
+                "reason": "package is not installed",
+            }],
+            "missing_adapters": [{
+                "package": "blacknode-motion",
+                "component": "joint-control",
+                "adapter": "ros2",
+                "reason": "package is not installed",
+            }],
+        }
+
+        with (
+            patch("device_registry.urllib.request.urlopen", side_effect=hardware),
+            patch.object(
+                server,
+                "_workflow_dependency_report",
+                return_value=dependency_report,
+            ),
+        ):
+            device_id = self.client.post("/devices", json={
+                "name": "Workshop arm",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]["id"]
+            response = self.client.post(
+                f"/devices/{device_id}/deployment-preflight",
+                json={"workflow": _workflow([])},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        dependency_check = next(
+            item
+            for item in response.json()["checks"]
+            if item["id"] == "local_dependencies"
+        )
+        self.assertEqual(
+            dependency_check["action"],
+            "enable_editor_dependencies",
+        )
+        self.assertEqual(dependency_check["action_data"], {
+            "packages": [{
+                "name": "blacknode-motion",
+                "git_url": "https://github.com/temiroff/blacknode-motion.git",
+            }],
+            "components": [{
+                "package": "blacknode-motion",
+                "component": "joint-control",
+            }],
+            "adapters": [{
+                "package": "blacknode-motion",
+                "component": "joint-control",
                 "adapter": "ros2",
             }],
         })

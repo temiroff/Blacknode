@@ -536,15 +536,28 @@ export default function DeploymentsPanel({
       !selectedDeviceId
       || check.action !== 'enable_editor_dependencies'
     ) return
+    const packages = check.action_data?.packages ?? []
     const components = check.action_data?.components ?? []
     const adapters = check.action_data?.adapters ?? []
-    if (components.length === 0 && adapters.length === 0) return
+    if (
+      packages.length === 0
+      && components.length === 0
+      && adapters.length === 0
+    ) return
 
     setBusy(true)
     setDependencyRepairBusy(true)
     setError(null)
     setRemoteNotice(null)
     try {
+      for (const requirement of packages) {
+        const result = await api.installPackage(requirement.git_url)
+        if (!result.ok) {
+          throw new Error(
+            result.error || `Could not install ${requirement.name}`,
+          )
+        }
+      }
       for (const requirement of components) {
         await api.setPackageComponent(
           requirement.package,
@@ -567,8 +580,8 @@ export default function DeploymentsPanel({
       setPreflight(result)
       setRemoteNotice(
         result.ready
-          ? 'Required editor dependencies were enabled. Deployment is ready.'
-          : 'Available editor dependencies were enabled. Review the remaining preflight checks.',
+          ? 'Required editor dependencies were installed and enabled. Deployment is ready.'
+          : 'Available editor dependencies were installed and enabled. Review the remaining preflight checks.',
       )
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -1471,11 +1484,17 @@ function PreflightResult({
                   onClick={() => onAction(check)}
                   style={{ ...miniButton, marginTop: 7 }}
                 >
-                  {actionBusy ? 'Enabling dependencies…' : (
-                    (check.action_data?.adapters?.length ?? 0) === 1
-                    && (check.action_data?.components?.length ?? 0) === 0
-                      ? 'Enable required adapter'
-                      : 'Fix editor dependencies'
+                  {actionBusy ? 'Resolving dependencies…' : (
+                    (check.action_data?.packages?.length ?? 0) === 1
+                      ? `Install ${check.action_data?.packages?.[0].name}`
+                      : (check.action_data?.packages?.length ?? 0) > 1
+                        ? 'Install required packages'
+                        : (
+                            (check.action_data?.adapters?.length ?? 0) === 1
+                            && (check.action_data?.components?.length ?? 0) === 0
+                              ? 'Enable required adapter'
+                              : 'Fix editor dependencies'
+                          )
                   )}
                 </button>
               )}

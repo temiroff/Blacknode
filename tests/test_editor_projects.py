@@ -435,6 +435,28 @@ class EditorProjectApiTests(unittest.TestCase):
         self.assertEqual(artifact["metadata"]["episode_count"], 3)
         self.assertNotIn("must-not-be-indexed", json.dumps(result))
 
+    def test_newton_run_artifact_is_indexed_as_simulation_evidence(self):
+        artifact_path = Path(self._tmp.name) / "newton-runs" / "newton-run-a.json"
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_text("{}", encoding="utf-8")
+        artifacts = server._artifact_store.import_value({
+            "kind": "blacknode.newton-run-artifact",
+            "schema_version": 1,
+            "artifact_id": "newton-run-0123456789abcdefabcd",
+            "name": "SO-101 tracking",
+            "path": str(artifact_path),
+            "run_id": "newton-scene",
+            "source": "rosbridge:arm",
+            "joint_names": ["shoulder"],
+            "summary": {"sample_count": 120, "max_abs_error": 0.04},
+        })
+        self.assertEqual(len(artifacts), 1)
+        artifact = artifacts[0]
+        self.assertEqual(artifact["artifact_type"], "simulation_run")
+        self.assertEqual(artifact["provider"], "blacknode-newton")
+        self.assertEqual(artifact["status"], "completed")
+        self.assertEqual(artifact["metadata"]["summary"]["sample_count"], 120)
+
     def test_existing_manifest_can_be_added_and_unlinked_without_deletion(self):
         project = self.client.post("/projects", json={
             "name": "Existing Policy",

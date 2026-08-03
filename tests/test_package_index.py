@@ -303,6 +303,55 @@ def test_installed_explicit_package_does_not_block_available_workflow():
     assert result["missing_packages"] == []
 
 
+def test_legacy_controller_requirements_resolve_to_motion_package():
+    workflow = _workflow("JointMotionProfile", ["blacknode-controllers"])
+    workflow["metadata"]["required_components"] = [
+        "blacknode-controllers/joint-control",
+    ]
+    workflow["metadata"]["required_adapters"] = [
+        "blacknode-controllers/joint-control@ros2",
+    ]
+    installed = {
+        "blacknode-motion": {
+            "ok": True,
+            "version": "0.6.0",
+            "components": {
+                "arm": {
+                    "aliases": ["joint-control"],
+                    "enabled": True,
+                    "adapters": {"ros2": {"enabled": True}},
+                },
+            },
+        },
+    }
+
+    assert template_package_requirements(workflow)[0]["name"] == "blacknode-motion"
+    assert template_component_requirements(workflow)[0] == {
+        "package": "blacknode-motion",
+        "component": "arm",
+        "version": "",
+        "git_url": "https://github.com/temiroff/blacknode-motion.git",
+    }
+    assert template_adapter_requirements(workflow)[0] == {
+        "package": "blacknode-motion",
+        "component": "arm",
+        "adapter": "ros2",
+        "version": "",
+        "git_url": "https://github.com/temiroff/blacknode-motion.git",
+    }
+
+    result = resolve_workflow_dependencies(
+        workflow,
+        available_node_types={"JointMotionProfile", "NestedNode"},
+        installed_packages=installed,
+    )
+
+    assert result["ok"]
+    assert result["missing_packages"] == []
+    assert result["missing_components"] == []
+    assert result["missing_adapters"] == []
+
+
 def test_workflow_declares_nested_adapter_and_reports_disabled_state():
     workflow = _workflow("FeetechROS2Adapter")
     workflow["metadata"]["required_components"] = ["blacknode-drivers/feetech"]

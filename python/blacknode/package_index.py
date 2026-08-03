@@ -989,12 +989,28 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             }
                         ]
                     }
+                },
+                "replay": {
+                    "name": "replay",
+                    "default": False,
+                    "node_types": ["NewtonReplayBridge"],
+                    "dependencies": {
+                        "requires": [
+                            {"component": "runtime"},
+                            {
+                                "package": "blacknode-dataset",
+                                "component": "publishing",
+                                "version": ">=0.2,<1"
+                            }
+                        ]
+                    }
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-newton.git",
             "description": "Interactive Newton physics sessions, browser visualization, and safe articulation teleoperation for Blacknode.",
             "node_types": [
                 "NewtonJointCommand",
+                "NewtonReplayBridge",
                 "NewtonROSBridge",
                 "NewtonSimulation",
                 "NewtonUSDScene",
@@ -1011,6 +1027,30 @@ _NODE_PACKAGE_INDEX: dict[str, dict[str, str]] = {
     for package in _CORE_PACKAGES.values()
     for node_type in package["node_types"]
 }
+
+
+_PACKAGE_ALIASES = {
+    # blacknode-controllers was renamed to blacknode-motion. Keep saved
+    # workflows deployable while their metadata is migrated naturally.
+    "blacknode-controllers": "blacknode-motion",
+}
+
+_PACKAGE_COMPONENT_ALIASES = {
+    ("blacknode-motion", "joint-control"): "arm",
+}
+
+
+def canonical_package_name(name: str) -> str:
+    """Resolve a saved package name to its current official package name."""
+    clean_name = str(name or "").strip()
+    return _PACKAGE_ALIASES.get(clean_name, clean_name)
+
+
+def _canonical_requirement_component(package: str, component: str) -> str:
+    return _PACKAGE_COMPONENT_ALIASES.get(
+        (package, str(component or "").strip()),
+        str(component or "").strip(),
+    )
 
 
 def _manifest_node_types(info: Any) -> set[str]:
@@ -1167,6 +1207,7 @@ def template_package_requirements(workflow: Mapping[str, Any]) -> list[dict[str,
             continue
         if not name:
             continue
+        name = canonical_package_name(name)
 
         indexed = _CORE_PACKAGES.get(name, {})
         raw_node_types = embedded.get("node_types", indexed.get("node_types", []))
@@ -1209,6 +1250,8 @@ def template_component_requirements(workflow: Mapping[str, Any]) -> list[dict[st
             component = component_name
         if not separator or not package or not component:
             continue
+        package = canonical_package_name(package)
+        component = _canonical_requirement_component(package, component)
         indexed = _CORE_PACKAGES.get(package, {})
         requirements[(package, component)] = {
             "package": package,
@@ -1264,6 +1307,8 @@ def template_adapter_requirements(workflow: Mapping[str, Any]) -> list[dict[str,
             continue
         if not separator or not component_separator or not package or not component or not adapter:
             continue
+        package = canonical_package_name(package)
+        component = _canonical_requirement_component(package, component)
         indexed = _CORE_PACKAGES.get(package, {})
         requirements[(package, component, adapter)] = {
             "package": package,
@@ -1482,6 +1527,7 @@ def resolve_workflow_dependencies(
 
 
 __all__ = [
+    "canonical_package_name",
     "indexed_package",
     "package_index_payload",
     "resolve_workflow_dependencies",

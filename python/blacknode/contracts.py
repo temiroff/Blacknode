@@ -73,6 +73,7 @@ SHIPPING_KINDS: dict[str, str] = {
     "blacknode.isaac-command": "blacknode-isaac",
     "blacknode.isaac-observation": "blacknode-isaac",
     "blacknode.isaac-policy-bridge": "blacknode-isaac",
+    "blacknode.newton-run-artifact": "blacknode-newton",
     # Teleoperation
     "blacknode.teleoperation-sample": "blacknode-skills",
 }

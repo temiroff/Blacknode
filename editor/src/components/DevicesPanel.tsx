@@ -3310,7 +3310,11 @@ export default function DevicesPanel({
                   : selectedDevice.runtime_url}
               </code>
             </div>
-            <div className="bn-run-detail-actions bn-device-header-actions">
+            <div
+              className={`bn-run-detail-actions bn-device-header-actions${
+                showDeviceManagement ? ' is-managing' : ''
+              }`}
+            >
               <button
                 onClick={() => setShowDeviceManagement(current => !current)}
                 disabled={busy}

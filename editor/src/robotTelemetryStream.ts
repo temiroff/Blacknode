@@ -22,6 +22,8 @@ type Stream = {
 }
 
 const streams = new Map<string, Stream>()
+const SILENT_STREAM_TIMEOUT_MS = 3000
+const SILENT_STREAM_CHECK_MS = 1000
 
 function publishConnection(stream: Stream, connection: RobotMonitorConnection) {
   stream.connection = connection
@@ -34,9 +36,26 @@ function connect(stream: Stream) {
   const socket = new WebSocket(
     deviceMonitorSocketUrl(stream.robotId, stream.profileId),
   )
+  let lastMessageAt = Date.now()
+  const watchdogTimer = window.setInterval(() => {
+    if (stream.socket !== socket || stream.stopped || stream.listeners.size === 0) {
+      window.clearInterval(watchdogTimer)
+      return
+    }
+    if (
+      socket.readyState < WebSocket.CLOSING
+      && Date.now() - lastMessageAt > SILENT_STREAM_TIMEOUT_MS
+    ) {
+      socket.close(4000, 'robot telemetry stream timed out')
+    }
+  }, SILENT_STREAM_CHECK_MS)
   stream.socket = socket
-  socket.onopen = () => publishConnection(stream, 'live')
+  socket.onopen = () => {
+    lastMessageAt = Date.now()
+    publishConnection(stream, 'live')
+  }
   socket.onmessage = event => {
+    lastMessageAt = Date.now()
     let sample: RobotTelemetrySample
     try {
       sample = JSON.parse(String(event.data)) as RobotTelemetrySample
@@ -48,10 +67,14 @@ function connect(stream: Stream) {
   }
   socket.onerror = () => socket.close()
   socket.onclose = () => {
+    window.clearInterval(watchdogTimer)
     if (stream.socket === socket) stream.socket = null
     if (stream.stopped || stream.listeners.size === 0) return
     publishConnection(stream, 'offline')
-    stream.reconnectTimer = window.setTimeout(() => connect(stream), 1200)
+    stream.reconnectTimer = window.setTimeout(() => {
+      stream.reconnectTimer = undefined
+      connect(stream)
+    }, 1200)
   }
 }
 
