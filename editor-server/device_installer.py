@@ -2609,7 +2609,7 @@ from pathlib import Path, PurePosixPath
 
 root = Path(sys.argv[1]).resolve()
 manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-if manifest.get("schema_version") != 1:
+if manifest.get("schema_version") != __BLACKNODE_OFFLINE_BUNDLE_SCHEMA_VERSION__:
     raise SystemExit("Unsupported PC-assisted Runtime bundle.")
 machine = platform.machine().lower().replace("-", "_")
 aliases = {"arm64": "aarch64", "amd64": "x86_64"}
@@ -2829,6 +2829,10 @@ PY
 install_complete=true
 progress 96 "Verifying the runtime service"
 """
+        script = script.replace(
+            "__BLACKNODE_OFFLINE_BUNDLE_SCHEMA_VERSION__",
+            str(_OFFLINE_BUNDLE_SCHEMA_VERSION),
+        )
         sftp = connection.client.open_sftp()
         try:
             if runtime_bundle is not None:

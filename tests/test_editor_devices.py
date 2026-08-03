@@ -824,6 +824,10 @@ class EditorDeviceApiTests(unittest.TestCase):
             self.assertIn("runtime-source.tar.gz", names)
             self.assertIn("core-source.tar.gz", names)
             self.assertIn("wheelhouse/dependency-1.0-py3-none-any.whl", names)
+            self.assertEqual(
+                manifest["schema_version"],
+                device_installer._OFFLINE_BUNDLE_SCHEMA_VERSION,
+            )
             self.assertEqual(manifest["delivery_mode"], "pc_assisted")
             self.assertEqual(manifest["architecture"], "aarch64")
             self.assertTrue(any("verified" in message.lower() for _, message in progress))
@@ -844,6 +848,72 @@ class EditorDeviceApiTests(unittest.TestCase):
                     lambda _percent, _message: None,
                 )
             self.assertEqual(cached.path, bundle.path)
+
+    def test_pc_assisted_install_script_accepts_current_bundle_schema(self):
+        uploaded = {}
+
+        class RemoteFile(io.StringIO):
+            def __init__(self, path):
+                super().__init__()
+                self.path = path
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                uploaded[self.path] = self.getvalue()
+                self.close()
+                return False
+
+        class Sftp:
+            def file(self, path, _mode):
+                return RemoteFile(path)
+
+            def chmod(self, _path, _mode):
+                return None
+
+            def close(self):
+                return None
+
+        connection = SimpleNamespace(
+            client=SimpleNamespace(open_sftp=lambda: Sftp()),
+            fingerprint="SHA256:trusted-device-key",
+            close=lambda: None,
+        )
+        bundle = device_installer._RuntimeBundle(
+            path=Path("runtime-bundle.tar.gz"),
+            architecture="aarch64",
+            python_version="3.11.14",
+            runtime_commit="a" * 40,
+            core_commit="b" * 40,
+        )
+
+        with (
+            patch.object(device_installer, "_connect", return_value=connection),
+            patch.object(device_installer, "_inspect_connection", return_value={
+                "instances": [],
+                "suggested_port": 8766,
+                "environment": {"os": {"architecture": "aarch64"}},
+            }),
+            patch.object(device_installer, "_prepare_runtime_bundle", return_value=bundle),
+            patch.object(device_installer, "_upload_sftp_file"),
+            patch.object(device_installer, "_run", return_value=""),
+        ):
+            device_installer.install_runtime(
+                host="192.168.1.87",
+                port=22,
+                username="robot",
+                password="ssh-password",
+                host_fingerprint="SHA256:trusted-device-key",
+                action="runtime_only",
+            )
+
+        script = next(value for path, value in uploaded.items() if path.endswith(".sh"))
+        self.assertIn(
+            f'manifest.get("schema_version") != {device_installer._OFFLINE_BUNDLE_SCHEMA_VERSION}',
+            script,
+        )
+        self.assertNotIn("__BLACKNODE_OFFLINE_BUNDLE_SCHEMA_VERSION__", script)
 
     def test_pc_assisted_runtime_rejects_unsupported_device_architecture(self):
         with self.assertRaisesRegex(
