@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -20,6 +21,48 @@ import server  # noqa: E402
 
 
 class EditorRuntimeTests(unittest.TestCase):
+    def test_streamed_cook_injects_process_local_runtime_services(self):
+        node_id = "runtime-context-test"
+
+        def runtime_context_node(ctx):
+            callback = ctx.get("__runtime_callback__")
+            return {"value": callback() if callable(callback) else "missing"}
+
+        original_context = dict(server._session.graph._runtime_context)
+        server._session.node_meta[node_id] = {
+            "id": node_id,
+            "type": "RuntimeContextTest",
+            "params": {},
+        }
+        server._session.graph._nodes[node_id] = {
+            "type": "RuntimeContextTest",
+            "params": {},
+        }
+        server._session.graph._dirty.add(node_id)
+        server._session.graph.set_runtime_context(
+            __runtime_callback__=lambda: "delegated",
+        )
+        try:
+            with patch.dict(
+                server._NODE_REGISTRY,
+                {"RuntimeContextTest": runtime_context_node},
+            ):
+                events = [
+                    json.loads(line)
+                    for line in server._cook_trace(node_id, "value")
+                ]
+        finally:
+            server._session.node_meta.pop(node_id, None)
+            server._session.graph._nodes.pop(node_id, None)
+            server._session.graph._dirty.discard(node_id)
+            for cache_key in list(server._session.graph._cache):
+                if cache_key[0] == node_id:
+                    server._session.graph._cache.pop(cache_key, None)
+            server._session.graph.set_runtime_context(**original_context)
+
+        success = next(event for event in events if event.get("type") == "success")
+        self.assertEqual(success["value"], "delegated")
+
     def test_robot_calibration_runtime_is_managed_through_generic_node(self):
         self.assertEqual(
             server._RUNTIME_MODULES["robot_calibration_control"],
@@ -157,6 +200,17 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertEqual(result["managed_runs"], [{"run_id": "camera_run", "runtime": "ros2"}])
         self.assertEqual(result["detached_count"], 1)
 
+    def test_runtime_status_normalizes_nonfinite_sensor_values(self):
+        with patch.object(
+            server,
+            "_runtime_status",
+            return_value={"ranges": [1.0, float("nan"), float("inf")]},
+        ):
+            response = TestClient(server.app).get("/runtime/status")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ranges": [1.0, None, None]})
+
     def test_remote_ros2_action_routes_through_paired_runtime_and_reports_live_outputs(self):
         calls = []
 
@@ -164,7 +218,7 @@ class EditorRuntimeTests(unittest.TestCase):
             def manifest(self):
                 return {
                     "features": ["remote_ros2_topic_stream_v1"],
-                    "packages": [{"name": "blacknode-ros2", "version": "0.5.16"}],
+                    "packages": [{"name": "blacknode-ros2", "version": "0.5.18"}],
                     "node_types": ["ROS2"],
                 }
 

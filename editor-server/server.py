@@ -2715,6 +2715,12 @@ _RUNTIME_STATUS_KEYS = ("cookResult", "cookError", "cooking", "cookPort")
 
 
 def _status_value(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {str(key): _status_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_status_value(item) for item in value]
     try:
         return json.loads(json.dumps(value, default=str))
     except Exception:
@@ -3276,6 +3282,7 @@ def _cook_trace(
             })
 
             fn = _NODE_REGISTRY[node_def["type"]]
+            ctx.update(getattr(_session.graph, "_runtime_context", {}))
             ctx["__graph__"] = _session.graph
             ctx["__node_id__"] = current_id
             ctx["__run_logger__"] = logger
@@ -3618,7 +3625,7 @@ def console_exec(req: ConsoleExecReq):
 
 @app.get("/runtime/status")
 def runtime_status():
-    return _runtime_status()
+    return _status_value(_runtime_status())
 
 
 @app.get("/api/dataset/media/{token}")
@@ -10996,6 +11003,9 @@ def _subgraph_cook_trace(
         inner._cache = {}
         inner._dirty = set(inner_meta.keys())
         inner._nodes = {}
+        inner._runtime_context = dict(
+            getattr(_session.graph, "_runtime_context", {})
+        )
         for nid, meta in inner_meta.items():
             entry = {"type": meta["type"], "params": dict(meta.get("params", {}))}
             if "subgraph" in meta:
@@ -11058,6 +11068,7 @@ def _subgraph_cook_trace(
                     result = _session.graph._cook_subnet(current_id, current_port, ctx)
                 else:
                     fn = _NODE_REGISTRY[node_def["type"]]
+                    ctx.update(getattr(_session.graph, "_runtime_context", {}))
                     ctx["__graph__"] = _session.graph
                     ctx["__node_id__"] = current_id
                     ctx["__run_logger__"] = logger
@@ -11193,6 +11204,7 @@ def _subgraph_cook_trace(
                     result = inner._cook_subnet(current_id, current_port, ctx)
                 else:
                     fn = _NODE_REGISTRY[node_def["type"]]
+                    ctx.update(getattr(inner, "_runtime_context", {}))
                     ctx["__graph__"] = inner
                     ctx["__node_id__"] = current_id
                     result = fn(ctx)
