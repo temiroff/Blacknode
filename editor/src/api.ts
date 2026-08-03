@@ -718,6 +718,8 @@ export interface ManagedServiceUpdateCheckResult {
       reported_version?: string
       update_available: boolean
       can_update: boolean
+      source_mode?: 'git' | 'snapshot' | 'missing'
+      update_strategy?: 'fast_forward' | 'replace'
       migration_required?: boolean
       dirty: boolean
       state: string

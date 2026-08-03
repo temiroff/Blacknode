@@ -2210,7 +2210,19 @@ runtime_port="$3"
 token_source="$4"
 remove_old_port="$5"
 bundle_path="$6"
+runtime_source_commit="$7"
+core_source_commit="$8"
 [[ "$bundle_path" != "-" ]] || bundle_path=""
+[[ "$runtime_source_commit" != "-" ]] || runtime_source_commit=""
+[[ "$core_source_commit" != "-" ]] || core_source_commit=""
+[[ -z "$runtime_source_commit" || "$runtime_source_commit" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "Invalid Runtime source commit."
+  exit 2
+}
+[[ -z "$core_source_commit" || "$core_source_commit" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "Invalid Blacknode source commit."
+  exit 2
+}
 [[ "$instance" == "default" || "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || {
   echo "Invalid Blacknode runtime instance."
   exit 2
@@ -2598,7 +2610,8 @@ if [[ "$action" != "runtime_only" && "$action" != "replace_runtime" ]] \
 fi
 python3 - "$stack_root/install.json" "$instance" "$runtime_dir" "$hardware_dir" \
   "$service_name" "$action" "$firewall_source" "$hardware_preserved" \
-  "$core_dir" "$python_dir" "$delivery_mode" <<'PY'
+  "$core_dir" "$python_dir" "$delivery_mode" "$runtime_source_commit" \
+  "$core_source_commit" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -2623,6 +2636,8 @@ manifest_path.write_text(json.dumps({
     "core_dir": sys.argv[9] if sys.argv[11] == "pc_assisted" else "",
     "python_dir": sys.argv[10] if sys.argv[11] == "pc_assisted" else "",
     "delivery_mode": sys.argv[11],
+    "runtime_commit": sys.argv[12],
+    "core_commit": sys.argv[13],
 }, indent=2) + "\\n", encoding="utf-8")
 PY
 install_complete=true
@@ -2680,7 +2695,9 @@ progress 96 "Verifying the runtime service"
             (
                 f"bash {remote_script_path} "
                 f"{clean_action} {selected_instance} {runtime_port} {remote_token_path} "
-                f"{1 if remove_old_port else 0} {remote_bundle_path or '-'}"
+                f"{1 if remove_old_port else 0} {remote_bundle_path or '-'} "
+                f"{runtime_bundle.runtime_commit if runtime_bundle is not None else '-'} "
+                f"{runtime_bundle.core_commit if runtime_bundle is not None else '-'}"
             ),
             stdin_text=_sudo_input(password),
             timeout=900.0,
@@ -2718,6 +2735,12 @@ progress 96 "Verifying the runtime service"
             ),
             "python_version": (
                 runtime_bundle.python_version if runtime_bundle is not None else ""
+            ),
+            "runtime_commit": (
+                runtime_bundle.runtime_commit if runtime_bundle is not None else ""
+            ),
+            "core_commit": (
+                runtime_bundle.core_commit if runtime_bundle is not None else ""
             ),
             "stack_mode": (
                 "isolated"
@@ -3588,12 +3611,21 @@ def resolve_hardware(port, expected_device_id):
     return unit, Path(directory), resolution_error
 
 def inspect(kind, repository, service, port, directory, state_override=""):
+    source_mode = (
+        "git"
+        if (directory / ".git").is_dir()
+        else "snapshot"
+        if (directory / "pyproject.toml").is_file()
+        else "missing"
+    )
     component = {{
         "kind": kind,
         "service_name": service or "blacknode-hardware-awaiting-device",
         "port": int(port),
         "installed": {{"version": package_version(directory), "commit": ""}},
         "latest": {{"version": "unknown", "commit": ""}},
+        "source_mode": source_mode,
+        "update_strategy": "replace" if source_mode == "snapshot" else "fast_forward",
         "update_available": False,
         "can_update": False,
         "migration_required": False,
@@ -3606,43 +3638,63 @@ def inspect(kind, repository, service, port, directory, state_override=""):
         "error": "",
     }}
     try:
-        if not (directory / ".git").is_dir():
-            raise RuntimeError(f"{{repository}} is not an updateable Git checkout.")
-        origin = command(["git", "-C", str(directory), "remote", "get-url", "origin"])
-        origin_url = origin.stdout.strip()
-        normalized = origin_url.lower().rstrip("/")
-        if normalized.endswith(".git"):
-            normalized = normalized[:-4]
-        trusted_origin = bool(re.search(
-            rf"(?:github\.com[:/])temiroff/{{re.escape(repository)}}$",
-            normalized,
-        ))
-        legacy_hardware_origin = bool(
-            repository == "blacknode-robot"
-            and re.search(
-                r"(?:github\.com[:/])temiroff/blacknode-hardware$",
+        if source_mode == "missing":
+            raise RuntimeError(f"{{repository}} package files are not installed.")
+        legacy_hardware_origin = False
+        latest_origin_url = f"https://github.com/temiroff/{{repository}}.git"
+        current_commit = ""
+        if source_mode == "git":
+            origin = command([
+                "git", "-C", str(directory), "remote", "get-url", "origin"
+            ])
+            origin_url = origin.stdout.strip()
+            normalized = origin_url.lower().rstrip("/")
+            if normalized.endswith(".git"):
+                normalized = normalized[:-4]
+            trusted_origin = bool(re.search(
+                rf"(?:github\.com[:/])temiroff/{{re.escape(repository)}}$",
                 normalized,
+            ))
+            legacy_hardware_origin = bool(
+                repository == "blacknode-robot"
+                and re.search(
+                    r"(?:github\.com[:/])temiroff/blacknode-hardware$",
+                    normalized,
+                )
             )
-        )
-        if not trusted_origin and not legacy_hardware_origin:
-            raise RuntimeError(
-                f"origin is not the trusted temiroff/{{repository}} repository"
+            if not trusted_origin and not legacy_hardware_origin:
+                raise RuntimeError(
+                    f"origin is not the trusted temiroff/{{repository}} repository"
+                )
+            latest_origin_url = (
+                "https://github.com/temiroff/blacknode-robot.git"
+                if legacy_hardware_origin
+                else origin_url
             )
+            current = command(["git", "-C", str(directory), "rev-parse", "HEAD"])
+            if current.returncode:
+                raise RuntimeError(
+                    current.stderr.strip() or "could not read installed commit"
+                )
+            current_commit = current.stdout.strip()
+            component["installed"]["commit"] = current_commit[:12]
+            dirty = command([
+                "git", "-C", str(directory), "status", "--porcelain",
+                "--untracked-files=normal",
+            ])
+            component["dirty"] = bool(dirty.stdout.strip())
+        else:
+            try:
+                installation = json.loads(
+                    (directory.parent / "install.json").read_text(encoding="utf-8")
+                )
+                commit_key = "runtime_commit" if kind == "runtime" else "hardware_commit"
+                current_commit = str(installation.get(commit_key) or "")
+                component["installed"]["commit"] = current_commit[:12]
+            except (OSError, ValueError, AttributeError):
+                pass
         component["migration_required"] = legacy_hardware_origin
-        latest_origin_url = (
-            "https://github.com/temiroff/blacknode-robot.git"
-            if legacy_hardware_origin
-            else origin_url
-        )
-        current = command(["git", "-C", str(directory), "rev-parse", "HEAD"])
-        if current.returncode:
-            raise RuntimeError(current.stderr.strip() or "could not read installed commit")
-        component["installed"]["commit"] = current.stdout.strip()[:12]
-        dirty = command([
-            "git", "-C", str(directory), "status", "--porcelain", "--untracked-files=normal"
-        ])
-        component["dirty"] = bool(dirty.stdout.strip())
-        if legacy_hardware_origin:
+        if legacy_hardware_origin or source_mode == "snapshot":
             remote_head = command(
                 ["git", "ls-remote", "--symref", latest_origin_url, "HEAD"],
                 timeout=45,
@@ -3658,7 +3710,7 @@ def inspect(kind, repository, service, port, directory, state_override=""):
             if remote_head.returncode or not upstream_ref.startswith("refs/heads/"):
                 raise RuntimeError(
                     remote_head.stderr.strip()
-                    or "could not resolve the blacknode-robot default branch"
+                    or f"could not resolve the {{repository}} default branch"
                 )
         else:
             branch = command([
@@ -3681,30 +3733,42 @@ def inspect(kind, repository, service, port, directory, state_override=""):
             )
         latest_commit = latest.stdout.split()[0]
         component["latest"]["commit"] = latest_commit[:12]
-        component["update_available"] = (
-            legacy_hardware_origin or current.stdout.strip() != latest_commit
-        )
-        if not component["update_available"]:
-            component["latest"]["version"] = component["installed"]["version"]
-        else:
+        if source_mode == "git":
             local_latest = command([
                 "git", "-C", str(directory), "show",
                 f"{{latest_commit}}:pyproject.toml",
             ])
             if not local_latest.returncode:
                 component["latest"]["version"] = project_version(local_latest.stdout)
-            if component["latest"]["version"] == "unknown":
-                raw_url = (
-                    f"https://raw.githubusercontent.com/temiroff/{{repository}}/"
-                    f"{{latest_commit}}/pyproject.toml"
-                )
-                try:
-                    with urllib.request.urlopen(raw_url, timeout=15) as response:
-                        component["latest"]["version"] = project_version(
-                            response.read().decode("utf-8")
-                        )
-                except Exception:
-                    pass
+        if component["latest"]["version"] == "unknown":
+            raw_url = (
+                f"https://raw.githubusercontent.com/temiroff/{{repository}}/"
+                f"{{latest_commit}}/pyproject.toml"
+            )
+            try:
+                with urllib.request.urlopen(raw_url, timeout=15) as response:
+                    component["latest"]["version"] = project_version(
+                        response.read().decode("utf-8")
+                    )
+            except Exception:
+                pass
+        if (
+            component["latest"]["version"] == "unknown"
+            and current_commit
+            and current_commit == latest_commit
+        ):
+            component["latest"]["version"] = component["installed"]["version"]
+        component["update_available"] = bool(
+            legacy_hardware_origin
+            or (current_commit and current_commit != latest_commit)
+            or (
+                not current_commit
+                and component["latest"]["version"] != "unknown"
+                and component["installed"]["version"] != "unknown"
+                and component["latest"]["version"]
+                != component["installed"]["version"]
+            )
+        )
         component["can_update"] = (
             not component["dirty"] and not legacy_hardware_origin
         )

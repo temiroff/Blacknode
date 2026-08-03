@@ -670,7 +670,15 @@ export default function DevicesPanel({
       ?.state?.status?.software_version
     || selectedDevice?.robots.find(robot => robot.software_version)?.software_version
   )
-  const selectedHardwareVersionLabel = selectedHardwareVersion
+  const selectedHardwarePackageInstalled = selectedDeviceManagedLocally
+    ? selectedDeviceState?.runtime?.hardware?.installed !== false
+    : Boolean(
+        selectedDevice?.managed_runtime?.hardware_dir
+        || selectedDevice?.robots.length,
+      )
+  const selectedHardwareVersionLabel = !selectedHardwarePackageInstalled
+    ? 'Not installed'
+    : selectedHardwareVersion
     ? `v${selectedHardwareVersion}`
     : 'version not reported'
   const selectedHardwarePackageState = selectedDeviceState?.loading
@@ -875,7 +883,9 @@ export default function DevicesPanel({
           : '')
     : ''
   const hardwareLatestVersionError = updateCheckReport
-    ? checkedHardwareInstallation?.error
+    ? !selectedHardwarePackageInstalled
+      ? ''
+      : checkedHardwareInstallation?.error
       || (!hardwareLatestVersion && checkedHardwareComponents.length === 0
         ? selectedDevice?.robots.length
           ? 'No attached Robot service was included in the update check.'
@@ -2007,6 +2017,7 @@ export default function DevicesPanel({
         ...previous,
         [device.id]: { progress: 100, message: result.summary },
       }))
+      await refreshDevice(device)
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason)
       setActionProgress(previous => ({
@@ -3881,23 +3892,18 @@ export default function DevicesPanel({
                         ? `${selectedDevice.robots.length} Hardware service${
                             selectedDevice.robots.length === 1 ? '' : 's'
                           } on ${runtimeHostname(selectedDevice.runtime_url)}`
-                        : 'Robot package installed · no robot service configured yet'}
+                        : selectedDevice.managed_runtime.hardware_dir
+                          ? 'Robot package installed · no robot service configured yet'
+                          : 'Robot package not installed · no robot service attached'}
                     state={selectedHardwarePackageState}
                     currentVersion={hardwareCurrentVersion}
                     latestVersion={hardwareLatestVersion}
-                    latestChecked={Boolean(updateCheckReport)}
+                    latestChecked={Boolean(updateCheckReport) && selectedHardwarePackageInstalled}
                     latestError={hardwareLatestVersionError}
                     migrationRequired={Boolean(
                       checkedHardwareInstallation?.migration_required,
                     )}
-                    installed={
-                      selectedDeviceManagedLocally
-                        ? selectedDeviceState?.runtime?.hardware?.installed !== false
-                        : Boolean(
-                            selectedDevice.managed_runtime.hardware_dir
-                            || selectedDevice.robots.length,
-                          )
-                    }
+                    installed={selectedHardwarePackageInstalled}
                     updateAvailable={checkedHardwareHasUpdate}
                     busy={busy}
                     onCheckLatest={() => void checkDeviceSoftware(selectedDevice)}
@@ -3918,11 +3924,17 @@ export default function DevicesPanel({
                         : void restartRemotePackage(selectedDevice, 'hardware')
                     )}
                     onUpdate={() => void updateDevice(selectedDevice, 'hardware', 'update')}
+                    updateEnabled={
+                      selectedDeviceManagedLocally || selectedHardwarePackageInstalled
+                    }
                     onReinstall={() => void updateDevice(
                       selectedDevice,
                       'hardware',
                       'reinstall',
                     )}
+                    reinstallEnabled={
+                      selectedDeviceManagedLocally || selectedHardwarePackageInstalled
+                    }
                     deleteEnabled={selectedDeviceManagedLocally}
                     onDelete={() => {
                       if (selectedDeviceManagedLocally) {
@@ -5199,6 +5211,8 @@ function SoftwarePackageSummaryCard({
   onCheckLatest,
   runStopEnabled = true,
   restartEnabled = true,
+  updateEnabled = true,
+  reinstallEnabled = true,
   deleteEnabled = true,
   onRunStop,
   onRestart,
@@ -5221,6 +5235,8 @@ function SoftwarePackageSummaryCard({
   onCheckLatest: () => void
   runStopEnabled?: boolean
   restartEnabled?: boolean
+  updateEnabled?: boolean
+  reinstallEnabled?: boolean
   deleteEnabled?: boolean
   onRunStop: (action: 'run' | 'stop') => void
   onRestart: () => void
@@ -5283,7 +5299,9 @@ function SoftwarePackageSummaryCard({
             >
               <small>Latest</small>
               <b>
-                {latestVersion ?? (latestChecked ? 'Unavailable' : 'Not checked')}
+                {!installed
+                  ? 'Not installed'
+                  : latestVersion ?? (latestChecked ? 'Unavailable' : 'Not checked')}
               </b>
             </span>
           </div>
@@ -5296,7 +5314,11 @@ function SoftwarePackageSummaryCard({
       <code title={path}>{path}</code>
       {detail && <small>{detail}</small>}
       <div className="bn-local-package-version-action">
-        {latestError ? (
+        {!installed ? (
+          <div className="bn-local-package-version-current">
+            Package not installed
+          </div>
+        ) : latestError ? (
           <div className="bn-local-package-version-unavailable" role="alert">
             <strong>
               {migrationRequired ? 'Package migration required' : 'Latest version unavailable'}
@@ -5351,7 +5373,7 @@ function SoftwarePackageSummaryCard({
         <button
           type="button"
           className={`bn-device-action-button${updateAvailable ? ' is-primary' : ''}`}
-          disabled={busy}
+          disabled={busy || !updateEnabled}
           onClick={onUpdate}
         >
           Update
@@ -5359,7 +5381,7 @@ function SoftwarePackageSummaryCard({
         <button
           type="button"
           className="bn-device-action-button"
-          disabled={busy}
+          disabled={busy || !reinstallEnabled}
           onClick={onReinstall}
         >
           Reinstall
@@ -5385,7 +5407,7 @@ function SoftwarePackageSummaryCard({
         <button
           type="button"
           className={`bn-device-action-button${updateAvailable ? ' is-primary' : ''}`}
-          disabled={busy}
+          disabled={busy || !updateEnabled}
           onClick={onUpdate}
         >
           Update
@@ -5407,7 +5429,11 @@ function SoftwarePackageSummaryCard({
             >
               Restart
             </button>
-            <button type="button" disabled={busy} onClick={onReinstall}>
+            <button
+              type="button"
+              disabled={busy || !reinstallEnabled}
+              onClick={onReinstall}
+            >
               Reinstall
             </button>
             <button
