@@ -161,6 +161,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["FeetechCalibrationProvider"]["package"] == "blacknode-drivers"
     assert "CUDAKernelLab" not in payload["nodes"]
     assert "CUDACustomKernel" not in payload["nodes"]
+    assert payload["nodes"]["ROS2"]["package"] == "blacknode-ros2"
     assert payload["nodes"]["ROS2TopicList"]["package"] == "blacknode-ros2"
     assert payload["nodes"]["ROS2TopicPublisher"]["package"] == "blacknode-ros2"
     assert payload["nodes"]["ROS2TopicSubscriber"]["package"] == "blacknode-ros2"

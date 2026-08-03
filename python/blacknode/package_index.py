@@ -417,6 +417,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "topics",
                     "default": True,
                     "node_types": [
+                        "ROS2",
                         "ROS2TopicEcho",
                         "ROS2TopicList",
                         "ROS2TopicPublisher",
@@ -470,6 +471,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "git_url": "https://github.com/temiroff/blacknode-ros2.git",
             "description": "ROS 2 integration primitives: graph discovery, topics, services, processes, and native/rosbridge transports.",
             "node_types": [
+                "ROS2",
                 "ROS2BridgeEcho",
                 "ROS2BridgePublish",
                 "ROS2GraphExplorer",

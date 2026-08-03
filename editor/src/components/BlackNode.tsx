@@ -963,9 +963,14 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const topicPublisherActive = data.type === 'ROS2TopicPublisher' && data.portResults?.running === true
   const topicPublisherName = String(data.params?.node_name ?? '').trim().replace(/^\/+/, '')
   const topicPublisherTopic = String(data.params?.topic ?? '/chatter').trim() || '/chatter'
-  const topicSubscriberActive = data.type === 'ROS2TopicSubscriber' && data.portResults?.running === true
-  const topicSubscriberName = String(data.params?.node_name ?? 'blacknode_subscriber').trim().replace(/^\/+/, '')
-  const topicSubscriberTopic = String(data.params?.topic ?? '/chatter').trim() || '/chatter'
+  const topicSubscriberActive = (data.type === 'ROS2TopicSubscriber' || data.type === 'ROS2')
+    && data.portResults?.running === true
+  const topicSubscriberName = String(
+    data.params?.node_name ?? (data.type === 'ROS2' ? 'blacknode_ros2_topic' : 'blacknode_subscriber')
+  ).trim().replace(/^\/+/, '')
+  const topicSubscriberTopic = String(
+    data.params?.topic ?? (data.type === 'ROS2' ? '/scan' : '/chatter')
+  ).trim() || (data.type === 'ROS2' ? '/scan' : '/chatter')
 
   // Ordered by urgency: a running process outranks a waiting one, which
   // outranks a passive "this result is stale" note.
