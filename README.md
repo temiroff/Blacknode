@@ -103,7 +103,9 @@ never starts a physical or compute action automatically.
 
 Blacknode core owns the graph, editor, runtime, replay, exports, package system,
 and control APIs. Extension packages add robot providers, ROS 2, perception,
-CUDA, datasets, training, and other focused capabilities.
+CUDA, datasets, training, simulation, and other focused capabilities. The
+[Newton package](https://github.com/temiroff/blacknode-newton) adds Newton
+physics workflows, synchronized 3D viewing, ROS bridging, and replay.
 
 Install packages from **Packages** in the editor. The same operation is
 available from the CLI:
