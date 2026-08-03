@@ -159,26 +159,26 @@ export default function PointCloudViewer({
   const currentPoints = useMemo(() => numericRows(parsed.current_points), [parsed.current_points])
   const [animationClock, setAnimationClock] = useState(0)
   const scanStartedRef = useRef(0)
-  const sequenceRef = useRef<number | undefined>(undefined)
 
   const animationEnabled = parsed.animation?.enabled !== false
+  const hasCurrentPoints = currentPoints.length > 0
   const pulseHz = clamp(finite(parsed.animation?.pulse_hz, 1), 0.05, 30)
+  const scanAngleMinimum = finite(parsed.scan?.angle_min_rad, -Math.PI)
+  const scanAngleMaximum = finite(parsed.scan?.angle_max_rad, Math.PI)
+  const scanAngleDirection = scanAngleMaximum >= scanAngleMinimum ? 1 : -1
+  const scanCoverageRad = clamp(Math.abs(scanAngleMaximum - scanAngleMinimum), 0, Math.PI * 2)
+  const scanCoverageDeg = scanCoverageRad * 180 / Math.PI
+  const fullCircleScan = scanCoverageRad >= Math.PI * 2 - Math.PI / 180
   const animationPhase = animationEnabled
-    ? ((animationClock - scanStartedRef.current) / 1000 * pulseHz + 10) % 1
+    ? ((animationClock - scanStartedRef.current) / 1000 * pulseHz + 1) % 1
     : 1
 
   useEffect(() => {
-    const sequence = Number(parsed.sequence ?? 0)
-    if (sequenceRef.current !== sequence) {
-      sequenceRef.current = sequence
-      scanStartedRef.current = performance.now()
-    }
-  }, [parsed.sequence])
-
-  useEffect(() => {
-    if (!animationEnabled || currentPoints.length === 0) return
+    if (!animationEnabled || !hasCurrentPoints) return
     let frame = 0
     let previous = 0
+    scanStartedRef.current = performance.now()
+    setAnimationClock(scanStartedRef.current)
     const animate = (now: number) => {
       if (now - previous >= 30) {
         previous = now
@@ -188,7 +188,7 @@ export default function PointCloudViewer({
     }
     frame = window.requestAnimationFrame(animate)
     return () => window.cancelAnimationFrame(frame)
-  }, [animationEnabled, currentPoints.length])
+  }, [animationEnabled, hasCurrentPoints])
 
   const sensor = useMemo(() => ({
     x: finite(parsed.sensor?.x_m),
@@ -380,37 +380,43 @@ export default function PointCloudViewer({
     }
 
     const sensorScreen = worldToScreen(sensor.x, sensor.y, 0, viewport, camera, pixelsPerMeter)
-    const scanMinimum = sensor.yaw + finite(parsed.scan?.angle_min_rad, -Math.PI)
-    const scanMaximum = sensor.yaw + finite(parsed.scan?.angle_max_rad, Math.PI)
+    const scanMinimum = sensor.yaw + scanAngleMinimum
+    const scanMaximum = sensor.yaw + scanAngleMaximum
     const rayLength = Math.min(viewRadius, Math.max(spacing * 2, viewRadius * 0.82))
-    context.setLineDash([5, 5])
-    context.strokeStyle = 'rgba(255, 198, 72, 0.62)'
-    context.lineWidth = 1.3
-    context.beginPath()
-    for (const angle of [scanMinimum, scanMaximum]) {
-      const end = worldToScreen(
-        sensor.x + Math.cos(angle) * rayLength,
-        sensor.y + Math.sin(angle) * rayLength,
-        0,
-        viewport,
-        camera,
-        pixelsPerMeter,
-      )
-      context.moveTo(sensorScreen[0], sensorScreen[1])
-      context.lineTo(end[0], end[1])
+    if (!fullCircleScan) {
+      context.setLineDash([5, 5])
+      context.strokeStyle = 'rgba(255, 198, 72, 0.62)'
+      context.lineWidth = 1.3
+      context.beginPath()
+      for (const angle of [scanMinimum, scanMaximum]) {
+        const end = worldToScreen(
+          sensor.x + Math.cos(angle) * rayLength,
+          sensor.y + Math.sin(angle) * rayLength,
+          0,
+          viewport,
+          camera,
+          pixelsPerMeter,
+        )
+        context.moveTo(sensorScreen[0], sensorScreen[1])
+        context.lineTo(end[0], end[1])
+      }
+      context.stroke()
+      context.setLineDash([])
     }
-    context.stroke()
-    context.setLineDash([])
 
     if (animationEnabled && currentPoints.length > 0) {
       for (const [ringIndex, offset] of [0, 0.22, 0.44].entries()) {
         const phase = (animationPhase - offset + 1) % 1
-        const radius = Math.max(0.01, viewRadius * phase)
-        context.strokeStyle = `rgba(40, 145, 232, ${0.48 - ringIndex * 0.1})`
+        const rangeMinimum = Math.max(0, finite(parsed.scan?.range_min_m, 0))
+        const rangeMaximum = Math.min(viewRadius, Math.max(rangeMinimum, finite(parsed.scan?.range_max_m, viewRadius)))
+        const radius = Math.max(0.01, rangeMinimum + (rangeMaximum - rangeMinimum) * phase)
+        const opacity = (0.52 - ringIndex * 0.1) * (1 - phase)
+        context.strokeStyle = `rgba(40, 145, 232, ${opacity})`
         context.lineWidth = 1.2
         context.beginPath()
-        for (let segment = 0; segment <= 80; segment += 1) {
-          const angle = Math.PI * 2 * segment / 80
+        const ringSegments = Math.max(8, Math.ceil(80 * scanCoverageRad / (Math.PI * 2)))
+        for (let segment = 0; segment <= ringSegments; segment += 1) {
+          const angle = scanMinimum + scanAngleDirection * scanCoverageRad * segment / ringSegments
           const point = worldToScreen(
             sensor.x + Math.cos(angle) * radius,
             sensor.y + Math.sin(angle) * radius,
@@ -516,6 +522,8 @@ export default function PointCloudViewer({
     parsed.animation?.show_rays,
     parsed.scan?.angle_max_rad,
     parsed.scan?.angle_min_rad,
+    parsed.scan?.range_max_m,
+    parsed.scan?.range_min_m,
     pixelsPerMeter,
     sensor,
     viewRadius,
@@ -649,6 +657,7 @@ export default function PointCloudViewer({
         {kernelMs > 0 && <span>{kernelMs.toFixed(3)} ms Warp</span>}
         {parsed.device && <span>{parsed.device}</span>}
         {parsed.frame && <span>{parsed.frame}</span>}
+        <span>{scanCoverageDeg >= 359.5 ? '360° scan' : `${scanCoverageDeg.toFixed(1)}° scan`}</span>
         <span>3D orbit · LaserScan lies on XY plane</span>
       </div>
       <div style={{
