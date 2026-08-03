@@ -133,6 +133,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
     }
     assert cuda["benchmarks"]["default"] is False
     assert cuda["spatial-processing"]["node_types"] == [
+        "Viewer",
         "WarpLaserScanFilter",
         "WarpLiDARViewer",
         "WarpSLAMDiscoveryViewer",

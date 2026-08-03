@@ -17,6 +17,7 @@ import { useQualifiedTypeLabel } from '../nodeTypeLabel'
 import NodeFrame from './NodeFrame'
 import NodeGlyph from './NodeGlyph'
 import DatasetBrowserPanel from './DatasetBrowserPanel'
+import PointCloudViewer from './PointCloudViewer'
 import type { NodeCookState } from '../types'
 import { LIVE_STREAM_NODE_TYPES } from '../liveNodeTypes'
 
@@ -493,6 +494,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [rosPythonStopPending, setRosPythonStopPending] = useState(false)
   const [topicPublisherStopPending, setTopicPublisherStopPending] = useState(false)
   const [topicSubscriberStopPending, setTopicSubscriberStopPending] = useState(false)
+  const [viewerStopPending, setViewerStopPending] = useState(false)
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
   const [episodePending, setEpisodePending] = useState<null | 'start' | 'pause' | 'resume' | 'save' | 'stop' | 'discard'>(null)
@@ -768,6 +770,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const isEpisodeRecorder = data.type === 'EpisodeRecorder'
   const isDatasetCreate = data.type === 'DatasetCreate'
   const isDatasetBrowser = data.type === 'DatasetBrowser'
+  const isViewer = data.type === 'Viewer'
   const isACTTraining = data.type === 'ACTTraining'
   const availableInputs = isRobotJointList
     ? (data.inputs ?? []).filter(port => edges.some(edge => edge.target === id && edge.targetHandle === port))
@@ -971,6 +974,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const topicSubscriberTopic = String(
     data.params?.topic ?? (data.type === 'ROS2' ? '/scan' : '/chatter')
   ).trim() || (data.type === 'ROS2' ? '/scan' : '/chatter')
+  const viewerActive = isViewer && data.portResults?.running === true
 
   // Ordered by urgency: a running process outranks a waiting one, which
   // outranks a passive "this result is stale" note.
@@ -1023,6 +1027,16 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         label: topicSubscriberStopPending ? 'Stopping...' : 'Stop',
         pending: topicSubscriberStopPending,
         onClick: () => { void onStopTopicSubscriber() },
+      },
+    }
+    : viewerActive ? {
+      text: data.portResults?.live === true ? 'LIVE • VIEWING' : 'LIVE • WAITING',
+      tone: data.portResults?.live === true ? 'ok' : 'warn',
+      title: String(data.portResults?.report ?? 'Managed Viewer session'),
+      action: {
+        label: viewerStopPending ? 'Stopping...' : 'Stop',
+        pending: viewerStopPending,
+        onClick: () => { void onStopViewer() },
       },
     }
     : liveBlocked || liveWaiting ? {
@@ -1270,6 +1284,21 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         // The subscriber is already stopped; leave the visual control responsive.
       }
       setTopicSubscriberStopPending(false)
+    }
+  }
+
+  const onStopViewer = async () => {
+    setViewerStopPending(true)
+    try {
+      await updateParam(id, 'action', 'stop')
+      await cookNode(id, 'report')
+    } finally {
+      try {
+        await updateParam(id, 'action', 'start')
+      } catch {
+        // The Viewer is already stopped; leave the visual control responsive.
+      }
+      setViewerStopPending(false)
     }
   }
 
@@ -2399,6 +2428,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       )}
 
       {isDatasetBrowser && <DatasetBrowserPanel id={id} data={data} />}
+
+      {isViewer && <PointCloudViewer scene={data.portResults?.scene} />}
 
       {isDatasetCreate && (
         <div style={{

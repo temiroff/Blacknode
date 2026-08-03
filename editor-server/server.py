@@ -638,6 +638,7 @@ _RUNTIME_MODULES = {
     "robot_calibration_control": "blacknode.pkg.blacknode_robot.calibration_control",
     "vision": "blacknode.pkg.blacknode_perception.cv2_runtime",
     "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
+    "viewer": "blacknode.pkg.blacknode_cuda.viewer_runtime",
     "robot": "blacknode.pkg.blacknode_robot.robot",
     "dataset": "blacknode.pkg.blacknode_dataset.runtime",
     "training": "blacknode.pkg.blacknode_training.runtime",
@@ -655,6 +656,7 @@ _RUNTIME_REGISTRY_ANCHORS = {
     "newton": "NewtonSimulation",
     "joint_control": "ROS2ManualMove",
     "robot_calibration_control": "RobotCalibrationControl",
+    "viewer": "Viewer",
 }
 
 _RUNTIME_CALLABLE_ALIASES = {
@@ -728,7 +730,15 @@ def _remote_ros2_outputs(
     remote_stream_id = (
         f"device:{device_id}:topic-subscriber:{str(request.get('topic') or '')}"
     )
-    stream.update(backend=backend, device_id=device_id, stream_id=remote_stream_id)
+    stream.update(
+        kind="blacknode.message-stream",
+        schema_version=1,
+        protocol="ros2",
+        backend=backend,
+        device_id=device_id,
+        node_id=str(request.get("node_id") or ""),
+        stream_id=remote_stream_id,
+    )
     outputs["stream"] = stream
     status = outputs.get("status") if isinstance(outputs.get("status"), dict) else {}
     status.update(device_id=device_id, stream_id=remote_stream_id)
@@ -832,6 +842,69 @@ def _remote_ros2_action(request: dict[str, Any]) -> dict[str, Any]:
             )
         return {"id": service_id, "outputs": _remote_ros2_error_outputs(request, detail)}
     return {"id": service_id, "outputs": _remote_ros2_outputs(request, response)}
+
+
+def _message_stream_reader(source: dict[str, Any]) -> dict[str, Any]:
+    """Read the latest value behind a managed message-stream descriptor."""
+    if str(source.get("kind") or "") != "blacknode.message-stream":
+        return {
+            "status": {
+                "state": "unavailable",
+                "source_fresh": False,
+                "error": "source is not a blacknode.message-stream",
+            }
+        }
+    protocol = str(source.get("protocol") or "").strip().lower()
+    if protocol != "ros2":
+        return {
+            "status": {
+                "state": "unavailable",
+                "source_fresh": False,
+                "error": f"message-stream protocol {protocol or 'unknown'!r} is not supported",
+            }
+        }
+    topic = str(source.get("topic") or "").strip()
+    device_id = str(source.get("device_id") or "").strip()
+    if device_id:
+        source_node_id = str(source.get("node_id") or "").strip()
+        with _remote_ros2_lock:
+            exact = _remote_ros2_runs.get(source_node_id) if source_node_id else None
+            request = dict(exact) if exact is not None else next(
+                (
+                    dict(item)
+                    for item in _remote_ros2_runs.values()
+                    if str(item.get("device_id") or "") == device_id
+                    and str(item.get("topic") or "") == topic
+                ),
+                None,
+            )
+        if request is None:
+            return _remote_ros2_error_outputs(
+                {"device_id": device_id, "topic": topic},
+                "the paired-device ROS2 stream is not running",
+            )
+        result = _remote_ros2_action({**request, "action": "status"})
+        return dict(result.get("outputs") or {})
+
+    status_fn = _runtime_callable(
+        "ros2",
+        _RUNTIME_MODULES["ros2"],
+        "topic_subscriber_status",
+    )
+    outputs_fn = _runtime_callable(
+        "ros2",
+        _RUNTIME_MODULES["ros2"],
+        "ros2_topic_outputs",
+    )
+    if status_fn is None or outputs_fn is None:
+        return {
+            "status": {
+                "state": "unavailable",
+                "source_fresh": False,
+                "error": "blacknode-ros2 Runtime is not loaded",
+            }
+        }
+    return dict(outputs_fn(status_fn(topic)))
 
 
 def _remote_ros2_runtime_status() -> dict[str, Any]:
@@ -4163,6 +4236,7 @@ def _refresh_live_compute_device_params() -> None:
     """Inject ephemeral live state immediately before an editor cook."""
     _session.graph.set_runtime_context(
         __remote_ros2_action__=_remote_ros2_action,
+        __message_stream_reader__=_message_stream_reader,
     )
     for node in _session.graph._nodes.values():
         if str(node.get("type") or "") != "ComputeDevice":

@@ -355,6 +355,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "spatial-processing",
                     "default": True,
                     "node_types": [
+                        "Viewer",
                         "WarpLaserScanFilter",
                         "WarpLiDARViewer",
                         "WarpSLAMDiscoveryViewer"
@@ -386,6 +387,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "GPUCapability",
                 "GPURequirement",
                 "TensorCoreGEMM",
+                "Viewer",
                 "WarpLaserScanFilter",
                 "WarpLiDARViewer",
                 "WarpSLAMDiscoveryViewer"

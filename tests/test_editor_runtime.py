@@ -81,6 +81,13 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertEqual(server._RUNTIME_MODULES["newton"], "blacknode.pkg.blacknode_newton.runtime")
         self.assertEqual(server._RUNTIME_REGISTRY_ANCHORS["newton"], "NewtonSimulation")
 
+    def test_viewer_runtime_is_managed_through_generic_viewer_node(self):
+        self.assertEqual(
+            server._RUNTIME_MODULES["viewer"],
+            "blacknode.pkg.blacknode_cuda.viewer_runtime",
+        )
+        self.assertEqual(server._RUNTIME_REGISTRY_ANCHORS["viewer"], "Viewer")
+
     def test_leader_follower_runtime_is_managed_and_normalized(self):
         self.assertEqual(
             server._RUNTIME_MODULES["ros2_live"],
@@ -228,7 +235,11 @@ class EditorRuntimeTests(unittest.TestCase):
                     "running": True,
                     "message": {"ranges": [1.0]},
                     "messages": [{"ranges": [1.0]}],
-                    "stream": {"kind": "blacknode.message-stream", "topic": "/scan"},
+                    "stream": {
+                        "kind": "blacknode.message-stream",
+                        "protocol": "ros2",
+                        "topic": "/scan",
+                    },
                     "status": {"kind": "blacknode.stream-status", "state": "ready"},
                     "received": 1,
                     "backend": "native",
@@ -241,7 +252,11 @@ class EditorRuntimeTests(unittest.TestCase):
                     "running": True,
                     "message": {"ranges": [2.0]},
                     "messages": [{"ranges": [2.0]}],
-                    "stream": {"kind": "blacknode.message-stream", "topic": "/scan"},
+                    "stream": {
+                        "kind": "blacknode.message-stream",
+                        "protocol": "ros2",
+                        "topic": "/scan",
+                    },
                     "status": {"kind": "blacknode.stream-status", "state": "ready"},
                     "received": 2,
                     "backend": "native",
@@ -268,16 +283,21 @@ class EditorRuntimeTests(unittest.TestCase):
         try:
             with patch.object(server, "_device_registry", registry):
                 started = server._remote_ros2_action(request)
+                streamed = server._message_stream_reader(started["outputs"]["stream"])
                 runtime = server._remote_ros2_runtime_status()
                 stopped = server._remote_ros2_action({**request, "action": "stop"})
 
             self.assertTrue(started["outputs"]["running"])
             self.assertEqual(started["outputs"]["backend"], "remote:jetson")
             self.assertEqual(started["outputs"]["stream"]["device_id"], "jetson")
+            self.assertEqual(streamed["message"], {"ranges": [2.0]})
             self.assertEqual(runtime["node_outputs"][0]["node_id"], "scan-node")
             self.assertEqual(runtime["node_outputs"][0]["outputs"]["received"], 2)
             self.assertFalse(stopped["outputs"]["running"])
-            self.assertEqual([call[0] for call in calls], ["start", "status", "stop"])
+            self.assertEqual(
+                [call[0] for call in calls],
+                ["start", "status", "status", "stop"],
+            )
         finally:
             server._remote_ros2_runs.clear()
 
