@@ -378,6 +378,26 @@ def _host_id(runtime_url: str) -> str:
     return f"{label}-{digest}"
 
 
+def _managed_runtime_identity(
+    record: dict[str, Any] | None,
+) -> tuple[str, int, str, str, str] | None:
+    """Return the stable SSH + instance identity for one managed Runtime."""
+    management = (record or {}).get("managed_runtime")
+    if not isinstance(management, dict):
+        return None
+    ssh_host = str(management.get("ssh_host") or "").strip().casefold()
+    ssh_username = str(management.get("ssh_username") or "").strip()
+    fingerprint = str(management.get("host_fingerprint") or "").strip()
+    instance_id = str(management.get("instance_id") or "default").strip()
+    try:
+        ssh_port = int(management.get("ssh_port") or 22)
+    except (TypeError, ValueError):
+        return None
+    if not ssh_host or not ssh_username or not fingerprint or not instance_id:
+        return None
+    return ssh_host, ssh_port, ssh_username, fingerprint, instance_id
+
+
 class HardwareDeviceClient:
     """Talk to one hardware service while keeping its bearer token server-side."""
 
@@ -912,6 +932,7 @@ class DeviceRegistry:
         runtime_token: str,
         manifest: dict[str, Any],
         managed_runtime: dict[str, Any] | None = None,
+        host_id: str | None = None,
     ) -> dict[str, Any]:
         clean_url = normalize_base_url(runtime_url)
         clean_token = str(runtime_token or "").strip()
@@ -928,12 +949,39 @@ class DeviceRegistry:
         with self._lock:
             hosts, records = self._load_payload()
             hosts, _changed = self._materialize_hosts(hosts, records)
-            existing = next(
+            requested = hosts.get(str(host_id or "")) if host_id else None
+            if host_id and requested is None:
+                raise DeviceRegistryError("Compute device was not found.")
+            url_match = next(
                 (item for item in hosts.values() if item.get("runtime_url") == clean_url),
                 None,
             )
+            requested_management = (
+                {"managed_runtime": managed_runtime}
+                if isinstance(managed_runtime, dict)
+                else None
+            )
+            stable_identity = _managed_runtime_identity(requested_management)
+            identity_matches = (
+                [
+                    item
+                    for item in hosts.values()
+                    if stable_identity is not None
+                    and _managed_runtime_identity(item) == stable_identity
+                ]
+                if managed_runtime
+                else []
+            )
+            existing = requested
+            if existing is None and identity_matches:
+                existing = min(
+                    identity_matches,
+                    key=lambda item: str(item.get("created_at") or ""),
+                )
+            if existing is None:
+                existing = url_match
             if existing is None and managed_runtime:
-                requested_identity = (
+                inspection_identity = (
                     str(managed_runtime.get("ssh_host") or "").strip(),
                     int(managed_runtime.get("ssh_port") or 22),
                     str(managed_runtime.get("ssh_username") or "").strip(),
@@ -970,10 +1018,28 @@ class DeviceRegistry:
                                 or ""
                             ).strip(),
                         )
-                        == requested_identity
+                        == inspection_identity
                     ),
                     None,
                 )
+            duplicate_ids: set[str] = set()
+            for item in hosts.values():
+                item_id = str(item.get("id") or "")
+                if not item_id or item is existing:
+                    continue
+                if item is url_match or (
+                    stable_identity is not None
+                    and _managed_runtime_identity(item) == stable_identity
+                ):
+                    if (
+                        stable_identity is None
+                        or _managed_runtime_identity(item) != stable_identity
+                    ):
+                        raise DeviceRegistryError(
+                            "That Runtime URL is already paired to a different "
+                            "managed device. Remove the conflicting device first."
+                        )
+                    duplicate_ids.add(item_id)
             now = _iso_now()
             host_id = existing["id"] if existing else _host_id(clean_url)
             created_at = existing.get("created_at") if existing else now
@@ -1043,12 +1109,18 @@ class DeviceRegistry:
             if management:
                 host["managed_runtime"] = management
             hosts[host_id] = host
+            for duplicate_id in duplicate_ids:
+                hosts.pop(duplicate_id, None)
             for record in records.values():
                 record_runtime_url = str(
                     record.get("runtime_url")
                     or default_runtime_url(record["base_url"])
                 )
-                if record_runtime_url == clean_url:
+                if (
+                    record_runtime_url == clean_url
+                    or str(record.get("host_id") or "") == host_id
+                    or str(record.get("host_id") or "") in duplicate_ids
+                ):
                     record["host_id"] = host_id
                     record["runtime_url"] = clean_url
                     record["runtime_token"] = clean_token
