@@ -766,6 +766,20 @@ class DeviceRegistry:
     def runtime_client(self, device_id: str) -> RuntimeDeviceClient:
         with self._lock:
             hosts, records = self._load_payload()
+            hosts, changed = self._materialize_hosts(hosts, records)
+            if changed:
+                self._save_payload(hosts, records)
+            direct_host = hosts.get(device_id)
+            if direct_host is not None:
+                if direct_host.get("inspection_only"):
+                    raise DeviceRegistryError(
+                        "This compute device is registered for read-only inspection. "
+                        "Install or pair Blacknode Runtime before using runtime APIs."
+                    )
+                return RuntimeDeviceClient(
+                    direct_host["runtime_url"],
+                    direct_host["runtime_token"],
+                )
             record = records.get(device_id)
             if record is None:
                 raise KeyError(device_id)

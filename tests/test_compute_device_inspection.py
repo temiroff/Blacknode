@@ -102,6 +102,29 @@ class ComputeDeviceInspectionTests(unittest.TestCase):
             "read-only inspection",
         ):
             registry.host_client(device["id"])
+        with self.assertRaisesRegex(
+            device_registry.DeviceRegistryError,
+            "read-only inspection",
+        ):
+            registry.runtime_client(device["id"])
+
+    def test_runtime_client_accepts_compute_device_id(self):
+        registry = server._device_registry
+        device = registry.pair_host(
+            name="Jetson",
+            runtime_url="http://192.168.55.1:8766",
+            runtime_token="runtime-secret-value-that-is-long-enough",
+            manifest={
+                "service": "blacknode-runtime",
+                "protocol_version": 1,
+                "device_id": "jetson-device",
+            },
+        )
+
+        client = registry.runtime_client(device["id"])
+
+        self.assertEqual(client.base_url, "http://192.168.55.1:8766")
+        self.assertEqual(client.token, "runtime-secret-value-that-is-long-enough")
 
     def test_live_inspection_uses_paired_runtime_without_ssh_password(self):
         registry = server._device_registry
