@@ -662,6 +662,222 @@ _RUNTIME_CALLABLE_ALIASES = {
     ("ros2_live", "stop_runtime_services"): "stop_leader_follower_services",
 }
 
+_remote_ros2_lock = threading.RLock()
+_remote_ros2_runs: dict[str, dict[str, Any]] = {}
+
+
+def _remote_ros2_service_id(node_id: str) -> str:
+    clean = re.sub(r"[^a-z0-9-]+", "-", str(node_id or "").lower()).strip("-")
+    return f"editor-{clean}"[:64] or "editor-ros2"
+
+
+def _remote_ros2_error_outputs(
+    request: dict[str, Any],
+    error: str,
+) -> dict[str, Any]:
+    device_id = str(request.get("device_id") or "")
+    topic = str(request.get("topic") or "")
+    stream_id = f"device:{device_id}:topic-subscriber:{topic}"
+    return {
+        "running": False,
+        "message": {},
+        "messages": [],
+        "stream": {
+            "kind": "blacknode.message-stream",
+            "schema_version": 1,
+            "stream_id": stream_id,
+            "protocol": "ros2",
+            "state": "unavailable",
+            "managed": True,
+            "topic": topic,
+            "message_type": str(request.get("message_type") or ""),
+            "backend": f"remote:{device_id}",
+            "device_id": device_id,
+        },
+        "status": {
+            "kind": "blacknode.stream-status",
+            "schema_version": 1,
+            "stream_id": stream_id,
+            "state": "unavailable",
+            "available": False,
+            "worker_alive": False,
+            "source_fresh": False,
+            "received": 0,
+            "last_message_time_ns": 0,
+            "age_seconds": None,
+            "stale_after_seconds": float(request.get("stale_after_seconds") or 2.0),
+            "device_id": device_id,
+            "error": error,
+        },
+        "received": 0,
+        "backend": f"remote:{device_id}",
+        "report": f"ROS2 unavailable on {device_id}: {error}",
+    }
+
+
+def _remote_ros2_outputs(
+    request: dict[str, Any],
+    response: dict[str, Any],
+) -> dict[str, Any]:
+    raw = response.get("outputs") if isinstance(response.get("outputs"), dict) else {}
+    outputs = copy.deepcopy(raw)
+    device_id = str(request.get("device_id") or "")
+    backend = f"remote:{device_id}"
+    outputs["backend"] = backend
+    stream = outputs.get("stream") if isinstance(outputs.get("stream"), dict) else {}
+    remote_stream_id = (
+        f"device:{device_id}:topic-subscriber:{str(request.get('topic') or '')}"
+    )
+    stream.update(backend=backend, device_id=device_id, stream_id=remote_stream_id)
+    outputs["stream"] = stream
+    status = outputs.get("status") if isinstance(outputs.get("status"), dict) else {}
+    status.update(device_id=device_id, stream_id=remote_stream_id)
+    outputs["status"] = status
+    report = str(outputs.get("report") or "").strip()
+    outputs["report"] = f"{report} · device {device_id}" if report else f"ROS2 device {device_id}"
+    return outputs
+
+
+def _ensure_remote_ros2_ready(client: RuntimeDeviceClient) -> None:
+    manifest = client.manifest()
+    features = {str(item) for item in (manifest.get("features") or [])}
+    if "remote_ros2_topic_stream_v1" not in features:
+        raise DeviceRegistryError(
+            "Update Blacknode Runtime to 0.4.1 or newer from Devices → Software."
+        )
+    remote_packages = {
+        str(item.get("name") or ""): str(item.get("version") or "")
+        for item in (manifest.get("packages") or [])
+        if isinstance(item, dict)
+    }
+    workflow = {
+        "kind": "blacknode.workflow",
+        "schema_version": 1,
+        "metadata": {
+            "required_packages": ["blacknode-ros2"],
+            "required_components": [
+                "blacknode-ros2/core",
+                "blacknode-ros2/topics",
+            ],
+        },
+        "node_meta": {"ros2": {"type": "ROS2"}},
+        "edges": [],
+    }
+    specs = _workflow_target_package_specs(workflow)
+    ros2_spec = next(
+        (item for item in specs if item.get("name") == "blacknode-ros2"),
+        None,
+    )
+    if not ros2_spec or not ros2_spec.get("git_url"):
+        raise DeviceRegistryError(
+            "The editor cannot resolve the trusted blacknode-ros2 package source."
+        )
+    required_version = str(ros2_spec.get("version") or "")
+    registered_nodes = {str(item) for item in (manifest.get("node_types") or [])}
+    needs_sync = (
+        "blacknode-ros2" not in remote_packages
+        or (required_version and remote_packages.get("blacknode-ros2") != required_version)
+        or "ROS2" not in registered_nodes
+    )
+    if needs_sync:
+        result = client.sync_packages([ros2_spec])
+        if not result.get("ok", True):
+            raise DeviceRegistryError(
+                str(result.get("error") or "Could not install blacknode-ros2 on the device.")
+            )
+
+
+def _remote_ros2_action(request: dict[str, Any]) -> dict[str, Any]:
+    node_id = str(request.get("node_id") or "").strip()
+    device_id = str(request.get("device_id") or "").strip()
+    action = str(request.get("action") or "status").strip().lower()
+    if not node_id or not device_id:
+        raise RuntimeError("ROS2 remote execution requires a node and paired device")
+    service_id = _remote_ros2_service_id(node_id)
+    payload = {
+        key: request.get(key)
+        for key in (
+            "topic",
+            "message_type",
+            "node_name",
+            "history",
+            "timeout",
+            "stale_after_seconds",
+        )
+    }
+    client = _device_registry.runtime_client(device_id)
+    try:
+        if action == "start":
+            _ensure_remote_ros2_ready(client)
+            response = client.start_ros2_topic(service_id, payload)
+            with _remote_ros2_lock:
+                _remote_ros2_runs[node_id] = dict(request)
+        elif action == "once":
+            _ensure_remote_ros2_ready(client)
+            response = client.read_ros2_topic_once(service_id, payload)
+        elif action == "stop":
+            response = client.stop_ros2_topic(service_id)
+            with _remote_ros2_lock:
+                _remote_ros2_runs.pop(node_id, None)
+        elif action == "status":
+            response = client.ros2_topic_status(service_id)
+        else:
+            raise RuntimeError(f"unknown ROS2 action {action!r}")
+    except DeviceRegistryError as exc:
+        detail = str(exc)
+        if "HTTP 404" in detail or "not found" in detail.casefold():
+            detail = (
+                "This device Runtime does not support remote ROS2 topic streams. "
+                "Update Blacknode Runtime to 0.4.1 or newer."
+            )
+        return {"id": service_id, "outputs": _remote_ros2_error_outputs(request, detail)}
+    return {"id": service_id, "outputs": _remote_ros2_outputs(request, response)}
+
+
+def _remote_ros2_runtime_status() -> dict[str, Any]:
+    with _remote_ros2_lock:
+        runs = [(node_id, dict(item)) for node_id, item in _remote_ros2_runs.items()]
+    node_outputs = []
+    for node_id, request in runs:
+        status_request = {**request, "node_id": node_id, "action": "status"}
+        result = _remote_ros2_action(status_request)
+        node_outputs.append({
+            "node_type": "ROS2",
+            "node_id": node_id,
+            "run_id": str(result.get("id") or _remote_ros2_service_id(node_id)),
+            "outputs": dict(result.get("outputs") or {}),
+        })
+    return {
+        "ok": all(
+            str(item.get("outputs", {}).get("status", {}).get("state") or "") != "error"
+            for item in node_outputs
+        ),
+        "active": bool(runs),
+        "streams": [],
+        "managed_runs": [],
+        "node_outputs": node_outputs,
+        "detached_count": 0,
+    }
+
+
+def _stop_remote_ros2_services() -> dict[str, Any]:
+    with _remote_ros2_lock:
+        runs = [(node_id, dict(item)) for node_id, item in _remote_ros2_runs.items()]
+    errors = []
+    for node_id, request in runs:
+        try:
+            _remote_ros2_action({**request, "node_id": node_id, "action": "stop"})
+        except Exception as exc:
+            errors.append(str(exc))
+    with _remote_ros2_lock:
+        _remote_ros2_runs.clear()
+    return {
+        "ok": not errors,
+        "stopped": {"streams": len(runs)},
+        "errors": errors,
+        "report": f"stopped {len(runs)} remote ROS2 stream(s)",
+    }
+
 
 def _runtime_module(module_name: str):
     module = sys.modules.get(module_name)
@@ -726,6 +942,7 @@ def _runtime_status() -> dict[str, Any]:
         label: _runtime_module_status(label, module_name)
         for label, module_name in _RUNTIME_MODULES.items()
     }
+    modules["remote_ros2"] = _remote_ros2_runtime_status()
     streams: list[dict[str, Any]] = []
     cv2_streams: list[dict[str, Any]] = []
     reasoning_streams: list[dict[str, Any]] = []
@@ -784,6 +1001,7 @@ def _stop_runtime_services() -> dict[str, Any]:
         label: _stop_runtime_module(label, module_name)
         for label, module_name in _RUNTIME_MODULES.items()
     }
+    modules["remote_ros2"] = _stop_remote_ros2_services()
     stopped = {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0, "reasoning_streams": 0}
     for result in modules.values():
         raw_stopped = result.get("stopped") if isinstance(result.get("stopped"), dict) else {}
@@ -3936,6 +4154,9 @@ def _device_host_live_inspection(host_id: str) -> dict[str, Any]:
 
 def _refresh_live_compute_device_params() -> None:
     """Inject ephemeral live state immediately before an editor cook."""
+    _session.graph.set_runtime_context(
+        __remote_ros2_action__=_remote_ros2_action,
+    )
     for node in _session.graph._nodes.values():
         if str(node.get("type") or "") != "ComputeDevice":
             continue

@@ -67,6 +67,11 @@ class Graph:
         self._edges: list[dict] = []       # {from, from_port, to, to_port}
         self._cache: dict[tuple, Any] = {}
         self._dirty: set[str] = set()
+        self._runtime_context: dict[str, Any] = {}
+
+    def set_runtime_context(self, **values: Any) -> None:
+        """Supply process-local services to nodes without persisting them."""
+        self._runtime_context = dict(values)
 
     # ── Building ──────────────────────────────────────────────────────────────
 
@@ -134,6 +139,7 @@ class Graph:
             return self._cache[cache_key]
 
         fn = _NODE_REGISTRY[node_def["type"]]
+        ctx.update(getattr(self, "_runtime_context", {}))
         ctx["__graph__"] = self
         ctx["__node_id__"] = node_id
         result = fn(ctx)
@@ -168,6 +174,7 @@ class Graph:
         inner._cache = {}
         inner._dirty = set(inner_meta.keys())
         inner._nodes = {}
+        inner._runtime_context = dict(getattr(self, "_runtime_context", {}))
         for nid, m in inner_meta.items():
             entry = {"type": m["type"], "params": dict(m.get("params", {}))}
             if "subgraph" in m:

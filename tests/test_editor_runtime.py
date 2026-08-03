@@ -157,6 +157,97 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertEqual(result["managed_runs"], [{"run_id": "camera_run", "runtime": "ros2"}])
         self.assertEqual(result["detached_count"], 1)
 
+    def test_remote_ros2_action_routes_through_paired_runtime_and_reports_live_outputs(self):
+        calls = []
+
+        class FakeRuntimeClient:
+            def manifest(self):
+                return {
+                    "features": ["remote_ros2_topic_stream_v1"],
+                    "packages": [{"name": "blacknode-ros2", "version": "0.5.16"}],
+                    "node_types": ["ROS2"],
+                }
+
+            def start_ros2_topic(self, stream_id, payload):
+                calls.append(("start", stream_id, payload))
+                return {"outputs": {
+                    "running": True,
+                    "message": {"ranges": [1.0]},
+                    "messages": [{"ranges": [1.0]}],
+                    "stream": {"kind": "blacknode.message-stream", "topic": "/scan"},
+                    "status": {"kind": "blacknode.stream-status", "state": "ready"},
+                    "received": 1,
+                    "backend": "native",
+                    "report": "streaming",
+                }}
+
+            def ros2_topic_status(self, stream_id):
+                calls.append(("status", stream_id))
+                return {"outputs": {
+                    "running": True,
+                    "message": {"ranges": [2.0]},
+                    "messages": [{"ranges": [2.0]}],
+                    "stream": {"kind": "blacknode.message-stream", "topic": "/scan"},
+                    "status": {"kind": "blacknode.stream-status", "state": "ready"},
+                    "received": 2,
+                    "backend": "native",
+                    "report": "streaming",
+                }}
+
+            def stop_ros2_topic(self, stream_id):
+                calls.append(("stop", stream_id))
+                return {"outputs": {"running": False, "stream": {}, "status": {}, "report": "stopped"}}
+
+        registry = SimpleNamespace(runtime_client=lambda device_id: FakeRuntimeClient())
+        request = {
+            "node_id": "scan-node",
+            "device_id": "jetson",
+            "action": "start",
+            "topic": "/scan",
+            "message_type": "sensor_msgs/msg/LaserScan",
+            "node_name": "blacknode_scan",
+            "history": 10,
+            "timeout": 10.0,
+            "stale_after_seconds": 1.0,
+        }
+        server._remote_ros2_runs.clear()
+        try:
+            with patch.object(server, "_device_registry", registry):
+                started = server._remote_ros2_action(request)
+                runtime = server._remote_ros2_runtime_status()
+                stopped = server._remote_ros2_action({**request, "action": "stop"})
+
+            self.assertTrue(started["outputs"]["running"])
+            self.assertEqual(started["outputs"]["backend"], "remote:jetson")
+            self.assertEqual(started["outputs"]["stream"]["device_id"], "jetson")
+            self.assertEqual(runtime["node_outputs"][0]["node_id"], "scan-node")
+            self.assertEqual(runtime["node_outputs"][0]["outputs"]["received"], 2)
+            self.assertFalse(stopped["outputs"]["running"])
+            self.assertEqual([call[0] for call in calls], ["start", "status", "stop"])
+        finally:
+            server._remote_ros2_runs.clear()
+
+    def test_remote_ros2_preflight_syncs_missing_device_package(self):
+        synced = []
+
+        class FakeRuntimeClient:
+            def manifest(self):
+                return {
+                    "features": ["remote_ros2_topic_stream_v1"],
+                    "packages": [{"name": "blacknode-runtime", "version": "0.4.1"}],
+                    "node_types": [],
+                }
+
+            def sync_packages(self, specs):
+                synced.extend(specs)
+                return {"ok": True}
+
+        server._ensure_remote_ros2_ready(FakeRuntimeClient())
+
+        self.assertEqual([item["name"] for item in synced], ["blacknode-ros2"])
+        self.assertEqual(synced[0]["components"], ["core", "topics"])
+        self.assertTrue(synced[0]["update"])
+
     def test_stop_runtime_services_aggregates_package_runtime_modules(self):
         def fake_stop(label, _module_name):
             if label == "ros2":

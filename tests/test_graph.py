@@ -20,6 +20,18 @@ class GraphCookTests(unittest.TestCase):
         self.assertEqual(graph.cook(node, "value"), 1)
         self.assertEqual(graph.cook(node, "value"), 2)
 
+    def test_runtime_context_reaches_nodes_without_serializing(self):
+        @bn.node(inputs=[], outputs=["value:Text"], name="RuntimeContextProbe")
+        def probe(ctx: dict) -> dict:
+            return {"value": ctx["__probe__"]()}
+
+        graph = bn.Graph()
+        graph.set_runtime_context(__probe__=lambda: "live service")
+        node = graph.node("RuntimeContextProbe")
+
+        self.assertEqual(graph.cook(node, "value"), "live service")
+        self.assertNotIn("runtime_context", graph.to_dict())
+
 
 if __name__ == "__main__":
     unittest.main()
