@@ -4371,6 +4371,17 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "hardware_dir": "",
             },
         )
+        saved = json.loads(self.registry_path.read_text(encoding="utf-8"))
+        duplicate = json.loads(json.dumps(saved["hosts"][host["id"]]))
+        duplicate["id"] = "legacy-duplicate"
+        duplicate["runtime_url"] = "http://192.168.1.171:8767"
+        duplicate["managed_runtime"]["runtime_port"] = 8767
+        duplicate["created_at"] = "2026-08-03T14:12:10-07:00"
+        saved["hosts"][duplicate["id"]] = duplicate
+        self.registry_path.write_text(
+            json.dumps(saved, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
         def replace_runtime(**kwargs):
             self.assertEqual(kwargs["action"], "replace_runtime")
@@ -4382,7 +4393,7 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "runtime_token": runtime.token,
                 "host_fingerprint": "SHA256:trusted-device-key",
                 "instance_id": "default",
-                "runtime_port": 8766,
+                "runtime_port": 8767,
                 "service_name": "blacknode-runtime.service",
                 "install_root": "~/Blacknode/devices/default",
                 "runtime_dir": "~/Blacknode/devices/default/runtime",
@@ -4440,6 +4451,17 @@ class EditorDeviceApiTests(unittest.TestCase):
         install.assert_called_once()
         fast_forward.assert_not_called()
         self.assertEqual(repaired_manifest["runtime_version"], "0.4.1")
+        repaired_hosts = self.client.get("/device-hosts").json()["devices"]
+        self.assertEqual(len(repaired_hosts), 1)
+        self.assertEqual(repaired_hosts[0]["id"], host["id"])
+        self.assertEqual(
+            repaired_hosts[0]["runtime_url"],
+            "http://192.168.1.171:8767",
+        )
+        self.assertEqual(
+            repaired_hosts[0]["managed_runtime"]["runtime_port"],
+            8767,
+        )
 
     def test_managed_runtime_update_falls_back_to_verified_ssh_when_api_times_out(self):
         host = server._device_registry.pair_host(

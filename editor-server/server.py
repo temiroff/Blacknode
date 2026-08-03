@@ -5117,6 +5117,7 @@ def _update_device_host_payload(
                 runtime_token=runtime_token,
                 manifest=replacement_manifest,
                 managed_runtime=replacement_management,
+                host_id=host_id,
             )
             before_version = str(
                 (runtime_manifest_before or {}).get("runtime_version") or "unknown"
