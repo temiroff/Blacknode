@@ -659,6 +659,7 @@ export default function PointCloudViewer({
         <span style={{ color: '#ffd166' }}>→ forward / scan limits</span>
         <span style={{ color: '#32d8ef' }}>● filtered laser returns</span>
         <span><b style={{ color: '#ff6b6b' }}>X</b> / <b style={{ color: '#53e091' }}>Y</b> / <b style={{ color: '#539aff' }}>Z</b> axes</span>
+        {parsed.history_registered === true && <span style={{ color: '#74e7a5' }}>pose-registered history · {parsed.pose_source || 'pose stream'}</span>}
         {parsed.history_registered === false && <span style={{ color: '#f2b84b' }}>history is sensor-local; moving the robot requires odometry</span>}
       </div>
     </div>

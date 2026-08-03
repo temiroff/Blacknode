@@ -17,6 +17,7 @@ def test_point_cloud_viewer_exposes_spatial_orientation_and_scale():
     assert "CURRENT SCAN" in source
     assert "accumulated returns" in source
     assert "history is sensor-local" in source
+    assert "pose-registered history" in source
 
 
 def test_point_cloud_viewer_has_direct_camera_navigation():
