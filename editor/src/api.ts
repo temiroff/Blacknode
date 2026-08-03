@@ -579,6 +579,7 @@ export interface RobotTelemetrySample {
       name?: string
       profile_id?: string
       hardware_id?: string
+      units?: string
       activated_at?: string
       joint_count?: number
       digest?: string
@@ -587,6 +588,7 @@ export interface RobotTelemetrySample {
         safe_min_deg?: number
         safe_max_deg?: number
         home_ticks?: number
+        home_offset_deg?: number
         invert?: boolean
       }>
     }
@@ -908,6 +910,7 @@ export interface DeploymentPreflightCheck {
     | 'choose_matching_hardware'
     | 'enable_editor_dependencies'
   action_data?: {
+    packages?: Array<{ name: string; git_url: string }>
     components?: Array<{ package: string; component: string }>
     adapters?: Array<{ package: string; component: string; adapter: string }>
   }
@@ -1085,6 +1088,128 @@ export interface RuntimeStatus {
   error?: string
 }
 
+export interface NewtonSceneTransform {
+  translate_m: [number, number, number]
+  rotate_deg: [number, number, number]
+  scale: [number, number, number]
+}
+
+export interface NewtonSceneMaterial {
+  base_color: [number, number, number]
+  metallic: number
+  roughness: number
+  opacity: number
+}
+
+export interface NewtonSceneItem {
+  path: string
+  parent_path: string
+  name: string
+  type_name: string
+  render_role?: 'visual' | 'collider' | string
+  visible: boolean
+  visibility_editable?: boolean
+  available?: boolean
+  editable: boolean
+  material_editable: boolean
+  transform: NewtonSceneTransform
+  material: NewtonSceneMaterial
+  light?: {
+    kind: 'scope' | 'distant' | 'dome' | string
+    enabled?: boolean
+    selected?: boolean
+    intensity?: number
+    color?: string
+    angle_deg?: number
+    rotation_deg?: [number, number, number]
+    show_background?: boolean
+    hdri?: string
+    hdri_path?: string
+  }
+}
+
+export interface NewtonWorkspaceJoint {
+  name: string
+  units: 'radians' | 'metres' | string
+  position: number
+  target: number
+  applied_target?: number
+  reference_position?: number | null
+  tracking_error?: number | null
+  limits: [number, number]
+  stiffness: number
+  damping: number
+  passive_damping?: number
+  child_body?: string
+  child_body_mass_kg?: number
+  child_body_inertia_kg_m2?: [number, number, number]
+  max_velocity?: number
+  max_step?: number
+}
+
+export interface NewtonDigitalTwinSample {
+  received_at: number
+  observed_at?: number | null
+  source: string
+  source_latency_seconds: number | null
+  joint_errors: Record<string, number>
+  max_abs_error: number
+  rms_error: number
+}
+
+export interface NewtonDigitalTwinStatus {
+  available: boolean
+  source: string
+  received_at?: number
+  observed_at?: number | null
+  age_seconds: number | null
+  source_latency_seconds: number | null
+  stale_after_seconds: number
+  stale: boolean
+  matched_joint_count: number
+  reference_positions: Record<string, number>
+  simulated_positions: Record<string, number>
+  joint_errors: Record<string, number>
+  max_abs_error: number
+  rms_error: number
+  history: NewtonDigitalTwinSample[]
+  history_limit: number
+  ghost?: {
+    visible: boolean
+    placement: 'overlay' | 'beside' | 'custom'
+    offset_m: [number, number, number]
+    beside_offset_m: [number, number, number]
+    opacity: number
+    color_rgb: [number, number, number]
+  }
+  baseline?: {
+    artifact_id: string
+    name: string
+    created_at: string
+    source: string
+    matched_joint_names: string[]
+    summary: Record<string, number>
+    history: NewtonDigitalTwinSample[]
+  }
+}
+
+export interface NewtonDigitalTwinArtifactSummary {
+  artifact_id: string
+  kind: 'blacknode.newton-run-artifact'
+  schema_version: 1
+  name: string
+  created_at: string
+  path: string
+  source: string
+  scene_label: string
+  joint_names: string[]
+  joint_units: Record<string, string>
+  sample_count: number
+  duration_seconds: number
+  max_abs_error: number
+  rms_error: number
+}
+
 export interface NewtonWorkspaceStatus {
   kind: 'blacknode.newton-workspace'
   schema_version: 1
@@ -1107,6 +1232,46 @@ export interface NewtonWorkspaceStatus {
   warning: string
   last_error: string
   frame_count: number
+  fps?: number
+  substeps?: number
+  solver_iterations?: number
+  show_grid: boolean
+  show_visuals: boolean
+  show_colliders: boolean
+  digital_twin?: NewtonDigitalTwinStatus
+  environment: {
+    background_color: string
+    hdri: string
+    hdri_path: string
+    hdri_enabled: boolean
+    show_background: boolean
+    intensity: number
+    distant_light: {
+      enabled: boolean
+      intensity: number
+      color: string
+      angle_deg: number
+      rotation_deg: [number, number, number]
+    }
+    custom_hdri_supported: boolean
+  }
+  scene_items: NewtonSceneItem[]
+  selected_path: string
+  selected_item: NewtonSceneItem | null
+  joints: NewtonWorkspaceJoint[]
+  friction_override_matches?: Record<string, number>
+  digital_twin_artifacts?: NewtonDigitalTwinArtifactSummary[]
+  digital_twin_artifact_error?: string
+}
+
+export interface NewtonStreamControlStatus {
+  open: boolean
+  armed: boolean
+  simulation_running: boolean
+  phase: string
+  accepted: boolean
+  command_count: number
+  clamped: string[]
 }
 
 export interface ConsoleEntry {
@@ -1524,7 +1689,22 @@ export const api = {
       'POST',
       `/newton/workspace/${encodeURIComponent(action)}`,
       { payload },
-      action === 'open_usd' ? 120000 : 30000,
+      ['open_asset', 'open_usd', 'set_viewer', 'set_grid', 'set_visibility', 'set_transform',
+        'set_light',
+        'set_material', 'set_environment', 'set_render_options', 'set_joint_properties',
+        'set_digital_twin_ghost', 'clear_digital_twin_history',
+        'save_digital_twin_artifact', 'load_digital_twin_baseline',
+        'clear_digital_twin_baseline',
+        'set_joint_motion'].includes(action)
+        ? 120000
+        : 30000,
+    ),
+  controlNewtonStream: (action: string, payload: Record<string, unknown> = {}) =>
+    req<NewtonStreamControlStatus>(
+      'POST',
+      `/newton/workspace/${encodeURIComponent(action)}`,
+      { payload },
+      5000,
     ),
   consoleLog: (limit = 100) => req<ConsoleLog>('GET', `/console?limit=${limit}`),
   consoleClear: () => req<{ ok: boolean }>('POST', '/console/clear'),

@@ -241,6 +241,27 @@ def _artifact_candidate(
                 "human_takeover",
             ),
         )
+    elif kind == "blacknode.newton-run-artifact":
+        artifact_type = "simulation_run"
+        provider = "blacknode-newton"
+        artifact_id = _clean_text(payload.get("artifact_id"), maximum=160)
+        locator = _path_locator(payload.get("path"))
+        name = _clean_text(payload.get("name"), maximum=160) or artifact_id or "Newton run"
+        status = "completed"
+        metadata = _safe_metadata(
+            payload,
+            (
+                "artifact_id",
+                "run_id",
+                "source",
+                "created_at",
+                "joint_names",
+                "joint_units",
+                "physics",
+                "scene",
+                "summary",
+            ),
+        )
     else:
         return None
 

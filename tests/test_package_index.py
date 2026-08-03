@@ -124,8 +124,27 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert all(dataset[name]["default"] for name in {"recording", "replay", "validation"})
     assert not any(dataset[name]["default"] for name in {"evaluation", "export", "publishing"})
     cuda = payload["packages"]["blacknode-cuda"]["components"]
-    assert set(cuda) == {"capability", "image-processing", "tensor-operations", "benchmarks"}
+    assert set(cuda) == {
+        "capability",
+        "image-processing",
+        "spatial-processing",
+        "tensor-operations",
+        "benchmarks",
+    }
     assert cuda["benchmarks"]["default"] is False
+    assert cuda["spatial-processing"]["node_types"] == [
+        "WarpLaserScanFilter",
+        "WarpLiDARViewer",
+        "WarpSLAMDiscoveryViewer",
+    ]
+    perception = payload["packages"]["blacknode-perception"]["components"]
+    assert perception["lidar"]["default"] is True
+    assert perception["lidar"]["node_types"] == ["LiDAR", "LiDARTestProvider"]
+    assert perception["lidar"]["adapters"]["ros2"]["node_types"] == [
+        "LiDARROS2Scan",
+        "LiDARROS2WarpViewer",
+    ]
+    assert payload["nodes"]["LiDARROS2Scan"]["package"] == "blacknode-perception"
     drivers = payload["packages"]["blacknode-drivers"]
     assert drivers["layer"] == "drivers"
     assert drivers["components"]["feetech"]["default"] is True
@@ -301,6 +320,55 @@ def test_installed_explicit_package_does_not_block_available_workflow():
 
     assert result["ok"]
     assert result["missing_packages"] == []
+
+
+def test_legacy_controller_requirements_resolve_to_motion_package():
+    workflow = _workflow("JointMotionProfile", ["blacknode-controllers"])
+    workflow["metadata"]["required_components"] = [
+        "blacknode-controllers/joint-control",
+    ]
+    workflow["metadata"]["required_adapters"] = [
+        "blacknode-controllers/joint-control@ros2",
+    ]
+    installed = {
+        "blacknode-motion": {
+            "ok": True,
+            "version": "0.6.0",
+            "components": {
+                "arm": {
+                    "aliases": ["joint-control"],
+                    "enabled": True,
+                    "adapters": {"ros2": {"enabled": True}},
+                },
+            },
+        },
+    }
+
+    assert template_package_requirements(workflow)[0]["name"] == "blacknode-motion"
+    assert template_component_requirements(workflow)[0] == {
+        "package": "blacknode-motion",
+        "component": "arm",
+        "version": "",
+        "git_url": "https://github.com/temiroff/blacknode-motion.git",
+    }
+    assert template_adapter_requirements(workflow)[0] == {
+        "package": "blacknode-motion",
+        "component": "arm",
+        "adapter": "ros2",
+        "version": "",
+        "git_url": "https://github.com/temiroff/blacknode-motion.git",
+    }
+
+    result = resolve_workflow_dependencies(
+        workflow,
+        available_node_types={"JointMotionProfile", "NestedNode"},
+        installed_packages=installed,
+    )
+
+    assert result["ok"]
+    assert result["missing_packages"] == []
+    assert result["missing_components"] == []
+    assert result["missing_adapters"] == []
 
 
 def test_workflow_declares_nested_adapter_and_reports_disabled_state():

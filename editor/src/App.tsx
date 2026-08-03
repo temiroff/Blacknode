@@ -51,7 +51,10 @@ const THEME_STORAGE_KEY = 'blacknode-theme'
 const UI_TEST_STORAGE_KEY = 'blacknode-ui-test'
 const NODE_DENSITY_STORAGE_KEY = 'blacknode-node-density'
 const SIMULATION_VIEWER_HEIGHT_STORAGE_KEY = 'blacknode-simulation-viewer-height'
-const USD_FILE_EXTENSIONS = ['.usd', '.usda', '.usdc']
+const NEWTON_SCENE_FILE_EXTENSIONS = [
+  '.usd', '.usda', '.usdc', '.urdf', '.xacro', '.xml', '.mjcf',
+]
+const HDRI_FILE_EXTENSIONS = ['.hdr', '.exr']
 
 function loadDarkThemePreference() {
   try {
@@ -106,6 +109,17 @@ interface NoticeState {
 interface PendingCloseState {
   tabId: string
   draftName: string
+}
+
+interface PendingXacroEnvironmentState {
+  assetPath: string
+  variableName: string
+  values: Record<string, string>
+}
+
+function missingXacroEnvironmentVariable(message: string): string | null {
+  const match = message.match(/Xacro requires environment variable ['"]([^'"]+)['"]/i)
+  return match?.[1] ?? null
 }
 
 function downloadTextFile(filename: string, text: string) {
@@ -196,6 +210,9 @@ export default function App() {
   const [refreshingCanvas, setRefreshingCanvas] = useState(false)
   const [openingUsd, setOpeningUsd] = useState(false)
   const [usdPickerInitialPath, setUsdPickerInitialPath] = useState<string | null>(null)
+  const [pendingXacroEnvironment, setPendingXacroEnvironment] = useState<PendingXacroEnvironmentState | null>(null)
+  const [xacroEnvironmentDraft, setXacroEnvironmentDraft] = useState('')
+  const [hdriPickerInitialPath, setHdriPickerInitialPath] = useState<string | null>(null)
   const [simulationViewerVisible, setSimulationViewerVisible] = useState(true)
   const [simulationViewerDetached, setSimulationViewerDetached] = useState(false)
   const [simulationViewerHeight, setSimulationViewerHeight] = useState(loadSimulationViewerHeight)
@@ -275,8 +292,16 @@ export default function App() {
     action: string,
     payload: Record<string, unknown> = {},
   ) => {
-    if (newtonWorkspaceBusy) return null
-    setNewtonWorkspaceBusy(true)
+    const liveAction = new Set([
+      'select', 'set_grid', 'set_visibility', 'set_transform', 'set_material',
+      'set_environment', 'set_render_options', 'joint_target', 'set_joint_properties',
+      'set_joint_motion', 'set_digital_twin_ghost', 'sync_digital_twin_pose',
+      'clear_digital_twin_history',
+      'save_digital_twin_artifact', 'load_digital_twin_baseline',
+      'clear_digital_twin_baseline',
+    ]).has(action)
+    if (newtonWorkspaceBusy && !liveAction) return null
+    if (!liveAction) setNewtonWorkspaceBusy(true)
     try {
       const status = await api.controlNewtonWorkspace(action, payload)
       setNewtonWorkspaceAvailable(true)
@@ -291,7 +316,7 @@ export default function App() {
       })
       return null
     } finally {
-      setNewtonWorkspaceBusy(false)
+      if (!liveAction) setNewtonWorkspaceBusy(false)
     }
   }, [newtonWorkspaceBusy])
 
@@ -312,30 +337,71 @@ export default function App() {
     setUsdPickerInitialPath(String(newtonWorkspace?.asset_path ?? ''))
   }, [newtonWorkspace?.asset_path, newtonWorkspaceAvailable, openingUsd, usdPickerInitialPath])
 
-  const handleUsdSelected = useCallback(async (selected: string) => {
+  const loadNewtonAsset = useCallback(async (
+    selected: string,
+    xacroEnvironment: Record<string, string> = {},
+  ) => {
     if (!selected || openingUsd) return
-    setUsdPickerInitialPath(null)
     setOpeningUsd(true)
     try {
-      const status = await api.controlNewtonWorkspace('open_usd', { asset_path: selected })
+      const status = await api.controlNewtonWorkspace('open_asset', {
+        asset_path: selected,
+        xacro_environment: xacroEnvironment,
+      })
       setNewtonWorkspaceAvailable(true)
       setNewtonWorkspace(status)
       setSimulationViewerVisible(true)
+      setPendingXacroEnvironment(null)
+      setXacroEnvironmentDraft('')
       setNotice({
         kind: 'info',
-        title: 'USD scene opened in Newton',
+        title: 'Scene opened in Newton',
         message: status.warning || `${selected} is loaded and simulation is stopped at its initial state.`,
       })
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const variableName = missingXacroEnvironmentVariable(message)
+      if (variableName && /\.xacro$/i.test(selected)) {
+        setPendingXacroEnvironment({ assetPath: selected, variableName, values: xacroEnvironment })
+        setXacroEnvironmentDraft(xacroEnvironment[variableName] ?? '')
+        return
+      }
       setNotice({
         kind: 'error',
-        title: 'Could not open USD scene',
-        message: error instanceof Error ? error.message : String(error),
+        title: 'Could not open scene',
+        message,
       })
     } finally {
       setOpeningUsd(false)
     }
   }, [openingUsd])
+
+  const handleUsdSelected = useCallback((selected: string) => {
+    if (!selected || openingUsd) return
+    setUsdPickerInitialPath(null)
+    void loadNewtonAsset(selected)
+  }, [loadNewtonAsset, openingUsd])
+
+  const submitXacroEnvironment = useCallback(() => {
+    if (!pendingXacroEnvironment || openingUsd) return
+    const values = {
+      ...pendingXacroEnvironment.values,
+      [pendingXacroEnvironment.variableName]: xacroEnvironmentDraft,
+    }
+    const assetPath = pendingXacroEnvironment.assetPath
+    setPendingXacroEnvironment(null)
+    void loadNewtonAsset(assetPath, values)
+  }, [loadNewtonAsset, openingUsd, pendingXacroEnvironment, xacroEnvironmentDraft])
+
+  const handleChooseHdri = useCallback(() => {
+    if (hdriPickerInitialPath !== null) return
+    setHdriPickerInitialPath(String(newtonWorkspace?.environment?.hdri_path ?? ''))
+  }, [hdriPickerInitialPath, newtonWorkspace?.environment?.hdri_path])
+
+  const handleHdriSelected = useCallback((selected: string) => {
+    setHdriPickerInitialPath(null)
+    if (selected) void controlNewtonWorkspace('set_environment', { hdri: 'custom', hdri_path: selected })
+  }, [controlNewtonWorkspace])
 
   useEffect(() => {
     if (!nodeTypes.includes('NewtonSimulation')) {
@@ -2175,11 +2241,87 @@ export default function App() {
 
         {usdPickerInitialPath !== null && (
           <LocalFilePicker
-            title="Open a USD scene in Newton"
+            title="Open a USD, URDF, Xacro, or MuJoCo scene in Newton"
             initialPath={usdPickerInitialPath}
-            extensions={USD_FILE_EXTENSIONS}
+            extensions={NEWTON_SCENE_FILE_EXTENSIONS}
             onSelect={path => void handleUsdSelected(path)}
             onCancel={() => setUsdPickerInitialPath(null)}
+          />
+        )}
+
+        {pendingXacroEnvironment && (
+          <div
+            className="bn-xacro-environment-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bn-xacro-environment-title"
+            onMouseDown={event => {
+              if (event.target === event.currentTarget && !openingUsd) {
+                setPendingXacroEnvironment(null)
+              }
+              event.stopPropagation()
+            }}
+          >
+            <form
+              className="bn-xacro-environment-dialog"
+              onSubmit={event => {
+                event.preventDefault()
+                submitXacroEnvironment()
+              }}
+            >
+              <header>
+                <div>
+                  <strong id="bn-xacro-environment-title">Xacro configuration required</strong>
+                  <span>{pendingXacroEnvironment.assetPath}</span>
+                </div>
+                <button
+                  type="button"
+                  disabled={openingUsd}
+                  onClick={() => setPendingXacroEnvironment(null)}
+                  aria-label="Cancel Xacro configuration"
+                >×</button>
+              </header>
+              <p>
+                This robot description reads an environment variable. Its value is used only while
+                expanding this Xacro file and does not change the editor server environment.
+              </p>
+              <label htmlFor="bn-xacro-environment-value">
+                {pendingXacroEnvironment.variableName}
+              </label>
+              <input
+                id="bn-xacro-environment-value"
+                autoFocus
+                value={xacroEnvironmentDraft}
+                onChange={event => setXacroEnvironmentDraft(event.target.value)}
+                placeholder="Enter the robot configuration value"
+                spellCheck={false}
+              />
+              {Object.keys(pendingXacroEnvironment.values).length > 0 && (
+                <small>
+                  Already supplied: {Object.keys(pendingXacroEnvironment.values).join(', ')}
+                </small>
+              )}
+              <footer>
+                <button
+                  type="button"
+                  disabled={openingUsd}
+                  onClick={() => setPendingXacroEnvironment(null)}
+                >Cancel</button>
+                <button className="is-primary" type="submit" disabled={openingUsd}>
+                  {openingUsd ? 'Expanding…' : 'Open Xacro'}
+                </button>
+              </footer>
+            </form>
+          </div>
+        )}
+
+        {hdriPickerInitialPath !== null && (
+          <LocalFilePicker
+            title="Choose an HDRI environment"
+            initialPath={hdriPickerInitialPath}
+            extensions={HDRI_FILE_EXTENSIONS}
+            onSelect={handleHdriSelected}
+            onCancel={() => setHdriPickerInitialPath(null)}
           />
         )}
 
@@ -2418,6 +2560,9 @@ export default function App() {
                   setSimulationViewerDetached(false)
                 })
               }}
+              workspaceStatus={newtonWorkspace}
+              onWorkspaceAction={(action, payload) => { void controlNewtonWorkspace(action, payload) }}
+              onChooseHdri={handleChooseHdri}
             />
           )}
           <div className="bn-canvas-region">
