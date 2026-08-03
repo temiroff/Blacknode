@@ -112,14 +112,17 @@ and firewall changes and requires explicit confirmation. It installs and pairs
 the managed Runtime while leaving Robot Hardware, NVIDIA drivers, CUDA, ROS 2,
 and Docker configuration in place. The editor computer downloads a verified
 Linux bundle for the inspected architecture, including a managed Python 3.11
-runtime, Blacknode Runtime, Blacknode core, and target-compatible wheels. It
-then transfers that bundle over the pinned SSH connection and installs from
-local files. The device does not contact GitHub or PyPI, run `apt-get update`,
-install Ubuntu packages, or replace its system Python. This PC-assisted path
-works when the editor runs on Windows; Windows stages Linux artifacts and does
-not build a Windows virtual environment for the device. A verified bundle is
-cached under `.blacknode/device-install-cache`, allowing later matching-device
-installs while the editor computer is also offline.
+runtime, the Runtime service, the core Python library, and target-compatible
+wheels. The source archives are device-focused: editor code, documentation,
+tutorials, examples, template catalogs, tests, and contributor files remain on
+the editor computer. The editor then transfers the bundle over the pinned SSH
+connection and installs from local files. The device does not contact GitHub or
+PyPI, run `apt-get update`, install Ubuntu packages, or replace its system
+Python. This PC-assisted path works when the editor runs on Windows; Windows
+stages Linux artifacts and does not build a Windows virtual environment for the
+device. A verified bundle is cached under `.blacknode/device-install-cache`,
+allowing later matching-device installs while the editor computer is also
+offline.
 
 Port `8766` is used when available; an occupied port is preserved and the
 installer reports the newly reserved port. When UFW is active, the Runtime-only
@@ -136,7 +139,7 @@ Managed Linux installations use one visible root per stable Runtime instance:
 ~/Blacknode/devices/<instance-id>/
   install.json
   python/                   # managed Linux Python for PC-assisted setup
-  core/                     # pinned Blacknode core source
+  core/                     # pinned core Python runtime library
   runtime/
     packages/
   hardware/                 # complete robot device only

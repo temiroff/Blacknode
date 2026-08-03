@@ -696,6 +696,81 @@ class EditorDeviceApiTests(unittest.TestCase):
         for index, python_block in enumerate(python_blocks, start=1):
             compile(python_block, f"<remote-install-python-{index}>", "exec")
 
+    def test_device_source_archives_keep_only_runtime_files(self):
+        cases = (
+            (
+                "runtime",
+                device_installer._RUNTIME_DEVICE_SOURCE_PATHS,
+                device_installer._RUNTIME_DEVICE_REQUIRED_PATHS,
+                {
+                    "AGENTS.md",
+                    "README.md",
+                    "setup-docker.sh",
+                    "setup_ubuntu.sh",
+                    "tests/test_runtime.py",
+                },
+            ),
+            (
+                "core",
+                device_installer._CORE_DEVICE_SOURCE_PATHS,
+                device_installer._CORE_DEVICE_REQUIRED_PATHS,
+                {
+                    "README.md",
+                    "docs/project-lifecycle.md",
+                    "editor/package.json",
+                    "editor-server/server.py",
+                    "examples/basic.py",
+                    "templates/text-pipeline.json",
+                    "tests/test_graph.py",
+                    "tutorials/README.md",
+                },
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for label, selected, required, excluded in cases:
+                with self.subTest(label=label):
+                    source = root / f"{label}-source.tar.gz"
+                    destination = root / f"{label}-device.tar.gz"
+                    archive_root = f"{label}-{'a' * 40}"
+                    files = set(required) | excluded
+                    with tarfile.open(source, "w:gz") as archive:
+                        root_info = tarfile.TarInfo(archive_root)
+                        root_info.type = tarfile.DIRTYPE
+                        root_info.mode = 0o755
+                        archive.addfile(root_info)
+                        for relative in sorted(files):
+                            payload = relative.encode("utf-8")
+                            info = tarfile.TarInfo(f"{archive_root}/{relative}")
+                            info.size = len(payload)
+                            info.mode = 0o755 if relative.endswith(".sh") else 0o644
+                            archive.addfile(info, io.BytesIO(payload))
+
+                    device_installer._filter_device_source_archive(
+                        source,
+                        destination,
+                        selected,
+                        required,
+                    )
+
+                    with tarfile.open(destination, "r:gz") as archive:
+                        members = {
+                            member.name.partition("/")[2]: member
+                            for member in archive.getmembers()
+                            if "/" in member.name
+                        }
+                    self.assertTrue(set(required).issubset(members))
+                    self.assertTrue(excluded.isdisjoint(members))
+                    self.assertTrue(
+                        device_installer._device_source_archive_is_valid(
+                            destination,
+                            selected,
+                            required,
+                        )
+                    )
+                    if "check.sh" in members:
+                        self.assertEqual(stat.S_IMODE(members["check.sh"].mode), 0o755)
+
     def test_windows_editor_builds_and_reuses_linux_arm64_runtime_bundle(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -721,7 +796,7 @@ class EditorDeviceApiTests(unittest.TestCase):
                 ),
                 patch.object(
                     device_installer,
-                    "_repository_snapshot",
+                    "_device_source_snapshot",
                     side_effect=[
                         (runtime_archive, "b" * 40),
                         (core_archive, "c" * 40),

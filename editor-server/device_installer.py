@@ -34,7 +34,7 @@ _HARDWARE_PAIRING_INSPECTION_MARKER = "__BLACKNODE_HARDWARE_PAIRINGS__="
 _HARDWARE_ADOPTION_MARKER = "__BLACKNODE_HARDWARE_ADOPTION__="
 _HARDWARE_CONFIGURATION_MARKER = "__BLACKNODE_HARDWARE_CONFIGURATION__="
 _UPDATE_REPORT_MARKER = "__BLACKNODE_UPDATE_REPORT__="
-_OFFLINE_BUNDLE_SCHEMA_VERSION = 1
+_OFFLINE_BUNDLE_SCHEMA_VERSION = 2
 _OFFLINE_BUNDLE_LOCK = threading.Lock()
 _PYTHON_STANDALONE_RELEASES_URL = (
     "https://api.github.com/repos/astral-sh/"
@@ -43,6 +43,41 @@ _PYTHON_STANDALONE_RELEASES_URL = (
 _RUNTIME_REPOSITORY = "temiroff/blacknode-runtime"
 _CORE_REPOSITORY = "temiroff/Blacknode"
 _OFFLINE_PYTHON_MINOR = "3.11"
+_RUNTIME_DEVICE_SOURCE_PATHS = (
+    "blacknode-package.toml",
+    "blacknode_runtime",
+    "check.sh",
+    "configure.sh",
+    "install-package.sh",
+    "install-service.sh",
+    "pyproject.toml",
+    "scripts",
+    "service.sh",
+    "start.sh",
+)
+_RUNTIME_DEVICE_REQUIRED_PATHS = (
+    "blacknode_runtime/__init__.py",
+    "check.sh",
+    "configure.sh",
+    "install-service.sh",
+    "pyproject.toml",
+    "scripts/render_systemd_unit.py",
+    "scripts/runtime_doctor.py",
+    "scripts/runtime_service.py",
+    "scripts/service_check.py",
+    "scripts/with_ros_env.sh",
+    "service.sh",
+)
+_CORE_DEVICE_SOURCE_PATHS = (
+    "LICENSE",
+    "pyproject.toml",
+    "python",
+)
+_CORE_DEVICE_REQUIRED_PATHS = (
+    "LICENSE",
+    "pyproject.toml",
+    "python/blacknode/__init__.py",
+)
 _INSPECTION_SCRIPT = r"""python3 - <<'PY'
 import glob
 import json
@@ -625,6 +660,153 @@ def _repository_snapshot(
     return archive, commit
 
 
+def _device_source_relative_path(name: str) -> tuple[str, str]:
+    clean = str(name or "").rstrip("/")
+    parts = clean.split("/")
+    if (
+        not clean
+        or clean.startswith("/")
+        or "\\" in clean
+        or any(part in {"", ".", ".."} for part in parts)
+    ):
+        raise DeviceInstallError("A Runtime source archive contained an unsafe path.")
+    root = parts[0]
+    return root, "/".join(parts[1:])
+
+
+def _device_source_path_selected(path: str, selected_paths: tuple[str, ...]) -> bool:
+    return any(
+        path == selected or path.startswith(f"{selected}/")
+        for selected in selected_paths
+    )
+
+
+def _device_source_archive_is_valid(
+    archive_path: Path,
+    selected_paths: tuple[str, ...],
+    required_paths: tuple[str, ...],
+) -> bool:
+    try:
+        roots: set[str] = set()
+        present_files: set[str] = set()
+        with tarfile.open(archive_path, "r:gz") as archive:
+            for member in archive.getmembers():
+                root, relative = _device_source_relative_path(member.name)
+                roots.add(root)
+                if not relative:
+                    if not member.isdir():
+                        return False
+                    continue
+                if not _device_source_path_selected(relative, selected_paths):
+                    return False
+                if not (member.isdir() or member.isfile()):
+                    return False
+                if member.isfile():
+                    present_files.add(relative)
+        return len(roots) == 1 and set(required_paths).issubset(present_files)
+    except (DeviceInstallError, OSError, tarfile.TarError):
+        return False
+
+
+def _filter_device_source_archive(
+    source_path: Path,
+    destination: Path,
+    selected_paths: tuple[str, ...],
+    required_paths: tuple[str, ...],
+) -> Path:
+    temporary = destination.with_name(
+        f".{destination.name}.{secrets.token_hex(6)}.tmp"
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with (
+            tarfile.open(source_path, "r:gz") as source,
+            tarfile.open(temporary, "w:gz") as target,
+        ):
+            roots: set[str] = set()
+            present_files: set[str] = set()
+            for member in source.getmembers():
+                root, relative = _device_source_relative_path(member.name)
+                roots.add(root)
+                if len(roots) > 1:
+                    raise DeviceInstallError(
+                        "A Runtime source archive contained multiple repository roots."
+                    )
+                if relative and not _device_source_path_selected(
+                    relative,
+                    selected_paths,
+                ):
+                    continue
+                if not (member.isdir() or member.isfile()):
+                    raise DeviceInstallError(
+                        "A selected Runtime source path was not a regular file or directory."
+                    )
+                if member.isfile():
+                    extracted = source.extractfile(member)
+                    if extracted is None:
+                        raise DeviceInstallError(
+                            "A selected Runtime source file could not be read."
+                        )
+                    target.addfile(member, extracted)
+                    if relative:
+                        present_files.add(relative)
+                else:
+                    target.addfile(member)
+        missing = sorted(set(required_paths) - present_files)
+        if missing:
+            raise DeviceInstallError(
+                "A Runtime source archive is missing required device files: "
+                + ", ".join(missing)
+            )
+        if not roots:
+            raise DeviceInstallError("A Runtime source archive was empty.")
+        os.replace(temporary, destination)
+        return destination
+    except DeviceInstallError:
+        temporary.unlink(missing_ok=True)
+        raise
+    except (OSError, tarfile.TarError) as exc:
+        temporary.unlink(missing_ok=True)
+        raise DeviceInstallError(
+            "The editor computer could not prepare the minimal Runtime source files."
+        ) from exc
+
+
+def _device_source_snapshot(
+    repository: str,
+    commit: str,
+    downloads: Path,
+    selected_paths: tuple[str, ...],
+    required_paths: tuple[str, ...],
+) -> tuple[Path, str]:
+    source_archive, clean_commit = _repository_snapshot(
+        repository,
+        commit,
+        downloads,
+    )
+    repository_name = repository.rsplit("/", 1)[-1].lower()
+    destination = downloads / (
+        f"{repository_name}-{clean_commit}-device-v"
+        f"{_OFFLINE_BUNDLE_SCHEMA_VERSION}.tar.gz"
+    )
+    if _device_source_archive_is_valid(
+        destination,
+        selected_paths,
+        required_paths,
+    ):
+        return destination, clean_commit
+    destination.unlink(missing_ok=True)
+    return (
+        _filter_device_source_archive(
+            source_archive,
+            destination,
+            selected_paths,
+            required_paths,
+        ),
+        clean_commit,
+    )
+
+
 def _runtime_source_lock() -> dict[str, dict[str, str]]:
     lock_path = Path(__file__).with_name("device-runtime-sources.lock.json")
     try:
@@ -826,15 +1008,19 @@ def _prepare_runtime_bundle(
                 target_arch,
                 downloads,
             )
-            runtime_archive, runtime_commit = _repository_snapshot(
+            runtime_archive, runtime_commit = _device_source_snapshot(
                 sources["runtime"]["repository"],
                 sources["runtime"]["commit"],
                 downloads,
+                _RUNTIME_DEVICE_SOURCE_PATHS,
+                _RUNTIME_DEVICE_REQUIRED_PATHS,
             )
-            core_archive, core_commit = _repository_snapshot(
+            core_archive, core_commit = _device_source_snapshot(
                 sources["core"]["repository"],
                 sources["core"]["commit"],
                 downloads,
+                _CORE_DEVICE_SOURCE_PATHS,
+                _CORE_DEVICE_REQUIRED_PATHS,
             )
             bundle_name = (
                 f"runtime-offline-v{_OFFLINE_BUNDLE_SCHEMA_VERSION}-{target_arch}-"
