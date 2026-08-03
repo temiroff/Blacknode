@@ -2858,14 +2858,27 @@ hardware_repo="$legacy_hardware_dir"
 
 package_version() {
   python3 - "$1" <<'PY'
+import re
 import sys
-import tomllib
 from pathlib import Path
 
 path = Path(sys.argv[1]) / "pyproject.toml"
 try:
-    payload = tomllib.loads(path.read_text(encoding="utf-8"))
-    print(str((payload.get("project") or {}).get("version") or "unknown"))
+    text = path.read_text(encoding="utf-8")
+    project = False
+    version = "unknown"
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            project = line == "[project]"
+            continue
+        if not project or not line or line.startswith("#"):
+            continue
+        match = re.match(r'''version\s*=\s*(["'])(.*?)\1(?:\s*#.*)?$''', line)
+        if match:
+            version = match.group(2)
+            break
+    print(version)
 except Exception:
     print("unknown")
 PY
@@ -2884,7 +2897,9 @@ validate_checkout() {
 import re
 import sys
 
-origin = sys.argv[1].strip().lower().removesuffix(".git").rstrip("/")
+origin = sys.argv[1].strip().lower().rstrip("/")
+if origin.endswith(".git"):
+    origin = origin[:-4]
 repository = sys.argv[2].strip().lower()
 if not re.search(rf"(?:github\.com[:/])temiroff/{re.escape(repository)}$", origin):
     raise SystemExit(
@@ -3384,7 +3399,6 @@ import json
 import re
 import subprocess
 import sys
-import tomllib
 import urllib.request
 from pathlib import Path
 
@@ -3420,11 +3434,18 @@ def command(args, timeout=30):
         return subprocess.CompletedProcess(args, 124, "", str(exc))
 
 def project_version(text):
-    try:
-        payload = tomllib.loads(text)
-        return str((payload.get("project") or {{}}).get("version") or "unknown")
-    except Exception:
-        return "unknown"
+    project = False
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            project = line == "[project]"
+            continue
+        if not project or not line or line.startswith("#"):
+            continue
+        match = re.match(r'''version\s*=\s*(["'])(.*?)\1(?:\s*#.*)?$''', line)
+        if match:
+            return match.group(2)
+    return "unknown"
 
 def package_version(directory):
     try:
@@ -3589,7 +3610,9 @@ def inspect(kind, repository, service, port, directory, state_override=""):
             raise RuntimeError(f"{{repository}} is not an updateable Git checkout.")
         origin = command(["git", "-C", str(directory), "remote", "get-url", "origin"])
         origin_url = origin.stdout.strip()
-        normalized = origin_url.lower().removesuffix(".git").rstrip("/")
+        normalized = origin_url.lower().rstrip("/")
+        if normalized.endswith(".git"):
+            normalized = normalized[:-4]
         trusted_origin = bool(re.search(
             rf"(?:github\.com[:/])temiroff/{{re.escape(repository)}}$",
             normalized,
