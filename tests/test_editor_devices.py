@@ -55,6 +55,7 @@ class _HardwareService:
         *,
         status_overrides: dict | None = None,
         runtime_features: list[str] | None = None,
+        runtime_version: str = "0.1.0",
         torque_readback_available: bool = True,
     ) -> None:
         self.token = token
@@ -94,6 +95,7 @@ class _HardwareService:
             "ros2_diagnostics_v1",
             "managed_ros2_services_v1",
         ]
+        self.runtime_version = runtime_version
         self.ros2_diagnostics_payload = {
             "ok": True,
             "available": True,
@@ -154,7 +156,7 @@ class _HardwareService:
             return _JsonResponse({
                 "service": "blacknode-runtime",
                 "protocol_version": 1,
-                "runtime_version": "0.1.0",
+                "runtime_version": self.runtime_version,
                 "device_id": "alex-desktop",
                 "features": self.runtime_features,
                 "python": {"version": "3.12.3"},
@@ -1256,11 +1258,14 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertEqual(result["firewall_source"], "192.168.1.20")
         self.assertEqual(result["delivery_mode"], "pc_assisted")
         self.assertEqual(result["python_version"], "3.11.14")
+        self.assertEqual(result["runtime_commit"], "a" * 40)
+        self.assertEqual(result["core_commit"], "b" * 40)
         self.assertEqual(
             result["python_dir"],
             "~/Blacknode/devices/default/python",
         )
         self.assertIn("runtime_only default 8766", commands[0])
+        self.assertIn(f"{'a' * 40} {'b' * 40}", commands[0])
 
     def test_default_isolated_stack_uninstall_streams_remote_cleanup_progress(self):
         uploaded = []
@@ -1573,6 +1578,9 @@ class EditorDeviceApiTests(unittest.TestCase):
         remote_python = commands[0].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
         self.assertNotIn("import tomllib", remote_python)
         self.assertNotIn(".removesuffix(", remote_python)
+        self.assertNotIn("is not an updateable Git checkout", remote_python)
+        self.assertIn('"snapshot"', remote_python)
+        self.assertIn('"update_strategy": "replace"', remote_python)
         compile(remote_python, "<managed-update-check>", "exec")
         ast.parse(remote_python, feature_version=(3, 7))
         parsed = ast.parse(remote_python)
@@ -4329,6 +4337,109 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         self.assertIn("workflow package", result["summary"])
         self.assertNotIn("ssh-password", response.text)
+
+    def test_pc_assisted_runtime_update_replaces_snapshot_and_repairs_pairing(self):
+        runtime = _HardwareService(
+            "old-runtime-token",
+            runtime_version="0.4.0",
+        )
+        host = server._device_registry.pair_host(
+            name="Jetson",
+            runtime_url="http://192.168.1.171:8766",
+            runtime_token=runtime.token,
+            manifest={
+                "service": "blacknode-runtime",
+                "protocol_version": 1,
+                "runtime_version": "0.4.0",
+                "device_id": "ubuntu",
+            },
+            managed_runtime={
+                "ssh_host": "192.168.1.171",
+                "ssh_port": 22,
+                "ssh_username": "ubuntu",
+                "host_fingerprint": "SHA256:trusted-device-key",
+                "instance_id": "default",
+                "runtime_port": 8766,
+                "service_name": "blacknode-runtime.service",
+                "install_root": "~/Blacknode/devices/default",
+                "runtime_dir": "~/Blacknode/devices/default/runtime",
+                "packages_dir": "~/Blacknode/devices/default/runtime/packages",
+                "delivery_mode": "pc_assisted",
+                "core_dir": "~/Blacknode/devices/default/core",
+                "python_dir": "~/Blacknode/devices/default/python",
+                "stack_mode": "runtime_only",
+                "hardware_dir": "",
+            },
+        )
+
+        def replace_runtime(**kwargs):
+            self.assertEqual(kwargs["action"], "replace_runtime")
+            self.assertEqual(kwargs["instance_id"], "default")
+            runtime.token = "new-runtime-token"
+            runtime.runtime_version = "0.4.1"
+            return {
+                "ok": True,
+                "runtime_token": runtime.token,
+                "host_fingerprint": "SHA256:trusted-device-key",
+                "instance_id": "default",
+                "runtime_port": 8766,
+                "service_name": "blacknode-runtime.service",
+                "install_root": "~/Blacknode/devices/default",
+                "runtime_dir": "~/Blacknode/devices/default/runtime",
+                "packages_dir": "~/Blacknode/devices/default/runtime/packages",
+                "firewall_source": "192.168.1.20",
+                "delivery_mode": "pc_assisted",
+                "core_dir": "~/Blacknode/devices/default/core",
+                "python_dir": "~/Blacknode/devices/default/python",
+                "python_version": "3.11.15",
+                "runtime_commit": "9" * 40,
+                "core_commit": "8" * 40,
+                "stack_mode": "runtime_only",
+                "hardware_dir": "",
+            }
+
+        with (
+            patch(
+                "device_registry.urllib.request.urlopen",
+                side_effect=runtime,
+            ),
+            patch.object(server, "install_runtime", side_effect=replace_runtime) as install,
+            patch.object(server, "update_managed_services") as fast_forward,
+            patch.object(
+                server,
+                "_runtime_extension_update_specs",
+                return_value=([], []),
+            ),
+        ):
+            result = server._update_device_host_payload(
+                host["id"],
+                server.UpdateManagedDeviceReq(
+                    password="ssh-password",
+                    scope="runtime",
+                    operation="update",
+                ),
+            )
+            repaired_manifest = server._device_registry.host_client(
+                host["id"]
+            ).manifest()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["runtime"]["runtime_version"], "0.4.1")
+        self.assertEqual(
+            result["update"]["components"][0]["source_mode"],
+            "snapshot",
+        )
+        self.assertEqual(
+            result["update"]["components"][0]["before"]["version"],
+            "0.4.0",
+        )
+        self.assertEqual(
+            result["update"]["components"][0]["after"]["version"],
+            "0.4.1",
+        )
+        install.assert_called_once()
+        fast_forward.assert_not_called()
+        self.assertEqual(repaired_manifest["runtime_version"], "0.4.1")
 
     def test_managed_runtime_update_falls_back_to_verified_ssh_when_api_times_out(self):
         host = server._device_registry.pair_host(

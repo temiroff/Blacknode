@@ -4998,12 +4998,15 @@ def _update_device_host_payload(
     controlled_robots: list[str] = []
     warnings: list[str] = []
     runtime_api_unavailable = False
+    runtime_manifest_before: dict[str, Any] | None = None
     report(5, "Stopping running deployments")
     if not host.get("paused"):
         last_runtime_error = ""
         for attempt in range(3):
             try:
                 runtime_client = _device_registry.host_client(host_id)
+                if runtime_manifest_before is None:
+                    runtime_manifest_before = runtime_client.manifest()
                 for deployment in runtime_client.list_deployments().get("deployments") or []:
                     if (
                         isinstance(deployment, dict)
@@ -5064,26 +5067,123 @@ def _update_device_host_payload(
                 action="pause",
             )
             runtime_paused_for_fallback = True
-        update = update_managed_services(
-            host=str(managed.get("ssh_host") or ""),
-            port=int(managed.get("ssh_port") or 22),
-            username=str(managed.get("ssh_username") or ""),
-            password=req.password,
-            host_fingerprint=str(managed.get("host_fingerprint") or ""),
-            instance_id=str(managed.get("instance_id") or "default"),
-            runtime_port=int(managed.get("runtime_port") or 0),
-            hardware_ports=selected_hardware_ports,
-            hardware_device_ids={
-                hardware_port: hardware_device_ids.get(hardware_port, "")
-                for hardware_port in selected_hardware_ports
-            },
-            include_runtime=include_runtime,
-            stack_mode=str(managed.get("stack_mode") or "runtime_only"),
-            progress=lambda value: report(
-                15 + int(int(value.get("progress") or 0) * 0.75),
-                str(value.get("message") or "Updating managed services"),
-            ),
+        replace_runtime_snapshot = bool(
+            include_runtime
+            and str(managed.get("delivery_mode") or "") == "pc_assisted"
         )
+        if replace_runtime_snapshot:
+            report(15, "Preparing the latest Runtime bundle on this computer")
+            installed = install_runtime(
+                host=str(managed.get("ssh_host") or ""),
+                port=int(managed.get("ssh_port") or 22),
+                username=str(managed.get("ssh_username") or ""),
+                password=req.password,
+                host_fingerprint=str(managed.get("host_fingerprint") or ""),
+                action="replace_runtime",
+                instance_id=str(managed.get("instance_id") or "default"),
+                progress=lambda value: report(
+                    15 + int(int(value.get("progress") or 0) * 0.6),
+                    str(value.get("message") or "Replacing Runtime snapshot"),
+                ),
+            )
+            runtime_host = str(managed.get("ssh_host") or "").strip()
+            runtime_host = f"[{runtime_host}]" if ":" in runtime_host else runtime_host
+            runtime_url = f"http://{runtime_host}:{int(installed['runtime_port'])}"
+            runtime_token = str(installed["runtime_token"])
+            replacement_manifest = RuntimeDeviceClient(
+                runtime_url,
+                runtime_token,
+            ).manifest()
+            replacement_management = dict(managed)
+            replacement_management.update({
+                "host_fingerprint": installed["host_fingerprint"],
+                "instance_id": installed["instance_id"],
+                "runtime_port": installed["runtime_port"],
+                "service_name": installed["service_name"],
+                "install_root": installed.get("install_root", ""),
+                "runtime_dir": installed["runtime_dir"],
+                "packages_dir": installed.get("packages_dir", ""),
+                "firewall_source": installed.get("firewall_source", ""),
+                "delivery_mode": installed.get("delivery_mode", "pc_assisted"),
+                "core_dir": installed.get("core_dir", ""),
+                "python_dir": installed.get("python_dir", ""),
+                "python_version": installed.get("python_version", ""),
+                "stack_mode": installed.get("stack_mode", "runtime_only"),
+                "hardware_dir": installed.get("hardware_dir", ""),
+            })
+            _device_registry.pair_host(
+                name=str(host.get("name") or "Compute device"),
+                runtime_url=runtime_url,
+                runtime_token=runtime_token,
+                manifest=replacement_manifest,
+                managed_runtime=replacement_management,
+            )
+            before_version = str(
+                (runtime_manifest_before or {}).get("runtime_version") or "unknown"
+            )
+            after_version = str(
+                replacement_manifest.get("runtime_version") or "unknown"
+            )
+            update = {
+                "ok": True,
+                "components": [{
+                    "kind": "runtime",
+                    "service_name": str(installed.get("service_name") or ""),
+                    "port": int(installed.get("runtime_port") or 0),
+                    "before": {"version": before_version, "commit": ""},
+                    "after": {
+                        "version": after_version,
+                        "commit": str(installed.get("runtime_commit") or "")[:12],
+                    },
+                    "changed": before_version != after_version,
+                    "state": "active",
+                    "source_mode": "snapshot",
+                }],
+                "host_fingerprint": installed["host_fingerprint"],
+            }
+            if selected_hardware_ports:
+                hardware_update = update_managed_services(
+                    host=str(managed.get("ssh_host") or ""),
+                    port=int(managed.get("ssh_port") or 22),
+                    username=str(managed.get("ssh_username") or ""),
+                    password=req.password,
+                    host_fingerprint=str(managed.get("host_fingerprint") or ""),
+                    instance_id=str(managed.get("instance_id") or "default"),
+                    runtime_port=int(installed.get("runtime_port") or 0),
+                    hardware_ports=selected_hardware_ports,
+                    hardware_device_ids={
+                        hardware_port: hardware_device_ids.get(hardware_port, "")
+                        for hardware_port in selected_hardware_ports
+                    },
+                    include_runtime=False,
+                    stack_mode=str(managed.get("stack_mode") or "runtime_only"),
+                    progress=lambda value: report(
+                        75 + int(int(value.get("progress") or 0) * 0.15),
+                        str(value.get("message") or "Updating Robot Hardware"),
+                    ),
+                )
+                update["components"].extend(hardware_update.get("components") or [])
+        else:
+            update = update_managed_services(
+                host=str(managed.get("ssh_host") or ""),
+                port=int(managed.get("ssh_port") or 22),
+                username=str(managed.get("ssh_username") or ""),
+                password=req.password,
+                host_fingerprint=str(managed.get("host_fingerprint") or ""),
+                instance_id=str(managed.get("instance_id") or "default"),
+                runtime_port=int(managed.get("runtime_port") or 0),
+                hardware_ports=selected_hardware_ports,
+                hardware_device_ids={
+                    hardware_port: hardware_device_ids.get(hardware_port, "")
+                    for hardware_port in selected_hardware_ports
+                },
+                include_runtime=include_runtime,
+                stack_mode=str(managed.get("stack_mode") or "runtime_only"),
+                progress=lambda value: report(
+                    15 + int(int(value.get("progress") or 0) * 0.75),
+                    str(value.get("message") or "Updating managed services"),
+                ),
+            )
     except Exception:
         if runtime_paused_for_fallback:
             try:
@@ -5141,7 +5241,7 @@ def _update_device_host_payload(
 
     if include_runtime:
         extension_specs, extension_warnings = _runtime_extension_update_specs(
-            runtime_manifest
+            runtime_manifest_before or runtime_manifest
         )
         warnings.extend(extension_warnings)
         if extension_specs:
