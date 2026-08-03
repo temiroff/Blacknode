@@ -225,7 +225,7 @@ class EditorRuntimeTests(unittest.TestCase):
             def manifest(self):
                 return {
                     "features": ["remote_ros2_topic_stream_v1"],
-                    "packages": [{"name": "blacknode-ros2", "version": "0.5.18"}],
+                    "packages": [{"name": "blacknode-ros2", "version": "0.5.19"}],
                     "node_types": ["ROS2"],
                 }
 

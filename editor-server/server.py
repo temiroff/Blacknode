@@ -813,6 +813,7 @@ def _remote_ros2_action(request: dict[str, Any]) -> dict[str, Any]:
             "history",
             "timeout",
             "stale_after_seconds",
+            "qos",
         )
     }
     client = _device_registry.runtime_client(device_id)
