@@ -496,6 +496,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [topicSubscriberStopPending, setTopicSubscriberStopPending] = useState(false)
   const [viewerStopPending, setViewerStopPending] = useState(false)
   const [viewerClearPending, setViewerClearPending] = useState(false)
+  const [viewerAccumulationPending, setViewerAccumulationPending] = useState(false)
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
   const [episodePending, setEpisodePending] = useState<null | 'start' | 'pause' | 'resume' | 'save' | 'stop' | 'discard'>(null)
@@ -976,6 +977,11 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     data.params?.topic ?? (data.type === 'ROS2' ? '/scan' : '/chatter')
   ).trim() || (data.type === 'ROS2' ? '/scan' : '/chatter')
   const viewerActive = isViewer && data.portResults?.running === true
+  const viewerScene = data.portResults?.scene
+  const viewerHistoryPaused = Boolean(
+    viewerScene && typeof viewerScene === 'object'
+    && (viewerScene as Record<string, unknown>).history_paused === true,
+  )
 
   // Ordered by urgency: a running process outranks a waiting one, which
   // outranks a passive "this result is stale" note.
@@ -1315,6 +1321,21 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         // Keep the history control responsive if the node was removed mid-action.
       }
       setViewerClearPending(false)
+    }
+  }
+
+  const onToggleViewerAccumulation = async () => {
+    setViewerAccumulationPending(true)
+    try {
+      await updateParam(id, 'action', viewerHistoryPaused ? 'resume' : 'pause')
+      await cookNode(id, 'report')
+    } finally {
+      try {
+        await updateParam(id, 'action', 'start')
+      } catch {
+        // Keep the accumulation control responsive if the node was removed.
+      }
+      setViewerAccumulationPending(false)
     }
   }
 
@@ -2449,7 +2470,9 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         <PointCloudViewer
           scene={data.portResults?.scene}
           onClear={() => { void onClearViewer() }}
+          onAccumulationToggle={() => { void onToggleViewerAccumulation() }}
           clearPending={viewerClearPending}
+          accumulationPending={viewerAccumulationPending}
         />
       )}
 

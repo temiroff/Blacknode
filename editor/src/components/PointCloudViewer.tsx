@@ -20,17 +20,21 @@ interface ViewerScene {
   scan?: {
     angle_min_rad?: number
     angle_max_rad?: number
+    angle_increment_rad?: number
     range_min_m?: number
     range_max_m?: number
   }
   view?: { radius_m?: number; units?: string }
   history_registered?: boolean
+  history_paused?: boolean
   pose_source?: string
+  registration?: { tf_path?: string[] }
   animation?: {
     enabled?: boolean
     show_rays?: boolean
     ray_trail_count?: number
     pulse_hz?: number
+    sweep_direction?: string
     accumulate_hits?: boolean
   }
 }
@@ -137,11 +141,15 @@ function controlStyle(active = false): React.CSSProperties {
 export default function PointCloudViewer({
   scene,
   onClear,
+  onAccumulationToggle,
   clearPending = false,
+  accumulationPending = false,
 }: {
   scene: unknown
   onClear?: () => void
+  onAccumulationToggle?: () => void
   clearPending?: boolean
+  accumulationPending?: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayRef = useRef<HTMLCanvasElement | null>(null)
@@ -165,7 +173,6 @@ export default function PointCloudViewer({
   const pulseHz = clamp(finite(parsed.animation?.pulse_hz, 1), 0.05, 30)
   const scanAngleMinimum = finite(parsed.scan?.angle_min_rad, -Math.PI)
   const scanAngleMaximum = finite(parsed.scan?.angle_max_rad, Math.PI)
-  const scanAngleDirection = scanAngleMaximum >= scanAngleMinimum ? 1 : -1
   const scanCoverageRad = clamp(Math.abs(scanAngleMaximum - scanAngleMinimum), 0, Math.PI * 2)
   const scanCoverageDeg = scanCoverageRad * 180 / Math.PI
   const fullCircleScan = scanCoverageRad >= Math.PI * 2 - Math.PI / 180
@@ -382,6 +389,13 @@ export default function PointCloudViewer({
     const sensorScreen = worldToScreen(sensor.x, sensor.y, 0, viewport, camera, pixelsPerMeter)
     const scanMinimum = sensor.yaw + scanAngleMinimum
     const scanMaximum = sensor.yaw + scanAngleMaximum
+    const counterclockwisePoints = [...currentPoints].sort((left, right) => {
+      const leftAngle = Math.atan2(left[1] - sensor.y, left[0] - sensor.x)
+      const rightAngle = Math.atan2(right[1] - sensor.y, right[0] - sensor.x)
+      const leftOffset = (leftAngle - scanMinimum + Math.PI * 2) % (Math.PI * 2)
+      const rightOffset = (rightAngle - scanMinimum + Math.PI * 2) % (Math.PI * 2)
+      return leftOffset - rightOffset
+    })
     const rayLength = Math.min(viewRadius, Math.max(spacing * 2, viewRadius * 0.82))
     if (!fullCircleScan) {
       context.setLineDash([5, 5])
@@ -405,36 +419,10 @@ export default function PointCloudViewer({
     }
 
     if (animationEnabled && currentPoints.length > 0) {
-      for (const [ringIndex, offset] of [0, 0.22, 0.44].entries()) {
-        const phase = (animationPhase - offset + 1) % 1
-        const rangeMinimum = Math.max(0, finite(parsed.scan?.range_min_m, 0))
-        const rangeMaximum = Math.min(viewRadius, Math.max(rangeMinimum, finite(parsed.scan?.range_max_m, viewRadius)))
-        const radius = Math.max(0.01, rangeMinimum + (rangeMaximum - rangeMinimum) * phase)
-        const opacity = (0.52 - ringIndex * 0.1) * (1 - phase)
-        context.strokeStyle = `rgba(40, 145, 232, ${opacity})`
-        context.lineWidth = 1.2
-        context.beginPath()
-        const ringSegments = Math.max(8, Math.ceil(80 * scanCoverageRad / (Math.PI * 2)))
-        for (let segment = 0; segment <= ringSegments; segment += 1) {
-          const angle = scanMinimum + scanAngleDirection * scanCoverageRad * segment / ringSegments
-          const point = worldToScreen(
-            sensor.x + Math.cos(angle) * radius,
-            sensor.y + Math.sin(angle) * radius,
-            0,
-            viewport,
-            camera,
-            pixelsPerMeter,
-          )
-          if (segment === 0) context.moveTo(point[0], point[1])
-          else context.lineTo(point[0], point[1])
-        }
-        context.stroke()
-      }
-
       if (parsed.animation?.show_rays !== false) {
         const activeIndex = Math.min(
-          currentPoints.length - 1,
-          Math.max(0, Math.floor(animationPhase * currentPoints.length)),
+          counterclockwisePoints.length - 1,
+          Math.max(0, Math.floor(animationPhase * counterclockwisePoints.length)),
         )
         const trailCount = clamp(finite(parsed.animation?.ray_trail_count, 96), 1, 512)
         const trailStart = Math.max(0, activeIndex - trailCount + 1)
@@ -442,7 +430,7 @@ export default function PointCloudViewer({
         context.lineWidth = 0.8
         context.beginPath()
         for (let index = trailStart; index <= activeIndex; index += 1) {
-          const hit = currentPoints[index]
+          const hit = counterclockwisePoints[index]
           const projected = worldToScreen(
             hit[0], hit[1], finite(hit[2]), viewport, camera, pixelsPerMeter,
           )
@@ -450,7 +438,7 @@ export default function PointCloudViewer({
           context.lineTo(projected[0], projected[1])
         }
         context.stroke()
-        const activeHit = currentPoints[activeIndex]
+        const activeHit = counterclockwisePoints[activeIndex]
         const projectedHit = worldToScreen(
           activeHit[0], activeHit[1], finite(activeHit[2]), viewport, camera, pixelsPerMeter,
         )
@@ -522,8 +510,6 @@ export default function PointCloudViewer({
     parsed.animation?.show_rays,
     parsed.scan?.angle_max_rad,
     parsed.scan?.angle_min_rad,
-    parsed.scan?.range_max_m,
-    parsed.scan?.range_min_m,
     pixelsPerMeter,
     sensor,
     viewRadius,
@@ -562,7 +548,18 @@ export default function PointCloudViewer({
         <button type="button" style={controlStyle()} title="Tilt camera down" onClick={() => setCamera(value => ({ ...value, pitch: clamp(value.pitch - Math.PI / 18, -1.45, 1.45) }))}>↓</button>
         <button type="button" style={controlStyle(camera.pitch === 0 && camera.yaw === 0)} onClick={() => setCamera(value => ({ ...value, yaw: 0, pitch: 0 }))}>Top</button>
         <button type="button" style={controlStyle()} onClick={() => setCamera(DEFAULT_CAMERA)}>Fit</button>
-        {onClear && <button type="button" disabled={clearPending} style={controlStyle()} title="Clear accumulated scan history" onClick={onClear}>{clearPending ? 'Clearing…' : 'Clear'}</button>}
+        {onAccumulationToggle && (
+          <button
+            type="button"
+            disabled={accumulationPending}
+            style={controlStyle(!parsed.history_paused)}
+            title={parsed.history_paused ? 'Resume retaining new scan returns' : 'Show only the current sweep'}
+            onClick={onAccumulationToggle}
+          >
+            {accumulationPending ? 'Updating…' : `Accumulate: ${parsed.history_paused ? 'Off' : 'On'}`}
+          </button>
+        )}
+        {onClear && <button type="button" disabled={clearPending} style={controlStyle()} title="Clear accumulated scan history and switch accumulation off" onClick={onClear}>{clearPending ? 'Clearing…' : 'Clear history'}</button>}
         <span style={{ marginLeft: 'auto', color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
           {camera.zoom.toFixed(2)}× · yaw {yawDegrees}° · pitch {pitchDegrees}°
         </span>
@@ -635,7 +632,7 @@ export default function PointCloudViewer({
           fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
         }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: currentPoints.length ? '#56d991' : '#71808d' }} />
-          {currentPoints.length ? `CURRENT SCAN #${Number(parsed.sequence ?? 0).toLocaleString()} · ${Math.round(animationPhase * 100)}%` : 'WAITING FOR SCAN'}
+          {currentPoints.length ? `CURRENT SCAN #${Number(parsed.sequence ?? 0).toLocaleString()} · CCW ${Math.round(animationPhase * 100)}%` : 'WAITING FOR SCAN'}
         </div>
         <div style={{
           position: 'absolute', right: 8, bottom: 7, padding: '3px 6px', borderRadius: 4,
@@ -657,7 +654,7 @@ export default function PointCloudViewer({
         {kernelMs > 0 && <span>{kernelMs.toFixed(3)} ms Warp</span>}
         {parsed.device && <span>{parsed.device}</span>}
         {parsed.frame && <span>{parsed.frame}</span>}
-        <span>{scanCoverageDeg >= 359.5 ? '360° scan' : `${scanCoverageDeg.toFixed(1)}° scan`}</span>
+        <span>{scanCoverageDeg >= 359.5 ? '360° scan · CCW sweep' : `${scanCoverageDeg.toFixed(1)}° scan · CCW sweep`}</span>
         <span>3D orbit · LaserScan lies on XY plane</span>
       </div>
       <div style={{
@@ -669,7 +666,11 @@ export default function PointCloudViewer({
         <span style={{ color: '#32d8ef' }}>● filtered laser returns</span>
         <span><b style={{ color: '#ff6b6b' }}>X</b> / <b style={{ color: '#53e091' }}>Y</b> / <b style={{ color: '#539aff' }}>Z</b> axes</span>
         {parsed.history_registered === true && <span style={{ color: '#74e7a5' }}>pose-registered history · {parsed.pose_source || 'pose stream'}</span>}
+        {Array.isArray(parsed.registration?.tf_path) && parsed.registration.tf_path.length > 1 && (
+          <span>{parsed.registration.tf_path.join(' → ')}</span>
+        )}
         {parsed.history_registered === false && <span style={{ color: '#f2b84b' }}>history is sensor-local; moving the robot requires odometry</span>}
+        {parsed.history_paused === true && <span style={{ color: '#f2b84b' }}>accumulation paused</span>}
       </div>
     </div>
   )

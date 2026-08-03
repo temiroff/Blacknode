@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VIEWER = ROOT / "editor" / "src" / "components" / "PointCloudViewer.tsx"
+BLACK_NODE = ROOT / "editor" / "src" / "components" / "BlackNode.tsx"
 
 
 def test_point_cloud_viewer_exposes_spatial_orientation_and_scale():
@@ -21,6 +22,9 @@ def test_point_cloud_viewer_exposes_spatial_orientation_and_scale():
     assert "scanCoverageDeg" in source
     assert "360° scan" in source
     assert "sequenceRef" not in source
+    assert "counterclockwisePoints" in source
+    assert "real_scan_pulse" not in source
+    assert "Accumulate:" in source
 
 
 def test_point_cloud_viewer_has_direct_camera_navigation():
@@ -36,3 +40,10 @@ def test_point_cloud_viewer_has_direct_camera_navigation():
     assert "Tilt camera up" in source
     assert "pitch:" in source
     assert "onClear" in source
+
+
+def test_point_cloud_viewer_exposes_accumulation_control():
+    source = BLACK_NODE.read_text(encoding="utf-8")
+
+    assert "onToggleViewerAccumulation" in source
+    assert "viewerHistoryPaused ? 'resume' : 'pause'" in source
