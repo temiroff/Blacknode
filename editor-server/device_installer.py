@@ -2309,14 +2309,19 @@ def install_runtime(
             selected_instance = _clean_instance_id(instance_id or "default")
             existing = _find_instance(inspection, selected_instance)
             if not existing:
-                raise DeviceInstallError(
-                    f"Runtime instance '{selected_instance}' is no longer present. "
-                    "Inspect the device again."
-                )
-            runtime_port = int(existing.get("port") or 0)
-            if clean_action in {"replace", "replace_runtime"} and runtime_port < 1:
                 runtime_port = int(inspection.get("suggested_port") or 0)
-            if clean_action == "reuse":
+                if clean_action == "reuse":
+                    raise DeviceInstallError(
+                        f"Runtime instance '{selected_instance}' is no longer present. "
+                        "Choose install or replace to restore it."
+                    )
+                report(8, f"Runtime instance {selected_instance!r} is absent; installing it fresh")
+                remove_old_port = False
+            else:
+                runtime_port = int(existing.get("port") or 0)
+                if clean_action in {"replace", "replace_runtime"} and runtime_port < 1:
+                    runtime_port = int(inspection.get("suggested_port") or 0)
+            if clean_action == "reuse" and existing:
                 if not existing.get("healthy") or not existing.get("token_available"):
                     raise DeviceInstallError(
                         "The selected runtime is not healthy enough to reuse. "
@@ -2339,7 +2344,8 @@ def install_runtime(
                     "stack_mode": "runtime_only",
                     "hardware_dir": "",
                 }
-            remove_old_port = bool(existing.get("service_installed"))
+            if existing:
+                remove_old_port = bool(existing.get("service_installed"))
         else:
             selected_instance = _clean_instance_id(
                 instance_id or str(inspection.get("suggested_instance_id") or "instance-2"),

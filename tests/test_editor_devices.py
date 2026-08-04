@@ -1339,6 +1339,76 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         self.assertIn("replace_runtime instance-2 8768", commands[0])
 
+    def test_runtime_reinstall_recovers_when_cleaned_instance_is_already_absent(self):
+        class RemoteFile(io.StringIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+                return False
+
+        class Sftp:
+            def file(self, _path, _mode):
+                return RemoteFile()
+
+            def chmod(self, _path, _mode):
+                return None
+
+            def close(self):
+                return None
+
+        connection = SimpleNamespace(
+            client=SimpleNamespace(open_sftp=lambda: Sftp()),
+            fingerprint="SHA256:trusted-device-key",
+            close=lambda: None,
+        )
+        inspection = {
+            "instances": [],
+            "suggested_port": 8766,
+            "environment": {"os": {"architecture": "aarch64"}},
+        }
+        bundle = device_installer._RuntimeBundle(
+            path=Path("cached-runtime-bundle.tar.gz"),
+            architecture="aarch64",
+            python_version="3.11.14",
+            runtime_commit="a" * 40,
+            core_commit="b" * 40,
+        )
+        commands = []
+        progress = []
+
+        def fake_run(_connection, command, **kwargs):
+            commands.append(command)
+            if "on_output" in kwargs:
+                kwargs["on_output"]("__BLACKNODE_RUNTIME_PORT__=8766")
+            return ""
+
+        with (
+            patch.object(device_installer, "_connect", return_value=connection),
+            patch.object(device_installer, "_inspect_connection", return_value=inspection),
+            patch.object(device_installer, "_prepare_runtime_bundle", return_value=bundle),
+            patch.object(device_installer, "_upload_sftp_file"),
+            patch.object(device_installer, "_run", side_effect=fake_run),
+        ):
+            result = device_installer.install_runtime(
+                host="192.168.1.87",
+                port=22,
+                username="robot",
+                password="ssh-password",
+                host_fingerprint="SHA256:trusted-device-key",
+                action="replace_runtime",
+                instance_id="default",
+                progress=progress.append,
+            )
+
+        self.assertEqual(result["runtime_port"], 8766)
+        self.assertIn("replace_runtime default 8766", commands[0])
+        self.assertIn(
+            "Runtime instance 'default' is absent; installing it fresh",
+            [item["message"] for item in progress],
+        )
+
     def test_runtime_only_install_records_restricted_compute_stack(self):
         class RemoteFile(io.StringIO):
             def __enter__(self):
