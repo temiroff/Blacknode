@@ -610,6 +610,71 @@ class EditorRuntimeTests(unittest.TestCase):
             for key in [key for key in server._session.graph._cache if key[0] == node_id]:
                 server._session.graph._cache.pop(key, None)
 
+    def test_viewer_and_slam_controls_update_live_sessions_without_cooking_graph(self):
+        viewer_id = "viewer-direct-control-test"
+        slam_id = "slam-direct-control-test"
+        server._session.node_meta[viewer_id] = {
+            "id": viewer_id, "type": "Viewer", "params": {"viewer_id": "viewer-live"},
+        }
+        server._session.node_meta[slam_id] = {
+            "id": slam_id, "type": "SLAM", "params": {"slam_id": "slam-live"},
+        }
+        server._session.graph._dirty.update({viewer_id, slam_id})
+        calls = []
+
+        def runtime_callable(label, _module, function_name):
+            def control(runtime_id, *args):
+                calls.append((label, function_name, runtime_id, *args))
+                paused = function_name in {"pause_viewer", "clear_viewer"} or (
+                    function_name == "set_mapping" and args == (False,)
+                )
+                return {
+                    "scene": {"history_paused": paused},
+                    "status": {"mapping": not paused},
+                    "report": f"{runtime_id}:{function_name}",
+                }
+            return control
+
+        try:
+            with (
+                patch.object(server, "_runtime_callable", side_effect=runtime_callable),
+                patch.object(server, "_prepare_cook") as prepare_cook,
+            ):
+                client = TestClient(server.app)
+                viewer_clear = client.post(f"/nodes/{viewer_id}/control", json={"action": "clear"})
+                viewer_resume = client.post(f"/nodes/{viewer_id}/control", json={"action": "resume"})
+                slam_pause = client.post(f"/nodes/{slam_id}/control", json={"action": "pause"})
+                slam_resume = client.post(f"/nodes/{slam_id}/control", json={"action": "resume"})
+                slam_stop = client.post(f"/nodes/{slam_id}/control", json={"action": "stop"})
+
+            self.assertEqual(viewer_clear.status_code, 200)
+            self.assertTrue(viewer_clear.json()["outputs"]["scene"]["history_paused"])
+            self.assertEqual(viewer_resume.status_code, 200)
+            self.assertEqual(slam_pause.status_code, 200)
+            self.assertFalse(slam_pause.json()["outputs"]["status"]["mapping"])
+            self.assertEqual(slam_resume.status_code, 200)
+            self.assertEqual(slam_stop.status_code, 200)
+            self.assertEqual(calls, [
+                ("viewer", "clear_viewer", "viewer-live"),
+                ("viewer", "resume_viewer", "viewer-live"),
+                ("slam", "set_mapping", "slam-live", False),
+                ("slam", "set_mapping", "slam-live", True),
+                ("slam", "stop_slam", "slam-live"),
+            ])
+            self.assertNotIn(viewer_id, server._session.graph._dirty)
+            self.assertNotIn(slam_id, server._session.graph._dirty)
+            self.assertEqual(
+                server._session.graph._cache[(slam_id, "report")],
+                "slam-live:stop_slam",
+            )
+            prepare_cook.assert_not_called()
+        finally:
+            for node_id in (viewer_id, slam_id):
+                server._session.node_meta.pop(node_id, None)
+                server._session.graph._dirty.discard(node_id)
+                for key in [key for key in server._session.graph._cache if key[0] == node_id]:
+                    server._session.graph._cache.pop(key, None)
+
     def test_trajectory_smoother_control_recomputes_only_smoother(self):
         node_id = "smoother-control-test"
         server._session.node_meta[node_id] = {

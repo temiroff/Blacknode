@@ -98,6 +98,14 @@ manual setup, updates, restarts, recovery, and removal.
 4. Open **Deploy**, select the robot, and press **Check setup**.
 5. When the checks pass, choose **Send to robot** or **Send & run on robot**.
 
+Installed packages can also expose named on-device applications. With
+`blacknode-cuda` and `blacknode-ros2` installed on a Jetson, run the packaged
+Warp SLAM viewer directly:
+
+```bash
+blacknode run slam --device cuda:0
+```
+
 The preflight checks the exact workflow revision, target packages,
 capabilities, hardware connection, calibration, and disarmed state. Open
 **Deployments** to inspect logs, stop a run, send an update, or roll back.

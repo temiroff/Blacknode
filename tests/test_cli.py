@@ -97,6 +97,30 @@ class CliTests(unittest.TestCase):
             self.assertIn("node_start", _event_types(result))
             self.assertIn("node_finish", _event_types(result))
 
+    def test_run_resolves_named_package_application_and_forwards_arguments(self):
+        with patch(
+            "blacknode.packages.run_package_application",
+            return_value=0,
+        ) as run_application:
+            code = main(["run", "slam", "--device", "cuda:0", "--no-open"])
+
+        self.assertEqual(code, 0)
+        run_application.assert_called_once_with(
+            "slam",
+            ["--device", "cuda:0", "--no-open"],
+        )
+
+    def test_workflow_file_rejects_named_application_arguments(self):
+        with tempfile.TemporaryDirectory() as td:
+            workflow_path = Path(td) / "workflow.json"
+            workflow_path.write_text(json.dumps(_valid_workflow()), encoding="utf-8")
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                code = main(["run", str(workflow_path), "--device", "cuda:0"])
+
+        self.assertEqual(code, 2)
+        self.assertIn("does not accept application arguments", stderr.getvalue())
+
     def test_run_logs_tool_call_event(self):
         with tempfile.TemporaryDirectory() as td:
             workflow_path = Path(td) / "workflow.json"

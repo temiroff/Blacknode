@@ -22,11 +22,13 @@ from .workflow import WorkflowRunError, export_workflow_python, load_workflow, r
 
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
-    args = parser.parse_args(argv)
+    args, extra = parser.parse_known_args(argv)
+    if args.command != "run" and extra:
+        parser.error("unrecognized arguments: " + " ".join(extra))
     if args.command == "validate":
         return _validate(args.workflow)
     if args.command == "run":
-        return _run(args.workflow, args.output)
+        return _run(args.workflow, args.output, extra)
     if args.command == "export-python":
         return _export_python(args.workflow, args.output, args.style)
     if args.command == "import-python":
@@ -535,7 +537,24 @@ def _validate(path: Path) -> int:
     return 0 if report["ok"] else 1
 
 
-def _run(path: Path, output: Path | None) -> int:
+def _run(path: Path, output: Path | None, application_args: list[str] | None = None) -> int:
+    if not path.is_file():
+        if output is not None:
+            print("--output is available for workflow files, not named applications", file=sys.stderr)
+            return 2
+        try:
+            from .packages import run_package_application
+
+            return run_package_application(str(path), application_args)
+        except (ImportError, OSError, RuntimeError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    if application_args:
+        print(
+            f"Workflow file {path} does not accept application arguments: {' '.join(application_args)}",
+            file=sys.stderr,
+        )
+        return 2
     try:
         result = run_workflow(load_workflow(path))
     except (OSError, json.JSONDecodeError, WorkflowRunError, Exception) as exc:

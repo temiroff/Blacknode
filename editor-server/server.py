@@ -2317,6 +2317,45 @@ def control_node(node_id: str, req: NodeControlReq):
             _session.graph._cache[(node_id, port)] = value
         _session.graph._dirty.discard(node_id)
         return {"ok": True, "node_id": node_id, "outputs": outputs}
+    if meta.get("type") in {"Viewer", "SLAM"}:
+        action = str(req.action or "").strip().lower()
+        if action not in {"status", "clear", "pause", "resume", "stop"}:
+            raise HTTPException(400, "Viewer and SLAM direct controls support status, clear, pause, resume, or stop")
+        params = dict(meta.get("params") or {})
+        if meta.get("type") == "Viewer":
+            runtime_id = str(params.get("viewer_id") or "viewer").strip() or "viewer"
+            function_name = {
+                "status": "viewer_status",
+                "clear": "clear_viewer",
+                "pause": "pause_viewer",
+                "resume": "resume_viewer",
+                "stop": "stop_viewer",
+            }[action]
+            control_fn = _runtime_callable("viewer", _RUNTIME_MODULES["viewer"], function_name)
+            if control_fn is None:
+                raise HTTPException(503, "blacknode-cuda Viewer runtime is not loaded")
+            outputs = dict(control_fn(runtime_id))
+        else:
+            runtime_id = str(params.get("slam_id") or "slam").strip() or "slam"
+            function_name = {
+                "status": "slam_status",
+                "clear": "clear_slam",
+                "pause": "set_mapping",
+                "resume": "set_mapping",
+                "stop": "stop_slam",
+            }[action]
+            control_fn = _runtime_callable("slam", _RUNTIME_MODULES["slam"], function_name)
+            if control_fn is None:
+                raise HTTPException(503, "blacknode-cuda SLAM runtime is not loaded")
+            outputs = dict(
+                control_fn(runtime_id)
+                if action in {"status", "clear", "stop"}
+                else control_fn(runtime_id, action == "resume")
+            )
+        for port, value in outputs.items():
+            _session.graph._cache[(node_id, port)] = value
+        _session.graph._dirty.discard(node_id)
+        return {"ok": True, "node_id": node_id, "outputs": outputs}
     if meta.get("type") == "Robot":
         if req.action != "ping":
             raise HTTPException(400, "Robot supports the ping control")

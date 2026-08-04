@@ -50,6 +50,32 @@ no restart needed.
 Extra search folders can be added with the `BLACKNODE_PACKAGE_PATH`
 environment variable (separated by the platform path separator).
 
+### Named package applications
+
+An extension package can publish a managed terminal application alongside its
+nodes and templates:
+
+```toml
+[applications.slam]
+module = "standalone_slam"
+callable = "main"
+component = "spatial-processing"
+description = "Run local Warp SLAM and its packaged viewer."
+```
+
+The module is resolved through the package's stable `blacknode.pkg` namespace.
+Its callable receives the remaining command-line arguments and returns an exit
+code. Operators can then run it by name:
+
+```bash
+blacknode run slam --device cuda:0
+```
+
+Application names must be unambiguous across installed packages. An application
+bound to a disabled component reports the component that must be enabled.
+Workflow files retain the existing `blacknode run workflow.json` behavior and
+reject application-only arguments.
+
 ## Updating packages
 
 For a managed device, open **Devices**, select the device, and press

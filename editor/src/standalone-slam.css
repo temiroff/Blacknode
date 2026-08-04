@@ -1,0 +1,126 @@
+:root {
+  --panel2: #292929;
+  --bn-node-inner-radius: 9px;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+.bn-standalone-slam {
+  width: 100%;
+  height: 100%;
+  min-width: 320px;
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.bn-standalone-slam__header {
+  flex: 0 0 auto;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line2);
+  background: var(--panel);
+}
+
+.bn-standalone-slam__brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 190px;
+}
+
+.bn-standalone-slam__brand img {
+  width: 31px;
+  height: 31px;
+  object-fit: cover;
+  object-position: 50% 50%;
+  border-radius: 8px;
+}
+
+.bn-standalone-slam__brand div {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.12;
+}
+
+.bn-standalone-slam__brand strong {
+  color: var(--tx1);
+  font-size: 13px;
+}
+
+.bn-standalone-slam__brand span {
+  margin-top: 3px;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.bn-standalone-slam__status {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bn-standalone-slam__status i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  box-shadow: 0 0 9px currentColor;
+}
+
+.bn-standalone-slam__status span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tx3);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-standalone-slam__actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.bn-standalone-slam__viewer {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  padding: 2px;
+}
+
+.bn-standalone-slam__viewer > div {
+  flex: 1 1 auto !important;
+}
+
+@media (max-width: 620px) {
+  .bn-standalone-slam__header {
+    gap: 8px;
+  }
+
+  .bn-standalone-slam__brand span,
+  .bn-standalone-slam__status span {
+    display: none;
+  }
+
+  .bn-standalone-slam__brand {
+    min-width: 0;
+  }
+}

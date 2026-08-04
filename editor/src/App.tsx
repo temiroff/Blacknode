@@ -207,6 +207,7 @@ export default function App() {
   const [exportingTarget, setExportingTarget] = useState('')
   const [importingFile, setImportingFile] = useState(false)
   const [runtimeStopPending, setRuntimeStopPending] = useState(false)
+  const [activeRunMode, setActiveRunMode] = useState<'once' | 'live' | null>(null)
   const [refreshingCanvas, setRefreshingCanvas] = useState(false)
   const [openingUsd, setOpeningUsd] = useState(false)
   const [usdPickerInitialPath, setUsdPickerInitialPath] = useState<string | null>(null)
@@ -1430,11 +1431,17 @@ export default function App() {
         },
       }))
     }
-    await cookNode(targets[0].id, targets[0].port, targets, effectiveMode)
+    setActiveRunMode(effectiveMode)
+    try {
+      await cookNode(targets[0].id, targets[0].port, targets, effectiveMode)
+    } finally {
+      setActiveRunMode(current => current === effectiveMode ? null : current)
+    }
   }, [cookNode, edges, fitCurrentCanvas, nodes])
 
   const handleResetRun = useCallback(() => {
     stopCook()
+    setActiveRunMode(null)
     window.dispatchEvent(new CustomEvent('blacknode:notice', {
       detail: {
         kind: 'info',
@@ -1466,6 +1473,7 @@ export default function App() {
       }))
     } finally {
       setRuntimeStopPending(false)
+      setActiveRunMode(null)
     }
   }, [runtimeStopPending, stopRuntimeServices])
 
@@ -1541,14 +1549,15 @@ export default function App() {
   const waitingControllerCount = Math.max(0, controllerRunningCount - controllerCount - blockedControllerCount)
   const manualMoveCount = nodes.filter(n => n.data.type === 'ROS2ManualMove' && n.data.portResults?.live === true).length
   const liveDashboardCount = nodes.filter(n => n.data.type === 'ROS2MotionDashboard' && n.data.portResults?.live === true).length
-  const liveOutputCount = nodes.filter(n => (
-    (n.data.type === 'Output' || n.data.type === 'OutputImage') && n.data.portResults?.live === true
+  const visualizerRunCount = nodes.filter(n => (
+    (n.data.type === 'Viewer' || n.data.type === 'SLAM')
+    && n.data.portResults?.running === true
   )).length
   const liveCapableCount = nodes.filter(n => n.data.live_capable).length
   const runOnceNodeCount = Math.max(0, nodes.length - liveCapableCount)
-  const activelyUpdatingCount = liveStreamCount + managedRunCount + simulationRunCount + controllerCount + manualMoveCount + liveDashboardCount + liveOutputCount
-  const lastRunNodeCount = Math.max(0, nodes.length - activelyUpdatingCount - blockedControllerCount - waitingControllerCount)
-  const runtimeActive = liveStreamCount > 0 || managedRunCount > 0 || simulationRunCount > 0 || controllerRunningCount > 0 || manualMoveCount > 0
+  const runtimeActive = liveStreamCount > 0 || managedRunCount > 0 || simulationRunCount > 0 || controllerRunningCount > 0 || manualMoveCount > 0 || liveDashboardCount > 0 || visualizerRunCount > 0
+  const liveRunActive = (cookActive && activeRunMode === 'live') || runtimeActive
+  const onceRunActive = cookActive && activeRunMode !== 'live'
   const visibleEdges = useMemo(() => {
     const nodesById = new Map(nodes.map(node => [node.id, node]))
     return edges.map(edge => {
@@ -1693,41 +1702,28 @@ export default function App() {
               <span className="bn-topbar-group-label">Run</span>
               <button
                 className="bn-top-button bn-top-run-button"
-                onClick={() => (cookActive ? stopCook() : void handleRunGraph('once'))}
-                disabled={!serverOk || (!cookActive && nodes.length === 0)}
-                title={cookActive ? 'Stop the current evaluation' : 'Evaluate the graph once. Live-capable nodes return one snapshot and do not keep streaming.'}
+                onClick={() => (onceRunActive ? stopCook() : void handleRunGraph('once'))}
+                disabled={!serverOk || liveRunActive || (!onceRunActive && nodes.length === 0)}
+                title={onceRunActive ? 'Stop the current one-time evaluation' : 'Evaluate the graph once. Live-capable nodes return one snapshot and do not keep streaming.'}
               >
-                {cookActive ? '■ Stop run' : '▶ Run once'}
+                {onceRunActive ? '■ Stop once' : '▶ Run once'}
               </button>
 
               <button
-                className="bn-top-button bn-top-run-button"
-                onClick={() => void handleRunGraph('live')}
-                disabled={!serverOk || cookActive || nodes.length === 0}
-                title={liveCapableCount > 0
+                className={`bn-top-button bn-top-run-button bn-top-live-button${liveRunActive ? ' is-stop-live' : ' is-start-live'}`}
+                onClick={() => (liveRunActive ? void handleStopRuntime() : void handleRunGraph('live'))}
+                disabled={!serverOk || runtimeStopPending || onceRunActive || (!liveRunActive && nodes.length === 0)}
+                title={liveRunActive
+                  ? 'Stop the live graph and its managed runtime services.'
+                  : liveCapableCount > 0
                   ? `Start ${liveCapableCount} live-capable node${liveCapableCount === 1 ? '' : 's'}; evaluate the other ${runOnceNodeCount} node${runOnceNodeCount === 1 ? '' : 's'} once.`
                   : 'No live-capable nodes are present; this will run the graph once.'}
               >
-                ● Go live
+                {runtimeStopPending ? 'Stopping live…' : liveRunActive ? '■ Stop live' : '● Go live'}
               </button>
 
-              {runtimeActive && (
-                <button
-                  className="bn-top-button bn-top-streaming-button"
-                  onClick={() => void handleStopRuntime()}
-                  disabled={!serverOk || runtimeStopPending}
-                  title={`Graph is mixed: ${liveCapableCount} live-capable node${liveCapableCount === 1 ? '' : 's'} and ${runOnceNodeCount} run-once node${runOnceNodeCount === 1 ? '' : 's'}. Stop active streams and ROS 2 processes.`}
-                >
-                  <span className="bn-top-live-dot" />
-                  <span>{runtimeStopPending
-                    ? 'Stopping...'
-                    : `LIVE · ${activelyUpdatingCount} updating${blockedControllerCount ? ` · ${blockedControllerCount} blocked` : ''}${waitingControllerCount ? ` · ${waitingControllerCount} waiting` : ''} · ${lastRunNodeCount} last-run`}</span>
-                  <span className="bn-top-streaming-stop">Stop</span>
-                </button>
-              )}
-
               <button
-                className="bn-top-button"
+                className="bn-top-button bn-top-reset-button"
                 onClick={handleResetRun}
                 title="Stop active work and clear any stuck running state"
               >
@@ -2604,12 +2600,11 @@ export default function App() {
             selectNode(node.id)
             setNodeMenu({ x: e.clientX, y: e.clientY, nodeId: node.id })
           }}
-          // Wheel zoom is a canvas invariant, including while the pointer is
-          // over a node. Use a deliberately unused suppression class so a
-          // custom node cannot accidentally reintroduce React Flow's default
-          // `nowheel` zoom dead zone.
+          // Only dedicated embedded viewers capture the wheel for their own
+          // camera. Everywhere else—including other nodes—the wheel continues
+          // to zoom the React Flow graph.
           zoomOnScroll={true}
-          noWheelClassName="bn-canvas-wheel-suppression-disabled"
+          noWheelClassName="bn-viewer-wheel-capture"
           minZoom={0.05}
           fitView
           fitViewOptions={{ padding: 0.24, maxZoom: 1 }}
