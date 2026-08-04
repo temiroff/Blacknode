@@ -87,6 +87,11 @@ class EditorRuntimeTests(unittest.TestCase):
             "blacknode.pkg.blacknode_cuda.viewer_runtime",
         )
         self.assertEqual(server._RUNTIME_REGISTRY_ANCHORS["viewer"], "Viewer")
+        self.assertEqual(
+            server._RUNTIME_MODULES["slam"],
+            "blacknode.pkg.blacknode_cuda.slam_runtime",
+        )
+        self.assertEqual(server._RUNTIME_REGISTRY_ANCHORS["slam"], "SLAM")
 
     def test_leader_follower_runtime_is_managed_and_normalized(self):
         self.assertEqual(

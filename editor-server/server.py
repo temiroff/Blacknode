@@ -639,6 +639,7 @@ _RUNTIME_MODULES = {
     "vision": "blacknode.pkg.blacknode_perception.cv2_runtime",
     "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
     "viewer": "blacknode.pkg.blacknode_cuda.viewer_runtime",
+    "slam": "blacknode.pkg.blacknode_cuda.slam_runtime",
     "robot": "blacknode.pkg.blacknode_robot.robot",
     "dataset": "blacknode.pkg.blacknode_dataset.runtime",
     "training": "blacknode.pkg.blacknode_training.runtime",
@@ -657,6 +658,7 @@ _RUNTIME_REGISTRY_ANCHORS = {
     "joint_control": "ROS2ManualMove",
     "robot_calibration_control": "RobotCalibrationControl",
     "viewer": "Viewer",
+    "slam": "SLAM",
 }
 
 _RUNTIME_CALLABLE_ALIASES = {

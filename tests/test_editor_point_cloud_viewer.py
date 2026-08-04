@@ -48,3 +48,6 @@ def test_point_cloud_viewer_exposes_accumulation_control():
     assert "onToggleViewerAccumulation" in source
     assert "viewerHistoryPaused ? 'resume' : 'pause'" in source
     assert "await updateParam(id, 'action', 'status')" in source
+    assert "data.type === 'Viewer' || data.type === 'SLAM'" in source
+    assert "optimized trajectory" in VIEWER.read_text(encoding="utf-8")
+    assert "loop closure" in VIEWER.read_text(encoding="utf-8")

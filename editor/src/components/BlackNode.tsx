@@ -772,7 +772,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const isEpisodeRecorder = data.type === 'EpisodeRecorder'
   const isDatasetCreate = data.type === 'DatasetCreate'
   const isDatasetBrowser = data.type === 'DatasetBrowser'
-  const isViewer = data.type === 'Viewer'
+  const isViewer = data.type === 'Viewer' || data.type === 'SLAM'
   const isACTTraining = data.type === 'ACTTraining'
   const availableInputs = isRobotJointList
     ? (data.inputs ?? []).filter(port => edges.some(edge => edge.target === id && edge.targetHandle === port))
@@ -1037,7 +1037,9 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       },
     }
     : viewerActive ? {
-      text: data.portResults?.live === true ? 'LIVE • VIEWING' : 'LIVE • WAITING',
+      text: data.type === 'SLAM'
+        ? (data.portResults?.live === true ? 'LIVE • SLAM' : 'SLAM • WAITING')
+        : (data.portResults?.live === true ? 'LIVE • VIEWING' : 'LIVE • WAITING'),
       tone: data.portResults?.live === true ? 'ok' : 'warn',
       title: String(data.portResults?.report ?? 'Managed Viewer session'),
       action: {

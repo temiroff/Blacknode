@@ -453,6 +453,8 @@ def export_workflow_python(data: Mapping[str, Any], *, style: str = "flat") -> s
         "        'blacknode.pkg.blacknode_ros2.ros2_runtime',",
         "        'blacknode.pkg.blacknode_perception.cv2_runtime',",
         "        'blacknode.pkg.blacknode_cuda.cuda_stream_runtime',",
+        "        'blacknode.pkg.blacknode_cuda.viewer_runtime',",
+        "        'blacknode.pkg.blacknode_cuda.slam_runtime',",
         "        'blacknode.pkg.blacknode_dataset.runtime',",
         "        'blacknode.pkg.blacknode_training.runtime',",
         "        'blacknode.pkg.blacknode_isaac.runtime',",

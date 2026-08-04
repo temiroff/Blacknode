@@ -29,6 +29,15 @@ interface ViewerScene {
   history_paused?: boolean
   pose_source?: string
   registration?: { tf_path?: string[] }
+  trajectory?: unknown
+  loop_closures?: unknown
+  slam?: {
+    match_score?: number
+    keyframes?: number
+    constraints?: number
+    loop_closures?: number
+    map_resolution_m?: number
+  }
   animation?: {
     enabled?: boolean
     show_rays?: boolean
@@ -165,6 +174,18 @@ export default function PointCloudViewer({
   const points = useMemo(() => numericRows(parsed.points), [parsed.points])
   const colors = useMemo(() => numericRows(parsed.colors), [parsed.colors])
   const currentPoints = useMemo(() => numericRows(parsed.current_points), [parsed.current_points])
+  const trajectory = useMemo(() => numericRows(parsed.trajectory), [parsed.trajectory])
+  const loopClosures = useMemo(() => (
+    Array.isArray(parsed.loop_closures)
+      ? parsed.loop_closures.flatMap(value => {
+          if (!value || typeof value !== 'object') return []
+          const record = value as { from?: unknown; to?: unknown }
+          const from = numericRows([record.from])[0]
+          const to = numericRows([record.to])[0]
+          return from && to ? [[from, to] as [number[], number[]]] : []
+        })
+      : []
+  ), [parsed.loop_closures])
   const [animationClock, setAnimationClock] = useState(0)
   const scanStartedRef = useRef(0)
 
@@ -358,6 +379,34 @@ export default function PointCloudViewer({
     }
     context.stroke()
 
+    if (trajectory.length > 1) {
+      context.strokeStyle = 'rgba(116, 231, 165, 0.88)'
+      context.lineWidth = 2
+      context.beginPath()
+      trajectory.forEach((point, index) => {
+        const projected = worldToScreen(
+          point[0], point[1], finite(point[2]), viewport, camera, pixelsPerMeter,
+        )
+        if (index === 0) context.moveTo(projected[0], projected[1])
+        else context.lineTo(projected[0], projected[1])
+      })
+      context.stroke()
+    }
+    if (loopClosures.length > 0) {
+      context.setLineDash([4, 4])
+      context.strokeStyle = 'rgba(224, 105, 255, 0.9)'
+      context.lineWidth = 1.5
+      context.beginPath()
+      loopClosures.forEach(([from, to]) => {
+        const start = worldToScreen(from[0], from[1], finite(from[2]), viewport, camera, pixelsPerMeter)
+        const end = worldToScreen(to[0], to[1], finite(to[2]), viewport, camera, pixelsPerMeter)
+        context.moveTo(start[0], start[1])
+        context.lineTo(end[0], end[1])
+      })
+      context.stroke()
+      context.setLineDash([])
+    }
+
     const drawAxis = (endX: number, endY: number, endZ: number, color: string) => {
       const start = worldToScreen(-endX, -endY, -endZ, viewport, camera, pixelsPerMeter)
       const end = worldToScreen(endX, endY, endZ, viewport, camera, pixelsPerMeter)
@@ -512,6 +561,8 @@ export default function PointCloudViewer({
     parsed.scan?.angle_min_rad,
     pixelsPerMeter,
     sensor,
+    trajectory,
+    loopClosures,
     viewRadius,
     viewport,
   ])
@@ -654,6 +705,7 @@ export default function PointCloudViewer({
         {kernelMs > 0 && <span>{kernelMs.toFixed(3)} ms Warp</span>}
         {parsed.device && <span>{parsed.device}</span>}
         {parsed.frame && <span>{parsed.frame}</span>}
+        {parsed.slam && <span>{Number(parsed.slam.keyframes ?? 0).toLocaleString()} keyframes · score {finite(parsed.slam.match_score).toFixed(2)} · {Number(parsed.slam.loop_closures ?? 0).toLocaleString()} loops</span>}
         <span>{scanCoverageDeg >= 359.5 ? '360° scan · CCW sweep' : `${scanCoverageDeg.toFixed(1)}° scan · CCW sweep`}</span>
         <span>3D orbit · LaserScan lies on XY plane</span>
       </div>
@@ -664,6 +716,8 @@ export default function PointCloudViewer({
         <span style={{ color: '#ff7b7b' }}>● sensor</span>
         <span style={{ color: '#ffd166' }}>→ forward / scan limits</span>
         <span style={{ color: '#32d8ef' }}>● filtered laser returns</span>
+        {trajectory.length > 1 && <span style={{ color: '#74e7a5' }}>— optimized trajectory</span>}
+        {loopClosures.length > 0 && <span style={{ color: '#e069ff' }}>┄ loop closure</span>}
         <span><b style={{ color: '#ff6b6b' }}>X</b> / <b style={{ color: '#53e091' }}>Y</b> / <b style={{ color: '#539aff' }}>Z</b> axes</span>
         {parsed.history_registered === true && <span style={{ color: '#74e7a5' }}>pose-registered history · {parsed.pose_source || 'pose stream'}</span>}
         {Array.isArray(parsed.registration?.tf_path) && parsed.registration.tf_path.length > 1 && (
