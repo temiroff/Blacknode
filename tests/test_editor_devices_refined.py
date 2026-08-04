@@ -62,3 +62,15 @@ def test_remote_device_setup_defaults_to_reviewed_runtime_only_install():
     assert "This Windows editor downloads" in devices
     assert "does not need internet" in devices
     assert "bn-runtime-change-plan" in styles
+
+
+def test_missing_remote_runtime_files_offer_a_direct_repair_action():
+    devices = (
+        ROOT / "editor" / "src" / "components" / "DevicesPanel.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert "checkedRuntimeInstallation.source_mode === 'missing'" in devices
+    assert "repairRequired={runtimeRepairRequired}" in devices
+    assert "REPAIR REQUIRED" in devices
+    assert "Runtime repair required" in devices
+    assert "Repair Runtime" in devices

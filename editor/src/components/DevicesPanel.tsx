@@ -846,6 +846,13 @@ export default function DevicesPanel({
     component.installed.version !== 'unknown'
     && component.latest.version !== 'unknown'
   )) ?? checkedRuntimeComponents[0]
+  const runtimeRepairRequired = Boolean(
+    checkedRuntimeInstallation
+    && (
+      checkedRuntimeInstallation.source_mode === 'missing'
+      || checkedRuntimeInstallation.environment_installed === false
+    ),
+  )
   const checkedHardwareInstallation = checkedHardwareComponents.find(component => (
     component.installed.version !== 'unknown'
     && component.latest.version !== 'unknown'
@@ -1863,9 +1870,15 @@ export default function DevicesPanel({
     const selectedUpdatesAvailable = selectedComponents.some(
       component => component.update_available,
     )
+    const selectedRepairRequired = selectedComponents.some(component => (
+      component.source_mode === 'missing'
+      || component.environment_installed === false
+    ))
     const operation = requestedOperation
       ?? (selectedUpdatesAvailable ? 'update' : 'reinstall')
-    const operationLabel = operation === 'update' ? 'Update' : 'Reinstall'
+    const operationLabel = operation === 'update'
+      ? 'Update'
+      : selectedRepairRequired ? 'Repair' : 'Reinstall'
     const hardwareServiceCount = device.robots.length
     const targetLabel = managedLocally
       ? scope === 'all'
@@ -3837,14 +3850,18 @@ export default function DevicesPanel({
                           .join(', ')
                         : 'no workflow packages installed'}`}
                   state={selectedRuntimePackageState}
-                  currentVersion={runtimeCurrentVersion}
+                  currentVersion={runtimeRepairRequired ? 'Not installed' : runtimeCurrentVersion}
                   latestVersion={runtimeLatestVersion}
                   latestChecked={Boolean(updateCheckReport)}
                   latestError={runtimeLatestVersionError}
                   migrationRequired={Boolean(
                     checkedRuntimeInstallation?.migration_required,
                   )}
-                  installed={selectedDeviceState?.runtime?.installed !== false}
+                  installed={
+                    !runtimeRepairRequired
+                    && selectedDeviceState?.runtime?.installed !== false
+                  }
+                  repairRequired={runtimeRepairRequired}
                   updateAvailable={checkedRuntimeComponents.some(
                     component => component.update_available,
                   )}
@@ -5206,6 +5223,7 @@ function SoftwarePackageSummaryCard({
   latestError,
   migrationRequired,
   installed,
+  repairRequired = false,
   updateAvailable,
   busy,
   onCheckLatest,
@@ -5230,6 +5248,7 @@ function SoftwarePackageSummaryCard({
   latestError?: string
   migrationRequired?: boolean
   installed: boolean
+  repairRequired?: boolean
   updateAvailable: boolean
   busy: boolean
   onCheckLatest: () => void
@@ -5246,7 +5265,9 @@ function SoftwarePackageSummaryCard({
 }) {
   const normalizedState = String(state || 'unchecked').toLowerCase()
   const running = ['running', 'unreachable'].includes(normalizedState)
-  const statusLabel = normalizedState === 'checking'
+  const statusLabel = repairRequired
+    ? 'REPAIR REQUIRED'
+    : normalizedState === 'checking'
     ? 'CHECKING'
     : normalizedState === 'configured'
       ? 'INSTALLED'
@@ -5261,7 +5282,9 @@ function SoftwarePackageSummaryCard({
           : normalizedState === 'unavailable'
             ? 'NOT INSTALLED'
             : 'NOT CHECKED'
-  const statusTone = normalizedState === 'checking'
+  const statusTone = repairRequired
+    ? 'missing'
+    : normalizedState === 'checking'
     ? 'checking'
     : normalizedState === 'configured' || normalizedState === 'awaiting_device'
       ? 'configured'
@@ -5314,7 +5337,19 @@ function SoftwarePackageSummaryCard({
       <code title={path}>{path}</code>
       {detail && <small>{detail}</small>}
       <div className="bn-local-package-version-action">
-        {!installed ? (
+        {repairRequired ? (
+          <div className="bn-local-package-version-unavailable" role="alert">
+            <strong>Runtime repair required</strong>
+            <span>{latestError || 'The Runtime package files are missing.'}</span>
+            <button
+              type="button"
+              disabled={busy || !reinstallEnabled}
+              onClick={onReinstall}
+            >
+              {busy ? 'Repairing…' : 'Repair Runtime'}
+            </button>
+          </div>
+        ) : !installed ? (
           <div className="bn-local-package-version-current">
             Package not installed
           </div>
@@ -5372,19 +5407,19 @@ function SoftwarePackageSummaryCard({
         </button>
         <button
           type="button"
-          className={`bn-device-action-button${updateAvailable ? ' is-primary' : ''}`}
-          disabled={busy || !updateEnabled}
+          className={`bn-device-action-button${updateAvailable && !repairRequired ? ' is-primary' : ''}`}
+          disabled={busy || !updateEnabled || repairRequired}
           onClick={onUpdate}
         >
           Update
         </button>
         <button
           type="button"
-          className="bn-device-action-button"
+          className={`bn-device-action-button${repairRequired ? ' is-primary' : ''}`}
           disabled={busy || !reinstallEnabled}
           onClick={onReinstall}
         >
-          Reinstall
+          {repairRequired ? 'Repair' : 'Reinstall'}
         </button>
         <button
           type="button"
@@ -5398,16 +5433,18 @@ function SoftwarePackageSummaryCard({
       <div className="bn-local-package-actions-compact">
         <button
           type="button"
-          className="bn-device-action-button bn-local-package-check-compact"
-          disabled={busy}
-          onClick={onCheckLatest}
+          className={`bn-device-action-button bn-local-package-check-compact${repairRequired ? ' is-primary' : ''}`}
+          disabled={busy || (repairRequired && !reinstallEnabled)}
+          onClick={repairRequired ? onReinstall : onCheckLatest}
         >
-          {busy ? 'Checking…' : 'Check updates'}
+          {busy
+            ? repairRequired ? 'Repairing…' : 'Checking…'
+            : repairRequired ? 'Repair' : 'Check updates'}
         </button>
         <button
           type="button"
-          className={`bn-device-action-button${updateAvailable ? ' is-primary' : ''}`}
-          disabled={busy || !updateEnabled}
+          className={`bn-device-action-button${updateAvailable && !repairRequired ? ' is-primary' : ''}`}
+          disabled={busy || !updateEnabled || repairRequired}
           onClick={onUpdate}
         >
           Update
@@ -5434,7 +5471,7 @@ function SoftwarePackageSummaryCard({
               disabled={busy || !reinstallEnabled}
               onClick={onReinstall}
             >
-              Reinstall
+              {repairRequired ? 'Repair' : 'Reinstall'}
             </button>
             <button
               type="button"
