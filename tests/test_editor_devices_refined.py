@@ -74,3 +74,15 @@ def test_missing_remote_runtime_files_offer_a_direct_repair_action():
     assert "REPAIR REQUIRED" in devices
     assert "Runtime repair required" in devices
     assert "Repair Runtime" in devices
+
+
+def test_missing_remote_hardware_package_offers_a_direct_install_action():
+    devices = (
+        ROOT / "editor" / "src" / "components" / "DevicesPanel.tsx"
+    ).read_text(encoding="utf-8")
+    styles = (ROOT / "editor" / "src" / "index.css").read_text(encoding="utf-8")
+
+    assert "installDeviceHardware(updatePassword)" in devices
+    assert 'installLabel="Install Hardware"' in devices
+    assert "packageInstallAvailable" in devices
+    assert "bn-local-package-install-available" in styles

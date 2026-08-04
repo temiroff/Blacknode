@@ -1345,6 +1345,31 @@ html[data-theme="light"] .bn-logo-image-light {
   text-decoration: underline;
 }
 
+.bn-local-package-install-available {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line2));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--tx2);
+  font-size: 11px;
+}
+
+.bn-local-package-install-available button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
 .bn-local-package-state {
   display: inline-flex;
   flex: 0 0 auto;

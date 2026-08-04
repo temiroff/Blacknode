@@ -1476,9 +1476,11 @@ export default function DevicesPanel({
     }
   }
 
-  const installDeviceHardware = async () => {
+  const installDeviceHardware = async (
+    password = robotDiscoveryPassword,
+  ) => {
     if (!selectedDevice) return
-    if (!robotDiscoveryPassword) {
+    if (!password) {
       setError('Enter the device SSH password to install Robot Hardware.')
       return
     }
@@ -1494,7 +1496,7 @@ export default function DevicesPanel({
     try {
       const result = await api.installComputeDeviceHardware(
         selectedDevice.id,
-        robotDiscoveryPassword,
+        password,
         progress => setActionProgress(previous => ({
           ...previous,
           [selectedDevice.id]: progress,
@@ -3949,6 +3951,9 @@ export default function DevicesPanel({
                       'hardware',
                       'reinstall',
                     )}
+                    installEnabled={!selectedDeviceManagedLocally}
+                    installLabel="Install Hardware"
+                    onInstall={() => void installDeviceHardware(updatePassword)}
                     reinstallEnabled={
                       selectedDeviceManagedLocally || selectedHardwarePackageInstalled
                     }
@@ -5224,6 +5229,8 @@ function SoftwarePackageSummaryCard({
   migrationRequired,
   installed,
   repairRequired = false,
+  installEnabled = false,
+  installLabel = 'Install',
   updateAvailable,
   busy,
   onCheckLatest,
@@ -5236,6 +5243,7 @@ function SoftwarePackageSummaryCard({
   onRestart,
   onUpdate,
   onReinstall,
+  onInstall,
   onDelete,
 }: {
   label: string
@@ -5249,6 +5257,8 @@ function SoftwarePackageSummaryCard({
   migrationRequired?: boolean
   installed: boolean
   repairRequired?: boolean
+  installEnabled?: boolean
+  installLabel?: string
   updateAvailable: boolean
   busy: boolean
   onCheckLatest: () => void
@@ -5261,10 +5271,17 @@ function SoftwarePackageSummaryCard({
   onRestart: () => void
   onUpdate: () => void
   onReinstall: () => void
+  onInstall?: () => void
   onDelete: () => void
 }) {
   const normalizedState = String(state || 'unchecked').toLowerCase()
   const running = ['running', 'unreachable'].includes(normalizedState)
+  const packageInstallAvailable = !installed && installEnabled && Boolean(onInstall)
+  const packageRecoveryAvailable = repairRequired || packageInstallAvailable
+  const packageRecoveryAction = packageInstallAvailable
+    ? onInstall ?? onReinstall
+    : onReinstall
+  const packageRecoveryLabel = repairRequired ? 'Repair' : installLabel
   const statusLabel = repairRequired
     ? 'REPAIR REQUIRED'
     : normalizedState === 'checking'
@@ -5350,9 +5367,22 @@ function SoftwarePackageSummaryCard({
             </button>
           </div>
         ) : !installed ? (
-          <div className="bn-local-package-version-current">
-            Package not installed
-          </div>
+          packageInstallAvailable ? (
+            <div className="bn-local-package-install-available">
+              <strong>Package not installed</strong>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onInstall}
+              >
+                {busy ? 'Installing…' : installLabel}
+              </button>
+            </div>
+          ) : (
+            <div className="bn-local-package-version-current">
+              Package not installed
+            </div>
+          )
         ) : latestError ? (
           <div className="bn-local-package-version-unavailable" role="alert">
             <strong>
@@ -5415,11 +5445,11 @@ function SoftwarePackageSummaryCard({
         </button>
         <button
           type="button"
-          className={`bn-device-action-button${repairRequired ? ' is-primary' : ''}`}
-          disabled={busy || !reinstallEnabled}
-          onClick={onReinstall}
+          className={`bn-device-action-button${packageRecoveryAvailable ? ' is-primary' : ''}`}
+          disabled={busy || (packageInstallAvailable ? false : !reinstallEnabled)}
+          onClick={packageRecoveryAction}
         >
-          {repairRequired ? 'Repair' : 'Reinstall'}
+          {packageRecoveryAvailable ? packageRecoveryLabel : 'Reinstall'}
         </button>
         <button
           type="button"
@@ -5433,13 +5463,15 @@ function SoftwarePackageSummaryCard({
       <div className="bn-local-package-actions-compact">
         <button
           type="button"
-          className={`bn-device-action-button bn-local-package-check-compact${repairRequired ? ' is-primary' : ''}`}
+          className={`bn-device-action-button bn-local-package-check-compact${packageRecoveryAvailable ? ' is-primary' : ''}`}
           disabled={busy || (repairRequired && !reinstallEnabled)}
-          onClick={repairRequired ? onReinstall : onCheckLatest}
+          onClick={packageRecoveryAvailable ? packageRecoveryAction : onCheckLatest}
         >
           {busy
-            ? repairRequired ? 'Repairing…' : 'Checking…'
-            : repairRequired ? 'Repair' : 'Check updates'}
+            ? repairRequired
+              ? 'Repairing…'
+              : packageInstallAvailable ? 'Installing…' : 'Checking…'
+            : packageRecoveryAvailable ? packageRecoveryLabel : 'Check updates'}
         </button>
         <button
           type="button"
@@ -5468,10 +5500,10 @@ function SoftwarePackageSummaryCard({
             </button>
             <button
               type="button"
-              disabled={busy || !reinstallEnabled}
-              onClick={onReinstall}
+              disabled={busy || (packageInstallAvailable ? false : !reinstallEnabled)}
+              onClick={packageRecoveryAction}
             >
-              {repairRequired ? 'Repair' : 'Reinstall'}
+              {packageRecoveryAvailable ? packageRecoveryLabel : 'Reinstall'}
             </button>
             <button
               type="button"
