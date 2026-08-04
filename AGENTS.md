@@ -43,6 +43,38 @@ under `packages/` are separate Git repositories and carry their own `AGENTS.md`.
 - Keep physical motion disarmed by default. Retain stale-data, joint-limit, and
   shutdown safeguards in every transport path.
 
+## Managed Runtime release decision
+
+Decide whether a managed-device Runtime release is required before completing
+any change that touches core, an extension package, or device delivery. Record
+the decision in the pull request and final handoff.
+
+| Change | Runtime release? | Delivery action |
+|---|---|---|
+| `blacknode-runtime` service, manifest, API, installer, supervision, or package-sync behavior | Yes | Bump and merge `blacknode-runtime`, then update `editor-server/device-runtime-sources.lock.json` |
+| Core Python or CLI behavior that must be present under `~/Blacknode/devices/<instance>/core`, including support for a new package application such as `blacknode run <app>` | Yes | Merge the core behavior, bump and merge `blacknode-runtime`, then pin both merged commits in the device source lock |
+| Extension-package implementation used through the existing package loader and sync contract | No | Bump and merge that package; make the workflow declare it in `metadata.required_packages` |
+| Editor-only UI, editor-server orchestration that does not alter the device bundle, workflow/template data, tests, or documentation | No | Release through the owning core or package repository only |
+
+Use this sequence when the answer is **Yes**:
+
+1. Merge the device-facing core and extension-package changes first.
+2. Bump `blacknode-runtime` consistently in `blacknode-package.toml`,
+   `pyproject.toml`, and `blacknode_runtime/__init__.py`; run its package tests,
+   then merge the Runtime pull request.
+3. Update `editor-server/device-runtime-sources.lock.json` with the full merged
+   Runtime and core commit SHAs. Never pin a feature-branch commit.
+4. Run the focused device-update tests and the core suite, then merge the lock
+   update only after CI passes.
+5. State clearly that merging publishes **Latest**; the installed device stays
+   on **Current** until the operator uses **Devices → Software → Check updates
+   → Update all**.
+
+Do not claim that all work is released until every independently versioned
+repository and the managed-device source lock required by the change are
+merged. Package-only updates remain independently deployable and do not force a
+Runtime version bump.
+
 ## Operator workflow
 
 - Treat the Blacknode editor as the primary operator surface for managed
