@@ -51,3 +51,12 @@ def test_point_cloud_viewer_exposes_accumulation_control():
     assert "data.type === 'Viewer' || data.type === 'SLAM'" in source
     assert "optimized trajectory" in VIEWER.read_text(encoding="utf-8")
     assert "loop closure" in VIEWER.read_text(encoding="utf-8")
+
+
+def test_point_cloud_viewer_draws_current_scan_when_map_is_empty():
+    source = VIEWER.read_text(encoding="utf-8")
+
+    assert "() => [...points, ...currentPoints]" in source
+    assert "currentColors[currentIndex]" in source
+    assert "if (renderedPoints.length === 0) return" in source
+    assert "Live scan; map is empty" in source

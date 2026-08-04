@@ -174,6 +174,11 @@ export default function PointCloudViewer({
   const points = useMemo(() => numericRows(parsed.points), [parsed.points])
   const colors = useMemo(() => numericRows(parsed.colors), [parsed.colors])
   const currentPoints = useMemo(() => numericRows(parsed.current_points), [parsed.current_points])
+  const currentColors = useMemo(() => numericRows(parsed.current_colors), [parsed.current_colors])
+  const renderedPoints = useMemo(
+    () => [...points, ...currentPoints],
+    [currentPoints, points],
+  )
   const trajectory = useMemo(() => numericRows(parsed.trajectory), [parsed.trajectory])
   const loopClosures = useMemo(() => (
     Array.isArray(parsed.loop_closures)
@@ -225,13 +230,13 @@ export default function PointCloudViewer({
   }), [parsed.sensor?.x_m, parsed.sensor?.y_m, parsed.sensor?.yaw_rad])
 
   const viewRadius = useMemo(() => {
-    const pointRadius = points.reduce(
+    const pointRadius = renderedPoints.reduce(
       (largest, point) => Math.max(largest, Math.hypot(point[0], point[1])),
       0,
     )
     const configured = finite(parsed.view?.radius_m)
     return clamp(Math.max(configured, pointRadius * 1.08, Math.hypot(sensor.x, sensor.y) + 0.5), 0.5, 10_000)
-  }, [parsed.view?.radius_m, points, sensor.x, sensor.y])
+  }, [parsed.view?.radius_m, renderedPoints, sensor.x, sensor.y])
 
   const basePixelsPerMeter = Math.max(
     0.001,
@@ -270,7 +275,7 @@ export default function PointCloudViewer({
     gl.viewport(0, 0, bufferWidth, bufferHeight)
     gl.clearColor(0.012, 0.022, 0.035, 1)
     gl.clear(gl.COLOR_BUFFER_BIT)
-    if (points.length === 0) return
+    if (renderedPoints.length === 0) return
 
     let vertex: WebGLShader | null = null
     let fragment: WebGLShader | null = null
@@ -306,15 +311,18 @@ export default function PointCloudViewer({
       return
     }
 
-    const positions = new Float32Array(points.length * 2)
-    const palette = new Float32Array(points.length * 3)
-    points.forEach((point, index) => {
+    const positions = new Float32Array(renderedPoints.length * 2)
+    const palette = new Float32Array(renderedPoints.length * 3)
+    renderedPoints.forEach((point, index) => {
       const [screenX, screenY] = worldToScreen(
         point[0], point[1], finite(point[2]), viewport, camera, pixelsPerMeter,
       )
       positions[index * 2] = (screenX / viewport.width) * 2 - 1
       positions[index * 2 + 1] = 1 - (screenY / viewport.height) * 2
-      const color = colors[index] ?? [0.0, 0.78, 1.0]
+      const currentIndex = index - points.length
+      const color = currentIndex >= 0
+        ? currentColors[currentIndex] ?? [1.0, 0.82, 0.18]
+        : colors[index] ?? [0.0, 0.78, 1.0]
       palette[index * 3] = clamp(color[0], 0, 1)
       palette[index * 3 + 1] = clamp(color[1], 0, 1)
       palette[index * 3 + 2] = clamp(color[2], 0, 1)
@@ -333,7 +341,7 @@ export default function PointCloudViewer({
     const colorLocation = gl.getAttribLocation(program, 'a_color')
     gl.enableVertexAttribArray(colorLocation)
     gl.vertexAttribPointer(colorLocation, 3, gl.FLOAT, false, 0, 0)
-    gl.drawArrays(gl.POINTS, 0, points.length)
+    gl.drawArrays(gl.POINTS, 0, renderedPoints.length)
 
     return () => {
       gl.deleteBuffer(positionBuffer)
@@ -342,7 +350,7 @@ export default function PointCloudViewer({
       if (vertex) gl.deleteShader(vertex)
       if (fragment) gl.deleteShader(fragment)
     }
-  }, [camera, colors, pixelsPerMeter, points, viewport])
+  }, [camera, colors, currentColors, pixelsPerMeter, points.length, renderedPoints, viewport])
 
   useEffect(() => {
     const overlay = overlayRef.current
@@ -698,7 +706,11 @@ export default function PointCloudViewer({
         padding: '6px 9px', borderTop: '1px solid var(--line)',
         color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11,
       }}>
-        <span>{points.length ? `${pointCount.toLocaleString()} accumulated returns` : 'Waiting for points'}</span>
+        <span>
+          {points.length
+            ? `${pointCount.toLocaleString()} accumulated returns`
+            : currentPoints.length ? 'Live scan; map is empty' : 'Waiting for points'}
+        </span>
         {currentPointCount > 0 && <span>{currentPointCount.toLocaleString()} current</span>}
         {accumulatedScanCount > 0 && <span>{accumulatedScanCount.toLocaleString()} scans</span>}
         {displayCount > 0 && displayCount !== pointCount && <span>{displayCount.toLocaleString()} displayed</span>}
