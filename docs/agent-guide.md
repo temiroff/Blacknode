@@ -331,6 +331,12 @@ Event types include:
 - `model_call`
 - `tool_call`
 
+Installed extension packages may also declare named applications. For example,
+the CUDA package's spatial-processing component supports `blacknode run slam`
+on a ROS 2 compute device. Arguments after the application name are passed to
+the package application; workflow JSON execution keeps its structured-result
+contract unchanged.
+
 Run logs are output artifacts. They must not be saved back into workflow JSON.
 
 ## Secrets

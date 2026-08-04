@@ -80,6 +80,7 @@ class PackageInfo:
     templates_dir: str = ""
     template_dirs: list[str] = field(default_factory=list)
     setup_hooks: list[str] = field(default_factory=list)
+    applications: dict[str, dict[str, Any]] = field(default_factory=dict)
     ok: bool = True
     error: str = ""
     warnings: list[str] = field(default_factory=list)  # non-fatal (e.g. missing runtime dep)
@@ -156,6 +157,67 @@ def package_template_dirs() -> list[str]:
         if info.ok
         for path in (info.template_dirs or ([info.templates_dir] if info.templates_dir else []))
     ))
+
+
+def _package_applications(value: Any) -> dict[str, dict[str, Any]]:
+    """Normalize named terminal applications declared by a package manifest."""
+    if not isinstance(value, Mapping):
+        return {}
+    applications: dict[str, dict[str, Any]] = {}
+    for raw_name, raw_config in value.items():
+        name = re.sub(r"[^a-z0-9_-]+", "-", str(raw_name).strip().lower()).strip("-")
+        config = raw_config if isinstance(raw_config, Mapping) else {}
+        module = str(config.get("module") or "").strip().strip(".")
+        callable_name = str(config.get("callable") or "main").strip()
+        if not name or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", module):
+            continue
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", callable_name):
+            continue
+        applications[name] = {
+            "name": name,
+            "module": module,
+            "callable": callable_name,
+            "description": str(config.get("description") or "").strip(),
+            "component": _component_name(config.get("component")),
+            "enabled": True,
+        }
+    return applications
+
+
+def package_application(name: str) -> tuple[PackageInfo, dict[str, Any]]:
+    """Resolve one unambiguous enabled application from installed packages."""
+    clean_name = re.sub(r"[^a-z0-9_-]+", "-", str(name or "").strip().lower()).strip("-")
+    matches = [
+        (info, dict(info.applications[clean_name]))
+        for info in _PACKAGE_REGISTRY.values()
+        if info.ok and clean_name in info.applications
+    ]
+    if not matches:
+        raise ValueError(f"No installed Blacknode application is named '{name}'.")
+    if len(matches) > 1:
+        owners = ", ".join(sorted(info.name for info, _config in matches))
+        raise ValueError(f"Application '{clean_name}' is declared by multiple packages: {owners}")
+    info, config = matches[0]
+    if not config.get("enabled", True):
+        component = str(config.get("component") or "")
+        detail = f"; enable component {info.name}/{component}" if component else ""
+        raise ValueError(f"Application '{clean_name}' is disabled{detail}.")
+    return info, config
+
+
+def run_package_application(name: str, argv: list[str] | None = None) -> int:
+    """Import and invoke a package application's CLI entrypoint."""
+    info, config = package_application(name)
+    package_module = _safe_module_name(info.name)
+    module_name = f"{_PKG_MODULE_ROOT}.{package_module}.{config['module']}"
+    module = importlib.import_module(module_name)
+    entrypoint = getattr(module, str(config["callable"]), None)
+    if not callable(entrypoint):
+        raise ValueError(
+            f"Application '{name}' entrypoint {module_name}:{config['callable']} is unavailable."
+        )
+    result = entrypoint(list(argv or []))
+    return int(result) if isinstance(result, int) else 0
 
 
 def _package_layer(value: Any) -> str:
@@ -629,6 +691,7 @@ def load_package(
     info.pip_dependencies = _string_list(deps.get("pip", []))
     info.import_dependencies = _string_list(deps.get("imports", []))
     info.docker_images = _string_list(deps.get("docker", []))
+    info.applications = _package_applications(manifest.get("applications"))
 
     overrides: dict[str, bool] = {}
     if info.component_mode:
@@ -673,6 +736,12 @@ def load_package(
             info.import_dependencies = _merge_strings(info.import_dependencies, adapter["import_dependencies"])
             info.docker_images = _merge_strings(info.docker_images, adapter["docker_images"])
             info.setup_hooks = _merge_strings(info.setup_hooks, adapter["setup_hooks"])
+
+    for application in info.applications.values():
+        component_name = str(application.get("component") or "")
+        if component_name:
+            component = info.components.get(component_name)
+            application["enabled"] = bool(component and component.get("enabled"))
 
     invalid_requirements = [
         f"{component_name}: {error}"
@@ -2461,6 +2530,7 @@ __all__ = [
     "install_prerequisites",
     "install_missing_python_dependencies",
     "installed_packages",
+    "package_application",
     "package_git_status",
     "package_statuses",
     "load_package",
@@ -2468,6 +2538,7 @@ __all__ = [
     "workflow_requirement_scope",
     "package_category_colors",
     "package_template_dirs",
+    "run_package_application",
     "packages_root",
     "remove_package",
     "reset_component",

@@ -348,6 +348,55 @@ function PortRow({
   )
 }
 
+function ViewerInputStrip({
+  nodeId,
+  ports,
+  inputTypes,
+  connectedPorts,
+}: {
+  nodeId: string
+  ports: string[]
+  inputTypes: Record<string, string>
+  connectedPorts: Set<string>
+}) {
+  return (
+    <div className="bn-viewer-input-strip" aria-label="Viewer input connections">
+      {ports.map(port => {
+        const type = inputTypes[port] ?? 'Any'
+        const color = portColor(type)
+        const visualColor = portVisualColor(type)
+        const connected = connectedPorts.has(port)
+        const label = portDisplayName(port, 'input')
+        return (
+          <div
+            key={port}
+            className={`bn-viewer-input-anchor${connected ? ' is-connected' : ''}`}
+            title={`${label} · ${type}`}
+          >
+            <Handle
+              type="target"
+              position={Position.Left}
+              id={port}
+              aria-label={`${label} input, ${type}`}
+              onMouseEnter={() => window.dispatchEvent(new CustomEvent('blacknode:port-hover', {
+                detail: { nodeId, port, dir: 'input' },
+              }))}
+              onMouseLeave={() => window.dispatchEvent(new CustomEvent('blacknode:port-hover', {
+                detail: null,
+              }))}
+              style={{
+                background: color,
+                borderColor: color,
+                boxShadow: connected ? `0 0 8px ${visualColor}` : undefined,
+              }}
+            />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 const isImageSrc = (v: unknown): v is string =>
   typeof v === 'string' && (v.startsWith('data:image/') || /^https?:\/\//i.test(v))
 
@@ -982,6 +1031,9 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     viewerScene && typeof viewerScene === 'object'
     && (viewerScene as Record<string, unknown>).history_paused === true,
   )
+  const connectedViewerInputs = new Set(
+    visibleInputs.filter(port => edges.some(edge => edge.target === id && edge.targetHandle === port)),
+  )
 
   // Ordered by urgency: a running process outranks a waiting one, which
   // outranks a passive "this result is stale" note.
@@ -1299,14 +1351,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const onStopViewer = async () => {
     setViewerStopPending(true)
     try {
-      await updateParam(id, 'action', 'stop')
-      await cookNode(id, 'report')
+      await controlNode(id, 'stop')
     } finally {
-      try {
-        await updateParam(id, 'action', 'status')
-      } catch {
-        // The Viewer is already stopped; leave the visual control responsive.
-      }
       setViewerStopPending(false)
     }
   }
@@ -1314,14 +1360,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const onClearViewer = async () => {
     setViewerClearPending(true)
     try {
-      await updateParam(id, 'action', 'clear')
-      await cookNode(id, 'report')
+      await controlNode(id, 'clear')
     } finally {
-      try {
-        await updateParam(id, 'action', 'status')
-      } catch {
-        // Keep the history control responsive if the node was removed mid-action.
-      }
       setViewerClearPending(false)
     }
   }
@@ -1329,14 +1369,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const onToggleViewerAccumulation = async () => {
     setViewerAccumulationPending(true)
     try {
-      await updateParam(id, 'action', viewerHistoryPaused ? 'resume' : 'pause')
-      await cookNode(id, 'report')
+      await controlNode(id, viewerHistoryPaused ? 'resume' : 'pause')
     } finally {
-      try {
-        await updateParam(id, 'action', 'status')
-      } catch {
-        // Keep the accumulation control responsive if the node was removed.
-      }
       setViewerAccumulationPending(false)
     }
   }
@@ -1554,8 +1588,19 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     if (!el) return
     const observer = new ResizeObserver(() => updateNodeInternals(id))
     observer.observe(el)
-    return () => observer.disconnect()
-  }, [id, updateNodeInternals])
+    const viewerRegion = isViewer
+      ? el.querySelector('[data-bn-viewer-canvas-region]')
+      : null
+    if (viewerRegion) observer.observe(viewerRegion)
+    // Measure once after the nested canvas and its handles have completed
+    // layout. This makes the wire endpoint use the visible knob center on the
+    // first frame, not the viewer's earlier placeholder geometry.
+    const frame = window.requestAnimationFrame(() => updateNodeInternals(id))
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [id, isViewer, updateNodeInternals])
 
   useEffect(() => {
     if (!isACTTraining || !trainingRunning) return
@@ -1586,15 +1631,15 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       style={{
         width: '100%',
         height: '100%',
-        minWidth: 160,
-        minHeight: 60,
+        minWidth: isViewer ? 360 : 160,
+        minHeight: isViewer ? 300 : 60,
         display: 'flex',
         flexDirection: 'column',
       }}
     >
       <NodeResizer
-        minWidth={160}
-        minHeight={60}
+        minWidth={isViewer ? 360 : 160}
+        minHeight={isViewer ? 300 : 60}
         isVisible={selected}
         lineStyle={{ borderColor: color }}
         handleStyle={{ background: color, borderColor: color, width: 8, height: 8, borderRadius: 2 }}
@@ -1741,6 +1786,20 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </button>
       </div>
 
+      {isViewer && visibleOutputs.length > 0 && (
+        <div className="bn-viewer-hidden-output-anchors" aria-hidden="true">
+          {visibleOutputs.map(out => (
+            <Handle
+              key={out}
+              type="source"
+              position={Position.Right}
+              id={out}
+              style={{ opacity: 0, pointerEvents: 'none' }}
+            />
+          ))}
+        </div>
+      )}
+
       {hasVisualHoverPreview && hoverPreviewImage && (
         <div className="bn-node-hover-preview" role="status" aria-label={`${data.type} preview`}>
           <div className="bn-node-hover-preview-head">
@@ -1762,7 +1821,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </div>
       )}
 
-      {nodeStats.length > 0 && (
+      {!isViewer && nodeStats.length > 0 && (
         <div className="bn-node-stat-strip" aria-label={`${data.type} runtime statistics`}>
           {nodeStats.slice(0, 4).map(stat => (
             <span key={stat.label} className={stat.tone ? `is-${stat.tone}` : undefined}>
@@ -2468,16 +2527,6 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
 
       {isDatasetBrowser && <DatasetBrowserPanel id={id} data={data} />}
 
-      {isViewer && (
-        <PointCloudViewer
-          scene={data.portResults?.scene}
-          onClear={() => { void onClearViewer() }}
-          onAccumulationToggle={() => { void onToggleViewerAccumulation() }}
-          clearPending={viewerClearPending}
-          accumulationPending={viewerAccumulationPending}
-        />
-      )}
-
       {isDatasetCreate && (
         <div style={{
           margin: '7px 9px 3px', padding: 8, borderRadius: 7,
@@ -2603,11 +2652,31 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       )}
       </div>
 
+      {/* The viewer is a direct flex child so React Flow's resized node height
+          reaches the canvas instead of being consumed by the parameter area. */}
+      {isViewer && (
+        <PointCloudViewer
+          scene={data.portResults?.scene}
+          inputRail={(
+            <ViewerInputStrip
+              nodeId={id}
+              ports={visibleInputs}
+              inputTypes={Object.fromEntries(visibleInputs.map(port => [port, effectivePortType(port, 'input')]))}
+              connectedPorts={connectedViewerInputs}
+            />
+          )}
+          onClear={() => { void onClearViewer() }}
+          onAccumulationToggle={() => { void onToggleViewerAccumulation() }}
+          clearPending={viewerClearPending}
+          accumulationPending={viewerAccumulationPending}
+        />
+      )}
+
       {/* ports */}
       <div className="bn-node-ports" style={{
-        flex: showImageResult ? '0 0 auto' : 1,
+        flex: (isViewer || showImageResult) ? '0 0 auto' : 1,
         padding: '6px 0',
-        display: 'flex',
+        display: isViewer ? 'none' : 'flex',
         flexDirection: 'column',
         minHeight: 0,
       }}>

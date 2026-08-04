@@ -385,7 +385,7 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'Dict'   ? { style: { width: 260, height: 150 } } : {}),
     ...(meta.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
     ...(meta.type === 'OutputImage' ? { style: { width: 760, height: 620 } } : {}),
-    ...(meta.type === 'Viewer' ? { style: { width: 760, height: 660 } } : {}),
+    ...((meta.type === 'Viewer' || meta.type === 'SLAM') ? { style: { width: 720, height: 720 } } : {}),
     ...(meta.type === 'DatasetBrowser' ? { style: { width: 980, height: 860 } } : {}),
     ...(hasDashboardImage ? { style: { width: 860, height: 720 } } : {}),
     ...(meta.type === 'ROS2VisualDashboard' ? { style: { width: 840, height: 760 } } : {}),
@@ -673,6 +673,22 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
       portResults: {
         ...(data.portResults ?? {}),
         live: false,
+      },
+    }
+  }
+  if (data.type === 'Viewer' || data.type === 'SLAM') {
+    const previousStatus = data.portResults?.status
+    const status = previousStatus && typeof previousStatus === 'object' && !Array.isArray(previousStatus)
+      ? previousStatus as Record<string, unknown>
+      : {}
+    return {
+      ...base,
+      portResults: {
+        ...(data.portResults ?? {}),
+        running: false,
+        live: false,
+        status: { ...status, state: 'stopped' },
+        report: `${data.type} stopped by workflow control`,
       },
     }
   }
@@ -1715,6 +1731,28 @@ export const useStore = create<Store>((set, get) => ({
             rigid_bodies: managedRun.rigid_body_positions_m ?? {},
           } : {}
           if (Object.keys(liveOutputs).length === 0 && Object.keys(managedOutputs).length === 0) {
+            if (
+              (node.data.type === 'Viewer' || node.data.type === 'SLAM')
+              && (node.data.portResults?.running === true || node.data.portResults?.live === true)
+            ) {
+              const previousStatus = node.data.portResults?.status
+              const status = previousStatus && typeof previousStatus === 'object' && !Array.isArray(previousStatus)
+                ? previousStatus as Record<string, unknown>
+                : {}
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  cooking: false,
+                  portResults: {
+                    ...(node.data.portResults ?? {}),
+                    running: false,
+                    live: false,
+                    status: { ...status, state: 'stopped' },
+                  },
+                },
+              }
+            }
             if (node.data.type !== 'NewtonSimulation' || !node.data.portResults?.viewer_url) return node
             return {
               ...node,
@@ -3611,7 +3649,9 @@ export const useStore = create<Store>((set, get) => ({
           n.data.type === 'ROS2TopicPublisher' ||
           n.data.type === 'ROS2TopicSubscriber' ||
           n.data.type === 'ROS2' ||
-          n.data.type === 'ROS2Launch'
+          n.data.type === 'ROS2Launch' ||
+          n.data.type === 'Viewer' ||
+          n.data.type === 'SLAM'
         )
         return {
           ...n,

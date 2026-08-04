@@ -1345,6 +1345,34 @@ html[data-theme="light"] .bn-logo-image-light {
   text-decoration: underline;
 }
 
+.bn-top-live-button.is-stop-live,
+.bn-top-live-button.is-stop-live:hover:not(:disabled) {
+  background: var(--err);
+  border-color: var(--err);
+  color: #fff;
+}
+
+.bn-top-live-button.is-start-live,
+.bn-top-live-button.is-start-live:hover:not(:disabled) {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #07110c;
+  font-weight: 700;
+}
+
+.bn-top-reset-button {
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 62%, var(--line2));
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.bn-top-reset-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
 .bn-local-package-install-available {
   display: flex;
   width: 100%;
@@ -6217,6 +6245,29 @@ html[data-ui-test="refined"] .bn-topbar-run-group .bn-top-run-button + .bn-top-r
   color: var(--tx1);
 }
 
+html[data-ui-test="refined"] .bn-topbar-run-group .bn-top-live-button.is-stop-live,
+html[data-ui-test="refined"] .bn-topbar-run-group .bn-top-live-button.is-stop-live:hover:not(:disabled) {
+  border-color: var(--err);
+  background: var(--err);
+  color: #fff;
+}
+
+html[data-ui-test="refined"] .bn-topbar-run-group .bn-top-live-button.is-start-live,
+html[data-ui-test="refined"] .bn-topbar-run-group .bn-top-live-button.is-start-live:hover:not(:disabled) {
+  border-color: var(--ok);
+  background: var(--ok);
+  color: #07110c;
+  font-weight: 700;
+}
+
+html[data-ui-test="refined"] .bn-topbar-run-group .bn-top-reset-button,
+html[data-ui-test="refined"] .bn-topbar-run-group .bn-top-reset-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--warn) 52%, transparent);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-weight: 700;
+}
+
 html[data-ui-test="refined"] .bn-ui-test-button.is-active {
   background: color-mix(in srgb, var(--accent) 15%, var(--ui-test-surface-solid));
   color: var(--accent);
@@ -8404,6 +8455,63 @@ html[data-ui-test="refined"] .bn-package-family {
 /* ── Refined preview: category-only templates and layered node bodies ─── */
 .bn-node-parameter-area {
   display: contents;
+}
+
+/* Viewer nodes reserve their body for the visualization. Inputs remain fully
+   connectable as a compact vertical rail against the viewer's left edge. */
+.bn-viewer-input-strip {
+  position: absolute;
+  top: 12px;
+  bottom: auto;
+  left: -10px;
+  z-index: 8;
+  display: flex;
+  width: 12px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 0;
+  margin-top: 0;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.bn-viewer-input-anchor {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  pointer-events: auto;
+}
+
+.bn-viewer-input-anchor .react-flow__handle {
+  top: 50%;
+  left: -5px;
+  width: 9px;
+  height: 9px;
+  border-width: 1.5px;
+  border-radius: 3px !important;
+  transform: translateY(-50%);
+}
+
+.bn-viewer-input-anchor.is-connected .react-flow__handle {
+  width: 10px;
+  height: 10px;
+}
+
+.bn-viewer-hidden-output-anchors {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.bn-viewer-hidden-output-anchors .react-flow__handle {
+  top: 50%;
+  right: 0;
+  width: 1px;
+  height: 1px;
 }
 
 html[data-ui-test="refined"] .bn-node-frame {

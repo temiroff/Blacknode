@@ -4,14 +4,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_mouse_wheel_zoom_remains_active_over_canvas_nodes():
+def test_mouse_wheel_zoom_is_captured_only_by_embedded_viewer_canvas():
     app_source = (ROOT / "editor" / "src" / "App.tsx").read_text(encoding="utf-8")
+    viewer_source = (
+        ROOT / "editor" / "src" / "components" / "PointCloudViewer.tsx"
+    ).read_text(encoding="utf-8")
     explorer_source = (
         ROOT / "editor" / "src" / "components" / "ROS2GraphExplorerNode.tsx"
     ).read_text(encoding="utf-8")
 
     assert "zoomOnScroll={true}" in app_source
-    assert 'noWheelClassName="bn-canvas-wheel-suppression-disabled"' in app_source
+    assert 'noWheelClassName="bn-viewer-wheel-capture"' in app_source
+    assert 'className="bn-viewer-wheel-capture"' in viewer_source
     assert 'className="bn-ros-explorer-content nodrag nowheel"' not in explorer_source
 
 

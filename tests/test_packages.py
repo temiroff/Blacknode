@@ -22,6 +22,7 @@ from blacknode.packages import (
     load_package,
     load_workflow_requirements,
     package_template_dirs,
+    package_application,
     remove_package,
     reset_component,
     set_component_enabled,
@@ -78,6 +79,30 @@ def test_folder_package_registers_nodes(tmp_path):
     assert _PACKAGE_REGISTRY["bn-test-pkg"].categories["Test Pkg"] == "#123456"
     # node runs through the registry like any built-in
     assert _NODE_REGISTRY["_PkgProbe"]({"text": "hi"}) == {"out": "hi"}
+
+
+def test_folder_package_declares_named_application(tmp_path):
+    pkg = _write_package(
+        tmp_path,
+        package_metadata='''
+        [applications.inspect]
+        module = "application"
+        callable = "main"
+        description = "Inspect this package"
+        ''',
+    )
+    (pkg / "nodes" / "application.py").write_text(
+        "def main(argv):\n    return len(argv)\n",
+        encoding="utf-8",
+    )
+
+    info = load_package(pkg)
+    owner, application = package_application("inspect")
+
+    assert owner is info
+    assert application["module"] == "application"
+    assert application["callable"] == "main"
+    assert application["enabled"] is True
 
 
 def test_folder_package_exposes_layer_and_component_catalog(tmp_path):

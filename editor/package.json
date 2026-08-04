@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:slam-viewer": "tsc && vite build --config vite.standalone-slam.config.ts",
     "preview": "vite preview"
   },
   "dependencies": {

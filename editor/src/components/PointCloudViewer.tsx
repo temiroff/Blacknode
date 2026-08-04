@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 interface ViewerScene {
   kind?: string
@@ -10,12 +10,43 @@ interface ViewerScene {
   colors?: unknown
   current_points?: unknown
   current_colors?: unknown
+  floor_points?: unknown
+  floor_colors?: unknown
+  occupied_points?: unknown
+  occupied_colors?: unknown
   point_count?: number
   current_point_count?: number
   accumulated_scan_count?: number
   display_count?: number
   device?: string
   kernel_ms?: number
+  floor_point_count?: number
+  floor_display_count?: number
+  occupied_point_count?: number
+  occupied_display_count?: number
+  map_render_mode?: string
+  occupancy?: {
+    backend?: string
+    device?: string
+    kernel_ms?: number
+    encode_ms?: number
+    rays?: number
+    grid_cells?: number
+    grid_width?: number
+    grid_height?: number
+    free_cells?: number
+    display_cells?: number
+    occupied_cells?: number
+    occupied_display_cells?: number
+    display_limited?: boolean
+    resolution_m?: number
+    world_min_x?: number
+    world_min_y?: number
+    fixed_origin?: boolean
+    encoding?: string
+    data?: string
+    revision?: number
+  }
   sensor?: { x_m?: number; y_m?: number; yaw_rad?: number }
   robot?: { length_m?: number; width_m?: number; height_m?: number }
   scan?: {
@@ -30,14 +61,21 @@ interface ViewerScene {
   history_paused?: boolean
   pose_source?: string
   registration?: { tf_path?: string[] }
-  trajectory?: unknown
   loop_closures?: unknown
   slam?: {
     match_score?: number
+    tracking_accepted?: boolean
+    stationary_odometry_locked?: boolean
+    scan_motion_override?: boolean
+    tracking_correction_limited?: boolean
+    map_update_rejected?: boolean
+    deskewed?: boolean
     keyframes?: number
     constraints?: number
     loop_closures?: number
     map_resolution_m?: number
+    matching_backend?: string
+    matching_kernel_ms?: number
   }
   animation?: {
     enabled?: boolean
@@ -57,19 +95,41 @@ interface CameraState {
   pitch: number
 }
 
+interface GridFrame {
+  x: number
+  y: number
+  yaw: number
+}
+
 interface Viewport {
   width: number
   height: number
   ratio: number
 }
 
+interface OccupancyTextureData {
+  width: number
+  height: number
+  states: Uint8Array
+}
+
+const TOP_VIEW_YAW = Math.PI / 2
+
 const DEFAULT_CAMERA: CameraState = {
   zoom: 1,
   panX: 0,
-  panY: 22,
-  yaw: -0.35,
-  pitch: 0.62,
+  panY: 0,
+  yaw: TOP_VIEW_YAW,
+  pitch: 0,
 }
+
+const ROBOT_LOGO_ROTATION_RAD = -Math.PI / 2
+const ROBOT_LOGO_SOURCE = { x: 78, y: 48, width: 352, height: 415 } as const
+const ROBOT_LOGO_FOOTPRINT_SCALE = 0.58
+const ROBOT_FOOTPRINT_VISUAL_SCALE = 0.88
+const ROBOT_FIT_RADIUS_MULTIPLIER = 1.65
+const MIN_CAMERA_ZOOM = 0.1
+const MAX_CAMERA_ZOOM = 120
 
 function numericRows(value: unknown): number[][] {
   if (!Array.isArray(value)) return []
@@ -99,6 +159,124 @@ function shader(gl: WebGLRenderingContext, kind: number, source: string): WebGLS
     throw new Error(detail)
   }
   return result
+}
+
+function decodeOccupancyTexture(
+  encoding: unknown,
+  data: unknown,
+  widthValue: unknown,
+  heightValue: unknown,
+): OccupancyTextureData | null {
+  if (encoding !== 'u2-base64' || typeof data !== 'string' || !data) return null
+  const width = Math.max(0, Math.round(finite(widthValue)))
+  const height = Math.max(0, Math.round(finite(heightValue)))
+  const cellCount = width * height
+  if (!cellCount) return null
+  try {
+    const packed = window.atob(data)
+    if (packed.length < Math.ceil(cellCount / 4)) return null
+    const states = new Uint8Array(cellCount)
+    for (let index = 0; index < cellCount; index += 1) {
+      const value = (packed.charCodeAt(index >> 2) >> ((index & 3) * 2)) & 3
+      states[index] = value === 1 ? 127 : value === 2 ? 255 : 0
+    }
+    return { width, height, states }
+  } catch {
+    return null
+  }
+}
+
+function drawOccupancyTexture(
+  gl: WebGLRenderingContext,
+  bounds: number[][],
+  textureData: OccupancyTextureData,
+  showFreeSpace: boolean,
+  viewport: Viewport,
+  camera: CameraState,
+  pixelsPerMeter: number,
+): () => void {
+  let vertex: WebGLShader | null = null
+  let fragment: WebGLShader | null = null
+  let program: WebGLProgram | null = null
+  const positionBuffer = gl.createBuffer()
+  const textureCoordinateBuffer = gl.createBuffer()
+  const texture = gl.createTexture()
+  try {
+    vertex = shader(gl, gl.VERTEX_SHADER, `
+      attribute vec2 a_position;
+      attribute vec2 a_texcoord;
+      varying vec2 v_texcoord;
+      void main() {
+        gl_Position = vec4(a_position, 0.0, 1.0);
+        v_texcoord = a_texcoord;
+      }
+    `)
+    fragment = shader(gl, gl.FRAGMENT_SHADER, `
+      precision mediump float;
+      uniform sampler2D u_grid;
+      uniform float u_show_free;
+      varying vec2 v_texcoord;
+      void main() {
+        float state = texture2D(u_grid, v_texcoord).r;
+        if (state < 0.25 || (state < 0.75 && u_show_free < 0.5)) discard;
+        vec3 color = state < 0.75
+          ? vec3(0.18, 0.68, 0.36)
+          : vec3(0.78, 0.88, 0.94);
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `)
+    program = gl.createProgram()
+    if (!program || !positionBuffer || !textureCoordinateBuffer || !texture) throw new Error('occupancy texture resources unavailable')
+    gl.attachShader(program, vertex)
+    gl.attachShader(program, fragment)
+    gl.linkProgram(program)
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error('occupancy texture program link failed')
+    gl.useProgram(program)
+    gl.uniform1f(gl.getUniformLocation(program, 'u_show_free'), showFreeSpace ? 1 : 0)
+
+    const positions = new Float32Array(bounds.length * 2)
+    bounds.forEach((point, index) => {
+      const [screenX, screenY] = worldToScreen(point[0], point[1], finite(point[2]), viewport, camera, pixelsPerMeter)
+      positions[index * 2] = (screenX / viewport.width) * 2 - 1
+      positions[index * 2 + 1] = 1 - (screenY / viewport.height) * 2
+    })
+    const textureCoordinates = new Float32Array([
+      0, 0, 1, 0, 1, 1,
+      0, 0, 1, 1, 0, 1,
+    ])
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW)
+    const positionLocation = gl.getAttribLocation(program, 'a_position')
+    gl.enableVertexAttribArray(positionLocation)
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0)
+    gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordinateBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, textureCoordinates, gl.STATIC_DRAW)
+    const textureCoordinateLocation = gl.getAttribLocation(program, 'a_texcoord')
+    gl.enableVertexAttribArray(textureCoordinateLocation)
+    gl.vertexAttribPointer(textureCoordinateLocation, 2, gl.FLOAT, false, 0, 0)
+    gl.bindTexture(gl.TEXTURE_2D, texture)
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.LUMINANCE,
+      textureData.width, textureData.height, 0,
+      gl.LUMINANCE, gl.UNSIGNED_BYTE, textureData.states,
+    )
+    gl.drawArrays(gl.TRIANGLES, 0, bounds.length)
+  } catch {
+    // Keep the live point cloud usable if a browser cannot allocate the map texture.
+  }
+  return () => {
+    if (positionBuffer) gl.deleteBuffer(positionBuffer)
+    if (textureCoordinateBuffer) gl.deleteBuffer(textureCoordinateBuffer)
+    if (texture) gl.deleteTexture(texture)
+    if (program) gl.deleteProgram(program)
+    if (vertex) gl.deleteShader(vertex)
+    if (fragment) gl.deleteShader(fragment)
+  }
 }
 
 function worldToScreen(
@@ -133,6 +311,29 @@ function meterLabel(value: number): string {
   return `${Number(value.toFixed(2))}m`
 }
 
+function roundedPolygonPath(
+  context: CanvasRenderingContext2D,
+  points: number[][],
+  radius: number,
+): void {
+  if (points.length < 3) return
+  points.forEach((point, index) => {
+    const previous = points[(index - 1 + points.length) % points.length]
+    const next = points[(index + 1) % points.length]
+    const previousLength = Math.max(0.001, Math.hypot(previous[0] - point[0], previous[1] - point[1]))
+    const nextLength = Math.max(0.001, Math.hypot(next[0] - point[0], next[1] - point[1]))
+    const appliedRadius = Math.min(radius, previousLength * 0.46, nextLength * 0.46)
+    const startX = point[0] + (previous[0] - point[0]) / previousLength * appliedRadius
+    const startY = point[1] + (previous[1] - point[1]) / previousLength * appliedRadius
+    const endX = point[0] + (next[0] - point[0]) / nextLength * appliedRadius
+    const endY = point[1] + (next[1] - point[1]) / nextLength * appliedRadius
+    if (index === 0) context.moveTo(startX, startY)
+    else context.lineTo(startX, startY)
+    context.quadraticCurveTo(point[0], point[1], endX, endY)
+  })
+  context.closePath()
+}
+
 function controlStyle(active = false): React.CSSProperties {
   return {
     minWidth: 28,
@@ -150,19 +351,30 @@ function controlStyle(active = false): React.CSSProperties {
 
 export default function PointCloudViewer({
   scene,
+  inputRail,
   onClear,
   onAccumulationToggle,
   clearPending = false,
   accumulationPending = false,
 }: {
   scene: unknown
+  inputRail?: ReactNode
   onClear?: () => void
   onAccumulationToggle?: () => void
   clearPending?: boolean
   accumulationPending?: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const occupancyCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const overlayRef = useRef<HTMLCanvasElement | null>(null)
+  const occupancyRasterRef = useRef<{
+    texture: OccupancyTextureData
+    showFreeSpace: boolean
+    sensorX: number
+    sensorY: number
+    gradientDistance: number
+    canvas: HTMLCanvasElement
+  } | null>(null)
   const dragRef = useRef<{
     x: number
     y: number
@@ -170,28 +382,65 @@ export default function PointCloudViewer({
     camera: CameraState
   } | null>(null)
   const [camera, setCamera] = useState<CameraState>(DEFAULT_CAMERA)
+  const [gridFrame, setGridFrame] = useState<GridFrame>({ x: 0, y: 0, yaw: 0 })
+  const [showAxes, setShowAxes] = useState(false)
+  const [showFreeSpace, setShowFreeSpace] = useState(true)
+  const robotLogoRef = useRef<HTMLImageElement | null>(null)
+  const [robotLogoReady, setRobotLogoReady] = useState(false)
+  const clearViewRadiusFloorRef = useRef(0)
+  const initialResetPendingRef = useRef(true)
   const [viewport, setViewport] = useState<Viewport>({ width: 1, height: 360, ratio: 1 })
   const parsed = (scene && typeof scene === 'object' ? scene : {}) as ViewerScene
   const points = useMemo(() => numericRows(parsed.points), [parsed.points])
   const colors = useMemo(() => numericRows(parsed.colors), [parsed.colors])
   const currentPoints = useMemo(() => numericRows(parsed.current_points), [parsed.current_points])
   const currentColors = useMemo(() => numericRows(parsed.current_colors), [parsed.current_colors])
-  const renderedPoints = useMemo(
-    () => [...points, ...currentPoints],
-    [currentPoints, points],
+  const floorPoints = useMemo(() => numericRows(parsed.floor_points), [parsed.floor_points])
+  const floorColors = useMemo(() => numericRows(parsed.floor_colors), [parsed.floor_colors])
+  const occupiedPoints = useMemo(() => numericRows(parsed.occupied_points), [parsed.occupied_points])
+  const occupiedColors = useMemo(() => numericRows(parsed.occupied_colors), [parsed.occupied_colors])
+  const visibleFloorPoints = useMemo(
+    () => showFreeSpace ? floorPoints : [],
+    [floorPoints, showFreeSpace],
   )
-  const trajectory = useMemo(() => numericRows(parsed.trajectory), [parsed.trajectory])
-  const loopClosures = useMemo(() => (
-    Array.isArray(parsed.loop_closures)
-      ? parsed.loop_closures.flatMap(value => {
-          if (!value || typeof value !== 'object') return []
-          const record = value as { from?: unknown; to?: unknown }
-          const from = numericRows([record.from])[0]
-          const to = numericRows([record.to])[0]
-          return from && to ? [[from, to] as [number[], number[]]] : []
-        })
-      : []
-  ), [parsed.loop_closures])
+  const renderedPoints = useMemo(
+    () => [...visibleFloorPoints, ...occupiedPoints, ...points, ...currentPoints],
+    [currentPoints, occupiedPoints, points, visibleFloorPoints],
+  )
+  const occupancyBackground = useMemo(() => {
+    if (parsed.occupancy?.fixed_origin !== true) return []
+    const width = Math.max(0, Math.round(finite(parsed.occupancy.grid_width)))
+    const height = Math.max(0, Math.round(finite(parsed.occupancy.grid_height)))
+    const resolution = Math.max(0, finite(parsed.occupancy.resolution_m))
+    const minimumX = Number(parsed.occupancy.world_min_x)
+    const minimumY = Number(parsed.occupancy.world_min_y)
+    if (!width || !height || !resolution || !Number.isFinite(minimumX) || !Number.isFinite(minimumY)) return []
+    const maximumX = minimumX + width * resolution
+    const maximumY = minimumY + height * resolution
+    return [
+      [minimumX, minimumY, -0.03], [maximumX, minimumY, -0.03], [maximumX, maximumY, -0.03],
+      [minimumX, minimumY, -0.03], [maximumX, maximumY, -0.03], [minimumX, maximumY, -0.03],
+    ]
+  }, [
+    parsed.occupancy?.fixed_origin,
+    parsed.occupancy?.grid_height,
+    parsed.occupancy?.grid_width,
+    parsed.occupancy?.resolution_m,
+    parsed.occupancy?.world_min_x,
+    parsed.occupancy?.world_min_y,
+  ])
+  const occupancyTexture = useMemo(() => decodeOccupancyTexture(
+    parsed.occupancy?.encoding,
+    parsed.occupancy?.data,
+    parsed.occupancy?.grid_width,
+    parsed.occupancy?.grid_height,
+  ), [
+    parsed.occupancy?.data,
+    parsed.occupancy?.encoding,
+    parsed.occupancy?.grid_height,
+    parsed.occupancy?.grid_width,
+    parsed.occupancy?.revision,
+  ])
   const [animationClock, setAnimationClock] = useState(0)
   const scanStartedRef = useRef(0)
   const sensor = useMemo(() => ({
@@ -203,8 +452,12 @@ export default function PointCloudViewer({
   const animationEnabled = parsed.animation?.enabled !== false
   const hasCurrentPoints = currentPoints.length > 0
   const pulseHz = clamp(finite(parsed.animation?.pulse_hz, 1), 0.05, 30)
+  const scanPeriodMs = 1000 / pulseHz
+  const replayDurationMs = Math.max(scanPeriodMs, 700)
   const scanAngleMinimum = finite(parsed.scan?.angle_min_rad, -Math.PI)
   const scanAngleMaximum = finite(parsed.scan?.angle_max_rad, Math.PI)
+  const scanAngleIncrement = finite(parsed.scan?.angle_increment_rad)
+  const clockwiseScan = scanAngleIncrement < 0
   const scanCoverageRad = clamp(Math.abs(scanAngleMaximum - scanAngleMinimum), 0, Math.PI * 2)
   const scanCoverageDeg = scanCoverageRad * 180 / Math.PI
   const fullCircleScan = scanCoverageRad >= Math.PI * 2 - Math.PI / 180
@@ -212,27 +465,43 @@ export default function PointCloudViewer({
     fullCircleScan ? 0 : (scanAngleMinimum + scanAngleMaximum) / 2
   )
   const animationPhase = animationEnabled
-    ? ((animationClock - scanStartedRef.current) / 1000 * pulseHz + 1) % 1
+    ? clamp((animationClock - scanStartedRef.current) / replayDurationMs, 0, 1)
     : 1
+
+  useEffect(() => {
+    let cancelled = false
+    const logo = new Image()
+    logo.onload = () => {
+      if (cancelled) return
+      robotLogoRef.current = logo
+      setRobotLogoReady(true)
+    }
+    logo.src = '/blacknode-logo-dark.png'
+    return () => {
+      cancelled = true
+      robotLogoRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     if (!animationEnabled || !hasCurrentPoints) return
     let frame = 0
-    let previous = 0
-    scanStartedRef.current = performance.now()
-    setAnimationClock(scanStartedRef.current)
+    const now = performance.now()
+    const replayInProgress = scanStartedRef.current > 0
+      && now - scanStartedRef.current < replayDurationMs
+    if (!replayInProgress) scanStartedRef.current = now
+    setAnimationClock(now)
     const animate = (now: number) => {
-      if (now - previous >= 30) {
-        previous = now
-        setAnimationClock(now)
+      setAnimationClock(now)
+      if (now - scanStartedRef.current < replayDurationMs) {
+        frame = window.requestAnimationFrame(animate)
       }
-      frame = window.requestAnimationFrame(animate)
     }
     frame = window.requestAnimationFrame(animate)
     return () => window.cancelAnimationFrame(frame)
-  }, [animationEnabled, hasCurrentPoints])
+  }, [animationEnabled, hasCurrentPoints, parsed.sequence, replayDurationMs])
 
-  const viewRadius = useMemo(() => {
+  const automaticViewRadius = useMemo(() => {
     const pointRadius = renderedPoints.reduce(
       (largest, point) => Math.max(largest, Math.hypot(point[0], point[1])),
       0,
@@ -240,12 +509,58 @@ export default function PointCloudViewer({
     const configured = finite(parsed.view?.radius_m)
     return clamp(Math.max(configured, pointRadius * 1.08, Math.hypot(sensor.x, sensor.y) + 0.5), 0.5, 10_000)
   }, [parsed.view?.radius_m, renderedPoints, sensor.x, sensor.y])
-
+  // Clear changes map contents, not the camera. Capture the pre-clear metric
+  // radius while the request is pending and retain it after the empty scene is
+  // applied so removing points cannot briefly enlarge the robot on screen.
+  if (clearPending) {
+    clearViewRadiusFloorRef.current = Math.max(
+      clearViewRadiusFloorRef.current,
+      automaticViewRadius,
+    )
+  }
+  const viewRadius = Math.max(automaticViewRadius, clearViewRadiusFloorRef.current)
   const basePixelsPerMeter = Math.max(
     0.001,
     Math.min(viewport.width, viewport.height) / (viewRadius * 2.15),
   )
   const pixelsPerMeter = basePixelsPerMeter * camera.zoom
+  const resetCamera = () => {
+    clearViewRadiusFloorRef.current = 0
+    const robotLength = clamp(finite(parsed.robot?.length_m, 0.25), 0.02, 5)
+    const robotWidth = clamp(finite(parsed.robot?.width_m, 0.22), 0.02, 5)
+    const focusRadius = Math.max(0.35, Math.max(robotLength, robotWidth) * ROBOT_FIT_RADIUS_MULTIPLIER)
+    const viewportSpan = Math.max(1, Math.min(viewport.width, viewport.height))
+    const focusedPixelsPerMeter = viewportSpan / (focusRadius * 2.15)
+    const resetBasePixelsPerMeter = Math.max(
+      0.001,
+      viewportSpan / (automaticViewRadius * 2.15),
+    )
+    const zoom = clamp(
+      focusedPixelsPerMeter / resetBasePixelsPerMeter,
+      MIN_CAMERA_ZOOM,
+      MAX_CAMERA_ZOOM,
+    )
+    const appliedPixelsPerMeter = resetBasePixelsPerMeter * zoom
+    const resetYaw = TOP_VIEW_YAW - robotHeadingYaw
+    const resetYawCosine = Math.cos(resetYaw)
+    const resetYawSine = Math.sin(resetYaw)
+    const focusedSensorX = resetYawCosine * sensor.x - resetYawSine * sensor.y
+    const focusedSensorY = resetYawSine * sensor.x + resetYawCosine * sensor.y
+    setGridFrame({ x: sensor.x, y: sensor.y, yaw: robotHeadingYaw })
+    setCamera({
+      zoom,
+      yaw: resetYaw,
+      pitch: 0,
+      panX: -focusedSensorX * appliedPixelsPerMeter,
+      panY: focusedSensorY * appliedPixelsPerMeter,
+    })
+  }
+
+  useEffect(() => {
+    if (!initialResetPendingRef.current || !scene || viewport.width <= 1 || viewport.height <= 1) return
+    initialResetPendingRef.current = false
+    resetCamera()
+  }, [scene, viewport.height, viewport.width])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -267,18 +582,113 @@ export default function PointCloudViewer({
   }, [])
 
   useEffect(() => {
+    const canvas = occupancyCanvasRef.current
+    if (!canvas) return
+    const bufferWidth = Math.max(1, Math.round(viewport.width * viewport.ratio))
+    const bufferHeight = Math.max(1, Math.round(viewport.height * viewport.ratio))
+    if (canvas.width !== bufferWidth) canvas.width = bufferWidth
+    if (canvas.height !== bufferHeight) canvas.height = bufferHeight
+    const context = canvas.getContext('2d')
+    if (!context) return
+    context.setTransform(1, 0, 0, 1, 0, 0)
+    context.clearRect(0, 0, bufferWidth, bufferHeight)
+    if (!occupancyTexture || occupancyBackground.length !== 6) return
+
+    const gradientDistance = clamp(
+      Math.max(viewport.width, viewport.height) / Math.max(1, pixelsPerMeter) * 0.55,
+      0.5,
+      Math.max(0.5, finite(parsed.view?.radius_m, viewRadius)),
+    )
+    const worldMinimumX = occupancyBackground[0][0]
+    const worldMinimumY = occupancyBackground[0][1]
+    const worldWidth = occupancyBackground[1][0] - worldMinimumX
+    const worldHeight = occupancyBackground[5][1] - worldMinimumY
+    let raster = occupancyRasterRef.current
+    if (
+      raster?.texture !== occupancyTexture
+      || raster.showFreeSpace !== showFreeSpace
+      || raster.sensorX !== sensor.x
+      || raster.sensorY !== sensor.y
+      || raster.gradientDistance !== gradientDistance
+    ) {
+      const rasterCanvas = document.createElement('canvas')
+      rasterCanvas.width = occupancyTexture.width
+      rasterCanvas.height = occupancyTexture.height
+      const rasterContext = rasterCanvas.getContext('2d')
+      if (!rasterContext) return
+      const image = rasterContext.createImageData(occupancyTexture.width, occupancyTexture.height)
+      occupancyTexture.states.forEach((state, index) => {
+        const offset = index * 4
+        if (state === 127 && showFreeSpace) {
+          const column = index % occupancyTexture.width
+          const row = Math.floor(index / occupancyTexture.width)
+          const worldX = worldMinimumX + (column + 0.5) * worldWidth / occupancyTexture.width
+          const worldY = worldMinimumY + (row + 0.5) * worldHeight / occupancyTexture.height
+          const distanceMix = clamp(Math.hypot(worldX - sensor.x, worldY - sensor.y) / gradientDistance, 0, 1)
+          const smoothMix = distanceMix * distanceMix * (3 - 2 * distanceMix)
+          image.data[offset] = Math.round(48 + (55 - 48) * smoothMix)
+          image.data[offset + 1] = Math.round(181 + (108 - 181) * smoothMix)
+          image.data[offset + 2] = Math.round(108 + (190 - 108) * smoothMix)
+          image.data[offset + 3] = Math.round(115 + (80 - 115) * smoothMix)
+        } else if (state === 255) {
+          image.data[offset] = 218
+          image.data[offset + 1] = 235
+          image.data[offset + 2] = 245
+          image.data[offset + 3] = 235
+        }
+      })
+      rasterContext.putImageData(image, 0, 0)
+      raster = {
+        texture: occupancyTexture,
+        showFreeSpace,
+        sensorX: sensor.x,
+        sensorY: sensor.y,
+        gradientDistance,
+        canvas: rasterCanvas,
+      }
+      occupancyRasterRef.current = raster
+    }
+
+    const origin = worldToScreen(
+      occupancyBackground[0][0], occupancyBackground[0][1], finite(occupancyBackground[0][2]),
+      viewport, camera, pixelsPerMeter,
+    )
+    const xEnd = worldToScreen(
+      occupancyBackground[1][0], occupancyBackground[1][1], finite(occupancyBackground[1][2]),
+      viewport, camera, pixelsPerMeter,
+    )
+    const yEnd = worldToScreen(
+      occupancyBackground[5][0], occupancyBackground[5][1], finite(occupancyBackground[5][2]),
+      viewport, camera, pixelsPerMeter,
+    )
+    context.imageSmoothingEnabled = false
+    context.globalCompositeOperation = 'screen'
+    context.setTransform(
+      viewport.ratio * (xEnd[0] - origin[0]) / occupancyTexture.width,
+      viewport.ratio * (xEnd[1] - origin[1]) / occupancyTexture.width,
+      viewport.ratio * (yEnd[0] - origin[0]) / occupancyTexture.height,
+      viewport.ratio * (yEnd[1] - origin[1]) / occupancyTexture.height,
+      viewport.ratio * origin[0],
+      viewport.ratio * origin[1],
+    )
+    context.drawImage(raster.canvas, 0, 0)
+    context.globalCompositeOperation = 'source-over'
+  }, [camera, occupancyBackground, occupancyTexture, parsed.view?.radius_m, pixelsPerMeter, sensor.x, sensor.y, showFreeSpace, viewRadius, viewport])
+
+  useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const gl = canvas.getContext('webgl', { antialias: true, alpha: false })
+    const gl = canvas.getContext('webgl', { antialias: true, alpha: true })
     if (!gl) return
     const bufferWidth = Math.max(1, Math.round(viewport.width * viewport.ratio))
     const bufferHeight = Math.max(1, Math.round(viewport.height * viewport.ratio))
     if (canvas.width !== bufferWidth) canvas.width = bufferWidth
     if (canvas.height !== bufferHeight) canvas.height = bufferHeight
     gl.viewport(0, 0, bufferWidth, bufferHeight)
-    gl.clearColor(0.012, 0.022, 0.035, 1)
+    gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
-    if (renderedPoints.length === 0) return
+    const vertexCount = renderedPoints.length
+    if (vertexCount === 0) return
 
     let vertex: WebGLShader | null = null
     let fragment: WebGLShader | null = null
@@ -287,19 +697,24 @@ export default function PointCloudViewer({
       vertex = shader(gl, gl.VERTEX_SHADER, `
         attribute vec2 a_position;
         attribute vec3 a_color;
+        attribute float a_size;
+        attribute float a_square;
         varying vec3 v_color;
+        varying float v_square;
         void main() {
           gl_Position = vec4(a_position, 0.0, 1.0);
-          gl_PointSize = ${Math.max(3.5, 4.5 * viewport.ratio).toFixed(2)};
+          gl_PointSize = a_size;
           v_color = a_color;
+          v_square = a_square;
         }
       `)
       fragment = shader(gl, gl.FRAGMENT_SHADER, `
         precision mediump float;
         varying vec3 v_color;
+        varying float v_square;
         void main() {
           vec2 centered = gl_PointCoord - vec2(0.5);
-          if (dot(centered, centered) > 0.25) discard;
+          if (v_square < 0.5 && dot(centered, centered) > 0.25) discard;
           gl_FragColor = vec4(v_color, 1.0);
         }
       `)
@@ -314,21 +729,41 @@ export default function PointCloudViewer({
       return
     }
 
-    const positions = new Float32Array(renderedPoints.length * 2)
-    const palette = new Float32Array(renderedPoints.length * 3)
+    const positions = new Float32Array(vertexCount * 2)
+    const palette = new Float32Array(vertexCount * 3)
+    const pointSizes = new Float32Array(vertexCount)
+    const squarePoints = new Float32Array(vertexCount)
+    const occupancyCellSize = Math.max(
+      1.25 * viewport.ratio,
+      finite(parsed.occupancy?.resolution_m, 0.05) * pixelsPerMeter * viewport.ratio * 1.45,
+    )
     renderedPoints.forEach((point, index) => {
+      const vertexIndex = index
       const [screenX, screenY] = worldToScreen(
         point[0], point[1], finite(point[2]), viewport, camera, pixelsPerMeter,
       )
-      positions[index * 2] = (screenX / viewport.width) * 2 - 1
-      positions[index * 2 + 1] = 1 - (screenY / viewport.height) * 2
-      const currentIndex = index - points.length
-      const color = currentIndex >= 0
-        ? currentColors[currentIndex] ?? [1.0, 0.82, 0.18]
-        : colors[index] ?? [0.0, 0.78, 1.0]
-      palette[index * 3] = clamp(color[0], 0, 1)
-      palette[index * 3 + 1] = clamp(color[1], 0, 1)
-      palette[index * 3 + 2] = clamp(color[2], 0, 1)
+      positions[vertexIndex * 2] = (screenX / viewport.width) * 2 - 1
+      positions[vertexIndex * 2 + 1] = 1 - (screenY / viewport.height) * 2
+      const occupancyPointCount = visibleFloorPoints.length + occupiedPoints.length
+      const mapIndex = index - occupancyPointCount
+      const currentIndex = mapIndex - points.length
+      const isFloor = index < visibleFloorPoints.length
+      const isOccupied = !isFloor && index < occupancyPointCount
+      const occupiedIndex = index - visibleFloorPoints.length
+      const color = isFloor
+        ? floorColors[index] ?? [0.18, 0.68, 0.36]
+        : isOccupied
+          ? occupiedColors[occupiedIndex] ?? [0.78, 0.88, 0.94]
+        : currentIndex >= 0
+          ? currentColors[currentIndex] ?? [0.0, 0.78, 1.0]
+          : colors[mapIndex] ?? [0.04, 0.36, 0.48]
+      palette[vertexIndex * 3] = clamp(color[0], 0, 1)
+      palette[vertexIndex * 3 + 1] = clamp(color[1], 0, 1)
+      palette[vertexIndex * 3 + 2] = clamp(color[2], 0, 1)
+      pointSizes[vertexIndex] = isFloor || isOccupied
+        ? occupancyCellSize
+        : Math.max(3.5, 4.5 * viewport.ratio)
+      squarePoints[vertexIndex] = isFloor || isOccupied ? 1 : 0
     })
 
     const positionBuffer = gl.createBuffer()
@@ -344,16 +779,32 @@ export default function PointCloudViewer({
     const colorLocation = gl.getAttribLocation(program, 'a_color')
     gl.enableVertexAttribArray(colorLocation)
     gl.vertexAttribPointer(colorLocation, 3, gl.FLOAT, false, 0, 0)
+
+    const sizeBuffer = gl.createBuffer()
+    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, pointSizes, gl.STATIC_DRAW)
+    const sizeLocation = gl.getAttribLocation(program, 'a_size')
+    gl.enableVertexAttribArray(sizeLocation)
+    gl.vertexAttribPointer(sizeLocation, 1, gl.FLOAT, false, 0, 0)
+
+    const squareBuffer = gl.createBuffer()
+    gl.bindBuffer(gl.ARRAY_BUFFER, squareBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, squarePoints, gl.STATIC_DRAW)
+    const squareLocation = gl.getAttribLocation(program, 'a_square')
+    gl.enableVertexAttribArray(squareLocation)
+    gl.vertexAttribPointer(squareLocation, 1, gl.FLOAT, false, 0, 0)
     gl.drawArrays(gl.POINTS, 0, renderedPoints.length)
 
     return () => {
       gl.deleteBuffer(positionBuffer)
       gl.deleteBuffer(colorBuffer)
+      gl.deleteBuffer(sizeBuffer)
+      gl.deleteBuffer(squareBuffer)
       if (program) gl.deleteProgram(program)
       if (vertex) gl.deleteShader(vertex)
       if (fragment) gl.deleteShader(fragment)
     }
-  }, [camera, colors, currentColors, pixelsPerMeter, points.length, renderedPoints, viewport])
+  }, [camera, colors, currentColors, floorColors, occupiedColors, occupiedPoints.length, parsed.occupancy?.resolution_m, pixelsPerMeter, points.length, renderedPoints, viewport, visibleFloorPoints.length])
 
   useEffect(() => {
     const overlay = overlayRef.current
@@ -369,6 +820,16 @@ export default function PointCloudViewer({
     context.lineWidth = 1
     context.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace'
 
+    const gridHeadingCosine = Math.cos(gridFrame.yaw)
+    const gridHeadingSine = Math.sin(gridFrame.yaw)
+    const gridFrameToScreen = (forward: number, lateral: number, z: number) => worldToScreen(
+      gridFrame.x + gridHeadingCosine * forward - gridHeadingSine * lateral,
+      gridFrame.y + gridHeadingSine * forward + gridHeadingCosine * lateral,
+      z,
+      viewport,
+      camera,
+      pixelsPerMeter,
+    )
     const spacing = gridSpacing(pixelsPerMeter)
     const reach = Math.min(
       10_000,
@@ -379,10 +840,10 @@ export default function PointCloudViewer({
     context.beginPath()
     for (let index = -steps; index <= steps; index += 1) {
       const value = index * spacing
-      const [x1, y1] = worldToScreen(value, -reach, 0, viewport, camera, pixelsPerMeter)
-      const [x2, y2] = worldToScreen(value, reach, 0, viewport, camera, pixelsPerMeter)
-      const [x3, y3] = worldToScreen(-reach, value, 0, viewport, camera, pixelsPerMeter)
-      const [x4, y4] = worldToScreen(reach, value, 0, viewport, camera, pixelsPerMeter)
+      const [x1, y1] = gridFrameToScreen(value, -reach, 0)
+      const [x2, y2] = gridFrameToScreen(value, reach, 0)
+      const [x3, y3] = gridFrameToScreen(-reach, value, 0)
+      const [x4, y4] = gridFrameToScreen(reach, value, 0)
       context.moveTo(x1, y1)
       context.lineTo(x2, y2)
       context.moveTo(x3, y3)
@@ -390,76 +851,51 @@ export default function PointCloudViewer({
     }
     context.stroke()
 
-    if (trajectory.length > 1) {
-      context.strokeStyle = 'rgba(116, 231, 165, 0.88)'
-      context.lineWidth = 2
-      context.beginPath()
-      trajectory.forEach((point, index) => {
-        const projected = worldToScreen(
-          point[0], point[1], finite(point[2]), viewport, camera, pixelsPerMeter,
-        )
-        if (index === 0) context.moveTo(projected[0], projected[1])
-        else context.lineTo(projected[0], projected[1])
-      })
-      context.stroke()
-    }
-    if (loopClosures.length > 0) {
-      context.setLineDash([4, 4])
-      context.strokeStyle = 'rgba(224, 105, 255, 0.9)'
-      context.lineWidth = 1.5
-      context.beginPath()
-      loopClosures.forEach(([from, to]) => {
-        const start = worldToScreen(from[0], from[1], finite(from[2]), viewport, camera, pixelsPerMeter)
-        const end = worldToScreen(to[0], to[1], finite(to[2]), viewport, camera, pixelsPerMeter)
+    if (showAxes) {
+      const drawAxis = (endX: number, endY: number, endZ: number, color: string) => {
+        const start = gridFrameToScreen(-endX, -endY, -endZ)
+        const end = gridFrameToScreen(endX, endY, endZ)
+        context.strokeStyle = color
+        context.lineWidth = 1.5
+        context.beginPath()
         context.moveTo(start[0], start[1])
         context.lineTo(end[0], end[1])
-      })
-      context.stroke()
-      context.setLineDash([])
-    }
-
-    const drawAxis = (endX: number, endY: number, endZ: number, color: string) => {
-      const start = worldToScreen(-endX, -endY, -endZ, viewport, camera, pixelsPerMeter)
-      const end = worldToScreen(endX, endY, endZ, viewport, camera, pixelsPerMeter)
-      context.strokeStyle = color
-      context.lineWidth = 1.5
-      context.beginPath()
-      context.moveTo(start[0], start[1])
-      context.lineTo(end[0], end[1])
-      context.stroke()
-    }
-    drawAxis(reach, 0, 0, 'rgba(255, 91, 91, 0.68)')
-    drawAxis(0, reach, 0, 'rgba(83, 224, 145, 0.68)')
-    drawAxis(0, 0, Math.min(reach, viewRadius * 0.45), 'rgba(83, 154, 255, 0.78)')
-
-    context.fillStyle = 'rgba(186, 211, 228, 0.72)'
-    for (let index = -steps; index <= steps; index += 1) {
-      if (index === 0) continue
-      const value = index * spacing
-      const xTick = worldToScreen(value, 0, 0, viewport, camera, pixelsPerMeter)
-      if (xTick[0] > 12 && xTick[0] < viewport.width - 28 && xTick[1] > 12 && xTick[1] < viewport.height - 12) {
-        context.fillText(meterLabel(value), xTick[0] + 3, xTick[1] - 4)
+        context.stroke()
       }
-      const yTick = worldToScreen(0, value, 0, viewport, camera, pixelsPerMeter)
-      if (yTick[0] > 12 && yTick[0] < viewport.width - 28 && yTick[1] > 12 && yTick[1] < viewport.height - 12) {
-        context.fillText(meterLabel(value), yTick[0] + 4, yTick[1] - 3)
+      drawAxis(reach, 0, 0, 'rgba(255, 91, 91, 0.68)')
+      drawAxis(0, reach, 0, 'rgba(83, 224, 145, 0.68)')
+      drawAxis(0, 0, Math.min(reach, viewRadius * 0.45), 'rgba(83, 154, 255, 0.78)')
+
+      context.fillStyle = 'rgba(186, 211, 228, 0.72)'
+      for (let index = -steps; index <= steps; index += 1) {
+        if (index === 0) continue
+        const value = index * spacing
+        const xTick = gridFrameToScreen(value, 0, 0)
+        if (xTick[0] > 12 && xTick[0] < viewport.width - 28 && xTick[1] > 12 && xTick[1] < viewport.height - 12) {
+          context.fillText(meterLabel(value), xTick[0] + 3, xTick[1] - 4)
+        }
+        const yTick = gridFrameToScreen(0, value, 0)
+        if (yTick[0] > 12 && yTick[0] < viewport.width - 28 && yTick[1] > 12 && yTick[1] < viewport.height - 12) {
+          context.fillText(meterLabel(value), yTick[0] + 4, yTick[1] - 3)
+        }
       }
     }
 
     const sensorScreen = worldToScreen(sensor.x, sensor.y, 0, viewport, camera, pixelsPerMeter)
     const scanMinimum = sensor.yaw + scanAngleMinimum
     const scanMaximum = sensor.yaw + scanAngleMaximum
-    const counterclockwisePoints = [...currentPoints].sort((left, right) => {
+    const sweepOrderedPoints = [...currentPoints].sort((left, right) => {
       const leftAngle = Math.atan2(left[1] - sensor.y, left[0] - sensor.x)
       const rightAngle = Math.atan2(right[1] - sensor.y, right[0] - sensor.x)
-      const leftOffset = (leftAngle - scanMinimum + Math.PI * 2) % (Math.PI * 2)
-      const rightOffset = (rightAngle - scanMinimum + Math.PI * 2) % (Math.PI * 2)
+      const direction = clockwiseScan ? -1 : 1
+      const leftOffset = ((leftAngle - scanMinimum) * direction + Math.PI * 2) % (Math.PI * 2)
+      const rightOffset = ((rightAngle - scanMinimum) * direction + Math.PI * 2) % (Math.PI * 2)
       return leftOffset - rightOffset
     })
     const rayLength = Math.min(viewRadius, Math.max(spacing * 2, viewRadius * 0.82))
     if (!fullCircleScan) {
       context.setLineDash([5, 5])
-      context.strokeStyle = 'rgba(255, 198, 72, 0.62)'
+      context.strokeStyle = 'rgba(133, 162, 184, 0.42)'
       context.lineWidth = 1.3
       context.beginPath()
       for (const angle of [scanMinimum, scanMaximum]) {
@@ -481,16 +917,16 @@ export default function PointCloudViewer({
     if (animationEnabled && currentPoints.length > 0) {
       if (parsed.animation?.show_rays !== false) {
         const activeIndex = Math.min(
-          counterclockwisePoints.length - 1,
-          Math.max(0, Math.floor(animationPhase * counterclockwisePoints.length)),
+          sweepOrderedPoints.length - 1,
+          Math.max(0, Math.floor(animationPhase * sweepOrderedPoints.length)),
         )
         const trailCount = clamp(finite(parsed.animation?.ray_trail_count, 96), 1, 512)
         const trailStart = Math.max(0, activeIndex - trailCount + 1)
-        context.strokeStyle = 'rgba(42, 133, 224, 0.32)'
-        context.lineWidth = 0.8
+        context.strokeStyle = 'rgba(80, 232, 145, 0.52)'
+        context.lineWidth = 1.1
         context.beginPath()
         for (let index = trailStart; index <= activeIndex; index += 1) {
-          const hit = counterclockwisePoints[index]
+          const hit = sweepOrderedPoints[index]
           const projected = worldToScreen(
             hit[0], hit[1], finite(hit[2]), viewport, camera, pixelsPerMeter,
           )
@@ -498,17 +934,17 @@ export default function PointCloudViewer({
           context.lineTo(projected[0], projected[1])
         }
         context.stroke()
-        const activeHit = counterclockwisePoints[activeIndex]
+        const activeHit = sweepOrderedPoints[activeIndex]
         const projectedHit = worldToScreen(
           activeHit[0], activeHit[1], finite(activeHit[2]), viewport, camera, pixelsPerMeter,
         )
-        context.strokeStyle = '#ffd12f'
-        context.lineWidth = 2
+        context.strokeStyle = '#72ff9d'
+        context.lineWidth = 2.6
         context.beginPath()
         context.moveTo(sensorScreen[0], sensorScreen[1])
         context.lineTo(projectedHit[0], projectedHit[1])
         context.stroke()
-        context.fillStyle = '#fff176'
+        context.fillStyle = '#b9ffca'
         context.beginPath()
         context.arc(projectedHit[0], projectedHit[1], 4.5, 0, Math.PI * 2)
         context.fill()
@@ -517,13 +953,15 @@ export default function PointCloudViewer({
 
     const robotLength = clamp(finite(parsed.robot?.length_m, 0.25), 0.02, 5)
     const robotWidth = clamp(finite(parsed.robot?.width_m, 0.22), 0.02, 5)
+    const visualRobotLength = robotLength * ROBOT_FOOTPRINT_VISUAL_SCALE
+    const visualRobotWidth = robotWidth * ROBOT_FOOTPRINT_VISUAL_SCALE
     const headingCosine = Math.cos(robotHeadingYaw)
     const headingSine = Math.sin(robotHeadingYaw)
     const robotCorners = [
-      [robotLength / 2, robotWidth / 2],
-      [robotLength / 2, -robotWidth / 2],
-      [-robotLength / 2, -robotWidth / 2],
-      [-robotLength / 2, robotWidth / 2],
+      [visualRobotLength / 2, visualRobotWidth / 2],
+      [visualRobotLength / 2, -visualRobotWidth / 2],
+      [-visualRobotLength / 2, -visualRobotWidth / 2],
+      [-visualRobotLength / 2, visualRobotWidth / 2],
     ].map(([localX, localY]) => worldToScreen(
       sensor.x + headingCosine * localX - headingSine * localY,
       sensor.y + headingSine * localX + headingCosine * localY,
@@ -532,43 +970,85 @@ export default function PointCloudViewer({
       camera,
       pixelsPerMeter,
     ))
-    context.fillStyle = 'rgba(255, 107, 107, 0.82)'
-    context.strokeStyle = '#fff3d0'
-    context.lineWidth = 1.5
+    const shortestRobotEdge = robotCorners.reduce((shortest, corner, index) => {
+      const next = robotCorners[(index + 1) % robotCorners.length]
+      return Math.min(shortest, Math.hypot(next[0] - corner[0], next[1] - corner[1]))
+    }, Number.POSITIVE_INFINITY)
+    const robotCornerRadius = clamp(shortestRobotEdge * 0.44, 3, 14)
+    context.shadowColor = 'rgba(43, 220, 238, 0.4)'
+    context.shadowBlur = 9
+    context.fillStyle = 'rgba(30, 199, 220, 0.3)'
+    context.strokeStyle = 'rgba(124, 244, 255, 0.92)'
+    context.lineWidth = 1.6
     context.beginPath()
-    robotCorners.forEach((corner, index) => {
-      if (index === 0) context.moveTo(corner[0], corner[1])
-      else context.lineTo(corner[0], corner[1])
-    })
-    context.closePath()
+    roundedPolygonPath(context, robotCorners, robotCornerRadius)
     context.fill()
     context.stroke()
+    context.shadowBlur = 0
 
-    const forwardLength = Math.max(robotLength * 1.4, spacing * 0.8)
-    const forward = worldToScreen(
-      sensor.x + headingCosine * forwardLength,
-      sensor.y + headingSine * forwardLength,
+    const forwardUnit = worldToScreen(
+      sensor.x + headingCosine,
+      sensor.y + headingSine,
       0,
       viewport,
       camera,
       pixelsPerMeter,
     )
-    context.strokeStyle = '#ffd166'
-    context.fillStyle = '#ffd166'
-    context.lineWidth = 2
-    context.beginPath()
-    context.moveTo(sensorScreen[0], sensorScreen[1])
-    context.lineTo(forward[0], forward[1])
-    context.stroke()
-    const arrowAngle = Math.atan2(forward[1] - sensorScreen[1], forward[0] - sensorScreen[0])
-    context.beginPath()
-    context.moveTo(forward[0], forward[1])
-    context.lineTo(forward[0] - Math.cos(arrowAngle - 0.55) * 8, forward[1] - Math.sin(arrowAngle - 0.55) * 8)
-    context.lineTo(forward[0] - Math.cos(arrowAngle + 0.55) * 8, forward[1] - Math.sin(arrowAngle + 0.55) * 8)
-    context.closePath()
-    context.fill()
-    context.fillStyle = '#ffd166'
-    context.fillText('Robot forward', forward[0] + 7, forward[1] - 7)
+    const lateralUnit = worldToScreen(
+      sensor.x - headingSine,
+      sensor.y + headingCosine,
+      0,
+      viewport,
+      camera,
+      pixelsPerMeter,
+    )
+    const logo = robotLogoRef.current
+    if (logo) {
+      // Treat the B as a decal fixed to the robot plane. It shares the exact
+      // forward/lateral projection used by the footprint. Compensating for the
+      // footprint dimensions before that transform preserves the source ratio.
+      const logoWorldScale = Math.min(
+        visualRobotLength * ROBOT_LOGO_FOOTPRINT_SCALE / ROBOT_LOGO_SOURCE.height,
+        visualRobotWidth * ROBOT_LOGO_FOOTPRINT_SCALE / ROBOT_LOGO_SOURCE.width,
+      )
+      const logoWidth = ROBOT_LOGO_SOURCE.width * logoWorldScale / visualRobotWidth
+      const logoHeight = ROBOT_LOGO_SOURCE.height * logoWorldScale / visualRobotLength
+      context.save()
+      context.beginPath()
+      roundedPolygonPath(context, robotCorners, robotCornerRadius)
+      context.clip()
+      context.transform(
+        (forwardUnit[0] - sensorScreen[0]) * visualRobotLength,
+        (forwardUnit[1] - sensorScreen[1]) * visualRobotLength,
+        (lateralUnit[0] - sensorScreen[0]) * visualRobotWidth,
+        (lateralUnit[1] - sensorScreen[1]) * visualRobotWidth,
+        sensorScreen[0],
+        sensorScreen[1],
+      )
+      context.rotate(ROBOT_LOGO_ROTATION_RAD)
+      context.globalAlpha = 0.8
+      context.globalCompositeOperation = 'screen'
+      context.drawImage(
+        logo,
+        ROBOT_LOGO_SOURCE.x,
+        ROBOT_LOGO_SOURCE.y,
+        ROBOT_LOGO_SOURCE.width,
+        ROBOT_LOGO_SOURCE.height,
+        -logoWidth / 2,
+        -logoHeight / 2,
+        logoWidth,
+        logoHeight,
+      )
+      context.restore()
+    } else {
+      context.fillStyle = 'rgba(220, 252, 255, 0.9)'
+      context.font = `800 ${clamp(shortestRobotEdge * 0.66, 9, 18)}px var(--font-ui)`
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      context.fillText('B', sensorScreen[0], sensorScreen[1])
+      context.textAlign = 'start'
+      context.textBaseline = 'alphabetic'
+    }
 
     const scalePixels = spacing * pixelsPerMeter
     const scaleX = 16
@@ -588,17 +1068,19 @@ export default function PointCloudViewer({
     animationPhase,
     camera,
     currentPoints,
+    gridFrame,
     parsed.animation?.ray_trail_count,
     parsed.animation?.show_rays,
     parsed.robot?.length_m,
     parsed.robot?.width_m,
     parsed.scan?.angle_max_rad,
     parsed.scan?.angle_min_rad,
+    parsed.scan?.angle_increment_rad,
     pixelsPerMeter,
     robotHeadingYaw,
+    robotLogoReady,
     sensor,
-    trajectory,
-    loopClosures,
+    showAxes,
     viewRadius,
     viewport,
   ])
@@ -608,6 +1090,10 @@ export default function PointCloudViewer({
   const accumulatedScanCount = Number(parsed.accumulated_scan_count ?? (points.length ? 1 : 0))
   const displayCount = Number(parsed.display_count ?? points.length)
   const kernelMs = Number(parsed.kernel_ms ?? 0)
+  const occupancyKernelMs = Number(parsed.occupancy?.kernel_ms ?? 0)
+  const occupancyEncodeMs = Number(parsed.occupancy?.encode_ms ?? 0)
+  const freeCellCount = Number(parsed.floor_point_count ?? parsed.occupancy?.free_cells ?? floorPoints.length)
+  const occupiedCellCount = Number(parsed.occupied_point_count ?? parsed.occupancy?.occupied_cells ?? occupiedPoints.length)
   const yawDegrees = Math.round(camera.yaw * 180 / Math.PI)
   const pitchDegrees = Math.round(camera.pitch * 180 / Math.PI)
 
@@ -616,54 +1102,93 @@ export default function PointCloudViewer({
       className="nodrag"
       onMouseDown={event => event.stopPropagation()}
       style={{
-        margin: '7px 9px 3px',
-        overflow: 'hidden',
+        margin: '7px 9px 8px',
+        width: 'calc(100% - 18px)',
+        flex: '1 1 auto',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        boxSizing: 'border-box',
+        overflow: 'visible',
         border: '1px solid var(--line2)',
         borderRadius: 'var(--bn-node-inner-radius, 7px)',
-        background: '#03070d',
+        background: '#242424',
       }}
     >
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 5, padding: '5px 7px',
+        display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 5, padding: '5px 7px',
         borderBottom: '1px solid var(--line)', background: 'var(--panel)',
       }}>
-        <button type="button" style={controlStyle()} title="Zoom out" onClick={() => setCamera(value => ({ ...value, zoom: clamp(value.zoom / 1.25, 0.1, 30) }))}>−</button>
-        <button type="button" style={controlStyle()} title="Zoom in" onClick={() => setCamera(value => ({ ...value, zoom: clamp(value.zoom * 1.25, 0.1, 30) }))}>+</button>
+        <button type="button" style={controlStyle()} title="Zoom out" onClick={() => setCamera(value => ({ ...value, zoom: clamp(value.zoom / 1.25, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM) }))}>−</button>
+        <button type="button" style={controlStyle()} title="Zoom in" onClick={() => setCamera(value => ({ ...value, zoom: clamp(value.zoom * 1.25, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM) }))}>+</button>
         <button type="button" style={controlStyle()} title="Orbit left" onClick={() => setCamera(value => ({ ...value, yaw: value.yaw - Math.PI / 12 }))}>↶</button>
         <button type="button" style={controlStyle()} title="Orbit right" onClick={() => setCamera(value => ({ ...value, yaw: value.yaw + Math.PI / 12 }))}>↷</button>
         <button type="button" style={controlStyle()} title="Tilt camera up" onClick={() => setCamera(value => ({ ...value, pitch: clamp(value.pitch + Math.PI / 18, -1.45, 1.45) }))}>↑</button>
         <button type="button" style={controlStyle()} title="Tilt camera down" onClick={() => setCamera(value => ({ ...value, pitch: clamp(value.pitch - Math.PI / 18, -1.45, 1.45) }))}>↓</button>
-        <button type="button" style={controlStyle(camera.pitch === 0 && camera.yaw === 0)} onClick={() => setCamera(value => ({ ...value, yaw: 0, pitch: 0 }))}>Top</button>
-        <button type="button" style={controlStyle()} onClick={() => setCamera(DEFAULT_CAMERA)}>Fit</button>
+        <button type="button" style={controlStyle(camera.pitch === 0 && camera.yaw === TOP_VIEW_YAW)} title="Top view with world +X (red axis) pointing up" onClick={() => setCamera(value => ({ ...value, yaw: TOP_VIEW_YAW, pitch: 0 }))}>Top</button>
+        <button type="button" style={controlStyle()} title="Capture and align the grid at the current robot pose, then keep the grid and map fixed" onClick={resetCamera}>Reset</button>
+        <label
+          title="Show fixed map X, Y, and Z axes with metric tick labels"
+          style={{ ...controlStyle(showAxes), display: 'inline-flex', alignItems: 'center', gap: 5, width: 'auto' }}
+        >
+          <input
+            type="checkbox"
+            checked={showAxes}
+            onChange={event => setShowAxes(event.target.checked)}
+            style={{ margin: 0, accentColor: 'var(--accent)' }}
+          />
+          Axes
+        </label>
         {onAccumulationToggle && (
           <button
             type="button"
             disabled={accumulationPending}
             style={controlStyle(!parsed.history_paused)}
-            title={parsed.history_paused ? 'Resume retaining new scan returns' : 'Show only the current sweep'}
+            title={parsed.history_paused ? 'Resume adding scan returns to the fixed world cloud' : 'Freeze the fixed world cloud while keeping the live sweep visible'}
             onClick={onAccumulationToggle}
           >
             {accumulationPending ? 'Updating…' : `Accumulate: ${parsed.history_paused ? 'Off' : 'On'}`}
           </button>
         )}
+        <button
+          type="button"
+          style={controlStyle(showFreeSpace)}
+          title={showFreeSpace ? 'Hide free-space floor fill; stored occupancy data is preserved' : 'Show free-space floor fill'}
+          onClick={() => setShowFreeSpace(value => !value)}
+        >
+          Floor: {showFreeSpace ? 'On' : 'Off'}
+        </button>
         {onClear && <button type="button" disabled={clearPending} style={controlStyle()} title="Clear accumulated scan history and switch accumulation off" onClick={onClear}>{clearPending ? 'Clearing…' : 'Clear history'}</button>}
         <span style={{ marginLeft: 'auto', color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
           {camera.zoom.toFixed(2)}× · yaw {yawDegrees}° · pitch {pitchDegrees}°
         </span>
       </div>
-      <div style={{ position: 'relative', height: 360 }}>
+      <div
+        data-bn-viewer-canvas-region
+        style={{ position: 'relative', flex: '1 1 auto', minHeight: 80 }}
+      >
+        {inputRail}
+        <canvas
+          ref={occupancyCanvasRef}
+          aria-hidden="true"
+          style={{ position: 'absolute', inset: 0, zIndex: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+        />
         <canvas
           ref={canvasRef}
+          className="bn-viewer-wheel-capture"
           aria-label="Interactive live point-cloud Viewer"
-          onContextMenu={event => event.preventDefault()}
-          onDoubleClick={() => setCamera(DEFAULT_CAMERA)}
+          onContextMenu={event => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+          onDoubleClick={resetCamera}
           onPointerDown={event => {
             event.stopPropagation()
             event.currentTarget.setPointerCapture(event.pointerId)
             dragRef.current = {
               x: event.clientX,
               y: event.clientY,
-              mode: event.button === 1 || event.button === 2 || event.shiftKey ? 'pan' : 'rotate',
+              mode: event.button === 2 ? 'rotate' : 'pan',
               camera,
             }
           }}
@@ -695,7 +1220,7 @@ export default function PointCloudViewer({
             const cursorY = event.clientY - bounds.top - viewport.height / 2
             const factor = Math.exp(-event.deltaY * 0.001)
             setCamera(value => {
-              const zoom = clamp(value.zoom * factor, 0.1, 30)
+              const zoom = clamp(value.zoom * factor, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM)
               const applied = zoom / value.zoom
               return {
                 ...value,
@@ -705,28 +1230,47 @@ export default function PointCloudViewer({
               }
             })
           }}
-          style={{ display: 'block', width: '100%', height: '100%', cursor: 'grab', touchAction: 'none' }}
+          style={{ position: 'relative', zIndex: 1, display: 'block', width: '100%', height: '100%', cursor: 'grab', touchAction: 'none' }}
         />
         <canvas
           ref={overlayRef}
           aria-hidden="true"
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+          style={{ position: 'absolute', inset: 0, zIndex: 2, width: '100%', height: '100%', pointerEvents: 'none' }}
         />
         <div style={{
-          position: 'absolute', top: 8, left: 9, display: 'flex', alignItems: 'center', gap: 6,
+          position: 'absolute', zIndex: 3, top: 8, left: 9, display: 'flex', alignItems: 'center', gap: 6,
           padding: '4px 7px', borderRadius: 5, background: 'rgba(3, 10, 16, 0.78)',
           border: '1px solid rgba(86, 217, 145, 0.38)', color: '#8df0b5',
           fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
         }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: currentPoints.length ? '#56d991' : '#71808d' }} />
-          {currentPoints.length ? `CURRENT SCAN #${Number(parsed.sequence ?? 0).toLocaleString()} · CCW ${Math.round(animationPhase * 100)}%` : 'WAITING FOR SCAN'}
+          {currentPoints.length ? `CURRENT SCAN #${Number(parsed.sequence ?? 0).toLocaleString()} · ${clockwiseScan ? 'CW' : 'CCW'} ${Math.round(animationPhase * 100)}%` : 'WAITING FOR SCAN'}
         </div>
+        {parsed.occupancy?.backend === 'warp' && (
+          <div style={{
+            position: 'absolute', zIndex: 3, top: 8, right: 9, display: 'flex', alignItems: 'center', gap: 6,
+            padding: '4px 7px', borderRadius: 5, background: 'rgba(3, 10, 16, 0.82)',
+            border: `1px solid ${parsed.history_paused ? 'rgba(242, 184, 75, 0.45)' : 'rgba(79, 192, 122, 0.48)'}`,
+            color: parsed.history_paused ? '#f2c66d' : '#8df0b5',
+            fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
+          }}>
+            <span style={{
+              width: 7, height: 7, borderRadius: '50%',
+              background: parsed.history_paused ? '#f2b84b' : freeCellCount > 0 ? '#4fc07a' : '#71808d',
+            }} />
+            {parsed.history_paused
+              ? 'WARP MAP · FROZEN'
+              : freeCellCount > 0
+                ? `WARP MAP · FILLING ${freeCellCount.toLocaleString()} FREE · ${occupiedCellCount.toLocaleString()} WALL`
+                : 'WARP MAP · READY'}
+          </div>
+        )}
         <div style={{
-          position: 'absolute', right: 8, bottom: 7, padding: '3px 6px', borderRadius: 4,
+          position: 'absolute', zIndex: 3, right: 8, bottom: 7, padding: '3px 6px', borderRadius: 4,
           background: 'rgba(3, 10, 16, 0.72)', color: 'rgba(217, 232, 241, 0.74)',
           fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
         }}>
-          drag orbit · Shift/right-drag pan · wheel zoom · double-click fit
+          left-drag pan · right-drag orbit · middle-drag pan · wheel zoom · double-click reset
         </div>
       </div>
       <div style={{
@@ -735,7 +1279,7 @@ export default function PointCloudViewer({
         color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11,
       }}>
         <span>
-          {points.length
+          {pointCount > 0
             ? `${pointCount.toLocaleString()} accumulated returns`
             : currentPoints.length ? 'Live scan; map is empty' : 'Waiting for points'}
         </span>
@@ -743,28 +1287,43 @@ export default function PointCloudViewer({
         {accumulatedScanCount > 0 && <span>{accumulatedScanCount.toLocaleString()} scans</span>}
         {displayCount > 0 && displayCount !== pointCount && <span>{displayCount.toLocaleString()} displayed</span>}
         {kernelMs > 0 && <span>{kernelMs.toFixed(3)} ms Warp</span>}
+        {parsed.occupancy?.backend === 'warp' && (
+          <span style={{ color: '#74e7a5' }}>
+            Warp occupancy {occupancyKernelMs.toFixed(3)} ms · encode {occupancyEncodeMs.toFixed(3)} ms · {Number(parsed.occupancy.rays ?? 0).toLocaleString()} rays · {freeCellCount.toLocaleString()} free · {occupiedCellCount.toLocaleString()} occupied · {Number(parsed.occupancy.grid_cells ?? 0).toLocaleString()} grid cells
+          </span>
+        )}
         {parsed.device && <span>{parsed.device}</span>}
         {parsed.frame && <span>{parsed.frame}</span>}
-        {parsed.slam && <span>{Number(parsed.slam.keyframes ?? 0).toLocaleString()} keyframes · score {finite(parsed.slam.match_score).toFixed(2)} · {Number(parsed.slam.loop_closures ?? 0).toLocaleString()} loops</span>}
-        <span>{scanCoverageDeg >= 359.5 ? '360° scan · CCW sweep' : `${scanCoverageDeg.toFixed(1)}° scan · CCW sweep`}</span>
+        {parsed.slam && <span>{Number(parsed.slam.keyframes ?? 0).toLocaleString()} keyframes · score {finite(parsed.slam.match_score).toFixed(2)} · {parsed.slam.matching_backend === 'warp' ? `Warp match ${finite(parsed.slam.matching_kernel_ms).toFixed(3)} ms` : 'CPU match'} · {parsed.slam.deskewed ? 'deskew on' : 'deskew unavailable'} · {Number(parsed.slam.loop_closures ?? 0).toLocaleString()} loops</span>}
+        <span>{scanCoverageDeg >= 359.5 ? `360° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay` : `${scanCoverageDeg.toFixed(1)}° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay`}</span>
         <span>3D orbit · LaserScan lies on XY plane</span>
       </div>
       <div style={{
         display: 'flex', gap: 11, flexWrap: 'wrap', padding: '0 9px 7px',
         color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11,
       }}>
-        <span style={{ color: '#ff7b7b' }}>■ robot {Math.round(finite(parsed.robot?.length_m, 0.25) * 100)}×{Math.round(finite(parsed.robot?.width_m, 0.22) * 100)} cm</span>
-        <span style={{ color: '#ffd166' }}>→ forward / scan limits</span>
+        <span style={{ color: '#7cf4ff' }}>B robot {Math.round(finite(parsed.robot?.length_m, 0.25) * 100)}×{Math.round(finite(parsed.robot?.width_m, 0.22) * 100)} cm</span>
+        <span style={{ color: '#72ff9d' }}>— active beam</span>
+        {!fullCircleScan && <span style={{ color: '#85a2b8' }}>┄ scan limits</span>}
         <span style={{ color: '#32d8ef' }}>● filtered laser returns</span>
-        {trajectory.length > 1 && <span style={{ color: '#74e7a5' }}>— optimized trajectory</span>}
-        {loopClosures.length > 0 && <span style={{ color: '#e069ff' }}>┄ loop closure</span>}
-        <span><b style={{ color: '#ff6b6b' }}>X</b> / <b style={{ color: '#53e091' }}>Y</b> / <b style={{ color: '#539aff' }}>Z</b> axes</span>
+        {parsed.occupancy?.fixed_origin === true && <span style={{ color: '#486070' }}>■ unknown map extent</span>}
+        {parsed.map_render_mode === 'occupancy-texture' && <span style={{ color: '#74e7a5' }}>GPU map texture · all cells</span>}
+        {showFreeSpace && freeCellCount > 0 && <span style={{ color: '#4fc07a' }}>■ {freeCellCount.toLocaleString()} fixed free-floor cells</span>}
+        {occupiedCellCount > 0 && <span style={{ color: '#c7e0ef' }}>■ {occupiedCellCount.toLocaleString()} occupied wall cells</span>}
+        {showAxes && <span>map <b style={{ color: '#ff6b6b' }}>X</b> / <b style={{ color: '#53e091' }}>Y</b> / <b style={{ color: '#539aff' }}>Z</b> axes</span>}
         {parsed.history_registered === true && <span style={{ color: '#74e7a5' }}>pose-registered history · {parsed.pose_source || 'pose stream'}</span>}
         {Array.isArray(parsed.registration?.tf_path) && parsed.registration.tf_path.length > 1 && (
           <span>{parsed.registration.tf_path.join(' → ')}</span>
         )}
         {parsed.history_registered === false && <span style={{ color: '#f2b84b' }}>history is sensor-local; moving the robot requires odometry</span>}
         {parsed.history_paused === true && <span style={{ color: '#f2b84b' }}>accumulation paused</span>}
+        {parsed.slam?.tracking_accepted === false && <span style={{ color: '#f2b84b' }}>uncertain scan match rejected · odometry prior kept</span>}
+        {parsed.slam?.stationary_odometry_locked === true && <span style={{ color: '#74e7a5' }}>stationary odometry lock · dynamic returns cannot move map</span>}
+        {parsed.slam?.scan_motion_override === true && <span style={{ color: '#74e7a5' }}>whole-scene motion accepted · robot pose updated</span>}
+        {parsed.slam?.tracking_correction_limited === true && <span style={{ color: '#74e7a5' }}>large pose correction smoothed across scans</span>}
+        {parsed.slam?.map_update_rejected === true && <span style={{ color: '#f2b84b' }}>uncertain keyframe excluded from map</span>}
+        {parsed.occupancy?.fixed_origin === true && <span style={{ color: '#74e7a5' }}>fixed map grid · floor cells never follow robot pose</span>}
+        {parsed.occupancy?.display_limited === true && <span style={{ color: '#f2b84b' }}>occupancy display capped; full evidence remains on device</span>}
       </div>
     </div>
   )
