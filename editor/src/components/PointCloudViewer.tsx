@@ -17,6 +17,7 @@ interface ViewerScene {
   device?: string
   kernel_ms?: number
   sensor?: { x_m?: number; y_m?: number; yaw_rad?: number }
+  robot?: { length_m?: number; width_m?: number; height_m?: number }
   scan?: {
     angle_min_rad?: number
     angle_max_rad?: number
@@ -514,8 +515,8 @@ export default function PointCloudViewer({
       }
     }
 
-    const robotLength = clamp(viewRadius * 0.045, 0.24, 0.55)
-    const robotWidth = robotLength * 0.68
+    const robotLength = clamp(finite(parsed.robot?.length_m, 0.25), 0.02, 5)
+    const robotWidth = clamp(finite(parsed.robot?.width_m, 0.22), 0.02, 5)
     const headingCosine = Math.cos(robotHeadingYaw)
     const headingSine = Math.sin(robotHeadingYaw)
     const robotCorners = [
@@ -589,6 +590,8 @@ export default function PointCloudViewer({
     currentPoints,
     parsed.animation?.ray_trail_count,
     parsed.animation?.show_rays,
+    parsed.robot?.length_m,
+    parsed.robot?.width_m,
     parsed.scan?.angle_max_rad,
     parsed.scan?.angle_min_rad,
     pixelsPerMeter,
@@ -750,7 +753,7 @@ export default function PointCloudViewer({
         display: 'flex', gap: 11, flexWrap: 'wrap', padding: '0 9px 7px',
         color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11,
       }}>
-        <span style={{ color: '#ff7b7b' }}>● sensor</span>
+        <span style={{ color: '#ff7b7b' }}>■ robot {Math.round(finite(parsed.robot?.length_m, 0.25) * 100)}×{Math.round(finite(parsed.robot?.width_m, 0.22) * 100)} cm</span>
         <span style={{ color: '#ffd166' }}>→ forward / scan limits</span>
         <span style={{ color: '#32d8ef' }}>● filtered laser returns</span>
         {trajectory.length > 1 && <span style={{ color: '#74e7a5' }}>— optimized trajectory</span>}

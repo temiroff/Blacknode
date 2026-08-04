@@ -12,6 +12,8 @@ def test_point_cloud_viewer_exposes_spatial_orientation_and_scale():
     assert "Robot forward" in source
     assert "robotHeadingYaw" in source
     assert "robotCorners" in source
+    assert "finite(parsed.robot?.length_m, 0.25)" in source
+    assert "finite(parsed.robot?.width_m, 0.22)" in source
     assert "filtered laser returns" in source
     assert "3D orbit · LaserScan lies on XY plane" in source
     assert "meterLabel" in source
