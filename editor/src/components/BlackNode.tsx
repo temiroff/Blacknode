@@ -1301,7 +1301,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       await cookNode(id, 'report')
     } finally {
       try {
-        await updateParam(id, 'action', 'start')
+        await updateParam(id, 'action', 'status')
       } catch {
         // The Viewer is already stopped; leave the visual control responsive.
       }
@@ -1316,7 +1316,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       await cookNode(id, 'report')
     } finally {
       try {
-        await updateParam(id, 'action', 'start')
+        await updateParam(id, 'action', 'status')
       } catch {
         // Keep the history control responsive if the node was removed mid-action.
       }
@@ -1331,7 +1331,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       await cookNode(id, 'report')
     } finally {
       try {
-        await updateParam(id, 'action', 'start')
+        await updateParam(id, 'action', 'status')
       } catch {
         // Keep the accumulation control responsive if the node was removed.
       }

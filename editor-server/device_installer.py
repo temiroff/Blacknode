@@ -4078,7 +4078,27 @@ def control_runtime(
         if selected_instance == "default"
         else f"blacknode-runtime-{selected_instance}.service"
     )
-    systemd_action = "stop" if clean_action == "pause" else "start"
+    if clean_action == "pause":
+        # A failed or interrupted install can leave the registry entry behind
+        # after its systemd unit has already been removed. Treat that state as
+        # safely stopped so PC-assisted replacement can repair the runtime.
+        control_command = (
+            "sudo -S -p '' -v"
+            f" && if systemctl cat {service_name} >/dev/null 2>&1; then"
+            f" sudo -S -p '' systemctl stop {service_name}"
+            f' && state="$(systemctl is-active {service_name} 2>/dev/null || true)"'
+            ' && printf "%s\\n" "$state"'
+            ' && [ "$state" = "inactive" ];'
+            ' else printf "inactive\\n"; fi'
+        )
+    else:
+        control_command = (
+            "sudo -S -p '' -v"
+            f" && sudo -S -p '' systemctl start {service_name}"
+            f' && state="$(systemctl is-active {service_name} 2>/dev/null || true)"'
+            ' && printf "%s\\n" "$state"'
+            ' && [ "$state" = "active" ]'
+        )
     connection = _connect(
         host,
         port,
@@ -4090,13 +4110,7 @@ def control_runtime(
     try:
         output = _run(
             connection,
-            (
-                "sudo -S -p '' -v"
-                f" && sudo -S -p '' systemctl {systemd_action} {service_name}"
-                f' && state="$(sudo -S -p \'\' systemctl is-active {service_name} || true)"'
-                ' && printf "%s\\n" "$state"'
-                f' && [ "$state" = "{"inactive" if clean_action == "pause" else "active"}" ]'
-            ),
+            control_command,
             stdin_text=_sudo_input(password),
             timeout=60.0,
         )

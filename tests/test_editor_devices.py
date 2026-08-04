@@ -572,7 +572,12 @@ class EditorDeviceApiTests(unittest.TestCase):
 
         self.assertEqual(result["state"], "inactive")
         self.assertEqual(len(commands), 1)
-        self.assertEqual(commands[0].count("sudo -S -p ''"), 3)
+        self.assertEqual(commands[0].count("sudo -S -p ''"), 2)
+        self.assertIn(
+            "if systemctl cat blacknode-runtime.service >/dev/null 2>&1",
+            commands[0],
+        )
+        self.assertIn('else printf "inactive\\n"; fi', commands[0])
         self.assertNotIn(" && sudo systemctl", commands[0])
         self.assertNotIn("$(sudo systemctl", commands[0])
         self.assertEqual(

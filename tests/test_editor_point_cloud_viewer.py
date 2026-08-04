@@ -47,3 +47,4 @@ def test_point_cloud_viewer_exposes_accumulation_control():
 
     assert "onToggleViewerAccumulation" in source
     assert "viewerHistoryPaused ? 'resume' : 'pause'" in source
+    assert "await updateParam(id, 'action', 'status')" in source
