@@ -193,6 +193,11 @@ export default function PointCloudViewer({
   ), [parsed.loop_closures])
   const [animationClock, setAnimationClock] = useState(0)
   const scanStartedRef = useRef(0)
+  const sensor = useMemo(() => ({
+    x: finite(parsed.sensor?.x_m),
+    y: finite(parsed.sensor?.y_m),
+    yaw: finite(parsed.sensor?.yaw_rad),
+  }), [parsed.sensor?.x_m, parsed.sensor?.y_m, parsed.sensor?.yaw_rad])
 
   const animationEnabled = parsed.animation?.enabled !== false
   const hasCurrentPoints = currentPoints.length > 0
@@ -202,6 +207,9 @@ export default function PointCloudViewer({
   const scanCoverageRad = clamp(Math.abs(scanAngleMaximum - scanAngleMinimum), 0, Math.PI * 2)
   const scanCoverageDeg = scanCoverageRad * 180 / Math.PI
   const fullCircleScan = scanCoverageRad >= Math.PI * 2 - Math.PI / 180
+  const robotHeadingYaw = sensor.yaw + (
+    fullCircleScan ? 0 : (scanAngleMinimum + scanAngleMaximum) / 2
+  )
   const animationPhase = animationEnabled
     ? ((animationClock - scanStartedRef.current) / 1000 * pulseHz + 1) % 1
     : 1
@@ -222,12 +230,6 @@ export default function PointCloudViewer({
     frame = window.requestAnimationFrame(animate)
     return () => window.cancelAnimationFrame(frame)
   }, [animationEnabled, hasCurrentPoints])
-
-  const sensor = useMemo(() => ({
-    x: finite(parsed.sensor?.x_m),
-    y: finite(parsed.sensor?.y_m),
-    yaw: finite(parsed.sensor?.yaw_rad),
-  }), [parsed.sensor?.x_m, parsed.sensor?.y_m, parsed.sensor?.yaw_rad])
 
   const viewRadius = useMemo(() => {
     const pointRadius = renderedPoints.reduce(
@@ -512,10 +514,39 @@ export default function PointCloudViewer({
       }
     }
 
-    const forwardLength = Math.max(spacing * 1.4, viewRadius * 0.12)
+    const robotLength = clamp(viewRadius * 0.045, 0.24, 0.55)
+    const robotWidth = robotLength * 0.68
+    const headingCosine = Math.cos(robotHeadingYaw)
+    const headingSine = Math.sin(robotHeadingYaw)
+    const robotCorners = [
+      [robotLength / 2, robotWidth / 2],
+      [robotLength / 2, -robotWidth / 2],
+      [-robotLength / 2, -robotWidth / 2],
+      [-robotLength / 2, robotWidth / 2],
+    ].map(([localX, localY]) => worldToScreen(
+      sensor.x + headingCosine * localX - headingSine * localY,
+      sensor.y + headingSine * localX + headingCosine * localY,
+      0,
+      viewport,
+      camera,
+      pixelsPerMeter,
+    ))
+    context.fillStyle = 'rgba(255, 107, 107, 0.82)'
+    context.strokeStyle = '#fff3d0'
+    context.lineWidth = 1.5
+    context.beginPath()
+    robotCorners.forEach((corner, index) => {
+      if (index === 0) context.moveTo(corner[0], corner[1])
+      else context.lineTo(corner[0], corner[1])
+    })
+    context.closePath()
+    context.fill()
+    context.stroke()
+
+    const forwardLength = Math.max(robotLength * 1.4, spacing * 0.8)
     const forward = worldToScreen(
-      sensor.x + Math.cos(sensor.yaw) * forwardLength,
-      sensor.y + Math.sin(sensor.yaw) * forwardLength,
+      sensor.x + headingCosine * forwardLength,
+      sensor.y + headingSine * forwardLength,
       0,
       viewport,
       camera,
@@ -535,15 +566,8 @@ export default function PointCloudViewer({
     context.lineTo(forward[0] - Math.cos(arrowAngle + 0.55) * 8, forward[1] - Math.sin(arrowAngle + 0.55) * 8)
     context.closePath()
     context.fill()
-    context.beginPath()
-    context.arc(sensorScreen[0], sensorScreen[1], 6, 0, Math.PI * 2)
-    context.fillStyle = '#ff6b6b'
-    context.fill()
-    context.strokeStyle = '#fff3d0'
-    context.lineWidth = 1.5
-    context.stroke()
     context.fillStyle = '#ffd166'
-    context.fillText('LiDAR forward', forward[0] + 7, forward[1] - 7)
+    context.fillText('Robot forward', forward[0] + 7, forward[1] - 7)
 
     const scalePixels = spacing * pixelsPerMeter
     const scaleX = 16
@@ -568,6 +592,7 @@ export default function PointCloudViewer({
     parsed.scan?.angle_max_rad,
     parsed.scan?.angle_min_rad,
     pixelsPerMeter,
+    robotHeadingYaw,
     sensor,
     trajectory,
     loopClosures,

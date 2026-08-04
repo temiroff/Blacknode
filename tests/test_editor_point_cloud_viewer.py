@@ -9,7 +9,9 @@ BLACK_NODE = ROOT / "editor" / "src" / "components" / "BlackNode.tsx"
 def test_point_cloud_viewer_exposes_spatial_orientation_and_scale():
     source = VIEWER.read_text(encoding="utf-8")
 
-    assert "LiDAR forward" in source
+    assert "Robot forward" in source
+    assert "robotHeadingYaw" in source
+    assert "robotCorners" in source
     assert "filtered laser returns" in source
     assert "3D orbit · LaserScan lies on XY plane" in source
     assert "meterLabel" in source
