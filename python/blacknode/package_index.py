@@ -359,6 +359,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "SLAM",
                         "WarpParticleLocalization",
                         "WarpDynamicOccupancy",
+                        "WarpTrajectoryEvaluator",
                         "WarpLaserScanFilter",
                         "WarpLiDARViewer",
                         "WarpSLAMDiscoveryViewer"
@@ -394,6 +395,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "SLAM",
                 "WarpParticleLocalization",
                 "WarpDynamicOccupancy",
+                "WarpTrajectoryEvaluator",
                 "WarpLaserScanFilter",
                 "WarpLiDARViewer",
                 "WarpSLAMDiscoveryViewer"

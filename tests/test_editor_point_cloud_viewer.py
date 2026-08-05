@@ -203,6 +203,18 @@ def test_dynamic_motion_uses_orange_points_without_direction_vectors():
     assert "amber/magenta velocity trails" not in viewer_source
 
 
+def test_trajectory_evaluation_draws_safe_blocked_and_best_paths_without_motion_control():
+    viewer_source = VIEWER.read_text(encoding="utf-8")
+
+    assert "trajectory_paths" in viewer_source
+    assert "const trajectoryPaths = useMemo" in viewer_source
+    assert "safe ? '102, 224, 145' : '255, 91, 91'" in viewer_source
+    assert "best ? '91, 235, 255'" in viewer_source
+    assert "WARP PATHS" in viewer_source
+    assert "best GPU path" in viewer_source
+    assert "Warp paths" in viewer_source
+
+
 def test_viewer_ports_are_compact_and_new_viewers_start_square():
     node_source = BLACK_NODE.read_text(encoding="utf-8")
     viewer_source = VIEWER.read_text(encoding="utf-8")
