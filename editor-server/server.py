@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "python"))
@@ -2266,6 +2266,38 @@ def update_param(node_id: str, req: UpdateParamReq):
     _push_live_node_param_update(meta, req.key, req.value, old_params)
     _save()
     return meta
+
+
+@app.get("/nodes/{node_id}/depth-frame")
+def depth_frame(node_id: str):
+    meta = _session.node_meta.get(node_id)
+    if meta is None or meta.get("type") != "DepthViewer":
+        raise HTTPException(404, "DepthViewer node not found")
+    status = _session.graph._cache.get((node_id, "status"))
+    if not isinstance(status, dict):
+        raise HTTPException(409, "Run the DepthViewer once before opening its raw frame")
+    frame_url = str(status.get("frame_url") or "").strip()
+    parsed = urllib.parse.urlparse(frame_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.path != "/frame.bin":
+        raise HTTPException(409, "DepthViewer has no supported raw HTTP frame")
+    try:
+        request = urllib.request.Request(
+            frame_url,
+            headers={"Accept": "application/vnd.blacknode.metric-depth-frame"},
+        )
+        with urllib.request.urlopen(request, timeout=2.0) as upstream:
+            payload = upstream.read(256 * 1024 * 1024 + 1)
+    except (OSError, TimeoutError, urllib.error.URLError) as exc:
+        raise HTTPException(502, f"Raw depth frame unavailable: {type(exc).__name__}: {exc}") from exc
+    if len(payload) > 256 * 1024 * 1024:
+        raise HTTPException(413, "Raw depth frame exceeds 256 MiB")
+    if not payload.startswith(b"BNDEPTH1"):
+        raise HTTPException(502, "Raw depth source returned an invalid frame")
+    return Response(
+        content=payload,
+        media_type="application/vnd.blacknode.metric-depth-frame",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/nodes/{node_id}/control")

@@ -1429,6 +1429,12 @@ async function req<T>(method: string, path: string, body?: unknown, timeoutMs?: 
   }
 }
 
+async function binaryReq(path: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  const res = await fetchBackend(path, { method: 'GET', signal })
+  if (!res.ok) await responseJson<never>(res, path)
+  return res.arrayBuffer()
+}
+
 async function streamCook(
   path: string,
   body: unknown,
@@ -1574,6 +1580,8 @@ async function streamDeviceAction<T>(
 export const api = {
   nodeTypes: ()                              => req<string[]>('GET', '/node-types'),
   nodeDefs:  ()                              => req<Record<string, BnNodeDef>>('GET', '/node-defs'),
+  depthFrame: (nodeId: string, signal?: AbortSignal) =>
+    binaryReq(`/nodes/${encodeURIComponent(nodeId)}/depth-frame`, signal),
   // withGit runs per-package git status (branch/ahead/behind), which the
   // Packages panel shows. Leave it off for the frequent node-grouping refresh so
   // switching tabs or saving a script doesn't fire a burst of git commands.

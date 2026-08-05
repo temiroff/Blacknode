@@ -2730,6 +2730,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       )}
       {isImageSensorViewer && (
         <ImageSensorViewer
+          nodeId={id}
           preview={data.portResults?.preview}
           status={data.portResults?.status}
           sensorKind={data.type === 'DepthViewer' ? 'depth' : 'camera'}
