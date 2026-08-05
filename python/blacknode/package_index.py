@@ -357,6 +357,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "node_types": [
                         "Viewer",
                         "SLAM",
+                        "WarpParticleLocalization",
                         "WarpLaserScanFilter",
                         "WarpLiDARViewer",
                         "WarpSLAMDiscoveryViewer"
@@ -390,6 +391,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "TensorCoreGEMM",
                 "Viewer",
                 "SLAM",
+                "WarpParticleLocalization",
                 "WarpLaserScanFilter",
                 "WarpLiDARViewer",
                 "WarpSLAMDiscoveryViewer"

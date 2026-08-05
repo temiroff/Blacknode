@@ -135,6 +135,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert cuda["spatial-processing"]["node_types"] == [
         "Viewer",
         "SLAM",
+        "WarpParticleLocalization",
         "WarpLaserScanFilter",
         "WarpLiDARViewer",
         "WarpSLAMDiscoveryViewer",
@@ -147,6 +148,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "LiDARROS2WarpViewer",
     ]
     assert payload["nodes"]["LiDARROS2Scan"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["WarpParticleLocalization"]["package"] == "blacknode-cuda"
     drivers = payload["packages"]["blacknode-drivers"]
     assert drivers["layer"] == "drivers"
     assert drivers["components"]["feetech"]["default"] is True
