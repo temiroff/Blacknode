@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -34,6 +36,48 @@ def _workflow(node_type: str, required_packages=None):
         },
         "edges": [],
     }
+
+
+def test_real_sensor_templates_use_generic_ros2_then_typed_processor():
+    repository = Path(__file__).resolve().parents[1]
+    template_roots = [
+        repository / "packages" / "blacknode-perception",
+        repository / "packages" / "blacknode-cuda",
+        repository / "packages" / "blacknode-skills",
+    ]
+    processor_types = {
+        "sensor_msgs/msg/Image": {"CameraImageProcessor", "DepthImageProcessor"},
+        "sensor_msgs/msg/CompressedImage": {"CameraImageProcessor"},
+        "sensor_msgs/msg/LaserScan": {"LaserScanProcessor"},
+        "sensor_msgs/msg/Imu": {"IMUProcessor"},
+    }
+    checked = []
+
+    for root in template_roots:
+        for path in root.rglob("templates/*.json"):
+            workflow = json.loads(path.read_text(encoding="utf-8"))
+            if workflow.get("kind") != "blacknode.workflow":
+                continue
+            nodes = workflow.get("node_meta") or {}
+            edges = workflow.get("edges") or []
+            for node_id, meta in nodes.items():
+                if meta.get("type") != "ROS2":
+                    continue
+                message_type = str((meta.get("params") or {}).get("message_type") or "")
+                accepted = processor_types.get(message_type)
+                if not accepted:
+                    continue
+                assert any(item.get("type") == "ComputeDevice" for item in nodes.values()), path
+                assert any(
+                    edge.get("from") == node_id
+                    and edge.get("from_port") == "stream"
+                    and edge.get("to_port") == "source"
+                    and (nodes.get(edge.get("to")) or {}).get("type") in accepted
+                    for edge in edges
+                ), f"{path}: ROS2 {node_id} must feed {sorted(accepted)}"
+                checked.append((path.name, node_id))
+
+    assert len(checked) >= 13
 
 
 def test_core_index_maps_official_node_types_to_git_packages():
@@ -148,14 +192,10 @@ def test_core_index_maps_official_node_types_to_git_packages():
     ]
     perception = payload["packages"]["blacknode-perception"]["components"]
     assert perception["lidar"]["default"] is True
-    assert perception["lidar"]["node_types"] == ["LiDAR", "LiDARTestProvider"]
-    assert perception["lidar"]["adapters"]["ros2"]["node_types"] == [
-        "LiDARROS2Scan",
-        "LiDARROS2WarpViewer",
-    ]
+    assert perception["lidar"]["node_types"] == ["LaserScanProcessor", "LiDAR"]
+    assert perception["lidar"]["adapters"]["ros2"]["node_types"] == []
     assert perception["imu"]["default"] is True
-    assert perception["imu"]["node_types"] == ["IMU", "IMUTestProvider", "IMUViewer"]
-    assert payload["nodes"]["LiDARROS2Scan"]["package"] == "blacknode-perception"
+    assert perception["imu"]["node_types"] == ["IMUProcessor", "IMU", "IMUViewer"]
     assert payload["nodes"]["IMUViewer"]["package"] == "blacknode-perception"
     assert payload["nodes"]["WarpParticleLocalization"]["package"] == "blacknode-cuda"
     assert payload["nodes"]["WarpDynamicOccupancy"]["package"] == "blacknode-cuda"
@@ -220,9 +260,12 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["BaseSafetyGate"]["package"] == "blacknode-motion"
     assert payload["nodes"]["Camera"]["package"] == "blacknode-perception"
     assert payload["nodes"]["CameraStream"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["CameraImageProcessor"]["package"] == "blacknode-perception"
     assert payload["nodes"]["DepthCamera"]["package"] == "blacknode-perception"
     assert payload["nodes"]["DepthCameraDeviceSelect"]["package"] == "blacknode-perception"
-    assert payload["nodes"]["DepthCameraTestProvider"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["DepthImageProcessor"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["LaserScanProcessor"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["IMUProcessor"]["package"] == "blacknode-perception"
     assert payload["nodes"]["DepthObstacleWarning"]["package"] == "blacknode-perception"
     assert payload["nodes"]["ACTTraining"] == {
         "package": "blacknode-training",

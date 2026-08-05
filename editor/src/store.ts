@@ -291,7 +291,7 @@ interface Store {
     recordHistory?: boolean,
   ) => Promise<void>
 
-  addNode: (typeName: string, pos: { x: number; y: number }, params?: Record<string, unknown>) => Promise<void>
+  addNode: (typeName: string, pos: { x: number; y: number }, params?: Record<string, unknown>) => Promise<string | undefined>
   addNodeFromConnection: (typeName: string, pos: { x: number; y: number }, draft: ConnectionDraft, params?: Record<string, unknown>) => Promise<void>
   removeNode: (id: string) => Promise<void>
   resizeNode: (id: string, size: { width: number; height: number }) => void
@@ -2394,11 +2394,12 @@ export const useStore = create<Store>((set, get) => ({
       // Also remove the node from the root graph (it was added there by api.addNode)
       await api.removeNode(meta.id)
       set(s => ({ nodes: newNodes, ...markActiveTabDirty(s) }))
-      return
+      return meta.id
     }
     const meta = await api.addNode(typeName, [pos.x, pos.y], params)
     const node = makeReactNode(meta)
     set(s => ({ nodes: [...s.nodes, node], ...markActiveTabDirty(s) }))
+    return meta.id
   },
 
   addNodeFromConnection: async (typeName, pos, draft, params = {}) => {

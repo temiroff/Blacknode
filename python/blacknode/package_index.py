@@ -656,6 +656,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "Camera",
                         "CameraCalibration",
                         "CameraDiscovery",
+                        "CameraImageProcessor",
                         "CameraSelect",
                         "CameraStream"
                     ],
@@ -665,7 +666,6 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             "default": True,
                             "node_types": [
                                 "CameraROS2Provider",
-                                "CameraROS2Subscribe",
                                 "CameraROS2Publish",
                                 "CameraROS2Http"
                             ]
@@ -690,16 +690,14 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "node_types": [
                         "DepthCamera",
                         "DepthCameraDeviceSelect",
-                        "DepthCameraTestProvider",
+                        "DepthImageProcessor",
                         "DepthObstacleWarning"
                     ],
                     "adapters": {
                         "ros2": {
                             "name": "ros2",
                             "default": True,
-                            "node_types": [
-                                "DepthROS2Subscribe"
-                            ]
+                            "node_types": []
                         }
                     }
                 },
@@ -707,17 +705,14 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "lidar",
                     "default": True,
                     "node_types": [
-                        "LiDAR",
-                        "LiDARTestProvider"
+                        "LaserScanProcessor",
+                        "LiDAR"
                     ],
                     "adapters": {
                         "ros2": {
                             "name": "ros2",
                             "default": True,
-                            "node_types": [
-                                "LiDARROS2Scan",
-                                "LiDARROS2WarpViewer"
-                            ],
+                            "node_types": [],
                             "dependencies": {
                                 "requires": [
                                     {
@@ -739,8 +734,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "name": "imu",
                     "default": True,
                     "node_types": [
+                        "IMUProcessor",
                         "IMU",
-                        "IMUTestProvider",
                         "IMUViewer"
                     ]
                 },
@@ -791,26 +786,23 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "CameraCalibration",
                 "CameraDashboard",
                 "CameraDiscovery",
+                "CameraImageProcessor",
                 "CameraROS2Provider",
                 "CameraROS2Http",
                 "CameraROS2Publish",
-                "CameraROS2Subscribe",
                 "CameraSelect",
                 "CameraStream",
                 "DetectionPrompt",
                 "DetectionStream",
                 "DepthCamera",
                 "DepthCameraDeviceSelect",
-                "DepthCameraTestProvider",
+                "DepthImageProcessor",
                 "DepthObstacleWarning",
-                "DepthROS2Subscribe",
                 "FramePrompt",
+                "LaserScanProcessor",
                 "LiDAR",
-                "LiDARROS2Scan",
-                "LiDARROS2WarpViewer",
-                "LiDARTestProvider",
+                "IMUProcessor",
                 "IMU",
-                "IMUTestProvider",
                 "IMUViewer",
                 "ReasoningDashboard",
                 "ReasoningStream",

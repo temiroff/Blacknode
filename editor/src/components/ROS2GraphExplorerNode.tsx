@@ -198,6 +198,7 @@ export default function ROS2GraphExplorerNode({ id, data, selected }: NodeProps<
   const [notice, setNotice] = useState('')
   const cookNode = useStore(state => state.cookNode)
   const addNode = useStore(state => state.addNode)
+  const addNodeFromConnection = useStore(state => state.addNodeFromConnection)
   const nodes = useStore(state => state.nodes)
   const nodeDefs = useStore(state => state.nodeDefs)
   const graph = graphValue(data.portResults?.graph)
@@ -262,20 +263,41 @@ export default function ROS2GraphExplorerNode({ id, data, selected }: NodeProps<
 
   const addMonitor = async (topic: RosTopic) => {
     const messageType = topic.types?.[0] || ''
-    const lowerName = topic.name.toLowerCase()
     let type = 'ROS2TopicEcho'
+    let processorType = ''
     let params: Record<string, unknown> = {
       topic: topic.name,
       msg_type: messageType,
       count: 1,
     }
     if (messageType === 'sensor_msgs/msg/Image' || messageType === 'sensor_msgs/msg/CompressedImage') {
-      if (lowerName.includes('depth') && nodeDefs.DepthROS2Subscribe) {
-        type = 'DepthROS2Subscribe'
-        params = { topic: topic.name }
-      } else if (nodeDefs.CameraROS2Subscribe) {
-        type = 'CameraROS2Subscribe'
-        params = { topic: topic.name, message_type: messageType || 'auto' }
+      if (nodeDefs.ROS2) {
+        type = 'ROS2'
+        processorType = /(^|\/)depth([/_]|$)|disparity/i.test(topic.name)
+          ? 'DepthImageProcessor'
+          : 'CameraImageProcessor'
+        params = {
+          action: 'start',
+          topic: topic.name,
+          message_type: messageType,
+          transport: 'image',
+          stream_options: {},
+          qos: 'sensor_data',
+        }
+      }
+    } else if (messageType === 'sensor_msgs/msg/LaserScan' && nodeDefs.ROS2) {
+      type = 'ROS2'
+      processorType = 'LaserScanProcessor'
+      params = {
+        action: 'start', topic: topic.name, message_type: messageType,
+        transport: 'message', stream_options: {}, qos: 'sensor_data',
+      }
+    } else if (messageType === 'sensor_msgs/msg/Imu' && nodeDefs.ROS2) {
+      type = 'ROS2'
+      processorType = 'IMUProcessor'
+      params = {
+        action: 'start', topic: topic.name, message_type: messageType,
+        transport: 'message', stream_options: {}, qos: 'sensor_data',
       }
     } else if (messageType === 'sensor_msgs/msg/JointState' && nodeDefs.ROS2JointState) {
       type = 'ROS2JointState'
@@ -289,10 +311,24 @@ export default function ROS2GraphExplorerNode({ id, data, selected }: NodeProps<
     const existingMonitors = nodes.filter(node => (
       String(node.data.params?.topic || '') === topic.name
     )).length
-    await addNode(type, {
+    const position = {
       x: (self?.position.x ?? 0) + 1080,
       y: (self?.position.y ?? 0) + existingMonitors * 190,
-    }, params)
+    }
+    const transportId = await addNode(type, position, params)
+    if (transportId && processorType && nodeDefs[processorType]) {
+      await addNodeFromConnection(processorType, {
+        x: position.x + 360,
+        y: position.y,
+      }, {
+        nodeId: transportId,
+        handleId: 'stream',
+        handleType: 'source',
+        portType: 'Dict',
+      })
+      setNotice(`Added ROS2 → ${processorType} for ${topic.name}`)
+      return
+    }
     setNotice(`Added ${type} for ${topic.name}`)
   }
 

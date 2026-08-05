@@ -235,7 +235,7 @@ class EditorRuntimeTests(unittest.TestCase):
             def manifest(self):
                 return {
                     "features": ["remote_ros2_topic_stream_v1"],
-                    "packages": [{"name": "blacknode-ros2", "version": "0.5.20"}],
+                    "packages": [{"name": "blacknode-ros2", "version": "0.6.0"}],
                     "node_types": ["ROS2"],
                 }
 
@@ -331,6 +331,73 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertEqual([item["name"] for item in synced], ["blacknode-ros2"])
         self.assertEqual(synced[0]["components"], ["core", "topics"])
         self.assertTrue(synced[0]["update"])
+
+    def test_remote_ros2_image_action_uses_paired_device_and_rewrites_stream_urls(self):
+        calls = []
+
+        class FakeRuntimeClient:
+            base_url = "http://robot.local:8766"
+
+            def manifest(self):
+                return {
+                    "features": [
+                        "remote_ros2_topic_stream_v1",
+                        "remote_ros2_image_stream_v1",
+                    ],
+                    "packages": [{"name": "blacknode-ros2", "version": "0.6.0"}],
+                    "node_types": ["ROS2"],
+                }
+
+            def start_ros2_image(self, stream_id, payload):
+                calls.append(("start", stream_id, payload))
+                return {"id": stream_id, "stream": {
+                    "ok": True,
+                    "running": True,
+                    "stream_url": "http://0.0.0.0:19001/stream.mjpg",
+                    "snapshot_url": "http://127.0.0.1:19001/snapshot.jpg",
+                    "health_url": "http://0.0.0.0:19001/health",
+                    "frame_url": "http://0.0.0.0:19001/frame.bin",
+                }}
+
+            def ros2_image_status(self, stream_id):
+                calls.append(("status", stream_id))
+                return self.start_ros2_image(stream_id, {})
+
+            def stop_ros2_image(self, stream_id):
+                calls.append(("stop", stream_id))
+                return {"id": stream_id, "stream": {"ok": True, "running": False}}
+
+        registry = SimpleNamespace(runtime_client=lambda device_id: FakeRuntimeClient())
+        request = {
+            "node_id": "rgb-camera",
+            "node_type": "ROS2",
+            "device_id": "jetson",
+            "action": "start",
+            "topic": "/camera/image_raw",
+            "message_type": "auto",
+            "max_fps": 10.0,
+        }
+        server._remote_ros2_image_runs.clear()
+        try:
+            with patch.object(server, "_device_registry", registry):
+                started = server._remote_ros2_image_action(request)
+                runtime = server._remote_ros2_image_runtime_status()
+                stopped = server._remote_ros2_image_action({**request, "action": "stop"})
+
+            self.assertEqual(
+                started["stream"]["stream_url"],
+                "http://robot.local:19001/stream.mjpg",
+            )
+            self.assertEqual(
+                started["stream"]["snapshot_url"],
+                "http://robot.local:19001/snapshot.jpg",
+            )
+            self.assertEqual(started["stream"]["device_id"], "jetson")
+            self.assertTrue(runtime["active"])
+            self.assertFalse(stopped["stream"]["running"])
+            self.assertEqual([item[0] for item in calls], ["start", "status", "start", "stop"])
+        finally:
+            server._remote_ros2_image_runs.clear()
 
     def test_stop_runtime_services_aggregates_package_runtime_modules(self):
         def fake_stop(label, _module_name):
