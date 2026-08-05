@@ -110,6 +110,15 @@ blacknode-example/
 - Add `metadata.required_packages` to templates that use package nodes.
 - Keep each package independently testable, versioned, documented, and
   publishable from its own Git repository.
+- Check the real managed-device update surface before declaring delivery
+  complete. A package-only release is sufficient only when the operator can use
+  that package's **Update** action or **Update all**. When the operator's
+  available or expected path is **Runtime → Update**, publish a Runtime patch
+  release even if Runtime service code is unchanged; that visible update
+  refreshes installed extension packages. Merge the extension first, merge the
+  Runtime bump next, then pin merged Runtime and required core commits in
+  `editor-server/device-runtime-sources.lock.json`. Never direct an operator to
+  an extension-package control they do not have.
 - Add scoped `AGENTS.md` safety and test instructions. Create a package-specific
   skill only when users need a distinct, substantial operational workflow that
   cannot be routed clearly through `blacknode-workflow`.

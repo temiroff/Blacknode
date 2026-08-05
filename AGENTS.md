@@ -53,7 +53,7 @@ the decision in the pull request and final handoff.
 |---|---|---|
 | `blacknode-runtime` service, manifest, API, installer, supervision, or package-sync behavior | Yes | Bump and merge `blacknode-runtime`, then update `editor-server/device-runtime-sources.lock.json` |
 | Core Python or CLI behavior that must be present under `~/Blacknode/devices/<instance>/core`, including support for a new package application such as `blacknode run <app>` | Yes | Merge the core behavior, bump and merge `blacknode-runtime`, then pin both merged commits in the device source lock |
-| Extension-package implementation used through the existing package loader and sync contract | No | Bump and merge that package; make the workflow declare it in `metadata.required_packages` |
+| Extension-package implementation used through the existing package loader and sync contract | Operator-surface dependent | Bump and merge that package. If the operator can update it through its package card or **Update all**, no Runtime bump is needed. If the operator's available or expected action is **Runtime → Update**, also publish a Runtime patch release so that action appears and refreshes installed extensions. |
 | Editor-only UI, editor-server orchestration that does not alter the device bundle, workflow/template data, tests, or documentation | No | Release through the owning core or package repository only |
 
 Use this sequence when the answer is **Yes**:
@@ -72,8 +72,11 @@ Use this sequence when the answer is **Yes**:
 
 Do not claim that all work is released until every independently versioned
 repository and the managed-device source lock required by the change are
-merged. Package-only updates remain independently deployable and do not force a
-Runtime version bump.
+merged. Never decide delivery from code ownership alone: verify the update
+control the operator can actually use. Do not tell an operator to update an
+extension-package card they do not have. A package-only release is complete
+only when the real operator surface can deliver it; otherwise use a Runtime
+patch release as the visible update trigger and pin it through the source lock.
 
 ## Operator workflow
 

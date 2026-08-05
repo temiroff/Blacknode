@@ -85,6 +85,12 @@ package card. **Update all** refreshes Runtime, every extension package already
 installed in that Runtime, and Hardware. The package cards also provide
 **Restart** for restarting Runtime or Hardware individually.
 
+Some managed-device layouts expose Runtime as the only actionable workflow
+software card. In that layout, **Runtime → Update** also refreshes every
+installed extension package after updating Runtime. Device-facing package
+releases that must arrive through this operator path publish a Runtime patch
+version so the editor presents an available update.
+
 Blacknode stops active deployments, disarms attached robots, updates the
 selected services and clean package checkouts, reloads Runtime, and verifies
 the resulting package manifest. Deployments remain stopped and disarmed until
