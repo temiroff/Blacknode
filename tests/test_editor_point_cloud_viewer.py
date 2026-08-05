@@ -193,12 +193,14 @@ def test_point_cloud_viewer_fills_resized_node_in_both_dimensions():
     assert "display: isViewer ? 'none' : 'flex'" in node_source
 
 
-def test_dynamic_motion_trails_are_distance_bounded():
+def test_dynamic_motion_uses_orange_points_without_direction_vectors():
     viewer_source = VIEWER.read_text(encoding="utf-8")
 
-    assert "trail_distance_limit_m" in viewer_source
-    assert "rawTrailDistance > trailDistanceLimit" in viewer_source
-    assert "trailDistanceLimit / rawTrailDistance" in viewer_source
+    assert "Motion is position-only for now" in viewer_source
+    assert "const color = '255, 169, 64'" in viewer_source
+    assert "coherent motion · orange points" in viewer_source
+    assert "point[0] - velocityX" not in viewer_source
+    assert "amber/magenta velocity trails" not in viewer_source
 
 
 def test_viewer_ports_are_compact_and_new_viewers_start_square():
