@@ -385,7 +385,7 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'Dict'   ? { style: { width: 260, height: 150 } } : {}),
     ...(meta.type === 'Output' ? { style: { width: 320, height: 200 } } : {}),
     ...(meta.type === 'OutputImage' ? { style: { width: 760, height: 620 } } : {}),
-    ...((meta.type === 'Viewer' || meta.type === 'SLAM') ? { style: { width: 720, height: 720 } } : {}),
+    ...((meta.type === 'Viewer' || meta.type === 'SLAM' || meta.type === 'IMUViewer') ? { style: { width: 720, height: 720 } } : {}),
     ...(meta.type === 'DatasetBrowser' ? { style: { width: 980, height: 860 } } : {}),
     ...(hasDashboardImage ? { style: { width: 860, height: 720 } } : {}),
     ...(meta.type === 'ROS2VisualDashboard' ? { style: { width: 840, height: 760 } } : {}),
@@ -676,7 +676,7 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
       },
     }
   }
-  if (data.type === 'Viewer' || data.type === 'SLAM') {
+  if (data.type === 'Viewer' || data.type === 'SLAM' || data.type === 'IMUViewer') {
     const previousStatus = data.portResults?.status
     const status = previousStatus && typeof previousStatus === 'object' && !Array.isArray(previousStatus)
       ? previousStatus as Record<string, unknown>
@@ -1732,7 +1732,7 @@ export const useStore = create<Store>((set, get) => ({
           } : {}
           if (Object.keys(liveOutputs).length === 0 && Object.keys(managedOutputs).length === 0) {
             if (
-              (node.data.type === 'Viewer' || node.data.type === 'SLAM')
+              (node.data.type === 'Viewer' || node.data.type === 'SLAM' || node.data.type === 'IMUViewer')
               && (node.data.portResults?.running === true || node.data.portResults?.live === true)
             ) {
               const previousStatus = node.data.portResults?.status
@@ -3651,7 +3651,8 @@ export const useStore = create<Store>((set, get) => ({
           n.data.type === 'ROS2' ||
           n.data.type === 'ROS2Launch' ||
           n.data.type === 'Viewer' ||
-          n.data.type === 'SLAM'
+          n.data.type === 'SLAM' ||
+          n.data.type === 'IMUViewer'
         )
         return {
           ...n,

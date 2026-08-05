@@ -639,6 +639,7 @@ _RUNTIME_MODULES = {
     "vision": "blacknode.pkg.blacknode_perception.cv2_runtime",
     "cuda": "blacknode.pkg.blacknode_cuda.cuda_stream_runtime",
     "viewer": "blacknode.pkg.blacknode_cuda.viewer_runtime",
+    "imu_viewer": "blacknode.pkg.blacknode_perception.imu_runtime",
     "slam": "blacknode.pkg.blacknode_cuda.slam_runtime",
     "robot": "blacknode.pkg.blacknode_robot.robot",
     "dataset": "blacknode.pkg.blacknode_dataset.runtime",
@@ -658,6 +659,7 @@ _RUNTIME_REGISTRY_ANCHORS = {
     "joint_control": "ROS2ManualMove",
     "robot_calibration_control": "RobotCalibrationControl",
     "viewer": "Viewer",
+    "imu_viewer": "IMUViewer",
     "slam": "SLAM",
 }
 
@@ -2317,19 +2319,36 @@ def control_node(node_id: str, req: NodeControlReq):
             _session.graph._cache[(node_id, port)] = value
         _session.graph._dirty.discard(node_id)
         return {"ok": True, "node_id": node_id, "outputs": outputs}
-    if meta.get("type") in {"Viewer", "SLAM"}:
+    if meta.get("type") in {"Viewer", "SLAM", "IMUViewer"}:
         action = str(req.action or "").strip().lower()
-        base_actions = {"status", "clear", "pause", "resume", "stop"}
+        base_actions = (
+            {"status", "stop"}
+            if meta.get("type") == "IMUViewer"
+            else {"status", "clear", "pause", "resume", "stop"}
+        )
         if action not in base_actions and not (
             meta.get("type") == "SLAM" and action == "set-goal"
         ):
             raise HTTPException(
                 400,
                 "Viewer controls support status, clear, pause, resume, or stop; "
+                "IMUViewer supports status or stop; "
                 "SLAM additionally supports set-goal",
             )
         params = dict(meta.get("params") or {})
-        if meta.get("type") == "Viewer":
+        if meta.get("type") == "IMUViewer":
+            runtime_id = str(params.get("viewer_id") or "imu_viewer").strip() or "imu_viewer"
+            function_name = {
+                "status": "imu_viewer_status",
+                "stop": "stop_imu_viewer",
+            }[action]
+            control_fn = _runtime_callable(
+                "imu_viewer", _RUNTIME_MODULES["imu_viewer"], function_name,
+            )
+            if control_fn is None:
+                raise HTTPException(503, "blacknode-perception IMU Viewer runtime is not loaded")
+            outputs = dict(control_fn(runtime_id))
+        elif meta.get("type") == "Viewer":
             runtime_id = str(params.get("viewer_id") or "viewer").strip() or "viewer"
             function_name = {
                 "status": "viewer_status",

@@ -127,6 +127,86 @@ interface ViewerScene {
     trail_seconds?: number
     trail_distance_limit_m?: number
   }
+  depth_projection?: {
+    state?: string
+    backend?: string
+    device?: string
+    width?: number
+    height?: number
+    input_pixels?: number
+    valid_points?: number
+    display_points?: number
+    stride?: number
+    fetch_ms?: number
+    pipeline_ms?: number
+    cpu_ms?: number
+    speedup?: number
+    max_error_m?: number
+    mean_confidence?: number
+    encoding?: string
+    color_registered?: boolean
+    color_fetch_ms?: number
+    color_error?: string
+  }
+  reconstruction?: {
+    kind?: string
+    color_registered?: boolean
+    pose_registered?: boolean
+    integration?: {
+      state?: string
+      backend?: string
+      device?: string
+      frames_integrated?: number
+      input_points?: number
+      work_items?: number
+      integration_ms?: number
+      voxel_size_m?: number
+      truncation_m?: number
+      voxel_count?: number
+      dimensions?: number[]
+    }
+    extraction?: {
+      state?: string
+      backend?: string
+      surface_voxels?: number
+      display_points?: number
+      observed_voxels?: number
+      allocated_voxels?: number
+      extraction_ms?: number
+      minimum_weight?: number
+    }
+  }
+  sensor_fusion?: {
+    state?: string
+    backend?: string
+    device?: string
+    lidar_points?: number
+    depth_points?: number
+    fused_points?: number
+    matched_points?: number
+    unmatched_points?: number
+    matched_ratio?: number
+    mean_residual_m?: number
+    rms_residual_m?: number
+    p95_residual_m?: number
+    maximum_alignment_distance_m?: number
+    mean_confidence?: number
+    calibration_hypotheses?: number
+    calibration_work_items?: number
+    best_score?: number
+    correction?: { x_m?: number; y_m?: number; yaw_deg?: number }
+    pipeline_ms?: number
+    cpu_ms?: number
+    speedup?: number
+  }
+  synchronization?: {
+    state?: string
+    depth_time_ns?: number
+    lidar_time_ns?: number
+    delta_seconds?: number
+    tolerance_seconds?: number
+    rgb_mode?: string
+  }
   trajectory_evaluation?: {
     state?: string
     backend?: string
@@ -1380,7 +1460,7 @@ export default function PointCloudViewer({
           />
           Axes
         </label>
-        {onAccumulationToggle && (
+        {onAccumulationToggle && (!parsed.depth_projection || parsed.reconstruction) && (
           <button
             type="button"
             disabled={accumulationPending}
@@ -1399,7 +1479,7 @@ export default function PointCloudViewer({
         >
           Floor: {showFreeSpace ? 'On' : 'Off'}
         </button>
-        {onClear && <button type="button" disabled={clearPending} style={controlStyle()} title="Clear accumulated scan history and switch accumulation off" onClick={onClear}>{clearPending ? 'Clearing…' : 'Clear history'}</button>}
+        {onClear && (!parsed.depth_projection || parsed.reconstruction) && <button type="button" disabled={clearPending} style={controlStyle()} title={parsed.reconstruction ? 'Clear the persistent RGB-D reconstruction volume and pause integration' : 'Clear accumulated scan history and switch accumulation off'} onClick={onClear}>{clearPending ? 'Clearing…' : parsed.reconstruction ? 'Clear volume' : 'Clear history'}</button>}
         <span style={{ marginLeft: 'auto', color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
           {camera.zoom.toFixed(2)}× · yaw {yawDegrees}° · pitch {pitchDegrees}°
         </span>
@@ -1500,7 +1580,15 @@ export default function PointCloudViewer({
           fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
         }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: currentPoints.length ? '#56d991' : '#71808d' }} />
-          {currentPoints.length ? `CURRENT SCAN #${Number(parsed.sequence ?? 0).toLocaleString()} · ${clockwiseScan ? 'CW' : 'CCW'} ${Math.round(animationPhase * 100)}%` : 'WAITING FOR SCAN'}
+          {currentPoints.length
+            ? parsed.sensor_fusion?.backend === 'warp-hash-grid'
+              ? `SENSOR FUSION · ${Number(parsed.sensor_fusion.matched_points ?? 0).toLocaleString()} ALIGNED`
+              : parsed.reconstruction?.integration?.backend === 'warp'
+              ? `RGB-D RECONSTRUCTION · ${Number(parsed.reconstruction.integration.frames_integrated ?? 0).toLocaleString()} FRAMES`
+              : parsed.depth_projection?.backend === 'warp'
+              ? `METRIC DEPTH · ${Number(parsed.depth_projection.width ?? 0)}×${Number(parsed.depth_projection.height ?? 0)}`
+              : `CURRENT SCAN #${Number(parsed.sequence ?? 0).toLocaleString()} · ${clockwiseScan ? 'CW' : 'CCW'} ${Math.round(animationPhase * 100)}%`
+            : parsed.depth_projection ? 'WAITING FOR DEPTH' : 'WAITING FOR SCAN'}
         </div>
         {parsed.occupancy?.backend === 'warp' && (
           <div style={{
@@ -1534,6 +1622,17 @@ export default function PointCloudViewer({
               : `HASHGRID MOTION · ${Number(parsed.dynamic_occupancy.dynamic_points ?? 0).toLocaleString()} MOVING`}
           </div>
         )}
+        {parsed.sensor_fusion?.backend === 'warp-hash-grid' && (
+          <div style={{
+            position: 'absolute', zIndex: 3, top: 39, right: 9, display: 'flex', alignItems: 'center', gap: 6,
+            padding: '4px 7px', borderRadius: 5, background: 'rgba(4, 18, 22, 0.84)',
+            border: '1px solid rgba(91, 235, 255, 0.48)', color: '#91f4ff',
+            fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: finite(parsed.sensor_fusion.matched_ratio) > 0.5 ? '#66e091' : '#f2b84b' }} />
+            HASHGRID ALIGN · {(finite(parsed.sensor_fusion.mean_residual_m) * 100).toFixed(1)} CM · {(finite(parsed.sensor_fusion.matched_ratio) * 100).toFixed(0)}%
+          </div>
+        )}
         {parsed.trajectory_evaluation?.backend === 'warp' && (
           <div style={{
             position: 'absolute', zIndex: 3, top: parsed.dynamic_occupancy?.backend === 'warp-hash-grid' ? 70 : 39, right: 9,
@@ -1564,11 +1663,17 @@ export default function PointCloudViewer({
       }}>
         <span>
           {pointCount > 0
-            ? `${pointCount.toLocaleString()} accumulated returns`
+            ? parsed.sensor_fusion?.backend === 'warp-hash-grid'
+              ? `${pointCount.toLocaleString()} fused sensor points`
+              : parsed.reconstruction?.extraction?.backend === 'warp'
+              ? `${pointCount.toLocaleString()} reconstructed surface voxels`
+              : parsed.depth_projection?.backend === 'warp'
+              ? `${pointCount.toLocaleString()} projected depth points`
+              : `${pointCount.toLocaleString()} accumulated returns`
             : currentPoints.length ? 'Live scan; map is empty' : 'Waiting for points'}
         </span>
         {currentPointCount > 0 && <span>{currentPointCount.toLocaleString()} current</span>}
-        {accumulatedScanCount > 0 && <span>{accumulatedScanCount.toLocaleString()} scans</span>}
+        {accumulatedScanCount > 0 && (!parsed.depth_projection || parsed.reconstruction) && <span>{accumulatedScanCount.toLocaleString()} {parsed.reconstruction ? 'RGB-D frames' : 'scans'}</span>}
         {displayCount > 0 && displayCount !== pointCount && <span>{displayCount.toLocaleString()} displayed</span>}
         {kernelMs > 0 && <span>{kernelMs.toFixed(3)} ms Warp</span>}
         {parsed.occupancy?.backend === 'warp' && (
@@ -1592,14 +1697,31 @@ export default function PointCloudViewer({
             {finite(parsed.dynamic_occupancy.speedup) > 0 ? ` · ${finite(parsed.dynamic_occupancy.speedup).toFixed(1)}× CPU` : ''}
           </span>
         )}
+        {parsed.depth_projection?.state === 'ready' && (
+          <span style={{ color: '#7cf4ff' }}>
+            Warp depth {Number(parsed.depth_projection.input_pixels ?? 0).toLocaleString()} pixels · {Number(parsed.depth_projection.valid_points ?? 0).toLocaleString()} valid · stride {Number(parsed.depth_projection.stride ?? 1)} · {finite(parsed.depth_projection.pipeline_ms).toFixed(3)} ms · fetch {finite(parsed.depth_projection.fetch_ms).toFixed(3)} ms · confidence {finite(parsed.depth_projection.mean_confidence).toFixed(2)}
+            {finite(parsed.depth_projection.speedup) > 0 ? ` · ${finite(parsed.depth_projection.speedup).toFixed(1)}× CPU` : ''}
+          </span>
+        )}
+        {parsed.reconstruction?.integration?.state === 'ready' && parsed.reconstruction.extraction?.state === 'ready' && (
+          <span style={{ color: '#9df0c2' }}>
+            Warp TSDF {Number(parsed.reconstruction.integration.frames_integrated ?? 0).toLocaleString()} frames · {Number(parsed.reconstruction.integration.work_items ?? 0).toLocaleString()} integration samples · {finite(parsed.reconstruction.integration.integration_ms).toFixed(3)} ms · extraction {finite(parsed.reconstruction.extraction.extraction_ms).toFixed(3)} ms · {Number(parsed.reconstruction.extraction.observed_voxels ?? 0).toLocaleString()} observed · {Number(parsed.reconstruction.extraction.surface_voxels ?? 0).toLocaleString()} surface · {parsed.reconstruction.color_registered ? 'RGB color' : 'depth confidence color'}
+          </span>
+        )}
+        {parsed.sensor_fusion?.state === 'ready' && (
+          <span style={{ color: '#91f4ff' }}>
+            Warp fusion {Number(parsed.sensor_fusion.lidar_points ?? 0).toLocaleString()} LiDAR + {Number(parsed.sensor_fusion.depth_points ?? 0).toLocaleString()} RGB-D · {Number(parsed.sensor_fusion.matched_points ?? 0).toLocaleString()} matched · mean {(finite(parsed.sensor_fusion.mean_residual_m) * 100).toFixed(1)} cm · p95 {(finite(parsed.sensor_fusion.p95_residual_m) * 100).toFixed(1)} cm · {Number(parsed.sensor_fusion.calibration_hypotheses ?? 0).toLocaleString()} hypotheses · {finite(parsed.sensor_fusion.pipeline_ms).toFixed(3)} ms · sync {(finite(parsed.synchronization?.delta_seconds) * 1000).toFixed(1)} ms
+            {finite(parsed.sensor_fusion.speedup) > 0 ? ` · ${finite(parsed.sensor_fusion.speedup).toFixed(1)}× CPU` : ''}
+          </span>
+        )}
         {parsed.trajectory_evaluation?.state === 'ready' && (
           <span style={{ color: '#91f4ff' }}>
             Warp paths {Number(parsed.trajectory_evaluation.trajectory_count ?? 0).toLocaleString()} × {Number(parsed.trajectory_evaluation.time_steps ?? 0).toLocaleString()} steps = {Number(parsed.trajectory_evaluation.work_items ?? 0).toLocaleString()} evaluations · {finite(parsed.trajectory_evaluation.pipeline_ms).toFixed(3)} ms · best clearance {finite(parsed.trajectory_evaluation.best_minimum_clearance_m).toFixed(2)} m
             {finite(parsed.trajectory_evaluation.speedup) > 0 ? ` · ${finite(parsed.trajectory_evaluation.speedup).toFixed(1)}× CPU` : ''}
           </span>
         )}
-        <span>{scanCoverageDeg >= 359.5 ? `360° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay` : `${scanCoverageDeg.toFixed(1)}° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay`}</span>
-        <span>3D orbit · LaserScan lies on XY plane</span>
+        {!parsed.depth_projection && <span>{scanCoverageDeg >= 359.5 ? `360° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay` : `${scanCoverageDeg.toFixed(1)}° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay`}</span>}
+        <span>{parsed.sensor_fusion ? '3D orbit · synchronized LiDAR and colorized depth alignment' : parsed.reconstruction ? '3D orbit · persistent pose-registered RGB-D surface' : parsed.depth_projection ? '3D orbit · calibrated metric surface' : '3D orbit · LaserScan lies on XY plane'}</span>
       </div>
       <div data-bn-viewer-legend style={{
         display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'nowrap',
@@ -1607,9 +1729,10 @@ export default function PointCloudViewer({
         color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11,
       }}>
         <span style={{ color: '#7cf4ff' }}>B robot {Math.round(finite(parsed.robot?.length_m, 0.25) * 100)}×{Math.round(finite(parsed.robot?.width_m, 0.22) * 100)} cm</span>
-        <span style={{ color: '#72ff9d' }}>— active beam</span>
-        {!fullCircleScan && <span style={{ color: '#85a2b8' }}>┄ scan limits</span>}
-        <span style={{ color: '#32d8ef' }}>● filtered laser returns</span>
+        {!parsed.depth_projection && <span style={{ color: '#72ff9d' }}>— active beam</span>}
+        {!parsed.depth_projection && !fullCircleScan && <span style={{ color: '#85a2b8' }}>┄ scan limits</span>}
+        <span style={{ color: '#32d8ef' }}>{parsed.sensor_fusion ? '● LiDAR cyan · RGB-D green aligned / red residual' : parsed.reconstruction ? '● reconstructed surface · aligned RGB when available' : parsed.depth_projection ? '● projected depth · brightness is surface confidence' : '● filtered laser returns'}</span>
+        {parsed.sensor_fusion && <span style={{ color: '#91f4ff' }}>calibration Δ {finite(parsed.sensor_fusion.correction?.x_m).toFixed(3)} m X · {finite(parsed.sensor_fusion.correction?.y_m).toFixed(3)} m Y · {finite(parsed.sensor_fusion.correction?.yaw_deg).toFixed(2)}° yaw</span>}
         {parsed.occupancy?.fixed_origin === true && <span style={{ color: '#486070' }}>■ unknown map extent</span>}
         {parsed.map_render_mode === 'occupancy-texture' && <span style={{ color: '#74e7a5' }}>GPU map texture · all cells</span>}
         {showFreeSpace && freeCellCount > 0 && <span style={{ color: '#4fc07a' }}>■ {freeCellCount.toLocaleString()} fixed free-floor cells</span>}
@@ -1622,7 +1745,7 @@ export default function PointCloudViewer({
         {Array.isArray(parsed.registration?.tf_path) && parsed.registration.tf_path.length > 1 && (
           <span>{parsed.registration.tf_path.join(' → ')}</span>
         )}
-        {parsed.history_registered === false && <span style={{ color: '#f2b84b' }}>history is sensor-local; moving the robot requires odometry</span>}
+        {parsed.history_registered === false && !parsed.depth_projection && <span style={{ color: '#f2b84b' }}>history is sensor-local; moving the robot requires odometry</span>}
         {parsed.history_paused === true && <span style={{ color: '#f2b84b' }}>accumulation paused</span>}
         {parsed.slam?.tracking_accepted === false && <span style={{ color: '#f2b84b' }}>uncertain scan match rejected · odometry prior kept</span>}
         {parsed.slam?.stationary_odometry_locked === true && <span style={{ color: '#74e7a5' }}>stationary odometry lock · dynamic returns cannot move map</span>}
