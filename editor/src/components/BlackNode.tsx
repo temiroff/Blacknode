@@ -20,6 +20,7 @@ import DatasetBrowserPanel from './DatasetBrowserPanel'
 import PointCloudViewer from './PointCloudViewer'
 import IMUOrientationViewer from './IMUOrientationViewer'
 import ImageSensorViewer from './ImageSensorViewer'
+import type { DepthDisplaySettings } from './ImageSensorViewer'
 import type { NodeCookState } from '../types'
 import { LIVE_STREAM_NODE_TYPES } from '../liveNodeTypes'
 import {
@@ -2732,6 +2733,16 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           preview={data.portResults?.preview}
           status={data.portResults?.status}
           sensorKind={data.type === 'DepthViewer' ? 'depth' : 'camera'}
+          depthDisplay={data.type === 'DepthViewer' ? {
+            auto_range: data.params?.auto_range !== false,
+            near_m: Number(data.params?.near_m ?? 0.2),
+            far_m: Number(data.params?.far_m ?? 2.0),
+            palette: data.params?.palette === 'turbo' ? 'turbo' : 'grayscale',
+            invalid_color: data.params?.invalid_color === 'magenta' ? 'magenta' : 'black',
+          } satisfies DepthDisplaySettings : undefined}
+          onDepthDisplayChange={data.type === 'DepthViewer'
+            ? (key, value) => { void updateParam(id, key, value) }
+            : undefined}
           inputRail={(
             <ViewerInputStrip
               nodeId={id}
