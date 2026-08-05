@@ -9,7 +9,7 @@ interface SlamState {
   report?: string
 }
 
-type ControlAction = 'start' | 'clear' | 'pause' | 'resume' | 'stop'
+type ControlAction = 'start' | 'clear' | 'pause' | 'resume' | 'stop' | 'set-goal'
 
 function actionStyle(kind: 'start' | 'stop', disabled: boolean): CSSProperties {
   const active = kind === 'start' ? 'var(--ok)' : 'var(--err)'
@@ -51,11 +51,15 @@ export default function StandaloneSlam() {
     return () => window.clearInterval(timer)
   }, [refresh])
 
-  const control = useCallback(async (action: ControlAction) => {
+  const control = useCallback(async (action: ControlAction, payload: Record<string, unknown> = {}) => {
     if (pending) return
     setPending(action)
     try {
-      const response = await fetch(`/api/control/${action}`, { method: 'POST' })
+      const response = await fetch(`/api/control/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
       if (!response.ok) throw new Error(`control returned HTTP ${response.status}`)
       setState(await response.json() as SlamState)
       setConnectionError('')
@@ -115,8 +119,10 @@ export default function StandaloneSlam() {
           scene={state.scene}
           onClear={() => { void control('clear') }}
           onAccumulationToggle={() => { void control(scene.history_paused ? 'resume' : 'pause') }}
+          onGoalSet={(x, y) => { void control('set-goal', { goal_x_m: x, goal_y_m: y }) }}
           clearPending={pending === 'clear'}
           accumulationPending={pending === 'pause' || pending === 'resume'}
+          goalPending={pending === 'set-goal'}
         />
       </section>
     </main>

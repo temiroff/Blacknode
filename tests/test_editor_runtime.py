@@ -645,6 +645,10 @@ class EditorRuntimeTests(unittest.TestCase):
                 viewer_resume = client.post(f"/nodes/{viewer_id}/control", json={"action": "resume"})
                 slam_pause = client.post(f"/nodes/{slam_id}/control", json={"action": "pause"})
                 slam_resume = client.post(f"/nodes/{slam_id}/control", json={"action": "resume"})
+                slam_goal = client.post(
+                    f"/nodes/{slam_id}/control",
+                    json={"action": "set-goal", "payload": {"goal_x_m": -1.25, "goal_y_m": 0.75}},
+                )
                 slam_stop = client.post(f"/nodes/{slam_id}/control", json={"action": "stop"})
 
             self.assertEqual(viewer_clear.status_code, 200)
@@ -653,12 +657,14 @@ class EditorRuntimeTests(unittest.TestCase):
             self.assertEqual(slam_pause.status_code, 200)
             self.assertFalse(slam_pause.json()["outputs"]["status"]["mapping"])
             self.assertEqual(slam_resume.status_code, 200)
+            self.assertEqual(slam_goal.status_code, 200)
             self.assertEqual(slam_stop.status_code, 200)
             self.assertEqual(calls, [
                 ("viewer", "clear_viewer", "viewer-live"),
                 ("viewer", "resume_viewer", "viewer-live"),
                 ("slam", "set_mapping", "slam-live", False),
                 ("slam", "set_mapping", "slam-live", True),
+                ("slam", "set_trajectory_goal", "slam-live", -1.25, 0.75),
                 ("slam", "stop_slam", "slam-live"),
             ])
             self.assertNotIn(viewer_id, server._session.graph._dirty)

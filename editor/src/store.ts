@@ -312,7 +312,7 @@ interface Store {
     copyIdMap: Record<string, string> | null,
   ) => Promise<void>
   updateParam: (id: string, key: string, value: unknown) => Promise<void>
-  controlNode: (id: string, action: string) => Promise<{ ok: boolean; node_id: string; outputs: Record<string, unknown> }>
+  controlNode: (id: string, action: string, payload?: Record<string, unknown>) => Promise<{ ok: boolean; node_id: string; outputs: Record<string, unknown> }>
   pickDirectory: (initialPath?: string) => Promise<string | null>
   updatePortVisibility: (id: string, promotedInputs?: string[], promotedOutputs?: string[]) => Promise<void>
   cookNode: (id: string, port?: string, graphTargets?: GraphRunTarget[], runMode?: 'once' | 'live') => Promise<void>
@@ -3265,8 +3265,8 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
-  controlNode: async (id, action) => {
-    const result = await api.controlNode(id, action)
+  controlNode: async (id, action, payload = {}) => {
+    const result = await api.controlNode(id, action, payload)
     set(s => ({
       nodes: propagateLiveTerminalValues(s.nodes.map(node => node.id === id ? {
         ...node,
