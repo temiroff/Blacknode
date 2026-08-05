@@ -359,6 +359,10 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "SLAM",
                         "WarpParticleLocalization",
                         "WarpDynamicOccupancy",
+                        "WarpDepthProjector",
+                        "WarpTSDFIntegration",
+                        "WarpSurfaceExtraction",
+                        "WarpSensorFusion",
                         "WarpTrajectoryEvaluator",
                         "WarpLaserScanFilter",
                         "WarpLiDARViewer",
@@ -395,6 +399,10 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "SLAM",
                 "WarpParticleLocalization",
                 "WarpDynamicOccupancy",
+                "WarpDepthProjector",
+                "WarpTSDFIntegration",
+                "WarpSurfaceExtraction",
+                "WarpSensorFusion",
                 "WarpTrajectoryEvaluator",
                 "WarpLaserScanFilter",
                 "WarpLiDARViewer",
@@ -729,8 +737,12 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 },
                 "imu": {
                     "name": "imu",
-                    "default": False,
-                    "node_types": []
+                    "default": True,
+                    "node_types": [
+                        "IMU",
+                        "IMUTestProvider",
+                        "IMUViewer"
+                    ]
                 },
                 "detection": {
                     "name": "detection",
@@ -797,6 +809,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "LiDARROS2Scan",
                 "LiDARROS2WarpViewer",
                 "LiDARTestProvider",
+                "IMU",
+                "IMUTestProvider",
+                "IMUViewer",
                 "ReasoningDashboard",
                 "ReasoningStream",
                 "VLM",

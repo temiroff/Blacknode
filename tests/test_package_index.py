@@ -137,6 +137,10 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "SLAM",
         "WarpParticleLocalization",
         "WarpDynamicOccupancy",
+        "WarpDepthProjector",
+        "WarpTSDFIntegration",
+        "WarpSurfaceExtraction",
+        "WarpSensorFusion",
         "WarpTrajectoryEvaluator",
         "WarpLaserScanFilter",
         "WarpLiDARViewer",
@@ -149,9 +153,16 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "LiDARROS2Scan",
         "LiDARROS2WarpViewer",
     ]
+    assert perception["imu"]["default"] is True
+    assert perception["imu"]["node_types"] == ["IMU", "IMUTestProvider", "IMUViewer"]
     assert payload["nodes"]["LiDARROS2Scan"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["IMUViewer"]["package"] == "blacknode-perception"
     assert payload["nodes"]["WarpParticleLocalization"]["package"] == "blacknode-cuda"
     assert payload["nodes"]["WarpDynamicOccupancy"]["package"] == "blacknode-cuda"
+    assert payload["nodes"]["WarpDepthProjector"]["package"] == "blacknode-cuda"
+    assert payload["nodes"]["WarpTSDFIntegration"]["package"] == "blacknode-cuda"
+    assert payload["nodes"]["WarpSurfaceExtraction"]["package"] == "blacknode-cuda"
+    assert payload["nodes"]["WarpSensorFusion"]["package"] == "blacknode-cuda"
     assert payload["nodes"]["WarpTrajectoryEvaluator"]["package"] == "blacknode-cuda"
     drivers = payload["packages"]["blacknode-drivers"]
     assert drivers["layer"] == "drivers"

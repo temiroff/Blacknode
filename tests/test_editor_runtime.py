@@ -88,6 +88,11 @@ class EditorRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(server._RUNTIME_REGISTRY_ANCHORS["viewer"], "Viewer")
         self.assertEqual(
+            server._RUNTIME_MODULES["imu_viewer"],
+            "blacknode.pkg.blacknode_perception.imu_runtime",
+        )
+        self.assertEqual(server._RUNTIME_REGISTRY_ANCHORS["imu_viewer"], "IMUViewer")
+        self.assertEqual(
             server._RUNTIME_MODULES["slam"],
             "blacknode.pkg.blacknode_cuda.slam_runtime",
         )
@@ -230,7 +235,7 @@ class EditorRuntimeTests(unittest.TestCase):
             def manifest(self):
                 return {
                     "features": ["remote_ros2_topic_stream_v1"],
-                    "packages": [{"name": "blacknode-ros2", "version": "0.5.19"}],
+                    "packages": [{"name": "blacknode-ros2", "version": "0.5.20"}],
                     "node_types": ["ROS2"],
                 }
 
@@ -680,6 +685,51 @@ class EditorRuntimeTests(unittest.TestCase):
                 server._session.graph._dirty.discard(node_id)
                 for key in [key for key in server._session.graph._cache if key[0] == node_id]:
                     server._session.graph._cache.pop(key, None)
+
+    def test_imu_viewer_controls_update_managed_session_without_cooking_graph(self):
+        node_id = "imu-viewer-direct-control-test"
+        server._session.node_meta[node_id] = {
+            "id": node_id,
+            "type": "IMUViewer",
+            "params": {"viewer_id": "imu-live"},
+        }
+        server._session.graph._dirty.add(node_id)
+        calls = []
+
+        def runtime_callable(label, _module, function_name):
+            def control(runtime_id):
+                calls.append((label, function_name, runtime_id))
+                return {
+                    "running": function_name != "stop_imu_viewer",
+                    "live": function_name != "stop_imu_viewer",
+                    "scene": {"primitive": "imu-orientation"},
+                    "status": {"state": "ready"},
+                    "report": f"{runtime_id}:{function_name}",
+                }
+            return control
+
+        try:
+            with (
+                patch.object(server, "_runtime_callable", side_effect=runtime_callable),
+                patch.object(server, "_prepare_cook") as prepare_cook,
+            ):
+                client = TestClient(server.app)
+                status = client.post(f"/nodes/{node_id}/control", json={"action": "status"})
+                stopped = client.post(f"/nodes/{node_id}/control", json={"action": "stop"})
+
+            self.assertEqual(status.status_code, 200)
+            self.assertEqual(stopped.status_code, 200)
+            self.assertEqual(calls, [
+                ("imu_viewer", "imu_viewer_status", "imu-live"),
+                ("imu_viewer", "stop_imu_viewer", "imu-live"),
+            ])
+            prepare_cook.assert_not_called()
+        finally:
+            server._session.node_meta.pop(node_id, None)
+            server._session.graph._dirty.discard(node_id)
+            for key in [key for key in server._session.graph._cache if key[0] == node_id]:
+                server._session.graph._cache.pop(key, None)
+
 
     def test_trajectory_smoother_control_recomputes_only_smoother(self):
         node_id = "smoother-control-test"

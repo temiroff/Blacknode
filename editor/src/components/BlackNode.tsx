@@ -18,6 +18,7 @@ import NodeFrame from './NodeFrame'
 import NodeGlyph from './NodeGlyph'
 import DatasetBrowserPanel from './DatasetBrowserPanel'
 import PointCloudViewer from './PointCloudViewer'
+import IMUOrientationViewer from './IMUOrientationViewer'
 import type { NodeCookState } from '../types'
 import { LIVE_STREAM_NODE_TYPES } from '../liveNodeTypes'
 
@@ -822,7 +823,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const isEpisodeRecorder = data.type === 'EpisodeRecorder'
   const isDatasetCreate = data.type === 'DatasetCreate'
   const isDatasetBrowser = data.type === 'DatasetBrowser'
-  const isViewer = data.type === 'Viewer' || data.type === 'SLAM'
+  const isViewer = data.type === 'Viewer' || data.type === 'SLAM' || data.type === 'IMUViewer'
+  const isIMUViewer = data.type === 'IMUViewer'
   const isACTTraining = data.type === 'ACTTraining'
   const availableInputs = isRobotJointList
     ? (data.inputs ?? []).filter(port => edges.some(edge => edge.target === id && edge.targetHandle === port))
@@ -1092,6 +1094,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     : viewerActive ? {
       text: data.type === 'SLAM'
         ? (data.portResults?.live === true ? 'LIVE • SLAM' : 'SLAM • WAITING')
+        : data.type === 'IMUViewer'
+          ? (data.portResults?.live === true ? 'LIVE • IMU' : 'IMU • WAITING')
         : (data.portResults?.live === true ? 'LIVE • VIEWING' : 'LIVE • WAITING'),
       tone: data.portResults?.live === true ? 'ok' : 'warn',
       title: String(data.portResults?.report ?? 'Managed Viewer session'),
@@ -2699,7 +2703,20 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
 
       {/* The viewer is a direct flex child so React Flow's resized node height
           reaches the canvas instead of being consumed by the parameter area. */}
-      {isViewer && (
+      {isIMUViewer && (
+        <IMUOrientationViewer
+          scene={data.portResults?.scene}
+          inputRail={(
+            <ViewerInputStrip
+              nodeId={id}
+              ports={visibleInputs}
+              inputTypes={Object.fromEntries(visibleInputs.map(port => [port, effectivePortType(port, 'input')]))}
+              connectedPorts={connectedViewerInputs}
+            />
+          )}
+        />
+      )}
+      {isViewer && !isIMUViewer && (
         <PointCloudViewer
           scene={data.portResults?.scene}
           inputRail={(

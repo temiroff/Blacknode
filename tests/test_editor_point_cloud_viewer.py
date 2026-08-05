@@ -234,6 +234,37 @@ def test_slam_viewer_shift_click_sets_connected_warp_trajectory_goal_without_rec
     assert "cookNode" not in node_source[node_source.index("const onSetSlamGoal"):node_source.index("const runManualMoveAction")]
 
 
+def test_shared_viewer_surfaces_live_warp_depth_projection_metrics():
+    source = VIEWER.read_text(encoding="utf-8")
+
+    assert "depth_projection?:" in source
+    assert "METRIC DEPTH" in source
+    assert "Warp depth" in source
+    assert "calibrated metric surface" in source
+
+
+def test_shared_viewer_surfaces_persistent_rgbd_reconstruction_controls_and_metrics():
+    source = VIEWER.read_text(encoding="utf-8")
+
+    assert "reconstruction?:" in source
+    assert "RGB-D RECONSTRUCTION" in source
+    assert "Warp TSDF" in source
+    assert "reconstructed surface voxels" in source
+    assert "Clear volume" in source
+    assert "persistent pose-registered RGB-D surface" in source
+
+
+def test_shared_viewer_surfaces_lidar_depth_rgb_fusion_alignment_metrics():
+    source = VIEWER.read_text(encoding="utf-8")
+
+    assert "sensor_fusion?:" in source
+    assert "SENSOR FUSION" in source
+    assert "HASHGRID ALIGN" in source
+    assert "Warp fusion" in source
+    assert "synchronized LiDAR and colorized depth alignment" in source
+    assert "calibration Δ" in source
+
+
 def test_viewer_ports_are_compact_and_new_viewers_start_square():
     node_source = BLACK_NODE.read_text(encoding="utf-8")
     viewer_source = VIEWER.read_text(encoding="utf-8")
@@ -299,8 +330,8 @@ def test_go_live_button_becomes_stop_live_for_viewer_and_slam_sessions():
     assert "background: var(--warn-soft)" in styles
     assert "n.data.type === 'Viewer' ||" in store
     assert "n.data.type === 'SLAM'" in store
-    assert "(node.data.type === 'Viewer' || node.data.type === 'SLAM')" in store
-    assert "if (data.type === 'Viewer' || data.type === 'SLAM')" in store
+    assert "(node.data.type === 'Viewer' || node.data.type === 'SLAM' || node.data.type === 'IMUViewer')" in store
+    assert "if (data.type === 'Viewer' || data.type === 'SLAM' || data.type === 'IMUViewer')" in store
     assert "report: `${data.type} stopped by workflow control`" in store
     assert "running: false" in store
     assert "live: false" in store
