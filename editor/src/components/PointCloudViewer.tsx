@@ -120,6 +120,7 @@ interface ViewerScene {
     mean_speed_mps?: number
     max_speed_mps?: number
     trail_seconds?: number
+    trail_distance_limit_m?: number
   }
   animation?: {
     enabled?: boolean
@@ -1046,19 +1047,27 @@ export default function PointCloudViewer({
 
     if (dynamicPoints.length > 0) {
       const trailSeconds = clamp(finite(parsed.dynamic_occupancy?.trail_seconds, 0.35), 0.05, 2)
+      const trailDistanceLimit = clamp(finite(parsed.dynamic_occupancy?.trail_distance_limit_m, 0.3), 0.05, 1)
       context.save()
       context.globalCompositeOperation = 'screen'
       for (let index = 0; index < dynamicPoints.length; index += 1) {
         const point = dynamicPoints[index]
         const velocity = dynamicVelocities[index] ?? [0, 0, 0]
         const score = dynamicScores[index] ?? 0
+        const velocityX = finite(velocity[0])
+        const velocityY = finite(velocity[1])
+        const velocityZ = finite(velocity[2])
+        const rawTrailDistance = Math.hypot(velocityX, velocityY, velocityZ) * trailSeconds
+        const trailScale = rawTrailDistance > trailDistanceLimit
+          ? trailDistanceLimit / rawTrailDistance
+          : 1
         const projected = worldToScreen(
           point[0], point[1], finite(point[2]), viewport, camera, pixelsPerMeter,
         )
         const previous = worldToScreen(
-          point[0] - finite(velocity[0]) * trailSeconds,
-          point[1] - finite(velocity[1]) * trailSeconds,
-          finite(point[2]) - finite(velocity[2]) * trailSeconds,
+          point[0] - velocityX * trailSeconds * trailScale,
+          point[1] - velocityY * trailSeconds * trailScale,
+          finite(point[2]) - velocityZ * trailSeconds * trailScale,
           viewport,
           camera,
           pixelsPerMeter,
@@ -1207,6 +1216,7 @@ export default function PointCloudViewer({
     parsed.animation?.ray_trail_count,
     parsed.animation?.show_rays,
     parsed.dynamic_occupancy?.trail_seconds,
+    parsed.dynamic_occupancy?.trail_distance_limit_m,
     particleScores,
     particleYaws,
     particles,
@@ -1425,8 +1435,9 @@ export default function PointCloudViewer({
           left-drag pan · right-drag orbit · middle-drag pan · wheel zoom · double-click reset
         </div>
       </div>
-      <div style={{
-        display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap',
+      <div data-bn-viewer-telemetry style={{
+        display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'nowrap',
+        height: 28, flex: '0 0 28px', overflow: 'hidden', whiteSpace: 'nowrap',
         padding: '6px 9px', borderTop: '1px solid var(--line)',
         color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11,
       }}>
@@ -1463,8 +1474,9 @@ export default function PointCloudViewer({
         <span>{scanCoverageDeg >= 359.5 ? `360° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay` : `${scanCoverageDeg.toFixed(1)}° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay`}</span>
         <span>3D orbit · LaserScan lies on XY plane</span>
       </div>
-      <div style={{
-        display: 'flex', gap: 11, flexWrap: 'wrap', padding: '0 9px 7px',
+      <div data-bn-viewer-legend style={{
+        display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'nowrap',
+        height: 25, flex: '0 0 25px', overflow: 'hidden', whiteSpace: 'nowrap', padding: '0 9px 7px',
         color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11,
       }}>
         <span style={{ color: '#7cf4ff' }}>B robot {Math.round(finite(parsed.robot?.length_m, 0.25) * 100)}×{Math.round(finite(parsed.robot?.width_m, 0.22) * 100)} cm</span>
