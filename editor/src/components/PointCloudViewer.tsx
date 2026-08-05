@@ -20,6 +20,11 @@ interface ViewerScene {
   dynamic_points?: unknown
   dynamic_velocities?: unknown
   dynamic_scores?: unknown
+  trajectory_paths?: unknown
+  trajectory_scores?: unknown
+  trajectory_safe?: unknown
+  trajectory_best_index?: number
+  trajectory_goal?: unknown
   point_count?: number
   current_point_count?: number
   accumulated_scan_count?: number
@@ -122,6 +127,30 @@ interface ViewerScene {
     trail_seconds?: number
     trail_distance_limit_m?: number
   }
+  trajectory_evaluation?: {
+    state?: string
+    backend?: string
+    device?: string
+    trajectory_count?: number
+    requested_trajectories?: number
+    time_steps?: number
+    work_items?: number
+    safe_trajectories?: number
+    unsafe_trajectories?: number
+    display_trajectories?: number
+    pipeline_ms?: number
+    upload_ms?: number
+    kernel_ms?: number
+    cpu_ms?: number
+    speedup?: number
+    max_error?: number
+    warmup?: boolean
+    revision?: number
+    best_terminal_distance_m?: number
+    best_minimum_clearance_m?: number
+    limited?: boolean
+    commands_motion?: boolean
+  }
   animation?: {
     enabled?: boolean
     show_rays?: boolean
@@ -182,6 +211,11 @@ function numericRows(value: unknown): number[][] {
     .filter((row): row is unknown[] => Array.isArray(row) && row.length >= 2)
     .map(row => row.slice(0, 3).map(item => Number(item)))
     .filter(row => row.every(Number.isFinite))
+}
+
+function numericPaths(value: unknown): number[][][] {
+  if (!Array.isArray(value)) return []
+  return value.map(numericRows).filter(path => path.length >= 2)
 }
 
 function finite(value: unknown, fallback = 0): number {
@@ -458,6 +492,16 @@ export default function PointCloudViewer({
     () => Array.isArray(parsed.dynamic_scores) ? parsed.dynamic_scores.map(value => clamp(finite(value), 0, 1)) : [],
     [parsed.dynamic_scores],
   )
+  const trajectoryPaths = useMemo(() => numericPaths(parsed.trajectory_paths), [parsed.trajectory_paths])
+  const trajectoryScores = useMemo(
+    () => Array.isArray(parsed.trajectory_scores) ? parsed.trajectory_scores.map(value => clamp(finite(value), 0, 1)) : [],
+    [parsed.trajectory_scores],
+  )
+  const trajectorySafe = useMemo(
+    () => Array.isArray(parsed.trajectory_safe) ? parsed.trajectory_safe.map(Boolean) : [],
+    [parsed.trajectory_safe],
+  )
+  const trajectoryGoal = useMemo(() => numericRows([parsed.trajectory_goal])[0] ?? [], [parsed.trajectory_goal])
   const visibleFloorPoints = useMemo(
     () => showFreeSpace ? floorPoints : [],
     [floorPoints, showFreeSpace],
@@ -1044,6 +1088,53 @@ export default function PointCloudViewer({
       }
     }
 
+    if (trajectoryPaths.length > 0) {
+      context.save()
+      context.lineCap = 'round'
+      context.lineJoin = 'round'
+      const bestIndex = Math.max(0, Math.min(
+        trajectoryPaths.length - 1,
+        Math.round(finite(parsed.trajectory_best_index)),
+      ))
+      for (let index = 0; index < trajectoryPaths.length; index += 1) {
+        const path = trajectoryPaths[index]
+        const score = trajectoryScores[index] ?? 0
+        const safe = trajectorySafe[index] ?? false
+        const best = index === bestIndex
+        const color = best ? '91, 235, 255' : safe ? '102, 224, 145' : '255, 91, 91'
+        context.strokeStyle = `rgba(${color}, ${best ? 0.96 : 0.18 + score * 0.38})`
+        context.lineWidth = best ? 3.0 : 0.8 + score * 0.9
+        context.shadowColor = best ? 'rgba(91, 235, 255, 0.78)' : 'transparent'
+        context.shadowBlur = best ? 9 : 0
+        context.beginPath()
+        path.forEach((point, pointIndex) => {
+          const projected = worldToScreen(
+            point[0], point[1], finite(point[2]), viewport, camera, pixelsPerMeter,
+          )
+          if (pointIndex === 0) context.moveTo(projected[0], projected[1])
+          else context.lineTo(projected[0], projected[1])
+        })
+        context.stroke()
+      }
+      if (trajectoryGoal.length >= 2) {
+        const goal = worldToScreen(
+          trajectoryGoal[0], trajectoryGoal[1], finite(trajectoryGoal[2]), viewport, camera, pixelsPerMeter,
+        )
+        context.shadowColor = 'rgba(91, 235, 255, 0.72)'
+        context.shadowBlur = 8
+        context.strokeStyle = 'rgba(145, 244, 255, 0.96)'
+        context.lineWidth = 2
+        context.beginPath()
+        context.arc(goal[0], goal[1], 6, 0, Math.PI * 2)
+        context.moveTo(goal[0] - 9, goal[1])
+        context.lineTo(goal[0] + 9, goal[1])
+        context.moveTo(goal[0], goal[1] - 9)
+        context.lineTo(goal[0], goal[1] + 9)
+        context.stroke()
+      }
+      context.restore()
+    }
+
     if (dynamicPoints.length > 0) {
       // Motion is position-only for now: orange points communicate the moving
       // returns without implying a trustworthy direction vector.
@@ -1196,11 +1287,16 @@ export default function PointCloudViewer({
     parsed.scan?.angle_max_rad,
     parsed.scan?.angle_min_rad,
     parsed.scan?.angle_increment_rad,
+    parsed.trajectory_best_index,
     pixelsPerMeter,
     robotHeadingYaw,
     robotLogoReady,
     sensor,
     showAxes,
+    trajectoryGoal,
+    trajectoryPaths,
+    trajectorySafe,
+    trajectoryScores,
     viewRadius,
     viewport,
   ])
@@ -1398,6 +1494,20 @@ export default function PointCloudViewer({
               : `HASHGRID MOTION · ${Number(parsed.dynamic_occupancy.dynamic_points ?? 0).toLocaleString()} MOVING`}
           </div>
         )}
+        {parsed.trajectory_evaluation?.backend === 'warp' && (
+          <div style={{
+            position: 'absolute', zIndex: 3, top: parsed.dynamic_occupancy?.backend === 'warp-hash-grid' ? 70 : 39, right: 9,
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '4px 7px', borderRadius: 5, background: 'rgba(4, 18, 22, 0.84)',
+            border: '1px solid rgba(91, 235, 255, 0.48)', color: '#91f4ff',
+            fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
+          }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: trajectoryPaths.length ? '#5bebff' : '#637b80' }} />
+            {parsed.trajectory_evaluation.warmup
+              ? 'WARP PATHS · WARMING'
+              : `WARP PATHS · ${Number(parsed.trajectory_evaluation.safe_trajectories ?? 0).toLocaleString()} SAFE · ${Number(parsed.trajectory_evaluation.unsafe_trajectories ?? 0).toLocaleString()} BLOCKED`}
+          </div>
+        )}
         <div style={{
           position: 'absolute', zIndex: 3, right: 8, bottom: 7, padding: '3px 6px', borderRadius: 4,
           background: 'rgba(3, 10, 16, 0.72)', color: 'rgba(217, 232, 241, 0.74)',
@@ -1442,6 +1552,12 @@ export default function PointCloudViewer({
             {finite(parsed.dynamic_occupancy.speedup) > 0 ? ` · ${finite(parsed.dynamic_occupancy.speedup).toFixed(1)}× CPU` : ''}
           </span>
         )}
+        {parsed.trajectory_evaluation?.state === 'ready' && (
+          <span style={{ color: '#91f4ff' }}>
+            Warp paths {Number(parsed.trajectory_evaluation.trajectory_count ?? 0).toLocaleString()} × {Number(parsed.trajectory_evaluation.time_steps ?? 0).toLocaleString()} steps = {Number(parsed.trajectory_evaluation.work_items ?? 0).toLocaleString()} evaluations · {finite(parsed.trajectory_evaluation.pipeline_ms).toFixed(3)} ms · best clearance {finite(parsed.trajectory_evaluation.best_minimum_clearance_m).toFixed(2)} m
+            {finite(parsed.trajectory_evaluation.speedup) > 0 ? ` · ${finite(parsed.trajectory_evaluation.speedup).toFixed(1)}× CPU` : ''}
+          </span>
+        )}
         <span>{scanCoverageDeg >= 359.5 ? `360° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay` : `${scanCoverageDeg.toFixed(1)}° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay`}</span>
         <span>3D orbit · LaserScan lies on XY plane</span>
       </div>
@@ -1460,6 +1576,7 @@ export default function PointCloudViewer({
         {occupiedCellCount > 0 && <span style={{ color: '#c7e0ef' }}>■ {occupiedCellCount.toLocaleString()} occupied wall cells</span>}
         {particles.length > 0 && <span style={{ color: '#9df0c2' }}>● GPU pose hypotheses · purple low / green high confidence</span>}
         {dynamicPoints.length > 0 && <span style={{ color: '#ffa940' }}>● coherent motion · orange points</span>}
+        {trajectoryPaths.length > 0 && <span><b style={{ color: '#66e091' }}>— safe</b> · <b style={{ color: '#ff5b5b' }}>— blocked</b> · <b style={{ color: '#5bebff' }}>— best GPU path</b></span>}
         {showAxes && <span>map <b style={{ color: '#ff6b6b' }}>X</b> / <b style={{ color: '#53e091' }}>Y</b> / <b style={{ color: '#539aff' }}>Z</b> axes</span>}
         {parsed.history_registered === true && <span style={{ color: '#74e7a5' }}>pose-registered history · {parsed.pose_source || 'pose stream'}</span>}
         {Array.isArray(parsed.registration?.tf_path) && parsed.registration.tf_path.length > 1 && (
