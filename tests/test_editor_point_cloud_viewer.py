@@ -184,9 +184,21 @@ def test_point_cloud_viewer_fills_resized_node_in_both_dimensions():
     assert "flex: '1 1 auto'" in viewer_source
     assert "minHeight: 80" in viewer_source
     assert "flexWrap: 'wrap'" in viewer_source
+    assert "data-bn-viewer-telemetry" in viewer_source
+    assert "height: 28, flex: '0 0 28px', overflow: 'hidden', whiteSpace: 'nowrap'" in viewer_source
+    assert "data-bn-viewer-legend" in viewer_source
+    assert "height: 25, flex: '0 0 25px', overflow: 'hidden', whiteSpace: 'nowrap'" in viewer_source
     assert "minWidth={isViewer ? 360 : 160}" in node_source
     assert "minHeight={isViewer ? 300 : 60}" in node_source
     assert "display: isViewer ? 'none' : 'flex'" in node_source
+
+
+def test_dynamic_motion_trails_are_distance_bounded():
+    viewer_source = VIEWER.read_text(encoding="utf-8")
+
+    assert "trail_distance_limit_m" in viewer_source
+    assert "rawTrailDistance > trailDistanceLimit" in viewer_source
+    assert "trailDistanceLimit / rawTrailDistance" in viewer_source
 
 
 def test_viewer_ports_are_compact_and_new_viewers_start_square():
