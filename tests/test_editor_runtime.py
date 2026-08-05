@@ -20,6 +20,28 @@ if str(EDITOR_SERVER_DIR) not in sys.path:
 import server  # noqa: E402
 
 
+def _target_ros2_version() -> str:
+    workflow = {
+        "kind": "blacknode.workflow",
+        "schema_version": 1,
+        "metadata": {
+            "required_packages": ["blacknode-ros2"],
+            "required_components": [
+                "blacknode-ros2/core",
+                "blacknode-ros2/topics",
+            ],
+        },
+        "node_meta": {"ros2": {"type": "ROS2"}},
+        "edges": [],
+    }
+    spec = next(
+        item
+        for item in server._workflow_target_package_specs(workflow)
+        if item.get("name") == "blacknode-ros2"
+    )
+    return str(spec.get("version") or "")
+
+
 class EditorRuntimeTests(unittest.TestCase):
     def test_streamed_cook_injects_process_local_runtime_services(self):
         node_id = "runtime-context-test"
@@ -235,7 +257,7 @@ class EditorRuntimeTests(unittest.TestCase):
             def manifest(self):
                 return {
                     "features": ["remote_ros2_topic_stream_v1"],
-                    "packages": [{"name": "blacknode-ros2", "version": "0.6.0"}],
+                    "packages": [{"name": "blacknode-ros2", "version": _target_ros2_version()}],
                     "node_types": ["ROS2"],
                 }
 
@@ -344,7 +366,7 @@ class EditorRuntimeTests(unittest.TestCase):
                         "remote_ros2_topic_stream_v1",
                         "remote_ros2_image_stream_v1",
                     ],
-                    "packages": [{"name": "blacknode-ros2", "version": "0.6.0"}],
+                    "packages": [{"name": "blacknode-ros2", "version": _target_ros2_version()}],
                     "node_types": ["ROS2"],
                 }
 
