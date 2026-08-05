@@ -14,8 +14,8 @@
 
 <!-- Check exactly one. See AGENTS.md: Managed Runtime release decision. -->
 
-- [ ] Runtime release not required; this change does not alter code delivered in the managed-device Runtime bundle.
-- [ ] Runtime release completed; `blacknode-runtime` was bumped and merged, and `editor-server/device-runtime-sources.lock.json` pins the merged Runtime and core commits.
+- [ ] Runtime release not required; the actual operator surface can deliver this through its package card or **Update all**.
+- [ ] Runtime release completed; the device bundle changed or **Runtime → Update** is the operator's delivery path, `blacknode-runtime` was bumped and merged, and `editor-server/device-runtime-sources.lock.json` pins merged commits.
 
 ## Related issues
 

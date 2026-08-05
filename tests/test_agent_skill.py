@@ -82,6 +82,22 @@ class AgentSkillTests(unittest.TestCase):
         self.assertIn("primary operator surface", agent_instructions)
         self.assertIn("fallback path", agent_instructions)
 
+    def test_managed_device_delivery_uses_the_operator_actual_update_surface(self):
+        agent_instructions = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        skill_paths = [
+            ROOT / "skills" / "blacknode-development" / "SKILL.md",
+            ROOT / ".agents" / "skills" / "blacknode-development" / "SKILL.md",
+        ]
+
+        self.assertIn("Never decide delivery from code ownership alone", agent_instructions)
+        self.assertIn("Do not tell an operator to update an", agent_instructions)
+        for path in skill_paths:
+            with self.subTest(path=str(path)):
+                text = path.read_text(encoding="utf-8")
+                self.assertIn("real managed-device update surface", text)
+                self.assertIn("Runtime → Update", text)
+                self.assertIn("Never direct an operator", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -51,6 +51,13 @@ remote, press **Check updates**, then use **Update all** or the **Update**
 action on the Runtime or Hardware package card. Use the package card's
 **Restart** button when that service needs to restart.
 
+Match release instructions to the controls the operator actually has. When an
+installed workflow package has no visible package-card update and the operator
+uses **Runtime → Update**, publish a Runtime patch release as the update trigger;
+the Runtime update flow refreshes installed workflow packages before reloading
+the service. Do not direct the operator to an unavailable extension-package
+button.
+
 For a new remote computer that should remain unchanged, open **Add device →
 Remote SSH**, confirm its host key, and use **Confirm and inspect**. Review the
 read-only system and ROS 2 capability report, then choose **Close — device
