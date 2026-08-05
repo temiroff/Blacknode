@@ -546,6 +546,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [viewerStopPending, setViewerStopPending] = useState(false)
   const [viewerClearPending, setViewerClearPending] = useState(false)
   const [viewerAccumulationPending, setViewerAccumulationPending] = useState(false)
+  const [viewerGoalPending, setViewerGoalPending] = useState(false)
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
   const [episodePending, setEpisodePending] = useState<null | 'start' | 'pause' | 'resume' | 'save' | 'stop' | 'discard'>(null)
@@ -1372,6 +1373,50 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       await controlNode(id, viewerHistoryPaused ? 'resume' : 'pause')
     } finally {
       setViewerAccumulationPending(false)
+    }
+  }
+
+  const onSetSlamGoal = async (goalX: number, goalY: number) => {
+    if (viewerGoalPending || data.type !== 'SLAM') return
+    const trajectoryEdge = edges.find(edge => (
+      edge.target === id
+      && edge.targetHandle === 'trajectory_evaluation'
+      && edge.sourceHandle === 'stage'
+    ))
+    const trajectoryNode = nodes.find(node => (
+      node.id === trajectoryEdge?.source
+      && node.data.type === 'WarpTrajectoryEvaluator'
+    ))
+    if (!trajectoryNode) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: 'Trajectory goal unavailable',
+          message: 'Connect WarpTrajectoryEvaluator.stage to SLAM.trajectory_evaluation, then Shift-click the map.',
+        },
+      }))
+      return
+    }
+    const goalXMetres = Number(goalX.toFixed(3))
+    const goalYMetres = Number(goalY.toFixed(3))
+    setViewerGoalPending(true)
+    try {
+      await updateParam(trajectoryNode.id, 'goal_x_m', goalXMetres)
+      await updateParam(trajectoryNode.id, 'goal_y_m', goalYMetres)
+      await controlNode(id, 'set-goal', {
+        goal_x_m: goalXMetres,
+        goal_y_m: goalYMetres,
+      })
+    } catch (err) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: 'Could not set trajectory goal',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }))
+    } finally {
+      setViewerGoalPending(false)
     }
   }
 
@@ -2667,8 +2712,10 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           )}
           onClear={() => { void onClearViewer() }}
           onAccumulationToggle={() => { void onToggleViewerAccumulation() }}
+          onGoalSet={data.type === 'SLAM' ? (x, y) => { void onSetSlamGoal(x, y) } : undefined}
           clearPending={viewerClearPending}
           accumulationPending={viewerAccumulationPending}
+          goalPending={viewerGoalPending}
         />
       )}
 

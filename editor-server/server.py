@@ -2319,8 +2319,15 @@ def control_node(node_id: str, req: NodeControlReq):
         return {"ok": True, "node_id": node_id, "outputs": outputs}
     if meta.get("type") in {"Viewer", "SLAM"}:
         action = str(req.action or "").strip().lower()
-        if action not in {"status", "clear", "pause", "resume", "stop"}:
-            raise HTTPException(400, "Viewer and SLAM direct controls support status, clear, pause, resume, or stop")
+        base_actions = {"status", "clear", "pause", "resume", "stop"}
+        if action not in base_actions and not (
+            meta.get("type") == "SLAM" and action == "set-goal"
+        ):
+            raise HTTPException(
+                400,
+                "Viewer controls support status, clear, pause, resume, or stop; "
+                "SLAM additionally supports set-goal",
+            )
         params = dict(meta.get("params") or {})
         if meta.get("type") == "Viewer":
             runtime_id = str(params.get("viewer_id") or "viewer").strip() or "viewer"
@@ -2343,15 +2350,26 @@ def control_node(node_id: str, req: NodeControlReq):
                 "pause": "set_mapping",
                 "resume": "set_mapping",
                 "stop": "stop_slam",
+                "set-goal": "set_trajectory_goal",
             }[action]
             control_fn = _runtime_callable("slam", _RUNTIME_MODULES["slam"], function_name)
             if control_fn is None:
                 raise HTTPException(503, "blacknode-cuda SLAM runtime is not loaded")
-            outputs = dict(
-                control_fn(runtime_id)
-                if action in {"status", "clear", "stop"}
-                else control_fn(runtime_id, action == "resume")
-            )
+            if action == "set-goal":
+                try:
+                    goal_x_m = float(req.payload.get("goal_x_m"))
+                    goal_y_m = float(req.payload.get("goal_y_m"))
+                except (TypeError, ValueError) as exc:
+                    raise HTTPException(400, "SLAM goal coordinates must be finite numbers") from exc
+                if not math.isfinite(goal_x_m) or not math.isfinite(goal_y_m):
+                    raise HTTPException(400, "SLAM goal coordinates must be finite numbers")
+                outputs = dict(control_fn(runtime_id, goal_x_m, goal_y_m))
+            else:
+                outputs = dict(
+                    control_fn(runtime_id)
+                    if action in {"status", "clear", "stop"}
+                    else control_fn(runtime_id, action == "resume")
+                )
         for port, value in outputs.items():
             _session.graph._cache[(node_id, port)] = value
         _session.graph._dirty.discard(node_id)

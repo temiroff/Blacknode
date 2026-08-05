@@ -215,6 +215,25 @@ def test_trajectory_evaluation_draws_safe_blocked_and_best_paths_without_motion_
     assert "Warp paths" in viewer_source
 
 
+def test_slam_viewer_shift_click_sets_connected_warp_trajectory_goal_without_recook():
+    viewer_source = VIEWER.read_text(encoding="utf-8")
+    node_source = BLACK_NODE.read_text(encoding="utf-8")
+    store_source = (ROOT / "editor" / "src" / "store.ts").read_text(encoding="utf-8")
+
+    assert "function screenToWorldPlane(" in viewer_source
+    assert "event.shiftKey && event.button === 0 && onGoalSet" in viewer_source
+    assert "shift-click goal" in viewer_source
+    assert "edge.targetHandle === 'trajectory_evaluation'" in node_source
+    assert "edge.sourceHandle === 'stage'" in node_source
+    assert "node.data.type === 'WarpTrajectoryEvaluator'" in node_source
+    assert "updateParam(trajectoryNode.id, 'goal_x_m', goalXMetres)" in node_source
+    assert "updateParam(trajectoryNode.id, 'goal_y_m', goalYMetres)" in node_source
+    assert "await controlNode(id, 'set-goal', {" in node_source
+    assert "controlNode: async (id, action, payload = {})" in store_source
+    assert "api.controlNode(id, action, payload)" in store_source
+    assert "cookNode" not in node_source[node_source.index("const onSetSlamGoal"):node_source.index("const runManualMoveAction")]
+
+
 def test_viewer_ports_are_compact_and_new_viewers_start_square():
     node_source = BLACK_NODE.read_text(encoding="utf-8")
     viewer_source = VIEWER.read_text(encoding="utf-8")

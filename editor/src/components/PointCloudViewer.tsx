@@ -379,6 +379,27 @@ function worldToScreen(
   ]
 }
 
+function screenToWorldPlane(
+  screenX: number,
+  screenY: number,
+  viewport: Viewport,
+  camera: CameraState,
+  pixelsPerMeter: number,
+): [number, number] {
+  const yawX = (screenX - viewport.width / 2 - camera.panX) / pixelsPerMeter
+  const pitchCosine = Math.cos(camera.pitch)
+  const safePitchCosine = Math.abs(pitchCosine) < 0.001
+    ? Math.sign(pitchCosine || 1) * 0.001
+    : pitchCosine
+  const yawY = -(screenY - viewport.height / 2 - camera.panY) / pixelsPerMeter / safePitchCosine
+  const yawCosine = Math.cos(camera.yaw)
+  const yawSine = Math.sin(camera.yaw)
+  return [
+    yawCosine * yawX + yawSine * yawY,
+    -yawSine * yawX + yawCosine * yawY,
+  ]
+}
+
 function gridSpacing(pixelsPerMeter: number): number {
   const choices = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200]
   return choices.find(value => value * pixelsPerMeter >= 46) ?? 500
@@ -433,15 +454,19 @@ export default function PointCloudViewer({
   inputRail,
   onClear,
   onAccumulationToggle,
+  onGoalSet,
   clearPending = false,
   accumulationPending = false,
+  goalPending = false,
 }: {
   scene: unknown
   inputRail?: ReactNode
   onClear?: () => void
   onAccumulationToggle?: () => void
+  onGoalSet?: (x: number, y: number) => void
   clearPending?: boolean
   accumulationPending?: boolean
+  goalPending?: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const occupancyCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -1399,6 +1424,21 @@ export default function PointCloudViewer({
           }}
           onDoubleClick={resetCamera}
           onPointerDown={event => {
+            if (event.shiftKey && event.button === 0 && onGoalSet) {
+              event.preventDefault()
+              event.stopPropagation()
+              if (goalPending) return
+              const bounds = event.currentTarget.getBoundingClientRect()
+              const [goalX, goalY] = screenToWorldPlane(
+                event.clientX - bounds.left,
+                event.clientY - bounds.top,
+                viewport,
+                camera,
+                pixelsPerMeter,
+              )
+              onGoalSet(goalX, goalY)
+              return
+            }
             event.stopPropagation()
             event.currentTarget.setPointerCapture(event.pointerId)
             dragRef.current = {
@@ -1513,7 +1553,7 @@ export default function PointCloudViewer({
           background: 'rgba(3, 10, 16, 0.72)', color: 'rgba(217, 232, 241, 0.74)',
           fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
         }}>
-          left-drag pan · right-drag orbit · middle-drag pan · wheel zoom · double-click reset
+          {onGoalSet ? 'shift-click goal · ' : ''}left-drag pan · right-drag orbit · middle-drag pan · wheel zoom · double-click reset
         </div>
       </div>
       <div data-bn-viewer-telemetry style={{
