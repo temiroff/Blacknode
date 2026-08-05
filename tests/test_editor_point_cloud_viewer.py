@@ -12,7 +12,9 @@ def test_point_cloud_viewer_exposes_spatial_orientation_and_scale():
     source = VIEWER.read_text(encoding="utf-8")
 
     assert "Robot forward" not in source
-    assert "const [showAxes, setShowAxes] = useState(false)" in source
+    assert "const [showAxes, setShowAxes] = useState(viewerRole !== 'map' && viewerRole !== 'legacy')" in source
+    assert "const mapFeatures = viewerRole === 'map' || viewerRole === 'legacy'" in source
+    assert "const showRobot = mapFeatures" in source
     assert "const [showFreeSpace, setShowFreeSpace] = useState(true)" in source
     assert 'type="checkbox"' in source
     assert "checked={showAxes}" in source
@@ -134,14 +136,14 @@ def test_point_cloud_viewer_has_direct_camera_navigation():
     assert "panX: -focusedSensorX * appliedPixelsPerMeter" in source
     assert "panY: focusedSensorY * appliedPixelsPerMeter" in source
     assert 'title="Top view with world +X (red axis) pointing up"' in source
-    assert 'title="Capture and align the grid at the current robot pose, then keep the grid and map fixed"' in source
+    assert "title={mapFeatures ? 'Capture and align the map grid at the current robot pose' : 'Reset the sensor view'}" in source
     assert ">Reset</button>" in source
     assert "const ROBOT_LOGO_ROTATION_RAD = -Math.PI / 2" in source
     assert "const gridFrameToScreen = (forward: number, lateral: number, z: number)" in source
     assert "gridFrame.x + gridHeadingCosine * forward - gridHeadingSine * lateral" in source
     assert "const [x1, y1] = gridFrameToScreen(value, -reach, 0)" in source
     assert "const [x3, y3] = gridFrameToScreen(-reach, value, 0)" in source
-    assert 'title="Show fixed map X, Y, and Z axes with metric tick labels"' in source
+    assert "title={`Show fixed ${mapFeatures ? 'map' : 'sensor'} X, Y, and Z axes with metric tick labels`}" in source
     assert "event.button === 2 ? 'rotate' : 'pan'" in source
     assert "event.preventDefault()" in source
     assert "event.stopPropagation()" in source
@@ -160,7 +162,8 @@ def test_point_cloud_viewer_exposes_accumulation_control():
     assert "await controlNode(id, 'stop')" in source
     assert "await controlNode(id, viewerHistoryPaused ? 'resume' : 'pause')" in source
     assert "await updateParam(id, 'action', 'clear')" not in source
-    assert "data.type === 'Viewer' || data.type === 'SLAM'" in source
+    assert "MANAGED_SPATIAL_VIEWER_TYPES.has(data.type)" in source
+    assert "managedSpatialViewer || data.type === 'SLAM'" in source
     assert "optimized trajectory" not in VIEWER.read_text(encoding="utf-8")
     assert "if (trajectory.length > 1)" not in VIEWER.read_text(encoding="utf-8")
     assert "rgba(224, 105, 255, 0.9)" not in VIEWER.read_text(encoding="utf-8")
@@ -294,14 +297,14 @@ def test_viewer_ports_are_compact_and_new_viewers_start_square():
     assert "left: -5px" in styles
     assert "margin-top: 0" in styles
     assert "border-radius: 3px !important" in styles
-    assert "meta.type === 'Viewer' || meta.type === 'SLAM'" in store
+    assert "VIEWER_NODE_TYPES.has(meta.type)" in store
     assert "style: { width: 720, height: 720 }" in store
 
 
 def test_point_cloud_viewer_draws_current_scan_when_map_is_empty():
     source = VIEWER.read_text(encoding="utf-8")
 
-    assert "() => [...visibleFloorPoints, ...occupiedPoints, ...points, ...currentPoints]" in source
+    assert "() => [...visibleFloorPoints, ...visibleOccupiedPoints, ...points, ...currentPoints]" in source
     assert "currentColors[currentIndex]" in source
     assert "if (vertexCount === 0) return" in source
     assert "Live scan; map is empty" in source
@@ -328,11 +331,27 @@ def test_go_live_button_becomes_stop_live_for_viewer_and_slam_sessions():
     assert "background: var(--err)" in styles
     assert ".bn-top-reset-button" in styles
     assert "background: var(--warn-soft)" in styles
-    assert "n.data.type === 'Viewer' ||" in store
-    assert "n.data.type === 'SLAM'" in store
-    assert "(node.data.type === 'Viewer' || node.data.type === 'SLAM' || node.data.type === 'IMUViewer')" in store
-    assert "if (data.type === 'Viewer' || data.type === 'SLAM' || data.type === 'IMUViewer')" in store
+    assert "VIEWER_NODE_TYPES.has(n.data.type)" in store
+    assert "VIEWER_NODE_TYPES.has(node.data.type)" in store
+    assert "if (VIEWER_NODE_TYPES.has(data.type))" in store
     assert "report: `${data.type} stopped by workflow control`" in store
     assert "running: false" in store
     assert "live: false" in store
     assert "status: { ...status, state: 'stopped' }" in store
+
+
+def test_sensor_viewer_roles_hide_map_floor_occupancy_and_robot():
+    source = VIEWER.read_text(encoding="utf-8")
+    viewer_types = (ROOT / "editor" / "src" / "viewerTypes.ts").read_text(encoding="utf-8")
+
+    assert "() => mapFeatures && showFreeSpace ? floorPoints : []" in source
+    assert "() => mapFeatures ? occupiedPoints : []" in source
+    assert "mapFeatures ? decodeOccupancyTexture(" in source
+    assert "{mapFeatures && (" in source
+    assert "Floor: {showFreeSpace ? 'On' : 'Off'}" in source
+    assert "if (showRobot)" in source
+    assert "{showRobot && <span" in source
+    assert "'LiDARViewer'" in viewer_types
+    assert "'DepthCloudViewer'" in viewer_types
+    assert "'FusionViewer'" in viewer_types
+    assert "if (type === 'MapViewer' || type === 'SLAM') return 'map'" in viewer_types

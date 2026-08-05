@@ -684,6 +684,7 @@ class EditorRuntimeTests(unittest.TestCase):
 
     def test_viewer_and_slam_controls_update_live_sessions_without_cooking_graph(self):
         viewer_id = "viewer-direct-control-test"
+        lidar_viewer_id = "lidar-viewer-direct-control-test"
         slam_id = "slam-direct-control-test"
         server._session.node_meta[viewer_id] = {
             "id": viewer_id, "type": "Viewer", "params": {"viewer_id": "viewer-live"},
@@ -691,7 +692,10 @@ class EditorRuntimeTests(unittest.TestCase):
         server._session.node_meta[slam_id] = {
             "id": slam_id, "type": "SLAM", "params": {"slam_id": "slam-live"},
         }
-        server._session.graph._dirty.update({viewer_id, slam_id})
+        server._session.node_meta[lidar_viewer_id] = {
+            "id": lidar_viewer_id, "type": "LiDARViewer", "params": {},
+        }
+        server._session.graph._dirty.update({viewer_id, lidar_viewer_id, slam_id})
         calls = []
 
         def runtime_callable(label, _module, function_name):
@@ -715,6 +719,7 @@ class EditorRuntimeTests(unittest.TestCase):
                 client = TestClient(server.app)
                 viewer_clear = client.post(f"/nodes/{viewer_id}/control", json={"action": "clear"})
                 viewer_resume = client.post(f"/nodes/{viewer_id}/control", json={"action": "resume"})
+                lidar_clear = client.post(f"/nodes/{lidar_viewer_id}/control", json={"action": "clear"})
                 slam_pause = client.post(f"/nodes/{slam_id}/control", json={"action": "pause"})
                 slam_resume = client.post(f"/nodes/{slam_id}/control", json={"action": "resume"})
                 slam_goal = client.post(
@@ -726,6 +731,7 @@ class EditorRuntimeTests(unittest.TestCase):
             self.assertEqual(viewer_clear.status_code, 200)
             self.assertTrue(viewer_clear.json()["outputs"]["scene"]["history_paused"])
             self.assertEqual(viewer_resume.status_code, 200)
+            self.assertEqual(lidar_clear.status_code, 200)
             self.assertEqual(slam_pause.status_code, 200)
             self.assertFalse(slam_pause.json()["outputs"]["status"]["mapping"])
             self.assertEqual(slam_resume.status_code, 200)
@@ -734,6 +740,7 @@ class EditorRuntimeTests(unittest.TestCase):
             self.assertEqual(calls, [
                 ("viewer", "clear_viewer", "viewer-live"),
                 ("viewer", "resume_viewer", "viewer-live"),
+                ("viewer", "clear_viewer", "lidar_viewer"),
                 ("slam", "set_mapping", "slam-live", False),
                 ("slam", "set_mapping", "slam-live", True),
                 ("slam", "set_trajectory_goal", "slam-live", -1.25, 0.75),
@@ -747,7 +754,7 @@ class EditorRuntimeTests(unittest.TestCase):
             )
             prepare_cook.assert_not_called()
         finally:
-            for node_id in (viewer_id, slam_id):
+            for node_id in (viewer_id, lidar_viewer_id, slam_id):
                 server._session.node_meta.pop(node_id, None)
                 server._session.graph._dirty.discard(node_id)
                 for key in [key for key in server._session.graph._cache if key[0] == node_id]:

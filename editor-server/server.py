@@ -2460,7 +2460,10 @@ def control_node(node_id: str, req: NodeControlReq):
             _session.graph._cache[(node_id, port)] = value
         _session.graph._dirty.discard(node_id)
         return {"ok": True, "node_id": node_id, "outputs": outputs}
-    if meta.get("type") in {"Viewer", "SLAM", "IMUViewer"}:
+    if meta.get("type") in {
+        "Viewer", "LiDARViewer", "DepthCloudViewer", "ReconstructionViewer",
+        "FusionViewer", "MapViewer", "SLAM", "IMUViewer",
+    }:
         action = str(req.action or "").strip().lower()
         base_actions = (
             {"status", "stop"}
@@ -2489,8 +2492,19 @@ def control_node(node_id: str, req: NodeControlReq):
             if control_fn is None:
                 raise HTTPException(503, "blacknode-perception IMU Viewer runtime is not loaded")
             outputs = dict(control_fn(runtime_id))
-        elif meta.get("type") == "Viewer":
-            runtime_id = str(params.get("viewer_id") or "viewer").strip() or "viewer"
+        elif meta.get("type") in {
+            "Viewer", "LiDARViewer", "DepthCloudViewer", "ReconstructionViewer",
+            "FusionViewer", "MapViewer",
+        }:
+            default_runtime_id = {
+                "Viewer": "viewer",
+                "LiDARViewer": "lidar_viewer",
+                "DepthCloudViewer": "depth_cloud_viewer",
+                "ReconstructionViewer": "reconstruction_viewer",
+                "FusionViewer": "fusion_viewer",
+                "MapViewer": "map_viewer",
+            }[str(meta.get("type"))]
+            runtime_id = str(params.get("viewer_id") or default_runtime_id).strip() or default_runtime_id
             function_name = {
                 "status": "viewer_status",
                 "clear": "clear_viewer",

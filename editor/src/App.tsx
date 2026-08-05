@@ -9,6 +9,7 @@ import 'reactflow/dist/style.css'
 import { useStore, type CookLogEntry, type GraphClipboard } from './store'
 import BlackNode from './components/BlackNode'
 import { LIVE_STREAM_NODE_TYPES } from './liveNodeTypes'
+import { VIEWER_NODE_TYPES } from './viewerTypes'
 import ValueNode from './components/ValueNode'
 import ModelNode from './components/ModelNode'
 import OutputNode from './components/OutputNode'
@@ -1550,7 +1551,7 @@ export default function App() {
   const manualMoveCount = nodes.filter(n => n.data.type === 'ROS2ManualMove' && n.data.portResults?.live === true).length
   const liveDashboardCount = nodes.filter(n => n.data.type === 'ROS2MotionDashboard' && n.data.portResults?.live === true).length
   const visualizerRunCount = nodes.filter(n => (
-    (n.data.type === 'Viewer' || n.data.type === 'SLAM' || n.data.type === 'IMUViewer')
+    VIEWER_NODE_TYPES.has(n.data.type)
     && n.data.portResults?.running === true
   )).length
   const liveCapableCount = nodes.filter(n => n.data.live_capable).length
