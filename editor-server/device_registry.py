@@ -670,6 +670,41 @@ class RuntimeDeviceClient(HardwareDeviceClient):
             timeout=30.0,
         )
 
+    def ros2_image_status(self, stream_id: str) -> dict[str, Any]:
+        return self._request("GET", self._ros2_image_endpoint(stream_id), timeout=5.0)
+
+    def start_ros2_image(
+        self,
+        stream_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"{self._ros2_image_endpoint(stream_id)}/start",
+            payload=payload,
+            timeout=max(30.0, float(payload.get("timeout") or 15.0) + 15.0),
+        )
+
+    def read_ros2_image_once(
+        self,
+        stream_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"{self._ros2_image_endpoint(stream_id)}/once",
+            payload=payload,
+            timeout=max(30.0, float(payload.get("timeout") or 15.0) + 15.0),
+        )
+
+    def stop_ros2_image(self, stream_id: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"{self._ros2_image_endpoint(stream_id)}/stop",
+            payload={},
+            timeout=30.0,
+        )
+
     def get_service(self, service_id: str) -> dict[str, Any]:
         return self._request("GET", self._service_endpoint(service_id), timeout=30.0)
 
@@ -729,6 +764,13 @@ class RuntimeDeviceClient(HardwareDeviceClient):
         if not clean_id:
             raise DeviceRegistryError("ROS 2 topic stream ID is required.")
         return f"/ros2/topics/{urllib.parse.quote(clean_id, safe='')}"
+
+    @staticmethod
+    def _ros2_image_endpoint(stream_id: str) -> str:
+        clean_id = str(stream_id or "").strip()
+        if not clean_id:
+            raise DeviceRegistryError("ROS 2 image stream ID is required.")
+        return f"/ros2/images/{urllib.parse.quote(clean_id, safe='')}"
 
 
 class DeviceRegistry:

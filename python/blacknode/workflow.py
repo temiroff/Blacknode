@@ -299,7 +299,7 @@ def run_workflow_logged(data: Mapping[str, Any]) -> dict[str, Any]:
 #: Live stream node types kept for graphs exported on a machine where the
 #: owning package is not installed, so the registry cannot answer for them.
 _LEGACY_LIVE_RUNTIME_NODE_TYPES = frozenset({
-    "Camera", "CameraStream", "CameraROS2Subscribe", "CV2CameraStream",
+    "Camera", "CameraStream", "ROS2", "CV2CameraStream",
     "TrackingObject", "CV2ColorObjectStream", "ReasoningStream", "ROS2ImageStream", "ROS2Run",
 })
 

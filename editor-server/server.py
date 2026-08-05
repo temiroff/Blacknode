@@ -670,11 +670,18 @@ _RUNTIME_CALLABLE_ALIASES = {
 
 _remote_ros2_lock = threading.RLock()
 _remote_ros2_runs: dict[str, dict[str, Any]] = {}
+_remote_ros2_image_lock = threading.RLock()
+_remote_ros2_image_runs: dict[str, dict[str, Any]] = {}
 
 
 def _remote_ros2_service_id(node_id: str) -> str:
     clean = re.sub(r"[^a-z0-9-]+", "-", str(node_id or "").lower()).strip("-")
     return f"editor-{clean}"[:64] or "editor-ros2"
+
+
+def _remote_ros2_image_service_id(node_id: str) -> str:
+    clean = re.sub(r"[^a-z0-9-]+", "-", str(node_id or "").lower()).strip("-")
+    return f"editor-image-{clean}"[:64] or "editor-image"
 
 
 def _remote_ros2_error_outputs(
@@ -957,6 +964,138 @@ def _stop_remote_ros2_services() -> dict[str, Any]:
     }
 
 
+def _ensure_remote_ros2_image_ready(client: RuntimeDeviceClient) -> None:
+    _ensure_remote_ros2_ready(client)
+    features = {str(item) for item in (client.manifest().get("features") or [])}
+    if "remote_ros2_image_stream_v1" not in features:
+        raise DeviceRegistryError(
+            "Update Blacknode Runtime to 0.4.10 or newer from Devices → Software."
+        )
+
+
+def _paired_stream_url(client: RuntimeDeviceClient, value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    stream = urllib.parse.urlsplit(raw)
+    paired = urllib.parse.urlsplit(client.base_url)
+    if not stream.hostname or not paired.hostname:
+        return raw
+    host = paired.hostname
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    port = f":{stream.port}" if stream.port is not None else ""
+    return urllib.parse.urlunsplit((paired.scheme or stream.scheme, host + port, stream.path, stream.query, stream.fragment))
+
+
+def _normalize_remote_ros2_image_response(
+    client: RuntimeDeviceClient,
+    request: dict[str, Any],
+    response: dict[str, Any],
+) -> dict[str, Any]:
+    result = copy.deepcopy(
+        response.get("stream") if isinstance(response.get("stream"), dict) else {}
+    )
+    for key in ("stream_url", "snapshot_url", "health_url", "frame_url"):
+        result[key] = _paired_stream_url(client, result.get(key))
+    result["device_id"] = str(request.get("device_id") or "")
+    result["backend"] = f"remote:{result['device_id']}"
+    return {"id": str(response.get("id") or ""), "stream": result}
+
+
+def _remote_ros2_image_action(request: dict[str, Any]) -> dict[str, Any]:
+    node_id = str(request.get("node_id") or "").strip()
+    device_id = str(request.get("device_id") or "").strip()
+    action = str(request.get("action") or "status").strip().lower()
+    if not node_id or not device_id:
+        raise RuntimeError("ROS2 image execution requires a node and paired device")
+    stream_id = _remote_ros2_image_service_id(node_id)
+    payload = {
+        key: request.get(key)
+        for key in (
+            "topic",
+            "message_type",
+            "port",
+            "max_fps",
+            "max_width",
+            "jpeg_quality",
+            "timeout",
+        )
+    }
+    client = _device_registry.runtime_client(device_id)
+    try:
+        if action == "start":
+            _ensure_remote_ros2_image_ready(client)
+            response = client.start_ros2_image(stream_id, payload)
+            with _remote_ros2_image_lock:
+                _remote_ros2_image_runs[node_id] = dict(request)
+        elif action == "once":
+            _ensure_remote_ros2_image_ready(client)
+            response = client.read_ros2_image_once(stream_id, payload)
+        elif action == "stop":
+            response = client.stop_ros2_image(stream_id)
+            with _remote_ros2_image_lock:
+                _remote_ros2_image_runs.pop(node_id, None)
+        elif action == "status":
+            response = client.ros2_image_status(stream_id)
+        else:
+            raise RuntimeError(f"unknown ROS2 image action {action!r}")
+        return _normalize_remote_ros2_image_response(client, request, response)
+    except DeviceRegistryError as exc:
+        return {
+            "id": stream_id,
+            "stream": {
+                "ok": False,
+                "running": False,
+                "stream_id": stream_id,
+                "device_id": device_id,
+                "backend": f"remote:{device_id}",
+                "error": str(exc),
+            },
+        }
+
+
+def _remote_ros2_image_runtime_status() -> dict[str, Any]:
+    with _remote_ros2_image_lock:
+        runs = [(node_id, dict(item)) for node_id, item in _remote_ros2_image_runs.items()]
+    node_outputs = []
+    for node_id, request in runs:
+        result = _remote_ros2_image_action({**request, "node_id": node_id, "action": "status"})
+        node_outputs.append({
+            "node_type": str(request.get("node_type") or "ROS2Image"),
+            "node_id": node_id,
+            "run_id": str(result.get("id") or _remote_ros2_image_service_id(node_id)),
+            "outputs": dict(result.get("stream") or {}),
+        })
+    return {
+        "ok": all(bool(item.get("outputs", {}).get("ok", True)) for item in node_outputs),
+        "active": bool(runs),
+        "streams": [],
+        "managed_runs": [],
+        "node_outputs": node_outputs,
+        "detached_count": 0,
+    }
+
+
+def _stop_remote_ros2_image_services() -> dict[str, Any]:
+    with _remote_ros2_image_lock:
+        runs = [(node_id, dict(item)) for node_id, item in _remote_ros2_image_runs.items()]
+    errors = []
+    for node_id, request in runs:
+        result = _remote_ros2_image_action({**request, "node_id": node_id, "action": "stop"})
+        error = str(result.get("stream", {}).get("error") or "")
+        if error:
+            errors.append(error)
+    with _remote_ros2_image_lock:
+        _remote_ros2_image_runs.clear()
+    return {
+        "ok": not errors,
+        "stopped": {"streams": len(runs)},
+        "errors": errors,
+        "report": f"stopped {len(runs)} remote ROS2 image stream(s)",
+    }
+
+
 def _runtime_module(module_name: str):
     module = sys.modules.get(module_name)
     if module is not None:
@@ -1021,6 +1160,7 @@ def _runtime_status() -> dict[str, Any]:
         for label, module_name in _RUNTIME_MODULES.items()
     }
     modules["remote_ros2"] = _remote_ros2_runtime_status()
+    modules["remote_ros2_images"] = _remote_ros2_image_runtime_status()
     streams: list[dict[str, Any]] = []
     cv2_streams: list[dict[str, Any]] = []
     reasoning_streams: list[dict[str, Any]] = []
@@ -1080,6 +1220,7 @@ def _stop_runtime_services() -> dict[str, Any]:
         for label, module_name in _RUNTIME_MODULES.items()
     }
     modules["remote_ros2"] = _stop_remote_ros2_services()
+    modules["remote_ros2_images"] = _stop_remote_ros2_image_services()
     stopped = {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0, "reasoning_streams": 0}
     for result in modules.values():
         raw_stopped = result.get("stopped") if isinstance(result.get("stopped"), dict) else {}
@@ -4315,6 +4456,7 @@ def _refresh_live_compute_device_params() -> None:
     """Inject ephemeral live state immediately before an editor cook."""
     _session.graph.set_runtime_context(
         __remote_ros2_action__=_remote_ros2_action,
+        __remote_ros2_image_action__=_remote_ros2_image_action,
         __message_stream_reader__=_message_stream_reader,
     )
     for node in _session.graph._nodes.values():
