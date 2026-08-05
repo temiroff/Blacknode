@@ -454,7 +454,6 @@ export default function PointCloudViewer({
     [parsed.particle_scores],
   )
   const dynamicPoints = useMemo(() => numericRows(parsed.dynamic_points), [parsed.dynamic_points])
-  const dynamicVelocities = useMemo(() => numericRows(parsed.dynamic_velocities), [parsed.dynamic_velocities])
   const dynamicScores = useMemo(
     () => Array.isArray(parsed.dynamic_scores) ? parsed.dynamic_scores.map(value => clamp(finite(value), 0, 1)) : [],
     [parsed.dynamic_scores],
@@ -1046,47 +1045,22 @@ export default function PointCloudViewer({
     }
 
     if (dynamicPoints.length > 0) {
-      const trailSeconds = clamp(finite(parsed.dynamic_occupancy?.trail_seconds, 0.35), 0.05, 2)
-      const trailDistanceLimit = clamp(finite(parsed.dynamic_occupancy?.trail_distance_limit_m, 0.3), 0.05, 1)
+      // Motion is position-only for now: orange points communicate the moving
+      // returns without implying a trustworthy direction vector.
       context.save()
       context.globalCompositeOperation = 'screen'
       for (let index = 0; index < dynamicPoints.length; index += 1) {
         const point = dynamicPoints[index]
-        const velocity = dynamicVelocities[index] ?? [0, 0, 0]
         const score = dynamicScores[index] ?? 0
-        const velocityX = finite(velocity[0])
-        const velocityY = finite(velocity[1])
-        const velocityZ = finite(velocity[2])
-        const rawTrailDistance = Math.hypot(velocityX, velocityY, velocityZ) * trailSeconds
-        const trailScale = rawTrailDistance > trailDistanceLimit
-          ? trailDistanceLimit / rawTrailDistance
-          : 1
         const projected = worldToScreen(
           point[0], point[1], finite(point[2]), viewport, camera, pixelsPerMeter,
         )
-        const previous = worldToScreen(
-          point[0] - velocityX * trailSeconds * trailScale,
-          point[1] - velocityY * trailSeconds * trailScale,
-          finite(point[2]) - velocityZ * trailSeconds * trailScale,
-          viewport,
-          camera,
-          pixelsPerMeter,
-        )
-        const red = Math.round(246 + score * 9)
-        const green = Math.round(183 - score * 103)
-        const blue = Math.round(76 + score * 102)
-        const color = `${red}, ${green}, ${blue}`
-        context.strokeStyle = `rgba(${color}, ${0.3 + score * 0.55})`
-        context.lineWidth = 1.2 + score * 1.8
-        context.shadowColor = `rgba(${color}, 0.65)`
-        context.shadowBlur = 5 + score * 7
+        const color = '255, 169, 64'
+        context.shadowColor = `rgba(${color}, 0.58)`
+        context.shadowBlur = 4 + score * 4
+        context.fillStyle = `rgba(${color}, ${0.68 + score * 0.24})`
         context.beginPath()
-        context.moveTo(previous[0], previous[1])
-        context.lineTo(projected[0], projected[1])
-        context.stroke()
-        context.fillStyle = `rgba(${color}, ${0.62 + score * 0.35})`
-        context.beginPath()
-        context.arc(projected[0], projected[1], 2.4 + score * 2.6, 0, Math.PI * 2)
+        context.arc(projected[0], projected[1], 2.5 + score * 1.8, 0, Math.PI * 2)
         context.fill()
       }
       context.restore()
@@ -1211,12 +1185,9 @@ export default function PointCloudViewer({
     currentPoints,
     dynamicPoints,
     dynamicScores,
-    dynamicVelocities,
     gridFrame,
     parsed.animation?.ray_trail_count,
     parsed.animation?.show_rays,
-    parsed.dynamic_occupancy?.trail_seconds,
-    parsed.dynamic_occupancy?.trail_distance_limit_m,
     particleScores,
     particleYaws,
     particles,
@@ -1418,10 +1389,10 @@ export default function PointCloudViewer({
           <div style={{
             position: 'absolute', zIndex: 3, top: 39, right: 9, display: 'flex', alignItems: 'center', gap: 6,
             padding: '4px 7px', borderRadius: 5, background: 'rgba(18, 8, 12, 0.82)',
-            border: '1px solid rgba(255, 127, 101, 0.48)', color: '#ffae82',
+            border: '1px solid rgba(255, 169, 64, 0.48)', color: '#ffb257',
             fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
           }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: dynamicPoints.length ? '#ff6f91' : '#8b685f' }} />
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: dynamicPoints.length ? '#ffa940' : '#8b685f' }} />
             {parsed.dynamic_occupancy.state === 'warming'
               ? 'HASHGRID MOTION · WARMING'
               : `HASHGRID MOTION · ${Number(parsed.dynamic_occupancy.dynamic_points ?? 0).toLocaleString()} MOVING`}
@@ -1466,7 +1437,7 @@ export default function PointCloudViewer({
           </span>
         )}
         {parsed.dynamic_occupancy?.state === 'ready' && (
-          <span style={{ color: '#ffae82' }}>
+          <span style={{ color: '#ffb257' }}>
             Warp HashGrid {Number(parsed.dynamic_occupancy.input_points ?? 0).toLocaleString()} queries · {Number(parsed.dynamic_occupancy.dynamic_points ?? 0).toLocaleString()} moving · {finite(parsed.dynamic_occupancy.pipeline_ms).toFixed(3)} ms · mean {finite(parsed.dynamic_occupancy.mean_speed_mps).toFixed(2)} m/s
             {finite(parsed.dynamic_occupancy.speedup) > 0 ? ` · ${finite(parsed.dynamic_occupancy.speedup).toFixed(1)}× CPU` : ''}
           </span>
@@ -1488,7 +1459,7 @@ export default function PointCloudViewer({
         {showFreeSpace && freeCellCount > 0 && <span style={{ color: '#4fc07a' }}>■ {freeCellCount.toLocaleString()} fixed free-floor cells</span>}
         {occupiedCellCount > 0 && <span style={{ color: '#c7e0ef' }}>■ {occupiedCellCount.toLocaleString()} occupied wall cells</span>}
         {particles.length > 0 && <span style={{ color: '#9df0c2' }}>● GPU pose hypotheses · purple low / green high confidence</span>}
-        {dynamicPoints.length > 0 && <span style={{ color: '#ff8b79' }}>● moving returns · amber/magenta velocity trails</span>}
+        {dynamicPoints.length > 0 && <span style={{ color: '#ffa940' }}>● coherent motion · orange points</span>}
         {showAxes && <span>map <b style={{ color: '#ff6b6b' }}>X</b> / <b style={{ color: '#53e091' }}>Y</b> / <b style={{ color: '#539aff' }}>Z</b> axes</span>}
         {parsed.history_registered === true && <span style={{ color: '#74e7a5' }}>pose-registered history · {parsed.pose_source || 'pose stream'}</span>}
         {Array.isArray(parsed.registration?.tf_path) && parsed.registration.tf_path.length > 1 && (
