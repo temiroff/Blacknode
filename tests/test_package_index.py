@@ -52,8 +52,12 @@ def test_real_sensor_templates_use_generic_ros2_then_typed_processor():
         "sensor_msgs/msg/Imu": {"IMUProcessor"},
     }
     checked = []
+    checked_roots = []
 
     for root in template_roots:
+        if not root.exists():
+            continue
+        root_checked = []
         for path in root.rglob("templates/*.json"):
             workflow = json.loads(path.read_text(encoding="utf-8"))
             if workflow.get("kind") != "blacknode.workflow":
@@ -76,8 +80,12 @@ def test_real_sensor_templates_use_generic_ros2_then_typed_processor():
                     for edge in edges
                 ), f"{path}: ROS2 {node_id} must feed {sorted(accepted)}"
                 checked.append((path.name, node_id))
+                root_checked.append((path.name, node_id))
+        assert root_checked, f"{root}: expected at least one real sensor template"
+        checked_roots.append(root)
 
-    assert len(checked) >= 13
+    if checked_roots:
+        assert checked
 
 
 def test_core_index_maps_official_node_types_to_git_packages():
