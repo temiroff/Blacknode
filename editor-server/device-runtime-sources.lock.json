@@ -3,10 +3,10 @@
   "python_minor": "3.11",
   "runtime": {
     "repository": "temiroff/blacknode-runtime",
-    "commit": "569ced3980a3a66f41970c6b4757b05f2807d305"
+    "commit": "1d2ea577cbe01cba8b5b719b5d83d9d86695d477"
   },
   "core": {
     "repository": "temiroff/Blacknode",
-    "commit": "be76528a68fd876ace3ae81311e79289429fe7a2"
+    "commit": "0afc899a0590356eb0e13670b3a8ba9ab3e29e13"
   }
 }
