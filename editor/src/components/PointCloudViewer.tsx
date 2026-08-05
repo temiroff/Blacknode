@@ -14,6 +14,9 @@ interface ViewerScene {
   floor_colors?: unknown
   occupied_points?: unknown
   occupied_colors?: unknown
+  particles?: unknown
+  particle_yaws?: unknown
+  particle_scores?: unknown
   point_count?: number
   current_point_count?: number
   accumulated_scan_count?: number
@@ -76,6 +79,23 @@ interface ViewerScene {
     map_resolution_m?: number
     matching_backend?: string
     matching_kernel_ms?: number
+  }
+  localization?: {
+    state?: string
+    backend?: string
+    requested_particles?: number
+    evaluated_particles?: number
+    display_particles?: number
+    beam_count?: number
+    work_items?: number
+    pipeline_ms?: number
+    cpu_ms?: number
+    speedup?: number
+    max_score_error?: number
+    limited?: boolean
+    best_score?: number
+    effective_sample_size?: number
+    uncertainty?: { x_m?: number; y_m?: number; yaw_rad?: number }
   }
   animation?: {
     enabled?: boolean
@@ -399,6 +419,15 @@ export default function PointCloudViewer({
   const floorColors = useMemo(() => numericRows(parsed.floor_colors), [parsed.floor_colors])
   const occupiedPoints = useMemo(() => numericRows(parsed.occupied_points), [parsed.occupied_points])
   const occupiedColors = useMemo(() => numericRows(parsed.occupied_colors), [parsed.occupied_colors])
+  const particles = useMemo(() => numericRows(parsed.particles), [parsed.particles])
+  const particleYaws = useMemo(
+    () => Array.isArray(parsed.particle_yaws) ? parsed.particle_yaws.map(value => finite(value)) : [],
+    [parsed.particle_yaws],
+  )
+  const particleScores = useMemo(
+    () => Array.isArray(parsed.particle_scores) ? parsed.particle_scores.map(value => clamp(finite(value), 0, 1)) : [],
+    [parsed.particle_scores],
+  )
   const visibleFloorPoints = useMemo(
     () => showFreeSpace ? floorPoints : [],
     [floorPoints, showFreeSpace],
@@ -951,6 +980,40 @@ export default function PointCloudViewer({
       }
     }
 
+    if (particles.length > 0) {
+      for (let index = 0; index < particles.length; index += 1) {
+        const particle = particles[index]
+        const score = particleScores[index] ?? 0
+        const yaw = particleYaws[index] ?? 0
+        const projected = worldToScreen(
+          particle[0], particle[1], finite(particle[2]), viewport, camera, pixelsPerMeter,
+        )
+        const red = Math.round(143 - score * 57)
+        const green = Math.round(105 + score * 139)
+        const blue = Math.round(224 - score * 73)
+        context.fillStyle = `rgba(${red}, ${green}, ${blue}, ${0.18 + score * 0.72})`
+        context.beginPath()
+        context.arc(projected[0], projected[1], 1.2 + score * 2.1, 0, Math.PI * 2)
+        context.fill()
+        if (score > 0.72) {
+          const heading = worldToScreen(
+            particle[0] + Math.cos(yaw) * 0.12,
+            particle[1] + Math.sin(yaw) * 0.12,
+            finite(particle[2]),
+            viewport,
+            camera,
+            pixelsPerMeter,
+          )
+          context.strokeStyle = `rgba(${red}, ${green}, ${blue}, ${0.3 + score * 0.65})`
+          context.lineWidth = 0.8 + score
+          context.beginPath()
+          context.moveTo(projected[0], projected[1])
+          context.lineTo(heading[0], heading[1])
+          context.stroke()
+        }
+      }
+    }
+
     const robotLength = clamp(finite(parsed.robot?.length_m, 0.25), 0.02, 5)
     const robotWidth = clamp(finite(parsed.robot?.width_m, 0.22), 0.02, 5)
     const visualRobotLength = robotLength * ROBOT_FOOTPRINT_VISUAL_SCALE
@@ -1071,6 +1134,9 @@ export default function PointCloudViewer({
     gridFrame,
     parsed.animation?.ray_trail_count,
     parsed.animation?.show_rays,
+    particleScores,
+    particleYaws,
+    particles,
     parsed.robot?.length_m,
     parsed.robot?.width_m,
     parsed.scan?.angle_max_rad,
@@ -1295,6 +1361,13 @@ export default function PointCloudViewer({
         {parsed.device && <span>{parsed.device}</span>}
         {parsed.frame && <span>{parsed.frame}</span>}
         {parsed.slam && <span>{Number(parsed.slam.keyframes ?? 0).toLocaleString()} keyframes · score {finite(parsed.slam.match_score).toFixed(2)} · {parsed.slam.matching_backend === 'warp' ? `Warp match ${finite(parsed.slam.matching_kernel_ms).toFixed(3)} ms` : 'CPU match'} · {parsed.slam.deskewed ? 'deskew on' : 'deskew unavailable'} · {Number(parsed.slam.loop_closures ?? 0).toLocaleString()} loops</span>}
+        {parsed.localization?.state === 'ready' && (
+          <span style={{ color: '#9df0c2' }}>
+            {parsed.localization.backend === 'warp' ? 'Warp' : 'CPU'} particles {Number(parsed.localization.evaluated_particles ?? 0).toLocaleString()} × {Number(parsed.localization.beam_count ?? 0).toLocaleString()} beams = {Number(parsed.localization.work_items ?? 0).toLocaleString()} scores · {finite(parsed.localization.pipeline_ms).toFixed(3)} ms
+            {finite(parsed.localization.effective_sample_size) > 0 ? ` · ESS ${Math.round(finite(parsed.localization.effective_sample_size)).toLocaleString()}` : ''}
+            {finite(parsed.localization.speedup) > 0 ? ` · ${finite(parsed.localization.speedup).toFixed(1)}× CPU` : ''}
+          </span>
+        )}
         <span>{scanCoverageDeg >= 359.5 ? `360° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay` : `${scanCoverageDeg.toFixed(1)}° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay`}</span>
         <span>3D orbit · LaserScan lies on XY plane</span>
       </div>
@@ -1310,6 +1383,7 @@ export default function PointCloudViewer({
         {parsed.map_render_mode === 'occupancy-texture' && <span style={{ color: '#74e7a5' }}>GPU map texture · all cells</span>}
         {showFreeSpace && freeCellCount > 0 && <span style={{ color: '#4fc07a' }}>■ {freeCellCount.toLocaleString()} fixed free-floor cells</span>}
         {occupiedCellCount > 0 && <span style={{ color: '#c7e0ef' }}>■ {occupiedCellCount.toLocaleString()} occupied wall cells</span>}
+        {particles.length > 0 && <span style={{ color: '#9df0c2' }}>● GPU pose hypotheses · purple low / green high confidence</span>}
         {showAxes && <span>map <b style={{ color: '#ff6b6b' }}>X</b> / <b style={{ color: '#53e091' }}>Y</b> / <b style={{ color: '#539aff' }}>Z</b> axes</span>}
         {parsed.history_registered === true && <span style={{ color: '#74e7a5' }}>pose-registered history · {parsed.pose_source || 'pose stream'}</span>}
         {Array.isArray(parsed.registration?.tf_path) && parsed.registration.tf_path.length > 1 && (
