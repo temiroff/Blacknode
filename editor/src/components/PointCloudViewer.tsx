@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { SpatialViewerRole } from '../viewerTypes'
 
 interface ViewerScene {
   kind?: string
@@ -239,6 +240,7 @@ interface ViewerScene {
     sweep_direction?: string
     accumulate_hits?: boolean
   }
+  show_axes?: boolean
 }
 
 interface CameraState {
@@ -531,6 +533,7 @@ function controlStyle(active = false): React.CSSProperties {
 
 export default function PointCloudViewer({
   scene,
+  viewerRole,
   inputRail,
   onClear,
   onAccumulationToggle,
@@ -540,6 +543,7 @@ export default function PointCloudViewer({
   goalPending = false,
 }: {
   scene: unknown
+  viewerRole: SpatialViewerRole
   inputRail?: ReactNode
   onClear?: () => void
   onAccumulationToggle?: () => void
@@ -567,7 +571,9 @@ export default function PointCloudViewer({
   } | null>(null)
   const [camera, setCamera] = useState<CameraState>(DEFAULT_CAMERA)
   const [gridFrame, setGridFrame] = useState<GridFrame>({ x: 0, y: 0, yaw: 0 })
-  const [showAxes, setShowAxes] = useState(false)
+  const mapFeatures = viewerRole === 'map' || viewerRole === 'legacy'
+  const showRobot = mapFeatures
+  const [showAxes, setShowAxes] = useState(viewerRole !== 'map' && viewerRole !== 'legacy')
   const [showFreeSpace, setShowFreeSpace] = useState(true)
   const robotLogoRef = useRef<HTMLImageElement | null>(null)
   const [robotLogoReady, setRobotLogoReady] = useState(false)
@@ -575,6 +581,9 @@ export default function PointCloudViewer({
   const initialResetPendingRef = useRef(true)
   const [viewport, setViewport] = useState<Viewport>({ width: 1, height: 360, ratio: 1 })
   const parsed = (scene && typeof scene === 'object' ? scene : {}) as ViewerScene
+  useEffect(() => {
+    setShowAxes(parsed.show_axes ?? (viewerRole !== 'map' && viewerRole !== 'legacy'))
+  }, [parsed.show_axes, viewerRole])
   const points = useMemo(() => numericRows(parsed.points), [parsed.points])
   const colors = useMemo(() => numericRows(parsed.colors), [parsed.colors])
   const currentPoints = useMemo(() => numericRows(parsed.current_points), [parsed.current_points])
@@ -608,14 +617,19 @@ export default function PointCloudViewer({
   )
   const trajectoryGoal = useMemo(() => numericRows([parsed.trajectory_goal])[0] ?? [], [parsed.trajectory_goal])
   const visibleFloorPoints = useMemo(
-    () => showFreeSpace ? floorPoints : [],
-    [floorPoints, showFreeSpace],
+    () => mapFeatures && showFreeSpace ? floorPoints : [],
+    [floorPoints, mapFeatures, showFreeSpace],
+  )
+  const visibleOccupiedPoints = useMemo(
+    () => mapFeatures ? occupiedPoints : [],
+    [mapFeatures, occupiedPoints],
   )
   const renderedPoints = useMemo(
-    () => [...visibleFloorPoints, ...occupiedPoints, ...points, ...currentPoints],
-    [currentPoints, occupiedPoints, points, visibleFloorPoints],
+    () => [...visibleFloorPoints, ...visibleOccupiedPoints, ...points, ...currentPoints],
+    [currentPoints, points, visibleFloorPoints, visibleOccupiedPoints],
   )
   const occupancyBackground = useMemo(() => {
+    if (!mapFeatures) return []
     if (parsed.occupancy?.fixed_origin !== true) return []
     const width = Math.max(0, Math.round(finite(parsed.occupancy.grid_width)))
     const height = Math.max(0, Math.round(finite(parsed.occupancy.grid_height)))
@@ -630,6 +644,7 @@ export default function PointCloudViewer({
       [minimumX, minimumY, -0.03], [maximumX, maximumY, -0.03], [minimumX, maximumY, -0.03],
     ]
   }, [
+    mapFeatures,
     parsed.occupancy?.fixed_origin,
     parsed.occupancy?.grid_height,
     parsed.occupancy?.grid_width,
@@ -637,12 +652,13 @@ export default function PointCloudViewer({
     parsed.occupancy?.world_min_x,
     parsed.occupancy?.world_min_y,
   ])
-  const occupancyTexture = useMemo(() => decodeOccupancyTexture(
+  const occupancyTexture = useMemo(() => mapFeatures ? decodeOccupancyTexture(
     parsed.occupancy?.encoding,
     parsed.occupancy?.data,
     parsed.occupancy?.grid_width,
     parsed.occupancy?.grid_height,
-  ), [
+  ) : null, [
+    mapFeatures,
     parsed.occupancy?.data,
     parsed.occupancy?.encoding,
     parsed.occupancy?.grid_height,
@@ -677,6 +693,7 @@ export default function PointCloudViewer({
     : 1
 
   useEffect(() => {
+    if (!showRobot) return
     let cancelled = false
     const logo = new Image()
     logo.onload = () => {
@@ -689,7 +706,7 @@ export default function PointCloudViewer({
       cancelled = true
       robotLogoRef.current = null
     }
-  }, [])
+  }, [showRobot])
 
   useEffect(() => {
     if (!animationEnabled || !hasCurrentPoints) return
@@ -734,6 +751,11 @@ export default function PointCloudViewer({
   const pixelsPerMeter = basePixelsPerMeter * camera.zoom
   const resetCamera = () => {
     clearViewRadiusFloorRef.current = 0
+    if (!showRobot) {
+      setGridFrame({ x: 0, y: 0, yaw: 0 })
+      setCamera({ ...DEFAULT_CAMERA, yaw: TOP_VIEW_YAW, pitch: 0 })
+      return
+    }
     const robotLength = clamp(finite(parsed.robot?.length_m, 0.25), 0.02, 5)
     const robotWidth = clamp(finite(parsed.robot?.width_m, 0.22), 0.02, 5)
     const focusRadius = Math.max(0.35, Math.max(robotLength, robotWidth) * ROBOT_FIT_RADIUS_MULTIPLIER)
@@ -952,7 +974,7 @@ export default function PointCloudViewer({
       )
       positions[vertexIndex * 2] = (screenX / viewport.width) * 2 - 1
       positions[vertexIndex * 2 + 1] = 1 - (screenY / viewport.height) * 2
-      const occupancyPointCount = visibleFloorPoints.length + occupiedPoints.length
+      const occupancyPointCount = visibleFloorPoints.length + visibleOccupiedPoints.length
       const mapIndex = index - occupancyPointCount
       const currentIndex = mapIndex - points.length
       const isFloor = index < visibleFloorPoints.length
@@ -1012,7 +1034,7 @@ export default function PointCloudViewer({
       if (vertex) gl.deleteShader(vertex)
       if (fragment) gl.deleteShader(fragment)
     }
-  }, [camera, colors, currentColors, floorColors, occupiedColors, occupiedPoints.length, parsed.occupancy?.resolution_m, pixelsPerMeter, points.length, renderedPoints, viewport, visibleFloorPoints.length])
+  }, [camera, colors, currentColors, floorColors, occupiedColors, parsed.occupancy?.resolution_m, pixelsPerMeter, points.length, renderedPoints, viewport, visibleFloorPoints.length, visibleOccupiedPoints.length])
 
   useEffect(() => {
     const overlay = overlayRef.current
@@ -1262,6 +1284,7 @@ export default function PointCloudViewer({
       context.restore()
     }
 
+    if (showRobot) {
     const robotLength = clamp(finite(parsed.robot?.length_m, 0.25), 0.02, 5)
     const robotWidth = clamp(finite(parsed.robot?.width_m, 0.22), 0.02, 5)
     const visualRobotLength = robotLength * ROBOT_FOOTPRINT_VISUAL_SCALE
@@ -1360,6 +1383,7 @@ export default function PointCloudViewer({
       context.textAlign = 'start'
       context.textBaseline = 'alphabetic'
     }
+    }
 
     const scalePixels = spacing * pixelsPerMeter
     const scaleX = 16
@@ -1397,6 +1421,7 @@ export default function PointCloudViewer({
     robotHeadingYaw,
     robotLogoReady,
     sensor,
+    showRobot,
     showAxes,
     trajectoryGoal,
     trajectoryPaths,
@@ -1447,9 +1472,9 @@ export default function PointCloudViewer({
         <button type="button" style={controlStyle()} title="Tilt camera up" onClick={() => setCamera(value => ({ ...value, pitch: clamp(value.pitch + Math.PI / 18, -1.45, 1.45) }))}>↑</button>
         <button type="button" style={controlStyle()} title="Tilt camera down" onClick={() => setCamera(value => ({ ...value, pitch: clamp(value.pitch - Math.PI / 18, -1.45, 1.45) }))}>↓</button>
         <button type="button" style={controlStyle(camera.pitch === 0 && camera.yaw === TOP_VIEW_YAW)} title="Top view with world +X (red axis) pointing up" onClick={() => setCamera(value => ({ ...value, yaw: TOP_VIEW_YAW, pitch: 0 }))}>Top</button>
-        <button type="button" style={controlStyle()} title="Capture and align the grid at the current robot pose, then keep the grid and map fixed" onClick={resetCamera}>Reset</button>
+        <button type="button" style={controlStyle()} title={mapFeatures ? 'Capture and align the map grid at the current robot pose' : 'Reset the sensor view'} onClick={resetCamera}>Reset</button>
         <label
-          title="Show fixed map X, Y, and Z axes with metric tick labels"
+          title={`Show fixed ${mapFeatures ? 'map' : 'sensor'} X, Y, and Z axes with metric tick labels`}
           style={{ ...controlStyle(showAxes), display: 'inline-flex', alignItems: 'center', gap: 5, width: 'auto' }}
         >
           <input
@@ -1471,14 +1496,16 @@ export default function PointCloudViewer({
             {accumulationPending ? 'Updating…' : `Accumulate: ${parsed.history_paused ? 'Off' : 'On'}`}
           </button>
         )}
-        <button
-          type="button"
-          style={controlStyle(showFreeSpace)}
-          title={showFreeSpace ? 'Hide free-space floor fill; stored occupancy data is preserved' : 'Show free-space floor fill'}
-          onClick={() => setShowFreeSpace(value => !value)}
-        >
-          Floor: {showFreeSpace ? 'On' : 'Off'}
-        </button>
+        {mapFeatures && (
+          <button
+            type="button"
+            style={controlStyle(showFreeSpace)}
+            title={showFreeSpace ? 'Hide free-space floor fill; stored occupancy data is preserved' : 'Show free-space floor fill'}
+            onClick={() => setShowFreeSpace(value => !value)}
+          >
+            Floor: {showFreeSpace ? 'On' : 'Off'}
+          </button>
+        )}
         {onClear && (!parsed.depth_projection || parsed.reconstruction) && <button type="button" disabled={clearPending} style={controlStyle()} title={parsed.reconstruction ? 'Clear the persistent RGB-D reconstruction volume and pause integration' : 'Clear accumulated scan history and switch accumulation off'} onClick={onClear}>{clearPending ? 'Clearing…' : parsed.reconstruction ? 'Clear volume' : 'Clear history'}</button>}
         <span style={{ marginLeft: 'auto', color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
           {camera.zoom.toFixed(2)}× · yaw {yawDegrees}° · pitch {pitchDegrees}°
@@ -1489,11 +1516,13 @@ export default function PointCloudViewer({
         style={{ position: 'relative', flex: '1 1 auto', minHeight: 80 }}
       >
         {inputRail}
-        <canvas
-          ref={occupancyCanvasRef}
-          aria-hidden="true"
-          style={{ position: 'absolute', inset: 0, zIndex: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
-        />
+        {mapFeatures && (
+          <canvas
+            ref={occupancyCanvasRef}
+            aria-hidden="true"
+            style={{ position: 'absolute', inset: 0, zIndex: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+          />
+        )}
         <canvas
           ref={canvasRef}
           className="bn-viewer-wheel-capture"
@@ -1728,19 +1757,19 @@ export default function PointCloudViewer({
         height: 25, flex: '0 0 25px', overflow: 'hidden', whiteSpace: 'nowrap', padding: '0 9px 7px',
         color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11,
       }}>
-        <span style={{ color: '#7cf4ff' }}>B robot {Math.round(finite(parsed.robot?.length_m, 0.25) * 100)}×{Math.round(finite(parsed.robot?.width_m, 0.22) * 100)} cm</span>
+        {showRobot && <span style={{ color: '#7cf4ff' }}>B robot {Math.round(finite(parsed.robot?.length_m, 0.25) * 100)}×{Math.round(finite(parsed.robot?.width_m, 0.22) * 100)} cm</span>}
         {!parsed.depth_projection && <span style={{ color: '#72ff9d' }}>— active beam</span>}
         {!parsed.depth_projection && !fullCircleScan && <span style={{ color: '#85a2b8' }}>┄ scan limits</span>}
         <span style={{ color: '#32d8ef' }}>{parsed.sensor_fusion ? '● LiDAR cyan · RGB-D green aligned / red residual' : parsed.reconstruction ? '● reconstructed surface · aligned RGB when available' : parsed.depth_projection ? '● projected depth · brightness is surface confidence' : '● filtered laser returns'}</span>
         {parsed.sensor_fusion && <span style={{ color: '#91f4ff' }}>calibration Δ {finite(parsed.sensor_fusion.correction?.x_m).toFixed(3)} m X · {finite(parsed.sensor_fusion.correction?.y_m).toFixed(3)} m Y · {finite(parsed.sensor_fusion.correction?.yaw_deg).toFixed(2)}° yaw</span>}
-        {parsed.occupancy?.fixed_origin === true && <span style={{ color: '#486070' }}>■ unknown map extent</span>}
-        {parsed.map_render_mode === 'occupancy-texture' && <span style={{ color: '#74e7a5' }}>GPU map texture · all cells</span>}
-        {showFreeSpace && freeCellCount > 0 && <span style={{ color: '#4fc07a' }}>■ {freeCellCount.toLocaleString()} fixed free-floor cells</span>}
-        {occupiedCellCount > 0 && <span style={{ color: '#c7e0ef' }}>■ {occupiedCellCount.toLocaleString()} occupied wall cells</span>}
+        {mapFeatures && parsed.occupancy?.fixed_origin === true && <span style={{ color: '#486070' }}>■ unknown map extent</span>}
+        {mapFeatures && parsed.map_render_mode === 'occupancy-texture' && <span style={{ color: '#74e7a5' }}>GPU map texture · all cells</span>}
+        {mapFeatures && showFreeSpace && freeCellCount > 0 && <span style={{ color: '#4fc07a' }}>■ {freeCellCount.toLocaleString()} fixed free-floor cells</span>}
+        {mapFeatures && occupiedCellCount > 0 && <span style={{ color: '#c7e0ef' }}>■ {occupiedCellCount.toLocaleString()} occupied wall cells</span>}
         {particles.length > 0 && <span style={{ color: '#9df0c2' }}>● GPU pose hypotheses · purple low / green high confidence</span>}
         {dynamicPoints.length > 0 && <span style={{ color: '#ffa940' }}>● coherent motion · orange points</span>}
         {trajectoryPaths.length > 0 && <span><b style={{ color: '#66e091' }}>— safe</b> · <b style={{ color: '#ff5b5b' }}>— blocked</b> · <b style={{ color: '#5bebff' }}>— best GPU path</b></span>}
-        {showAxes && <span>map <b style={{ color: '#ff6b6b' }}>X</b> / <b style={{ color: '#53e091' }}>Y</b> / <b style={{ color: '#539aff' }}>Z</b> axes</span>}
+        {showAxes && <span>{mapFeatures ? 'map' : 'sensor'} <b style={{ color: '#ff6b6b' }}>X</b> / <b style={{ color: '#53e091' }}>Y</b> / <b style={{ color: '#539aff' }}>Z</b> axes</span>}
         {parsed.history_registered === true && <span style={{ color: '#74e7a5' }}>pose-registered history · {parsed.pose_source || 'pose stream'}</span>}
         {Array.isArray(parsed.registration?.tf_path) && parsed.registration.tf_path.length > 1 && (
           <span>{parsed.registration.tf_path.join(' → ')}</span>

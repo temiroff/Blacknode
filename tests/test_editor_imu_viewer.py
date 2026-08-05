@@ -22,4 +22,4 @@ def test_imu_viewer_uses_the_managed_viewer_node_shell():
     assert "data.type === 'IMUViewer'" in source
     assert "<IMUOrientationViewer" in source
     assert "LIVE • IMU" in source
-    assert "meta.type === 'IMUViewer'" in store
+    assert "VIEWER_NODE_TYPES.has(meta.type)" in store

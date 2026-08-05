@@ -19,8 +19,16 @@ import NodeGlyph from './NodeGlyph'
 import DatasetBrowserPanel from './DatasetBrowserPanel'
 import PointCloudViewer from './PointCloudViewer'
 import IMUOrientationViewer from './IMUOrientationViewer'
+import ImageSensorViewer from './ImageSensorViewer'
 import type { NodeCookState } from '../types'
 import { LIVE_STREAM_NODE_TYPES } from '../liveNodeTypes'
+import {
+  IMAGE_SENSOR_VIEWER_TYPES,
+  MANAGED_SPATIAL_VIEWER_TYPES,
+  SPATIAL_VIEWER_TYPES,
+  VIEWER_NODE_TYPES,
+  spatialViewerRole,
+} from '../viewerTypes'
 
 const TOOLBOX_NEW_HANDLE_COLOR = '#ef444488'
 
@@ -823,8 +831,11 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const isEpisodeRecorder = data.type === 'EpisodeRecorder'
   const isDatasetCreate = data.type === 'DatasetCreate'
   const isDatasetBrowser = data.type === 'DatasetBrowser'
-  const isViewer = data.type === 'Viewer' || data.type === 'SLAM' || data.type === 'IMUViewer'
+  const isViewer = VIEWER_NODE_TYPES.has(data.type)
   const isIMUViewer = data.type === 'IMUViewer'
+  const isImageSensorViewer = IMAGE_SENSOR_VIEWER_TYPES.has(data.type)
+  const isSpatialViewer = SPATIAL_VIEWER_TYPES.has(data.type)
+  const managedSpatialViewer = MANAGED_SPATIAL_VIEWER_TYPES.has(data.type)
   const isACTTraining = data.type === 'ACTTraining'
   const availableInputs = isRobotJointList
     ? (data.inputs ?? []).filter(port => edges.some(edge => edge.target === id && edge.targetHandle === port))
@@ -2716,9 +2727,11 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           )}
         />
       )}
-      {isViewer && !isIMUViewer && (
-        <PointCloudViewer
-          scene={data.portResults?.scene}
+      {isImageSensorViewer && (
+        <ImageSensorViewer
+          preview={data.portResults?.preview}
+          status={data.portResults?.status}
+          sensorKind={data.type === 'DepthViewer' ? 'depth' : 'camera'}
           inputRail={(
             <ViewerInputStrip
               nodeId={id}
@@ -2727,8 +2740,22 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               connectedPorts={connectedViewerInputs}
             />
           )}
-          onClear={() => { void onClearViewer() }}
-          onAccumulationToggle={() => { void onToggleViewerAccumulation() }}
+        />
+      )}
+      {isSpatialViewer && (
+        <PointCloudViewer
+          scene={data.portResults?.scene}
+          viewerRole={spatialViewerRole(data.type)}
+          inputRail={(
+            <ViewerInputStrip
+              nodeId={id}
+              ports={visibleInputs}
+              inputTypes={Object.fromEntries(visibleInputs.map(port => [port, effectivePortType(port, 'input')]))}
+              connectedPorts={connectedViewerInputs}
+            />
+          )}
+          onClear={managedSpatialViewer || data.type === 'SLAM' ? () => { void onClearViewer() } : undefined}
+          onAccumulationToggle={managedSpatialViewer || data.type === 'SLAM' ? () => { void onToggleViewerAccumulation() } : undefined}
           onGoalSet={data.type === 'SLAM' ? (x, y) => { void onSetSlamGoal(x, y) } : undefined}
           clearPending={viewerClearPending}
           accumulationPending={viewerAccumulationPending}

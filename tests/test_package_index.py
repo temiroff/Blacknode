@@ -186,6 +186,11 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert cuda["benchmarks"]["default"] is False
     assert cuda["spatial-processing"]["node_types"] == [
         "Viewer",
+        "LiDARViewer",
+        "DepthCloudViewer",
+        "ReconstructionViewer",
+        "FusionViewer",
+        "MapViewer",
         "SLAM",
         "WarpParticleLocalization",
         "WarpDynamicOccupancy",
@@ -204,6 +209,10 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert perception["lidar"]["adapters"]["ros2"]["node_types"] == []
     assert perception["imu"]["default"] is True
     assert perception["imu"]["node_types"] == ["IMUProcessor", "IMU", "IMUViewer"]
+    assert "CameraViewer" in perception["camera"]["node_types"]
+    assert "DepthViewer" in perception["depth"]["node_types"]
+    assert payload["nodes"]["CameraViewer"]["package"] == "blacknode-perception"
+    assert payload["nodes"]["DepthViewer"]["package"] == "blacknode-perception"
     assert payload["nodes"]["IMUViewer"]["package"] == "blacknode-perception"
     assert payload["nodes"]["WarpParticleLocalization"]["package"] == "blacknode-cuda"
     assert payload["nodes"]["WarpDynamicOccupancy"]["package"] == "blacknode-cuda"

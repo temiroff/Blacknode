@@ -117,6 +117,7 @@ export default function StandaloneSlam() {
       <section className="bn-standalone-slam__viewer">
         <PointCloudViewer
           scene={state.scene}
+          viewerRole="map"
           onClear={() => { void control('clear') }}
           onAccumulationToggle={() => { void control(scene.history_paused ? 'resume' : 'pause') }}
           onGoalSet={(x, y) => { void control('set-goal', { goal_x_m: x, goal_y_m: y }) }}
