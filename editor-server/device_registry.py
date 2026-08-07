@@ -667,7 +667,7 @@ class RuntimeDeviceClient(HardwareDeviceClient):
             "POST",
             f"{self._ros2_topic_endpoint(stream_id)}/stop",
             payload={},
-            timeout=30.0,
+            timeout=8.0,
         )
 
     def ros2_image_status(self, stream_id: str) -> dict[str, Any]:
@@ -702,7 +702,7 @@ class RuntimeDeviceClient(HardwareDeviceClient):
             "POST",
             f"{self._ros2_image_endpoint(stream_id)}/stop",
             payload={},
-            timeout=30.0,
+            timeout=8.0,
         )
 
     def get_service(self, service_id: str) -> dict[str, Any]:

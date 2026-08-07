@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { api } from '../api'
 
 interface ViewerStatus {
@@ -31,6 +31,15 @@ interface MetricDepthFrame {
   width: number
   height: number
   values: Float32Array
+}
+
+interface DepthPixel {
+  x: number
+  y: number
+}
+
+interface DepthSample extends DepthPixel {
+  distanceM: number | null
 }
 
 function parseMetricDepthFrame(payload: ArrayBuffer): MetricDepthFrame {
@@ -88,6 +97,7 @@ function renderMetricDepth(
   frame: MetricDepthFrame,
   settings: DepthDisplaySettings,
   depthScale: number,
+  inspectedPixel?: DepthPixel | null,
 ) {
   let near = settings.near_m
   let far = settings.far_m
@@ -133,6 +143,50 @@ function renderMetricDepth(
     image.data[target + 3] = 255
   }
   context.putImageData(image, 0, 0)
+  if (inspectedPixel) {
+    const radius = Math.max(4, Math.min(frame.width, frame.height) * 0.015)
+    const drawMarker = (strokeStyle: string, lineWidth: number) => {
+      context.strokeStyle = strokeStyle
+      context.lineWidth = lineWidth
+      context.beginPath()
+      context.arc(inspectedPixel.x + 0.5, inspectedPixel.y + 0.5, radius, 0, Math.PI * 2)
+      context.moveTo(inspectedPixel.x + 0.5 - radius * 1.5, inspectedPixel.y + 0.5)
+      context.lineTo(inspectedPixel.x + 0.5 + radius * 1.5, inspectedPixel.y + 0.5)
+      context.moveTo(inspectedPixel.x + 0.5, inspectedPixel.y + 0.5 - radius * 1.5)
+      context.lineTo(inspectedPixel.x + 0.5, inspectedPixel.y + 0.5 + radius * 1.5)
+      context.stroke()
+    }
+    drawMarker('rgba(0, 0, 0, 0.9)', Math.max(3, radius * 0.35))
+    drawMarker('#ffffff', Math.max(1, radius * 0.14))
+  }
+}
+
+function depthPixelFromPointer(
+  canvas: HTMLCanvasElement,
+  frame: MetricDepthFrame,
+  clientX: number,
+  clientY: number,
+): DepthPixel | null {
+  const rect = canvas.getBoundingClientRect()
+  const scale = Math.min(rect.width / frame.width, rect.height / frame.height)
+  if (!(scale > 0)) return null
+  const displayedWidth = frame.width * scale
+  const displayedHeight = frame.height * scale
+  const x = clientX - rect.left - (rect.width - displayedWidth) / 2
+  const y = clientY - rect.top - (rect.height - displayedHeight) / 2
+  if (x < 0 || y < 0 || x >= displayedWidth || y >= displayedHeight) return null
+  return {
+    x: Math.min(frame.width - 1, Math.floor(x / scale)),
+    y: Math.min(frame.height - 1, Math.floor(y / scale)),
+  }
+}
+
+function sampleDepth(frame: MetricDepthFrame, pixel: DepthPixel, depthScale: number): DepthSample {
+  const distanceM = frame.values[pixel.y * frame.width + pixel.x] * depthScale
+  return {
+    ...pixel,
+    distanceM: Number.isFinite(distanceM) && distanceM > 0 ? distanceM : null,
+  }
 }
 
 const depthControl: React.CSSProperties = {
@@ -179,9 +233,11 @@ export default function ImageSensorViewer({
   const depthScale = Number(parsed.depth_scale) || 1
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const latestFrameRef = useRef<MetricDepthFrame | null>(null)
+  const selectedPixelRef = useRef<DepthPixel | null>(null)
   const settingsRef = useRef(settings)
   settingsRef.current = settings
   const [depthError, setDepthError] = useState('')
+  const [depthSample, setDepthSample] = useState<DepthSample | null>(null)
   const label = String(parsed.label || (sensorKind === 'depth' ? 'Depth' : 'Camera'))
   const state = String(parsed.state || (source ? 'ready' : 'waiting'))
   const setDepthDisplay = (key: DepthDisplayKey, value: boolean | number | string) => {
@@ -200,7 +256,16 @@ export default function ImageSensorViewer({
         if (!active) return
         const frame = parseMetricDepthFrame(payload)
         latestFrameRef.current = frame
-        if (canvasRef.current) renderMetricDepth(canvasRef.current, frame, settingsRef.current, depthScale)
+        const selectedPixel = selectedPixelRef.current
+        if (selectedPixel && selectedPixel.x < frame.width && selectedPixel.y < frame.height) {
+          setDepthSample(sampleDepth(frame, selectedPixel, depthScale))
+        } else if (selectedPixel) {
+          selectedPixelRef.current = null
+          setDepthSample(null)
+        }
+        if (canvasRef.current) {
+          renderMetricDepth(canvasRef.current, frame, settingsRef.current, depthScale, selectedPixelRef.current)
+        }
         setDepthError('')
       } catch (error) {
         if (!active || (error as { name?: string })?.name === 'AbortError') return
@@ -217,10 +282,27 @@ export default function ImageSensorViewer({
   }, [depthScale, frameUrl, nodeId, sensorKind])
 
   useEffect(() => {
+    selectedPixelRef.current = null
+    setDepthSample(null)
+  }, [frameUrl, nodeId, sensorKind])
+
+  useEffect(() => {
     if (canvasRef.current && latestFrameRef.current) {
-      renderMetricDepth(canvasRef.current, latestFrameRef.current, settings, depthScale)
+      renderMetricDepth(canvasRef.current, latestFrameRef.current, settings, depthScale, selectedPixelRef.current)
     }
   }, [depthScale, settings.auto_range, settings.far_m, settings.invalid_color, settings.near_m, settings.palette])
+
+  const inspectDepth = (event: MouseEvent<HTMLCanvasElement>) => {
+    event.stopPropagation()
+    const canvas = canvasRef.current
+    const frame = latestFrameRef.current
+    if (!canvas || !frame) return
+    const pixel = depthPixelFromPointer(canvas, frame, event.clientX, event.clientY)
+    if (!pixel) return
+    selectedPixelRef.current = pixel
+    setDepthSample(sampleDepth(frame, pixel, depthScale))
+    renderMetricDepth(canvas, frame, settingsRef.current, depthScale, pixel)
+  }
 
   return (
     <div
@@ -248,7 +330,9 @@ export default function ImageSensorViewer({
             <canvas
               ref={canvasRef}
               aria-label={`${label} locally rendered metric depth view`}
-              style={{ width: '100%', height: '100%', objectFit: 'contain', imageRendering: 'pixelated' }}
+              onClick={inspectDepth}
+              title="Click to inspect metric distance"
+              style={{ width: '100%', height: '100%', objectFit: 'contain', imageRendering: 'pixelated', cursor: 'crosshair' }}
             />
             {depthError && (
               <span style={{ gridArea: '1 / 1', color: 'var(--err)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
@@ -347,6 +431,15 @@ export default function ImageSensorViewer({
         <span>{sensorKind === 'depth' ? 'metric depth image' : 'camera image'}</span>
         {parsed.encoding && <span>{parsed.encoding}</span>}
         {sensorKind === 'depth' && Number(parsed.depth_scale) > 0 && <span>scale {Number(parsed.depth_scale)} m/unit</span>}
+        {sensorKind === 'depth' && (
+          <span style={{ marginLeft: 'auto', color: depthSample?.distanceM ? 'var(--accent)' : 'var(--tx3)', fontWeight: 700 }}>
+            {depthSample
+              ? depthSample.distanceM !== null
+                ? `${depthSample.distanceM.toFixed(3)} m · pixel ${depthSample.x}, ${depthSample.y}`
+                : `No depth · pixel ${depthSample.x}, ${depthSample.y}`
+              : 'Click image to measure'}
+          </span>
+        )}
         {parsed.error && <span style={{ color: 'var(--err)' }}>{parsed.error}</span>}
       </div>
     </div>

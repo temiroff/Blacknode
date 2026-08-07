@@ -57,3 +57,12 @@ def test_ros2_python_node_card_shows_managed_live_state_and_stop_control():
     assert "onStopROS2PythonNode" in node_source
     assert "n.data.type === 'ROS2PythonNode'" in store_source
     assert "node.data.params?.run_id ?? node.data.input_defaults?.run_id" in store_source
+
+
+def test_ros2_node_dimensions_are_pinned_before_runtime_content_is_rendered():
+    store_source = (ROOT / "editor" / "src" / "store.ts").read_text(encoding="utf-8")
+
+    assert "function pinROS2NodeSize" in store_source
+    assert "node.data.type.startsWith('ROS2')" in store_source
+    assert "style: { ...(node.style ?? {}), width, height }" in store_source
+    assert "const sizedNode = pinROS2NodeSize(n)" in store_source

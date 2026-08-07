@@ -838,6 +838,8 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const isSpatialViewer = SPATIAL_VIEWER_TYPES.has(data.type)
   const managedSpatialViewer = MANAGED_SPATIAL_VIEWER_TYPES.has(data.type)
   const isACTTraining = data.type === 'ACTTraining'
+  const isPPOTraining = data.type === 'PPOTraining'
+  const isPolicyTraining = isACTTraining || isPPOTraining
   const availableInputs = isRobotJointList
     ? (data.inputs ?? []).filter(port => edges.some(edge => edge.target === id && edge.targetHandle === port))
     : isVariadic
@@ -976,14 +978,20 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     && edges.some(edge => edge.target === id && edge.targetHandle === 'dataset')
     && edges.some(edge => edge.target === id && edge.targetHandle === 'robot_stream')
     && edges.some(edge => edge.target === id && (edge.targetHandle === 'camera_stream' || edge.targetHandle === 'camera_streams'))
-  const trainingRunning = isACTTraining && data.portResults?.running === true
-  const trainingPhase = isACTTraining ? String(data.portResults?.phase ?? 'not started') : ''
+  const trainingRunning = isPolicyTraining && data.portResults?.running === true
+  const trainingPhase = isPolicyTraining ? String(data.portResults?.phase ?? 'not started') : ''
   const trainingStopping = trainingRunning && trainingPhase === 'stopping'
-  const trainingStep = isACTTraining ? Number(data.portResults?.step ?? 0) : 0
-  const trainingStatus = isACTTraining && data.portResults?.status && typeof data.portResults.status === 'object'
+  const trainingStep = isPolicyTraining
+    ? Number(data.portResults?.[isPPOTraining ? 'update' : 'step'] ?? 0)
+    : 0
+  const trainingStatus = isPolicyTraining && data.portResults?.status && typeof data.portResults.status === 'object'
     ? data.portResults.status as Record<string, unknown>
     : {}
-  const trainingSteps = Number(trainingStatus.steps ?? data.params?.steps ?? 0)
+  const trainingSteps = Number(
+    isPPOTraining
+      ? (trainingStatus.updates ?? data.params?.updates ?? 0)
+      : (trainingStatus.steps ?? data.params?.steps ?? 0)
+  )
   const trainingProgress = trainingSteps > 0 ? Math.max(0, Math.min(1, trainingStep / trainingSteps)) : 0
   const datasetRoot = isDatasetCreate ? String(data.params?.root ?? '').trim() : ''
   const datasetId = isDatasetCreate ? String(data.params?.dataset_id ?? 'dataset').trim() || 'dataset' : ''
@@ -1005,7 +1013,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   // back to the generic "snapshot" badge — that badge is what read as "broken".
   const streamStartable = data.type === 'StreamPublisher' && !streamActive
   const snapshotResult = data.live_capable === true
-    && !isACTTraining
+    && !isPolicyTraining
     && !streamActive
     && !streamStartable
     && !manualMoveLive
@@ -1664,7 +1672,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   }, [id, isViewer, updateNodeInternals])
 
   useEffect(() => {
-    if (!isACTTraining || !trainingRunning) return
+    if (!isPolicyTraining || !trainingRunning) return
     let cancelled = false
     const refresh = async () => {
       try {
@@ -1680,7 +1688,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [controlNode, id, isACTTraining, trainingRunning])
+  }, [controlNode, id, isPolicyTraining, trainingRunning])
 
   return (
     <NodeFrame
@@ -1729,7 +1737,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         </div>
       )}
 
-      {isACTTraining && (
+      {isPolicyTraining && (
         <div
           className="nodrag"
           onMouseDown={e => e.stopPropagation()}
@@ -2769,6 +2777,16 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           onClear={managedSpatialViewer || data.type === 'SLAM' ? () => { void onClearViewer() } : undefined}
           onAccumulationToggle={managedSpatialViewer || data.type === 'SLAM' ? () => { void onToggleViewerAccumulation() } : undefined}
           onGoalSet={data.type === 'SLAM' ? (x, y) => { void onSetSlamGoal(x, y) } : undefined}
+          depthColorMode={data.type === 'DepthCloudViewer'
+            ? data.params?.color_mode === 'rgb'
+              ? 'rgb'
+              : data.params?.color_mode === 'ir'
+                ? 'ir'
+                : 'depth'
+            : undefined}
+          onDepthColorModeChange={data.type === 'DepthCloudViewer'
+            ? mode => { void updateParam(id, 'color_mode', mode) }
+            : undefined}
           clearPending={viewerClearPending}
           accumulationPending={viewerAccumulationPending}
           goalPending={viewerGoalPending}

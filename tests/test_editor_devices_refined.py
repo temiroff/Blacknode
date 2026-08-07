@@ -86,3 +86,13 @@ def test_missing_remote_hardware_package_offers_a_direct_install_action():
     assert 'installLabel="Install Hardware"' in devices
     assert "packageInstallAvailable" in devices
     assert "bn-local-package-install-available" in styles
+
+
+def test_device_check_skips_ros_diagnostics_when_no_robot_is_attached():
+    devices = (
+        ROOT / "editor" / "src" / "components" / "DevicesPanel.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert "if (device.robots.length === 0)" in devices
+    assert "No robot attached · ROS 2 check not required" in devices
+    assert "No robot attached · ROS 2 check skipped" in devices

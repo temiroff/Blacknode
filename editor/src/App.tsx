@@ -172,9 +172,9 @@ function nodeIdAtScreenPoint(point: { x: number; y: number }): string | null {
 export default function App() {
   const {
     nodes, edges, nodeTypes, nodeDefs, selectedId, serverOk, serverError, cookLog, cookActive, cookStatusHidden,
-    tabs, activeTabId, activeProject,
+    tabs, activeTabId, activeProject, workflowEntrypoint,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
-    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadApiKeyStatus, loadCustomModels, loadLearnedNodes, loadDriverStatus, loadRuntimeNodeOutputs, loadDrivers,
+    addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadApiKeyStatus, loadCustomModels, loadLearnedNodes, loadDriverStatus, loadRuntimeNodeOutputs, loadSpatialViewerNodeOutputs, loadDrivers,
     addNodeFromConnection, copySelection, pasteClipboard,
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
@@ -249,6 +249,23 @@ export default function App() {
   const pendingCloseTab = pendingClose ? tabs.find(tab => tab.id === pendingClose.tabId) : null
   const simulationViewer = useMemo(() => {
     for (const node of nodes) {
+      if (node.data.type === 'PPOTraining') {
+        const results = node.data.portResults ?? {}
+        const status = results.status && typeof results.status === 'object'
+          ? results.status as Record<string, unknown>
+          : {}
+        const viewer = results.viewer && typeof results.viewer === 'object'
+          ? results.viewer as Record<string, unknown>
+          : {}
+        const url = String(results.viewer_url ?? status.viewer_url ?? viewer.viewer_url ?? '').trim()
+        if (!url || results.running !== true) continue
+        return {
+          url,
+          label: String(node.data.params?.run_id ?? 'SO-ARM101 PPO training'),
+          phase: String(results.phase ?? status.phase ?? 'running'),
+          armed: false,
+        }
+      }
       if (node.data.type !== 'NewtonSimulation') continue
       const results = node.data.portResults ?? {}
       const session = results.session && typeof results.session === 'object'
@@ -620,13 +637,23 @@ export default function App() {
       loadGraph()
       loadDriverStatus()
       loadRuntimeNodeOutputs()
+      loadSpatialViewerNodeOutputs()
       loadDrivers()
     })
     const id = setInterval(checkServer, 5000)
     // Poll running-driver heartbeats so trigger nodes show live/offline truthfully.
     const driverId = setInterval(loadDriverStatus, 4000)
-    const runtimeOutputsId = setInterval(loadRuntimeNodeOutputs, 250)
-    return () => { clearInterval(id); clearInterval(driverId); clearInterval(runtimeOutputsId) }
+    const runtimeOutputsId = setInterval(loadRuntimeNodeOutputs, 1000)
+    // Spatial scenes are cached by their managed workers, so this lightweight
+    // poll can deliver responsive point-cloud motion independently of slower
+    // ROS/device health checks.
+    const spatialViewerOutputsId = setInterval(loadSpatialViewerNodeOutputs, 100)
+    return () => {
+      clearInterval(id)
+      clearInterval(driverId)
+      clearInterval(runtimeOutputsId)
+      clearInterval(spatialViewerOutputsId)
+    }
   }, [])
 
   useEffect(() => {
@@ -1409,7 +1436,13 @@ export default function App() {
   }, [loadGraph, loadNodeTypes, refreshingCanvas])
 
   const handleRunGraph = useCallback(async (runMode: 'once' | 'live' = 'once') => {
-    const targets = inferGraphRunTargets(nodes, edges)
+    const entrypointTarget = workflowEntrypoint && nodes.some(node => (
+      node.id === workflowEntrypoint.node_id
+      && (node.data.outputs.includes(workflowEntrypoint.port) || node.data.inputs.includes(workflowEntrypoint.port))
+    ))
+      ? { id: workflowEntrypoint.node_id, port: workflowEntrypoint.port }
+      : null
+    const targets = entrypointTarget ? [entrypointTarget] : inferGraphRunTargets(nodes, edges)
     if (targets.length === 0) {
       window.dispatchEvent(new CustomEvent('blacknode:notice', {
         detail: {
@@ -1438,7 +1471,7 @@ export default function App() {
     } finally {
       setActiveRunMode(current => current === effectiveMode ? null : current)
     }
-  }, [cookNode, edges, fitCurrentCanvas, nodes])
+  }, [cookNode, edges, fitCurrentCanvas, nodes, workflowEntrypoint])
 
   const handleResetRun = useCallback(() => {
     stopCook()
@@ -1454,6 +1487,9 @@ export default function App() {
 
   const handleStopRuntime = useCallback(async () => {
     if (runtimeStopPending) return
+    // Stop is authoritative from the moment it is requested. Do not let an
+    // unreachable device keep the top-level live state latched on.
+    setActiveRunMode(null)
     setRuntimeStopPending(true)
     try {
       const result = await stopRuntimeServices()
@@ -1555,8 +1591,20 @@ export default function App() {
     && n.data.portResults?.running === true
   )).length
   const liveCapableCount = nodes.filter(n => n.data.live_capable).length
+  // The node card treats any live-capable node with an active runtime flag as
+  // live. Keep the global control aligned with that generic contract so new
+  // ROS 2 and package nodes do not need to be added to a hard-coded list here.
+  const liveCapableRuntimeCount = nodes.filter(n => (
+    n.data.live_capable === true
+    && (
+      n.data.portResults?.live === true
+      || n.data.portResults?.running === true
+      || n.data.portResults?.streaming === true
+      || n.data.portResults?.launched === true
+    )
+  )).length
   const runOnceNodeCount = Math.max(0, nodes.length - liveCapableCount)
-  const runtimeActive = liveStreamCount > 0 || managedRunCount > 0 || simulationRunCount > 0 || controllerRunningCount > 0 || manualMoveCount > 0 || liveDashboardCount > 0 || visualizerRunCount > 0
+  const runtimeActive = liveCapableRuntimeCount > 0 || liveStreamCount > 0 || managedRunCount > 0 || simulationRunCount > 0 || controllerRunningCount > 0 || manualMoveCount > 0 || liveDashboardCount > 0 || visualizerRunCount > 0
   const liveRunActive = (cookActive && activeRunMode === 'live') || runtimeActive
   const onceRunActive = cookActive && activeRunMode !== 'live'
   const visibleEdges = useMemo(() => {

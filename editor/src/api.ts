@@ -847,6 +847,7 @@ export interface GraphSnapshot {
   nodes: any[]
   edges: any[]
   metadata: WorkflowMetadata
+  entrypoint?: { node_id: string; port: string } | null
 }
 
 export interface FileBrowserListing {
@@ -1618,8 +1619,12 @@ export const api = {
     }>('GET', `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/dependencies`),
   deletePackage: (name: string)              => req<{ ok: boolean }>('DELETE', `/packages/${encodeURIComponent(name)}`),
   getGraph:  ()                              => req<GraphSnapshot>('GET', '/graph'),
-  setGraph:  (nodes: any[], edges: any[], metadata: WorkflowMetadata = {}) =>
-    req<GraphSnapshot>('POST', '/graph', { nodes, edges, metadata }),
+  setGraph:  (
+    nodes: any[],
+    edges: any[],
+    metadata: WorkflowMetadata = {},
+    entrypoint: GraphSnapshot['entrypoint'] = null,
+  ) => req<GraphSnapshot>('POST', '/graph', { nodes, edges, metadata, entrypoint }),
   updateWorkflowRequirements: (
     requiredCapabilities: string[],
     deviceCalibration: { profile_id: string; hardware_id: string } | null,
@@ -1692,6 +1697,7 @@ export const api = {
     req<{ value: unknown; port: string }>('POST', '/cook', { node_id, port }),
   stopCook:   () => req<RuntimeStopResult>('POST', '/cook/stop'),
   runtimeStatus: () => req<RuntimeStatus>('GET', '/runtime/status'),
+  spatialViewerRuntimeStatus: () => req<RuntimeStatus>('GET', '/runtime/spatial-viewers'),
   newtonWorkspaceStatus: () =>
     req<NewtonWorkspaceStatus>('GET', '/newton/workspace'),
   controlNewtonWorkspace: (action: string, payload: Record<string, unknown> = {}) =>
@@ -1723,7 +1729,7 @@ export const api = {
     req<Record<string, unknown>>('POST', '/console/exec', { command, timeout }),
   ollamaModels: (endpointUrl: string) =>
     req<{ ok: boolean; models: string[]; error?: string }>('GET', `/ollama/models?endpoint_url=${encodeURIComponent(endpointUrl)}`),
-  stopRuntime: () => req<RuntimeStopResult>('POST', '/runtime/stop'),
+  stopRuntime: () => req<RuntimeStopResult>('POST', '/runtime/stop', undefined, 15000),
   cookStream: (node_id: string, port = 'output', onEvent: (event: CookEvent) => void, signal?: AbortSignal, run_mode: 'once' | 'live' = 'once') =>
     streamCook('/cook-stream', { node_id, port, run_mode }, `${node_id}.${port}`, onEvent, signal),
   cookGraphStream: (targets: GraphRunTarget[], onEvent: (event: CookEvent) => void, signal?: AbortSignal, run_mode: 'once' | 'live' = 'once') =>

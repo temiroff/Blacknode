@@ -159,6 +159,29 @@ class EditorGraphRunTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(seen, ["live"])
 
+    def test_graph_api_preserves_explicit_workflow_entrypoint(self):
+        session, left_id, _ = self._session()
+        session.entrypoint = {"node_id": left_id, "port": "value"}
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(server, "_session", session),
+            patch.object(server, "_SAVE_PATH", str(Path(tmp) / "graph.json")),
+        ):
+            client = TestClient(server.app)
+            snapshot = client.get("/graph").json()
+            self.assertEqual(snapshot["entrypoint"], session.entrypoint)
+            for node_id, node in zip(session.node_meta, snapshot["nodes"]):
+                node.setdefault("id", node_id)
+                node.setdefault("params", {})
+                node.setdefault("pos", [0, 0])
+            response = client.post("/graph", json=snapshot)
+            validation = client.get("/validate").json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["entrypoint"], session.entrypoint)
+        self.assertTrue(validation["ok"], validation)
+
 
 if __name__ == "__main__":
     unittest.main()

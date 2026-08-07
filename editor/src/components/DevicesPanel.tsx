@@ -1004,7 +1004,30 @@ export default function DevicesPanel({
     )),
     reportProgress = true,
   ) => {
-    if (device.robots.length === 0 || rosChecksInFlight.current.has(device.id)) {
+    if (device.robots.length === 0) {
+      const health: RosHealth = {
+        state: 'unavailable',
+        checking: false,
+        summary: 'No robot attached · ROS 2 check not required',
+        issues: [],
+        checkedAt: Date.now(),
+      }
+      setRosHealthByDevice(previous => ({
+        ...previous,
+        [device.id]: health,
+      }))
+      if (reportProgress) {
+        setActionProgress(previous => ({
+          ...previous,
+          [device.id]: {
+            progress: 100,
+            message: 'No robot attached · ROS 2 check skipped',
+          },
+        }))
+      }
+      return health
+    }
+    if (rosChecksInFlight.current.has(device.id)) {
       return undefined
     }
     rosChecksInFlight.current.add(device.id)
