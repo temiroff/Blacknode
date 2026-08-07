@@ -11,7 +11,7 @@ import { organizeFlowNodes } from './graphLayout'
 import { createVisualAgentLoopSubgraph } from './defaultSubgraphs'
 import type { GraphRunTarget } from './graphRun'
 import { LIVE_STREAM_NODE_TYPES } from './liveNodeTypes'
-import { VIEWER_NODE_TYPES } from './viewerTypes'
+import { MANAGED_SPATIAL_VIEWER_TYPES, VIEWER_NODE_TYPES } from './viewerTypes'
 
 const MODEL_NODE_TYPES  = new Set(['Model'])
 const OUTPUT_NODE_TYPES = new Set(['Output'])
@@ -21,6 +21,19 @@ const SUBGRAPH_NODE_TYPES = new Set(['Subnet', 'SubnetAsTool', 'VisualAgentLoop'
 
 // In-flight cook stream, so a Stop button can abort a running/stuck cook.
 let cookAbort: AbortController | null = null
+// Runtime status can be slow when remote devices are involved. Serialize its
+// polling and invalidate an older response as soon as Stop is requested so a
+// pre-stop snapshot cannot restore stale LIVE badges afterward.
+let runtimeOutputsPollInFlight = false
+let spatialViewerOutputsPollInFlight = false
+let runtimeOutputsEpoch = 0
+let runtimeStopInFlight = false
+
+const FAST_SPATIAL_VIEWER_TYPES = new Set([
+  ...MANAGED_SPATIAL_VIEWER_TYPES,
+  'SLAM',
+  'IMUViewer',
+])
 
 export interface WorkflowTab {
   id: string
@@ -220,6 +233,7 @@ interface Store {
   workflowRevision: number
   projectRevision: number
   workflowMetadata: WorkflowMetadata
+  workflowEntrypoint: GraphSnapshot['entrypoint']
   undoHistory: UndoSnapshot[]
   cookLog: CookLogEntry[]
   cookActive: boolean
@@ -234,6 +248,7 @@ interface Store {
   setApiKey: (provider: string, key: string) => Promise<void>
   loadDriverStatus: () => Promise<void>
   loadRuntimeNodeOutputs: () => Promise<void>
+  loadSpatialViewerNodeOutputs: () => Promise<void>
   reattachRuntimeState: () => Promise<void>
   restoreTabLiveState: (tabId: string) => void
   loadDrivers: () => Promise<void>
@@ -396,6 +411,28 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'ROS2GraphExplorer' ? { style: { width: 1040, height: 760 } } : {}),
     ...(meta.type === 'RobotMonitor' ? { style: { width: 760 } } : {}),
     ...(meta.type === 'RobotServo' ? { style: { width: 360 } } : {}),
+  }
+}
+
+function pinROS2NodeSize(node: Node<NodeData>): Node<NodeData> {
+  if (!node.data.type.startsWith('ROS2')) return node
+
+  // ROS2 cards gain live-state and telemetry rows while they cook. React Flow
+  // otherwise measures that content as a user resize, which permanently grows
+  // the card and moves nearby nodes. Pin the already-rendered dimensions before
+  // runtime state changes; NodeResizer still replaces these style values during
+  // an intentional drag.
+  const styleWidth = typeof node.style?.width === 'number' ? node.style.width : undefined
+  const styleHeight = typeof node.style?.height === 'number' ? node.style.height : undefined
+  const width = node.width ?? styleWidth
+  const height = node.height ?? styleHeight
+  if (width === undefined || height === undefined) return node
+
+  return {
+    ...node,
+    width,
+    height,
+    style: { ...(node.style ?? {}), width, height },
   }
 }
 
@@ -631,12 +668,19 @@ function clearCookResults(data: NodeData): NodeData {
 
 function clearRuntimeNodeData(data: NodeData): NodeData {
   const base = { ...data, cooking: false, cookError: undefined }
+  const stoppedResults = {
+    ...(data.portResults ?? {}),
+    running: false,
+    live: false,
+    streaming: false,
+    launched: false,
+  }
   if (LIVE_STREAM_NODE_TYPES.has(data.type)) {
     return {
       ...base,
       cookResult: undefined,
       portResults: {
-        ...(data.portResults ?? {}),
+        ...stoppedResults,
         preview: '',
         mask: '',
         streaming: false,
@@ -652,8 +696,7 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
     return {
       ...base,
       portResults: {
-        ...(data.portResults ?? {}),
-        live: false,
+        ...stoppedResults,
         updated_at: 'live monitoring stopped',
         report: 'live pose monitoring stopped; displayed values are the last snapshot',
       },
@@ -663,8 +706,7 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
     return {
       ...base,
       portResults: {
-        ...(data.portResults ?? {}),
-        live: false,
+        ...stoppedResults,
       },
     }
   }
@@ -672,8 +714,7 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
     return {
       ...base,
       portResults: {
-        ...(data.portResults ?? {}),
-        live: false,
+        ...stoppedResults,
       },
     }
   }
@@ -685,9 +726,9 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
     return {
       ...base,
       portResults: {
-        ...(data.portResults ?? {}),
-        running: false,
-        live: false,
+        ...stoppedResults,
+        scene: undefined,
+        preview: undefined,
         status: { ...status, state: 'stopped' },
         report: `${data.type} stopped by workflow control`,
       },
@@ -699,8 +740,7 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
     return {
       ...base,
       portResults: {
-        ...(data.portResults ?? {}),
-        running: false,
+        ...stoppedResults,
         report: 'continuous controller stopped by workflow control',
       },
     }
@@ -714,8 +754,7 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
       ...base,
       cookResult: undefined,
       portResults: {
-        ...(data.portResults ?? {}),
-        running: false,
+        ...stoppedResults,
         report: 'stopped by workflow control',
       },
     }
@@ -725,13 +764,12 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
       ...base,
       cookResult: undefined,
       portResults: {
-        ...(data.portResults ?? {}),
-        launched: false,
+        ...stoppedResults,
         report: 'stopped by workflow control',
       },
     }
   }
-  return base
+  return data.portResults ? { ...base, portResults: stoppedResults } : base
 }
 
 function flowEdgesToBackend(edges: Edge[]): any[] {
@@ -1109,6 +1147,7 @@ function graphSnapshotFromState(s: Store): GraphSnapshot {
     nodes: Object.values(current.node_meta),
     edges: current.edges,
     metadata: cloneDeep(s.workflowMetadata),
+    entrypoint: cloneDeep(s.workflowEntrypoint),
   }
 }
 
@@ -1417,7 +1456,7 @@ function cloneGraph(graph: GraphSnapshot): GraphSnapshot {
 }
 
 function blankGraph(): GraphSnapshot {
-  return { nodes: [], edges: [], metadata: {} }
+  return { nodes: [], edges: [], metadata: {}, entrypoint: null }
 }
 
 function cookStateFromTab(tab?: WorkflowTab): Pick<Store, 'cookLog' | 'cookActive' | 'cookStatusHidden'> {
@@ -1485,6 +1524,7 @@ export const useStore = create<Store>((set, get) => ({
   workflowRevision: 0,
   projectRevision: 0,
   workflowMetadata: {},
+  workflowEntrypoint: null,
   undoHistory: [],
   cookLog: [],
   cookActive: false,
@@ -1691,14 +1731,22 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   loadRuntimeNodeOutputs: async () => {
+    if (runtimeOutputsPollInFlight || runtimeStopInFlight) return
+    runtimeOutputsPollInFlight = true
+    const requestEpoch = runtimeOutputsEpoch
     try {
       const status = await api.runtimeStatus()
+      if (requestEpoch !== runtimeOutputsEpoch) return
       const items = Object.values(status.modules ?? {}).flatMap(moduleStatus =>
         Array.isArray(moduleStatus?.node_outputs) ? moduleStatus.node_outputs : []
       )
       const managedRuns = Array.isArray(status.managed_runs) ? status.managed_runs : []
       set(s => ({
         nodes: propagateLiveTerminalValues(s.nodes.map(node => {
+          // High-rate spatial scenes have their own cached endpoint. Let that
+          // poll own these nodes so a slower, older control-plane response
+          // cannot move the cloud backward in time.
+          if (FAST_SPATIAL_VIEWER_TYPES.has(node.data.type)) return node
           const runId = node.data.type === 'ROS2TopicSubscriber' || node.data.type === 'ROS2'
             ? `topic-subscriber:${String(node.data.params?.topic ?? node.data.input_defaults?.topic ?? '/chatter')}`
             : String(node.data.params?.run_id ?? node.data.input_defaults?.run_id ?? 'robot_teach')
@@ -1732,26 +1780,22 @@ export const useStore = create<Store>((set, get) => ({
             rigid_bodies: managedRun.rigid_body_positions_m ?? {},
           } : {}
           if (Object.keys(liveOutputs).length === 0 && Object.keys(managedOutputs).length === 0) {
-            if (
-              VIEWER_NODE_TYPES.has(node.data.type)
-              && (node.data.portResults?.running === true || node.data.portResults?.live === true)
-            ) {
-              const previousStatus = node.data.portResults?.status
-              const status = previousStatus && typeof previousStatus === 'object' && !Array.isArray(previousStatus)
-                ? previousStatus as Record<string, unknown>
-                : {}
+            const runtimeWasActive = Boolean(
+              node.data.portResults?.running === true
+              || node.data.portResults?.live === true
+              || node.data.portResults?.streaming === true
+              || node.data.portResults?.launched === true
+            )
+            const managedRuntimeNode = Boolean(
+              node.data.live_capable === true
+              || LIVE_STREAM_NODE_TYPES.has(node.data.type)
+              || VIEWER_NODE_TYPES.has(node.data.type)
+              || node.data.type.startsWith('ROS2')
+            )
+            if (managedRuntimeNode && runtimeWasActive) {
               return {
                 ...node,
-                data: {
-                  ...node.data,
-                  cooking: false,
-                  portResults: {
-                    ...(node.data.portResults ?? {}),
-                    running: false,
-                    live: false,
-                    status: { ...status, state: 'stopped' },
-                  },
-                },
+                data: clearRuntimeNodeData(node.data),
               }
             }
             if (node.data.type !== 'NewtonSimulation' || !node.data.portResults?.viewer_url) return node
@@ -1780,6 +1824,57 @@ export const useStore = create<Store>((set, get) => ({
         }), s.edges),
       }))
     } catch {
+    } finally {
+      runtimeOutputsPollInFlight = false
+    }
+  },
+
+  loadSpatialViewerNodeOutputs: async () => {
+    if (spatialViewerOutputsPollInFlight || runtimeStopInFlight) return
+    spatialViewerOutputsPollInFlight = true
+    const requestEpoch = runtimeOutputsEpoch
+    try {
+      const status = await api.spatialViewerRuntimeStatus()
+      if (requestEpoch !== runtimeOutputsEpoch) return
+      const items = Object.values(status.modules ?? {}).flatMap(moduleStatus =>
+        Array.isArray(moduleStatus?.node_outputs) ? moduleStatus.node_outputs : []
+      )
+      set(s => ({
+        nodes: propagateLiveTerminalValues(s.nodes.map(node => {
+          if (!FAST_SPATIAL_VIEWER_TYPES.has(node.data.type)) return node
+          const item = items.find(raw => {
+            if (!raw || typeof raw !== 'object') return false
+            const record = raw as Record<string, unknown>
+            if (String(record.node_id ?? '') === node.id) return true
+            return String(record.node_type ?? '') === node.data.type
+          })
+          const outputs = item && typeof item === 'object'
+            ? (item as Record<string, unknown>).outputs
+            : undefined
+          if (!outputs || typeof outputs !== 'object' || Array.isArray(outputs)) {
+            const runtimeWasActive = Boolean(
+              node.data.portResults?.running === true
+              || node.data.portResults?.live === true
+            )
+            return runtimeWasActive
+              ? { ...node, data: clearRuntimeNodeData(node.data) }
+              : node
+          }
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              portResults: {
+                ...(node.data.portResults ?? {}),
+                ...(outputs as Record<string, unknown>),
+              },
+            },
+          }
+        }), s.edges),
+      }))
+    } catch {
+    } finally {
+      spatialViewerOutputsPollInFlight = false
     }
   },
 
@@ -1848,6 +1943,7 @@ export const useStore = create<Store>((set, get) => ({
       nodes: ensureConnectedToolBoxSlots(parsed.nodes, parsed.edges),
       edges: parsed.edges,
       workflowMetadata: graph.metadata ?? {},
+      workflowEntrypoint: graph.entrypoint ?? null,
       selectedId: null,
       ...(workflowName
         ? {
@@ -1923,7 +2019,7 @@ export const useStore = create<Store>((set, get) => ({
       cookStatusHidden: false,
     }))
     await api.reset()
-    set({ nodes: [], edges: [], workflowMetadata: {}, selectedId: null })
+    set({ nodes: [], edges: [], workflowMetadata: {}, workflowEntrypoint: null, selectedId: null })
   },
 
   insertTab: async (tabId) => {
@@ -1944,7 +2040,7 @@ export const useStore = create<Store>((set, get) => ({
       cookStatusHidden: false,
     })
     await api.reset()
-    set({ nodes: [], edges: [], workflowMetadata: {} })
+    set({ nodes: [], edges: [], workflowMetadata: {}, workflowEntrypoint: null })
   },
 
   switchTab: async (tabId) => {
@@ -1958,7 +2054,7 @@ export const useStore = create<Store>((set, get) => ({
     set({ activeTabId: tabId, selectedId: null, undoHistory: [], ...cookStateFromTab(tab) })
     if (tab.graph) {
       const graph = cloneGraph(tab.graph)
-      await api.setGraph(graph.nodes, graph.edges, graph.metadata)
+      await api.setGraph(graph.nodes, graph.edges, graph.metadata, graph.entrypoint)
       await get().loadGraph()
       get().restoreTabLiveState(tabId)
     } else if (tab.slug) {
@@ -1968,7 +2064,7 @@ export const useStore = create<Store>((set, get) => ({
       get().restoreTabLiveState(tabId)
     } else {
       await api.reset()
-      set({ nodes: [], edges: [], workflowMetadata: {}, selectedId: null })
+      set({ nodes: [], edges: [], workflowMetadata: {}, workflowEntrypoint: null, selectedId: null })
     }
   },
 
@@ -1985,6 +2081,7 @@ export const useStore = create<Store>((set, get) => ({
         nodes: [],
         edges: [],
         workflowMetadata: {},
+        workflowEntrypoint: null,
         selectedId: null,
         subnetStack: [],
         undoHistory: [],
@@ -2001,7 +2098,7 @@ export const useStore = create<Store>((set, get) => ({
       set({ tabs: newTabs, activeTabId: next.id, selectedId: null, undoHistory: [], ...cookStateFromTab(next) })
       if (next.graph) {
         const graph = cloneGraph(next.graph)
-        await api.setGraph(graph.nodes, graph.edges, graph.metadata)
+        await api.setGraph(graph.nodes, graph.edges, graph.metadata, graph.entrypoint)
         await get().loadGraph()
       } else if (next.slug) {
         const graph = await api.loadWorkflow(next.slug)
@@ -2009,7 +2106,7 @@ export const useStore = create<Store>((set, get) => ({
         await get().loadGraph()
       } else {
         await api.reset()
-        set({ nodes: [], edges: [], workflowMetadata: {}, selectedId: null })
+        set({ nodes: [], edges: [], workflowMetadata: {}, workflowEntrypoint: null, selectedId: null })
       }
     } else {
       set({ tabs: newTabs })
@@ -2050,7 +2147,7 @@ export const useStore = create<Store>((set, get) => ({
       cookActive: false,
       cookStatusHidden: false,
     })
-    await api.setGraph(graph.nodes, graph.edges, graph.metadata)
+    await api.setGraph(graph.nodes, graph.edges, graph.metadata, graph.entrypoint)
     await get().loadGraph()
   },
 
@@ -2089,7 +2186,7 @@ export const useStore = create<Store>((set, get) => ({
       cookActive: false,
       cookStatusHidden: false,
     }))
-    await api.setGraph(nextGraph.nodes, nextGraph.edges, nextGraph.metadata)
+    await api.setGraph(nextGraph.nodes, nextGraph.edges, nextGraph.metadata, nextGraph.entrypoint)
     await get().loadGraph()
   },
 
@@ -3522,21 +3619,24 @@ export const useStore = create<Store>((set, get) => ({
         currentEventType: 'queued',
         message: graphRun ? `Queued all ${targets.length} terminal nodes` : `Queued ${runLabel}.${port}`,
       },
-      nodes: s.nodes.map(n => ({
-        ...n,
-        data: targetIds.has(n.id)
-          ? {
-              ...clearReplayDataPreservingRuntime(n.data),
-              cooking: true,
-              cookError: undefined,
-              cookResult: undefined,
-              cookPort: targetPorts.get(n.id) ?? port,
-            }
-          : {
-              ...clearReplayDataPreservingRuntime(n.data),
-              cooking: false,
-            },
-      })),
+      nodes: s.nodes.map(n => {
+        const sizedNode = pinROS2NodeSize(n)
+        return {
+          ...sizedNode,
+          data: targetIds.has(sizedNode.id)
+            ? {
+                ...clearReplayDataPreservingRuntime(sizedNode.data),
+                cooking: true,
+                cookError: undefined,
+                cookResult: undefined,
+                cookPort: targetPorts.get(n.id) ?? port,
+              }
+            : {
+                ...clearReplayDataPreservingRuntime(sizedNode.data),
+                cooking: false,
+              },
+        }
+      }),
     }))
 
     cookAbort = new AbortController()
@@ -3613,24 +3713,22 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   stopRuntimeServices: async () => {
+    runtimeOutputsEpoch += 1
+    runtimeStopInFlight = true
     cookAbort?.abort()
     cookAbort = null
-    let result: RuntimeStopResult
-    try {
-      result = await api.stopRuntime()
-    } catch (err) {
-      set({ serverOk: false, serverError: errorMessage(err) })
-      throw err
-    }
+    // Clear browser-side live state before waiting for device/package shutdown.
+    // The server keeps processing a stop even if a slow or unreachable device
+    // makes the browser request time out.
     set(s => ({
       ...syncTabCookState(s, s.activeTabId, {
         cookActive: false,
         cookStatusHidden: false,
         cookLog: appendCookLog(tabCookLog(s, s.activeTabId), {
-          id: `${Date.now()}-runtime-stopped`,
-          kind: result.ok ? 'info' : 'error',
+          id: `${Date.now()}-runtime-stop-requested`,
+          kind: 'info',
           label: 'Runtime',
-          message: result.report || result.error || 'Stopped workflow runtime services',
+          message: 'Stop requested; clearing live state while runtime services shut down',
           ts: Date.now(),
         }),
       }),
@@ -3660,6 +3758,24 @@ export const useStore = create<Store>((set, get) => ({
             ? clearRuntimeNodeData(clearReplayData(n.data))
             : { ...n.data, cooking: false },
         }
+      }),
+    }))
+    let result: RuntimeStopResult
+    try {
+      result = await api.stopRuntime()
+    } catch (err) {
+      runtimeStopInFlight = false
+      set({ serverOk: false, serverError: errorMessage(err) })
+      throw err
+    }
+    runtimeStopInFlight = false
+    set(s => syncTabCookState(s, s.activeTabId, {
+      cookLog: appendCookLog(tabCookLog(s, s.activeTabId), {
+        id: `${Date.now()}-runtime-stopped`,
+        kind: result.ok ? 'info' : 'error',
+        label: 'Runtime',
+        message: result.report || result.error || 'Stopped workflow runtime services',
+        ts: Date.now(),
       }),
     }))
     return result
@@ -3729,12 +3845,18 @@ export const useStore = create<Store>((set, get) => ({
     if (idx < 0) return
 
     const snapshot = undoHistory[idx]
-    await api.setGraph(snapshot.graph.nodes, snapshot.graph.edges, snapshot.graph.metadata)
+    await api.setGraph(
+      snapshot.graph.nodes,
+      snapshot.graph.edges,
+      snapshot.graph.metadata,
+      snapshot.graph.entrypoint,
+    )
     dragUndoActive = false
     set(s => ({
       nodes: cloneDeep(snapshot.nodes),
       edges: cloneDeep(snapshot.edges),
       workflowMetadata: cloneDeep(snapshot.graph.metadata),
+      workflowEntrypoint: cloneDeep(snapshot.graph.entrypoint),
       subnetStack: cloneDeep(snapshot.subnetStack),
       selectedId: snapshot.selectedId,
       undoHistory: undoHistory.slice(0, idx),
@@ -3749,6 +3871,7 @@ export const useStore = create<Store>((set, get) => ({
       nodes: [],
       edges: [],
       workflowMetadata: {},
+      workflowEntrypoint: null,
       selectedId: null,
       tabs: s.tabs.map(t =>
         t.id === s.activeTabId

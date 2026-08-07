@@ -128,7 +128,12 @@ export default function TemplateGallery({
       await api.loadTemplate(template.slug)
       if (openInNewTab && previousGraph) {
         const templateGraph = await api.getGraph()
-        await api.setGraph(previousGraph.nodes, previousGraph.edges, previousGraph.metadata)
+        await api.setGraph(
+          previousGraph.nodes,
+          previousGraph.edges,
+          previousGraph.metadata,
+          previousGraph.entrypoint,
+        )
         await loadGraph()
         await openGraphAsTab(template.name, templateGraph)
         openedNewTab = true
@@ -161,7 +166,12 @@ export default function TemplateGallery({
         return
       }
       if (previousGraph && !openedNewTab) {
-        await api.setGraph(previousGraph.nodes, previousGraph.edges, previousGraph.metadata).catch(console.error)
+        await api.setGraph(
+          previousGraph.nodes,
+          previousGraph.edges,
+          previousGraph.metadata,
+          previousGraph.entrypoint,
+        ).catch(console.error)
         await loadGraph().catch(console.error)
       }
       window.dispatchEvent(new CustomEvent('blacknode:notice', {

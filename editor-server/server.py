@@ -1,7 +1,9 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib, math, copy
+import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib, math, copy, base64
+from array import array
 import urllib.error, urllib.parse, urllib.request
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -206,7 +208,8 @@ def _save_now() -> None:
         with open(_SAVE_PATH, "w") as f:
             json.dump({"node_meta": _session.node_meta,
                        "edges":     _session.graph._edges,
-                       "metadata":  _session.metadata}, f, indent=2)
+                       "metadata":  _session.metadata,
+                       "entrypoint": _session.entrypoint}, f, indent=2)
     except Exception as e:
         print(f"[blacknode] save error: {e}")
 
@@ -234,6 +237,8 @@ def _load() -> None:
         edges:    list = data.get("edges",     [])
         metadata = data.get("metadata")
         _session.metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        entrypoint = data.get("entrypoint")
+        _session.entrypoint = dict(entrypoint) if isinstance(entrypoint, dict) else None
         # only restore nodes whose type is still registered
         migrated = False
         for node_id, meta in meta_map.items():
@@ -272,6 +277,7 @@ class Session:
         self.graph = bn.Graph()
         self.node_meta: dict[str, dict] = {}
         self.metadata: dict[str, Any] = {}
+        self.entrypoint: dict[str, str] | None = None
 
 _session = Session()
 
@@ -349,6 +355,7 @@ class SetGraphReq(BaseModel):
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
     metadata: dict[str, Any] = {}
+    entrypoint: dict[str, str] | None = None
 
 class UpdateWorkflowRequirementsReq(BaseModel):
     required_capabilities: list[str] = []
@@ -948,14 +955,18 @@ def _remote_ros2_runtime_status() -> dict[str, Any]:
 def _stop_remote_ros2_services() -> dict[str, Any]:
     with _remote_ros2_lock:
         runs = [(node_id, dict(item)) for node_id, item in _remote_ros2_runs.items()]
-    errors = []
-    for node_id, request in runs:
+        _remote_ros2_runs.clear()
+
+    def stop_one(item: tuple[str, dict[str, Any]]) -> str:
+        node_id, request = item
         try:
             _remote_ros2_action({**request, "node_id": node_id, "action": "stop"})
+            return ""
         except Exception as exc:
-            errors.append(str(exc))
-    with _remote_ros2_lock:
-        _remote_ros2_runs.clear()
+            return str(exc)
+
+    with ThreadPoolExecutor(max_workers=max(1, min(8, len(runs)))) as executor:
+        errors = [error for error in executor.map(stop_one, runs) if error] if runs else []
     return {
         "ok": not errors,
         "stopped": {"streams": len(runs)},
@@ -1080,14 +1091,18 @@ def _remote_ros2_image_runtime_status() -> dict[str, Any]:
 def _stop_remote_ros2_image_services() -> dict[str, Any]:
     with _remote_ros2_image_lock:
         runs = [(node_id, dict(item)) for node_id, item in _remote_ros2_image_runs.items()]
-    errors = []
-    for node_id, request in runs:
-        result = _remote_ros2_image_action({**request, "node_id": node_id, "action": "stop"})
-        error = str(result.get("stream", {}).get("error") or "")
-        if error:
-            errors.append(error)
-    with _remote_ros2_image_lock:
         _remote_ros2_image_runs.clear()
+
+    def stop_one(item: tuple[str, dict[str, Any]]) -> str:
+        node_id, request = item
+        try:
+            result = _remote_ros2_image_action({**request, "node_id": node_id, "action": "stop"})
+            return str(result.get("stream", {}).get("error") or "")
+        except Exception as exc:
+            return str(exc)
+
+    with ThreadPoolExecutor(max_workers=max(1, min(8, len(runs)))) as executor:
+        errors = [error for error in executor.map(stop_one, runs) if error] if runs else []
     return {
         "ok": not errors,
         "stopped": {"streams": len(runs)},
@@ -1192,6 +1207,98 @@ def _runtime_status() -> dict[str, Any]:
     }
 
 
+def _spatial_viewer_runtime_status() -> dict[str, Any]:
+    """Return focused spatial-viewer outputs without probing remote services."""
+    labels = ("viewer", "slam", "imu_viewer")
+    modules = {
+        label: _runtime_module_status(label, _RUNTIME_MODULES[label])
+        for label in labels
+    }
+    return _pack_spatial_viewer_scenes({
+        "ok": all(bool(status.get("ok", True)) for status in modules.values()),
+        "active": any(bool(status.get("active")) for status in modules.values()),
+        "modules": modules,
+        "report": "; ".join(
+            str(status.get("report") or status.get("error") or "").strip()
+            for status in modules.values()
+            if status.get("report") or status.get("error")
+        ),
+    })
+
+
+_SPATIAL_POINT_FIELDS = {
+    "points", "current_points", "floor_points", "occupied_points",
+    "particles", "dynamic_points", "dynamic_velocities",
+}
+_SPATIAL_COLOR_FIELDS = {
+    "colors", "current_colors", "floor_colors", "occupied_colors",
+}
+
+
+def _pack_numeric_rows(value: Any, *, color: bool = False) -> Any:
+    if not isinstance(value, list) or len(value) < 64:
+        return value
+    rows = [row for row in value if isinstance(row, (list, tuple)) and len(row) >= 2]
+    if len(rows) != len(value):
+        return value
+    try:
+        if color:
+            values = array("B")
+            for row in rows:
+                components = [float(row[index] if index < len(row) else 0.0) for index in range(3)]
+                if not all(math.isfinite(component) for component in components):
+                    return value
+                values.extend(max(0, min(255, round(component * 255.0))) for component in components)
+            encoding = "uint8-normalized-base64"
+        else:
+            values = array("f")
+            for row in rows:
+                components = [float(row[index] if index < len(row) else 0.0) for index in range(3)]
+                if not all(math.isfinite(component) for component in components):
+                    return value
+                values.extend(components)
+            if sys.byteorder != "little":
+                values.byteswap()
+            encoding = "float32-le-base64"
+    except (OverflowError, TypeError, ValueError):
+        return value
+    return {
+        "kind": "blacknode.numeric-rows",
+        "schema_version": 1,
+        "encoding": encoding,
+        "components": 3,
+        "count": len(rows),
+        "data": base64.b64encode(values.tobytes()).decode("ascii"),
+    }
+
+
+def _pack_spatial_viewer_scenes(status: dict[str, Any]) -> dict[str, Any]:
+    packed = dict(status)
+    packed_modules: dict[str, Any] = {}
+    for label, module_status in dict(status.get("modules") or {}).items():
+        module_copy = dict(module_status)
+        packed_outputs = []
+        for item in module_status.get("node_outputs", []):
+            if not isinstance(item, dict):
+                continue
+            item_copy = dict(item)
+            outputs = dict(item.get("outputs") or {})
+            scene = dict(outputs.get("scene") or {})
+            for field in _SPATIAL_POINT_FIELDS | _SPATIAL_COLOR_FIELDS:
+                if field in scene:
+                    scene[field] = _pack_numeric_rows(
+                        scene[field],
+                        color=field in _SPATIAL_COLOR_FIELDS,
+                    )
+            outputs["scene"] = scene
+            item_copy["outputs"] = outputs
+            packed_outputs.append(item_copy)
+        module_copy["node_outputs"] = packed_outputs
+        packed_modules[label] = module_copy
+    packed["modules"] = packed_modules
+    return packed
+
+
 def _stop_runtime_module(label: str, module_name: str) -> dict[str, Any]:
     stop_fn = _runtime_callable(label, module_name, "stop_runtime_services")
     if stop_fn is None:
@@ -1214,13 +1321,57 @@ def _stop_runtime_module(label: str, module_name: str) -> dict[str, Any]:
         }
 
 
+_RUNTIME_STOP_TIMEOUT_SECONDS = 12.0
+
+
 def _stop_runtime_services() -> dict[str, Any]:
-    modules = {
-        label: _stop_runtime_module(label, module_name)
+    stop_tasks: dict[str, Callable[[], dict[str, Any]]] = {
+        label: (lambda label=label, module_name=module_name: _stop_runtime_module(label, module_name))
         for label, module_name in _RUNTIME_MODULES.items()
     }
-    modules["remote_ros2"] = _stop_remote_ros2_services()
-    modules["remote_ros2_images"] = _stop_remote_ros2_image_services()
+    stop_tasks["remote_ros2"] = _stop_remote_ros2_services
+    stop_tasks["remote_ros2_images"] = _stop_remote_ros2_image_services
+
+    # Package and remote services are independent managed runtimes. Stop them
+    # concurrently and bound the HTTP response so one faulty package cannot
+    # strand the editor in "Stopping live" forever. A timed-out handler keeps
+    # finishing in its worker while the editor receives an actionable result.
+    executor = ThreadPoolExecutor(max_workers=max(1, min(16, len(stop_tasks))))
+    future_labels = {
+        executor.submit(stop_task): label
+        for label, stop_task in stop_tasks.items()
+    }
+    completed, pending = wait(
+        future_labels,
+        timeout=_RUNTIME_STOP_TIMEOUT_SECONDS,
+    )
+    completed_results: dict[str, dict[str, Any]] = {}
+    for future in completed:
+        label = future_labels[future]
+        try:
+            completed_results[label] = dict(future.result())
+        except Exception as exc:
+            completed_results[label] = {
+                "ok": False,
+                "stopped": {},
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+    for future in pending:
+        label = future_labels[future]
+        future.cancel()
+        completed_results[label] = {
+            "ok": False,
+            "stopped": {},
+            "error": (
+                f"{label} stop is still completing in the background after "
+                f"{_RUNTIME_STOP_TIMEOUT_SECONDS:g} seconds"
+            ),
+        }
+    executor.shutdown(wait=False, cancel_futures=True)
+    modules = {
+        label: completed_results[label]
+        for label in stop_tasks
+    }
     stopped = {"streams": 0, "managed_runs": 0, "detached": 0, "cv2_streams": 0, "reasoning_streams": 0}
     for result in modules.values():
         raw_stopped = result.get("stopped") if isinstance(result.get("stopped"), dict) else {}
@@ -1306,6 +1457,20 @@ def _push_live_node_param_update(meta: dict[str, Any], key: str, value: Any, old
             return
         if not result.get("ok", True) and "not running" not in str(result.get("report") or ""):
             print(f"[blacknode] live leader-follower update failed for {run_id}.{key}: {result.get('error') or result.get('report')}")
+        return
+    if meta.get("type") == "DepthCloudViewer" and key == "color_mode":
+        update_fn = _runtime_callable("viewer", _RUNTIME_MODULES["viewer"], "set_viewer_color_mode")
+        if update_fn is None:
+            return
+        viewer_id = str(
+            old_params.get("viewer_id")
+            or meta.get("params", {}).get("viewer_id")
+            or "depth_cloud_viewer"
+        ).strip() or "depth_cloud_viewer"
+        try:
+            update_fn(viewer_id, value)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[blacknode] live depth-cloud color update failed for {viewer_id}: {type(exc).__name__}: {exc}")
         return
     if meta.get("type") != "TrackingObject" or key not in _CV2_STREAM_LIVE_CONFIG_KEYS:
         return
@@ -1959,6 +2124,7 @@ def get_graph():
         "nodes": nodes,
         "edges": _session.graph._edges,
         "metadata": dict(_session.metadata),
+        "entrypoint": dict(_session.entrypoint) if _session.entrypoint else None,
     }
 
 
@@ -2084,7 +2250,12 @@ def refresh_canvas_node_schemas():
 
 @app.post("/graph")
 def set_graph(req: SetGraphReq):
-    _restore_session_from_nodes(req.nodes, req.edges, metadata=req.metadata)
+    _restore_session_from_nodes(
+        req.nodes,
+        req.edges,
+        metadata=req.metadata,
+        entrypoint=req.entrypoint,
+    )
     _save()
     return get_graph()
 
@@ -2484,6 +2655,21 @@ def control_node(node_id: str, req: NodeControlReq):
         if control_fn is None:
             raise HTTPException(503, "blacknode-training runtime is not loaded")
         run_id = str(meta.get("params", {}).get("run_id") or "act-training").strip() or "act-training"
+        try:
+            outputs = dict(control_fn(run_id, req.action))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        for port, value in outputs.items():
+            _session.graph._cache[(node_id, port)] = value
+        _session.graph._dirty.discard(node_id)
+        return {"ok": True, "node_id": node_id, "outputs": outputs}
+    if meta.get("type") == "PPOTraining":
+        if req.action not in {"status", "stop"}:
+            raise HTTPException(400, "PPOTraining direct controls support status or stop; use Run to start")
+        control_fn = _runtime_callable("training", _RUNTIME_MODULES["training"], "control_ppo_training_job")
+        if control_fn is None:
+            raise HTTPException(503, "blacknode-training PPO runtime is not loaded")
+        run_id = str(meta.get("params", {}).get("run_id") or "so101-reach-ppo").strip() or "so101-reach-ppo"
         try:
             outputs = dict(control_fn(run_id, req.action))
         except ValueError as exc:
@@ -3054,8 +3240,13 @@ _RUNTIME_STATUS_KEYS = ("cookResult", "cookError", "cooking", "cookPort")
 
 
 def _status_value(value: Any) -> Any:
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
+    # Runtime scenes contain hundreds of thousands of ordinary numeric
+    # scalars. Sending each one through json.dumps/json.loads made a 15k-point
+    # cloud spend close to a second in status normalization alone.
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
     if isinstance(value, dict):
         return {str(key): _status_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -3965,6 +4156,11 @@ def console_exec(req: ConsoleExecReq):
 @app.get("/runtime/status")
 def runtime_status():
     return _status_value(_runtime_status())
+
+
+@app.get("/runtime/spatial-viewers")
+def spatial_viewer_runtime_status():
+    return _status_value(_spatial_viewer_runtime_status())
 
 
 @app.get("/api/dataset/media/{token}")
@@ -11756,11 +11952,12 @@ def _current_workflow() -> tuple[dict, dict | None]:
         nid: {k: v for k, v in meta.items() if k not in _RUNTIME_KEYS}
         for nid, meta in _session.node_meta.items()
     }
-    entry = None
-    for nid, meta in node_meta.items():
-        if meta.get("type") in ("SlackReply", "TelegramReply"):
-            entry = {"node_id": nid, "port": "text"}
-            break
+    entry = dict(_session.entrypoint) if _session.entrypoint else None
+    if entry is None:
+        for nid, meta in node_meta.items():
+            if meta.get("type") in ("SlackReply", "TelegramReply"):
+                entry = {"node_id": nid, "port": "text"}
+                break
     if entry is None:
         for nid, meta in node_meta.items():
             if meta.get("type") == "Output":
@@ -12219,6 +12416,7 @@ def reset():
     _session.graph = bn.Graph()
     _session.node_meta.clear()
     _session.metadata.clear()
+    _session.entrypoint = None
     _save()
     return {"ok": True}
 
@@ -12260,8 +12458,9 @@ def _workflow_payload(
         "node_meta": _portable_node_meta(_session.node_meta),
         "edges": [dict(edge) for edge in _session.graph._edges],
     }
-    if entrypoint is not None:
-        payload["entrypoint"] = dict(entrypoint)
+    selected_entrypoint = entrypoint if entrypoint is not None else _session.entrypoint
+    if selected_entrypoint is not None:
+        payload["entrypoint"] = dict(selected_entrypoint)
     combined_metadata = dict(_session.metadata)
     if metadata is not None:
         combined_metadata.update(metadata)
@@ -12513,11 +12712,13 @@ def _restore_session(
     edges: list,
     *,
     metadata: dict[str, Any] | None = None,
+    entrypoint: dict[str, str] | None = None,
 ):
     """Replace current session with the given node_meta + edges."""
     _session.graph = bn.Graph()
     _session.node_meta.clear()
     _session.metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    _session.entrypoint = dict(entrypoint) if isinstance(entrypoint, dict) else None
     for node_id, meta in node_meta.items():
         if meta["type"] not in _NODE_REGISTRY and meta["type"] not in _SUBGRAPH_NODE_TYPES:
             continue
@@ -12546,11 +12747,13 @@ def _restore_session_from_nodes(
     edges: list,
     *,
     metadata: dict[str, Any] | None = None,
+    entrypoint: dict[str, str] | None = None,
 ):
     _restore_session(
         {node["id"]: node for node in nodes if "id" in node},
         edges,
         metadata=metadata,
+        entrypoint=entrypoint,
     )
 
 
@@ -12631,6 +12834,7 @@ _PROJECT_COLLECT_NODES = {
 }
 _PROJECT_TRAIN_NODES = {
     "ACTTraining",
+    "PPOTraining",
 }
 _PROJECT_SIMULATE_NODES = {
     "IsaacPolicySafetyGate",
@@ -13199,6 +13403,7 @@ def load_template(slug: str):
         data.get("node_meta", {}),
         data.get("edges", []),
         metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+        entrypoint=data.get("entrypoint") if isinstance(data.get("entrypoint"), dict) else None,
     )
     _save()
     return get_graph()
@@ -13209,6 +13414,7 @@ def validate_current_workflow():
     report = validate_bn_graph(
         _portable_node_meta(_session.node_meta),
         [dict(edge) for edge in _session.graph._edges],
+        entrypoint=_session.entrypoint,
     )
     return report.to_dict()
 
@@ -13378,6 +13584,7 @@ def load_workflow(slug: str):
         data.get("node_meta", {}),
         data.get("edges", []),
         metadata=data.get("metadata") if isinstance(data.get("metadata"), dict) else {},
+        entrypoint=data.get("entrypoint") if isinstance(data.get("entrypoint"), dict) else None,
     )
     _save()
     return get_graph()

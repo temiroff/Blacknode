@@ -88,3 +88,19 @@ def test_depth_viewer_renders_raw_metric_frames_locally_without_recooking():
     assert "depthPreviewUrl" not in viewer
     assert "onDepthDisplayChange" in black_node
     assert "updateParam(id, key, value)" in black_node
+
+
+def test_depth_viewer_click_inspects_metric_distance_at_the_source_pixel():
+    viewer = (
+        ROOT / "editor" / "src" / "components" / "ImageSensorViewer.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert "function depthPixelFromPointer" in viewer
+    assert "const scale = Math.min(rect.width / frame.width, rect.height / frame.height)" in viewer
+    assert "function sampleDepth" in viewer
+    assert "frame.values[pixel.y * frame.width + pixel.x] * depthScale" in viewer
+    assert "onClick={inspectDepth}" in viewer
+    assert 'title="Click to inspect metric distance"' in viewer
+    assert "Click image to measure" in viewer
+    assert "No depth · pixel" in viewer
+    assert "depthSample.distanceM.toFixed(3)" in viewer

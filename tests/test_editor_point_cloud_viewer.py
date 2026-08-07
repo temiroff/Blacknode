@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VIEWER = ROOT / "editor" / "src" / "components" / "PointCloudViewer.tsx"
+SPATIAL_CAMERA = ROOT / "editor" / "src" / "spatialCamera.ts"
 BLACK_NODE = ROOT / "editor" / "src" / "components" / "BlackNode.tsx"
 APP = ROOT / "editor" / "src" / "App.tsx"
 INDEX_CSS = ROOT / "editor" / "src" / "index.css"
@@ -10,6 +11,7 @@ INDEX_CSS = ROOT / "editor" / "src" / "index.css"
 
 def test_point_cloud_viewer_exposes_spatial_orientation_and_scale():
     source = VIEWER.read_text(encoding="utf-8")
+    camera_source = SPATIAL_CAMERA.read_text(encoding="utf-8")
 
     assert "Robot forward" not in source
     assert "const [showAxes, setShowAxes] = useState(viewerRole !== 'map' && viewerRole !== 'legacy')" in source
@@ -30,13 +32,14 @@ def test_point_cloud_viewer_exposes_spatial_orientation_and_scale():
     assert "const logoWorldScale = Math.min(" in source
     assert "const logoWidth = ROBOT_LOGO_SOURCE.width * logoWorldScale / visualRobotWidth" in source
     assert "const logoHeight = ROBOT_LOGO_SOURCE.height * logoWorldScale / visualRobotLength" in source
-    assert "(forwardUnit[0] - sensorScreen[0]) * visualRobotLength" in source
-    assert "(lateralUnit[0] - sensorScreen[0]) * visualRobotWidth" in source
+    assert "(forwardUnit[0] - robotScreen[0]) * visualRobotLength" in source
+    assert "(lateralUnit[0] - robotScreen[0]) * visualRobotWidth" in source
     assert "context.rotate(ROBOT_LOGO_ROTATION_RAD)" in source
     assert "context.rotate(-robotHeadingYaw" not in source
     assert "projectedHeading" not in source
     assert "rgba(30, 199, 220, 0.3)" in source
     assert "robotHeadingYaw" in source
+    assert "finite(parsed.robot?.yaw_rad, inferredRobotHeadingYaw)" in source
     assert "robotCorners" in source
     assert "finite(parsed.robot?.length_m, 0.25)" in source
     assert "finite(parsed.robot?.width_m, 0.22)" in source
@@ -76,6 +79,9 @@ def test_point_cloud_viewer_exposes_spatial_orientation_and_scale():
     assert "matching_kernel_ms" in source
     assert "fixed map grid" in source
     assert "#72ff9d" in source
+    assert "blacknode.numeric-rows" in source
+    assert "float32-le-base64" in source
+    assert "uint8-normalized-base64" in source
     assert ") % 1" not in source
     assert "real_scan_pulse" not in source
     assert "Accumulate:" in source
@@ -101,6 +107,7 @@ def test_point_cloud_viewer_exposes_spatial_orientation_and_scale():
 
 def test_point_cloud_viewer_has_direct_camera_navigation():
     source = VIEWER.read_text(encoding="utf-8")
+    camera_source = SPATIAL_CAMERA.read_text(encoding="utf-8")
 
     assert "onWheel" in source
     assert 'className="bn-viewer-wheel-capture"' in source
@@ -120,30 +127,82 @@ def test_point_cloud_viewer_has_direct_camera_navigation():
     assert "const ROBOT_FIT_RADIUS_MULTIPLIER = 1.65" in source
     assert "const MAX_CAMERA_ZOOM = 120" in source
     assert "const TOP_VIEW_YAW = Math.PI / 2" in source
+    assert "const DEPTH_CAMERA_VIEW_PITCH = -Math.PI / 2 + Math.PI / 18" in source
     assert "yaw: TOP_VIEW_YAW" in source
     assert "pitch: 0" in source
     assert "const initialResetPendingRef = useRef(true)" in source
+    assert "const cameraAnchorReady = viewerRole === 'depth-cloud'" in source
+    assert "? renderedPoints.length > 0" in source
+    assert "|| !cameraAnchorReady" in source
     assert "initialResetPendingRef.current = false" in source
     assert "resetCamera()" in source
     assert "const focusRadius = Math.max(0.35" in source
     assert "const resetYaw = TOP_VIEW_YAW - robotHeadingYaw" in source
     assert "yaw: resetYaw" in source
     assert "const [gridFrame, setGridFrame] = useState<GridFrame>({ x: 0, y: 0, yaw: 0 })" in source
-    assert "setGridFrame({ x: sensor.x, y: sensor.y, yaw: robotHeadingYaw })" in source
+    assert "setGridFrame({ x: robot.x, y: robot.y, yaw: robotHeadingYaw })" in source
     assert "pitch: 0" in source
-    assert "const focusedSensorX = resetYawCosine * sensor.x - resetYawSine * sensor.y" in source
-    assert "const focusedSensorY = resetYawSine * sensor.x + resetYawCosine * sensor.y" in source
-    assert "panX: -focusedSensorX * appliedPixelsPerMeter" in source
-    assert "panY: focusedSensorY * appliedPixelsPerMeter" in source
+    assert "const focusedRobotX = resetYawCosine * robot.x - resetYawSine * robot.y" in source
+    assert "const focusedRobotY = resetYawSine * robot.x + resetYawCosine * robot.y" in source
+    assert "panX: -focusedRobotX * appliedPixelsPerMeter" in source
+    assert "panY: focusedRobotY * appliedPixelsPerMeter" in source
     assert 'title="Top view with world +X (red axis) pointing up"' in source
-    assert "title={mapFeatures ? 'Capture and align the map grid at the current robot pose' : 'Reset the sensor view'}" in source
-    assert ">Reset</button>" in source
+    assert "const fitPointCloudCamera = (yaw: number, pitch: number): CameraState" in source
+    assert "Math.max(1, viewport.width * 0.9) / spanX" in source
+    assert "Math.max(1, viewport.height * 0.9) / spanY" in source
+    assert "panX: -(minimumX + maximumX) / 2 * appliedPixelsPerMeter" in source
+    assert "setCamera(fitPointCloudCamera(" in source
+    assert "function wrapAngle(value: number): number" in source
+    assert "const orbitPointCloudCamera = (" in source
+    assert "panX: value.panX + (oldX - nextX) * appliedPixelsPerMeter" in source
+    assert "pitch: clamp(drag.camera.pitch" not in source
+    assert "const UPRIGHT_ORBIT_POLE_MARGIN = Math.PI / 180" in source
+    assert "const UPRIGHT_ORBIT_MIN_PITCH = -Math.PI + UPRIGHT_ORBIT_POLE_MARGIN" in source
+    assert "const UPRIGHT_ORBIT_MAX_PITCH = -UPRIGHT_ORBIT_POLE_MARGIN" in source
+    assert "UPRIGHT_ORBIT_MIN_PITCH," in source
+    assert "UPRIGHT_ORBIT_MAX_PITCH," in source
+    assert "-sin(pitch) > 0" in source
+    assert "Tilt camera up to the stable overhead limit" in source
+    assert "Tilt camera down to the stable underside limit" in source
+    assert "spatialCameraCoordinates as cameraCoordinates" in source
+    assert "const cameraDepth = -pitchSine * yawY - pitchCosine * z" in camera_source
+    assert "gl.enable(gl.DEPTH_TEST)" in source
+    assert "gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)" in source
+    assert "attribute vec3 a_position;" in source
+    assert "gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0)" in source
+    assert "const [frozenDepthScene, setFrozenDepthScene] = useState<ViewerScene | null>(null)" in source
+    assert "const viewFrozen = viewerRole === 'depth-cloud' && frozenDepthScene !== null" in source
+    assert "event.button === 2 && !viewFrozen" not in source
+    assert "View: {viewFrozen ? 'Frozen' : 'Live'}" in source
+    assert "Points: {depthOcclusion ? 'Solid' : 'X-ray'}" in source
+    assert "const xrayPointCloud = viewerRole === 'depth-cloud' && !depthOcclusion" in source
+    assert "gl.disable(gl.DEPTH_TEST)" in source
+    assert "gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)" in source
+    assert "uniform float u_alpha;" in source
+    assert "gl_FragColor = vec4(v_color, u_alpha);" in source
+    assert "const renderOrder = Array.from({ length: vertexCount }, (_, index) => index)" in source
+    assert "if (xrayPointCloud)" in source
+    assert "renderOrder.sort((left, right) => (" in source
+    assert "cameraDepths[right] - cameraDepths[left] || left - right" in source
+    assert "renderOrder.forEach((sourceIndex, vertexIndex) =>" in source
+    assert "const point = renderedPoints[sourceIndex]" in source
+    assert "cameraDepths[sourceIndex]" in source
+    assert "viewerRole === 'depth-cloud' ? DEPTH_CAMERA_VIEW_PITCH : UPRIGHT_ORBIT_MAX_PITCH" in source
+    assert "fitPointCloudCamera(TOP_VIEW_YAW, UPRIGHT_ORBIT_MAX_PITCH)" in source
+    assert "viewerRole === 'depth-cloud' && (" in source
+    assert "Upright front camera view with image right pointing right and world +Z pointing up" in source
+    assert "onClick={alignDepthCameraView}" in source
+    assert "? 'Reset to the upright front camera view'" in source
+    assert "          Reset\n        </button>" in source
+    assert "Center the B robot and point its forward direction toward the top of the view" in source
+    assert "Robot ↑" in source
     assert "const ROBOT_LOGO_ROTATION_RAD = -Math.PI / 2" in source
     assert "const gridFrameToScreen = (forward: number, lateral: number, z: number)" in source
     assert "gridFrame.x + gridHeadingCosine * forward - gridHeadingSine * lateral" in source
     assert "const [x1, y1] = gridFrameToScreen(value, -reach, 0)" in source
     assert "const [x3, y3] = gridFrameToScreen(-reach, value, 0)" in source
-    assert "title={`Show fixed ${mapFeatures ? 'map' : 'sensor'} X, Y, and Z axes with metric tick labels`}" in source
+    assert "title={`Show or hide the fixed ${mapFeatures ? 'map' : 'sensor'} grid, X/Y/Z axes, and metric tick labels`}" in source
+    assert "if (showAxes) {\n      context.strokeStyle = 'rgba(117, 155, 181, 0.14)'" in source
     assert "event.button === 2 ? 'rotate' : 'pan'" in source
     assert "event.preventDefault()" in source
     assert "event.stopPropagation()" in source
@@ -216,6 +275,10 @@ def test_trajectory_evaluation_draws_safe_blocked_and_best_paths_without_motion_
     assert "WARP PATHS" in viewer_source
     assert "best GPU path" in viewer_source
     assert "Warp paths" in viewer_source
+    assert "Paths: {showTrajectories ? 'On' : 'Off'}" in viewer_source
+    assert "Localization: {showLocalization ? 'On' : 'Off'}" in viewer_source
+    assert "showTrajectories && trajectoryPaths.length > 0" in viewer_source
+    assert "showLocalization && particles.length > 0" in viewer_source
 
 
 def test_slam_viewer_shift_click_sets_connected_warp_trajectory_goal_without_recook():
@@ -244,6 +307,11 @@ def test_shared_viewer_surfaces_live_warp_depth_projection_metrics():
     assert "METRIC DEPTH" in source
     assert "Warp depth" in source
     assert "calibrated metric surface" in source
+    assert "candidate_points" in source
+    assert "holes_filled" in source
+    assert "outliers_replaced" in source
+    assert "temporally_blended" in source
+    assert "buffers reused" in source
 
 
 def test_shared_viewer_surfaces_persistent_rgbd_reconstruction_controls_and_metrics():

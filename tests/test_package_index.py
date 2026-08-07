@@ -290,6 +290,16 @@ def test_core_index_maps_official_node_types_to_git_packages():
     }
     assert payload["nodes"]["ACTPolicyExport"]["package"] == "blacknode-training"
     assert payload["nodes"]["ACTPolicyReplay"]["package"] == "blacknode-training"
+    assert payload["nodes"]["PPOTraining"]["package"] == "blacknode-training"
+    assert payload["packages"]["blacknode-training"]["components"]["reinforcement-learning"]["dependencies"] == {
+        "requires": [
+            {
+                "package": "blacknode-newton",
+                "component": "runtime",
+                "version": ">=0.1,<1",
+            }
+        ]
+    }
     assert payload["nodes"]["PolicyArtifactLoad"]["package"] == "blacknode-training"
     assert not any(
         component["default"]

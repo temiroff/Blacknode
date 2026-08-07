@@ -72,7 +72,12 @@ export default function StandaloneSlam() {
 
   const scene = (state.scene && typeof state.scene === 'object' ? state.scene : {}) as {
     history_paused?: boolean
+    trajectory_evaluation?: Record<string, unknown>
   }
+  const trajectoriesEnabled = Boolean(
+    scene.trajectory_evaluation
+    && Object.keys(scene.trajectory_evaluation).length,
+  )
   const statusState = connectionError ? 'disconnected' : String(state.status?.state || (state.running ? 'waiting' : 'stopped'))
   const statusColor = connectionError || statusState === 'error'
     ? 'var(--err)'
@@ -120,7 +125,9 @@ export default function StandaloneSlam() {
           viewerRole="map"
           onClear={() => { void control('clear') }}
           onAccumulationToggle={() => { void control(scene.history_paused ? 'resume' : 'pause') }}
-          onGoalSet={(x, y) => { void control('set-goal', { goal_x_m: x, goal_y_m: y }) }}
+          onGoalSet={trajectoriesEnabled
+            ? (x, y) => { void control('set-goal', { goal_x_m: x, goal_y_m: y }) }
+            : undefined}
           clearPending={pending === 'clear'}
           accumulationPending={pending === 'pause' || pending === 'resume'}
           goalPending={pending === 'set-goal'}

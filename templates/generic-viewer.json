@@ -1,0 +1,126 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "Generic Point Cloud Viewer",
+  "saved_at": "2026-08-05T00:00:00",
+  "entrypoint": {
+    "node_id": "viewer",
+    "port": "scene"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Present a portable point-cloud frame in the neutral 3D GenericViewer with sensor axes and no map floor, occupancy, or robot geometry.",
+    "color": "#22d3ee",
+    "required_packages": []
+  },
+  "node_meta": {
+    "point_cloud": {
+      "id": "point_cloud",
+      "type": "Dict",
+      "params": {
+        "value": {
+          "kind": "blacknode.point-cloud-frame",
+          "schema_version": 1,
+          "frame": "sensor_frame",
+          "points_xyz": [
+            [0.0, 0.0, 0.0],
+            [0.25, 0.0, 0.0],
+            [0.5, 0.0, 0.0],
+            [0.75, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.25, 0.0],
+            [0.0, 0.5, 0.0],
+            [0.0, 0.75, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.25],
+            [0.0, 0.0, 0.5],
+            [0.0, 0.0, 0.75],
+            [0.0, 0.0, 1.0],
+            [0.35, 0.35, 0.25],
+            [0.5, 0.5, 0.5],
+            [0.65, 0.65, 0.75]
+          ],
+          "colors_rgb": [
+            [1.0, 1.0, 1.0],
+            [1.0, 0.25, 0.25],
+            [1.0, 0.25, 0.25],
+            [1.0, 0.25, 0.25],
+            [1.0, 0.25, 0.25],
+            [0.25, 1.0, 0.4],
+            [0.25, 1.0, 0.4],
+            [0.25, 1.0, 0.4],
+            [0.25, 1.0, 0.4],
+            [0.25, 0.55, 1.0],
+            [0.25, 0.55, 1.0],
+            [0.25, 0.55, 1.0],
+            [0.25, 0.55, 1.0],
+            [0.2, 0.85, 1.0],
+            [0.2, 0.85, 1.0],
+            [0.2, 0.85, 1.0]
+          ]
+        }
+      },
+      "pos": [
+        80,
+        220
+      ],
+      "inputs": [],
+      "outputs": [
+        "value"
+      ],
+      "input_types": {},
+      "output_types": {
+        "value": "Dict"
+      },
+      "input_defaults": {}
+    },
+    "viewer": {
+      "id": "viewer",
+      "type": "GenericViewer",
+      "params": {
+        "title": "Portable point cloud",
+        "frame": "sensor_frame",
+        "show_axes": true
+      },
+      "pos": [
+        430,
+        80
+      ],
+      "inputs": [
+        "source",
+        "title",
+        "frame",
+        "show_axes"
+      ],
+      "outputs": [
+        "scene",
+        "status",
+        "report"
+      ],
+      "input_types": {
+        "source": "Dict",
+        "title": "Text",
+        "frame": "Text",
+        "show_axes": "Bool"
+      },
+      "output_types": {
+        "scene": "Dict",
+        "status": "Dict",
+        "report": "Text"
+      },
+      "input_defaults": {
+        "title": "Sensor data",
+        "frame": "",
+        "show_axes": true
+      }
+    }
+  },
+  "edges": [
+    {
+      "from": "point_cloud",
+      "from_port": "value",
+      "to": "viewer",
+      "to_port": "source"
+    }
+  ]
+}

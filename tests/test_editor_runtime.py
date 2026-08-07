@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -250,6 +252,44 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"ranges": [1.0, None, None]})
 
+    def test_spatial_viewer_status_skips_remote_runtime_probes(self):
+        calls = []
+
+        def fake_status(label, module_name):
+            calls.append((label, module_name))
+            outputs = {
+                "live": True,
+                "scene": {
+                    "points": [[float(index), 0.0, 1.0] for index in range(64)],
+                    "colors": [[1.0, 0.5, 0.0] for _ in range(64)],
+                },
+            }
+            return {
+                "ok": True,
+                "active": label == "viewer",
+                "node_outputs": [{"node_type": "Viewer", "node_id": "cloud", "outputs": outputs}]
+                if label == "viewer"
+                else [],
+                "report": f"{label} ready",
+            }
+
+        with (
+            patch.object(server, "_runtime_module_status", side_effect=fake_status),
+            patch.object(server, "_remote_ros2_runtime_status") as remote_ros2,
+            patch.object(server, "_remote_ros2_image_runtime_status") as remote_images,
+        ):
+            response = TestClient(server.app).get("/runtime/spatial-viewers")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["active"])
+        self.assertEqual([label for label, _ in calls], ["viewer", "slam", "imu_viewer"])
+        scene = response.json()["modules"]["viewer"]["node_outputs"][0]["outputs"]["scene"]
+        self.assertEqual(scene["points"]["encoding"], "float32-le-base64")
+        self.assertEqual(scene["points"]["count"], 64)
+        self.assertEqual(scene["colors"]["encoding"], "uint8-normalized-base64")
+        remote_ros2.assert_not_called()
+        remote_images.assert_not_called()
+
     def test_remote_ros2_action_routes_through_paired_runtime_and_reports_live_outputs(self):
         calls = []
 
@@ -421,6 +461,32 @@ class EditorRuntimeTests(unittest.TestCase):
         finally:
             server._remote_ros2_image_runs.clear()
 
+    def test_remote_ros2_image_stop_runs_concurrently_and_clears_local_state_first(self):
+        barrier = threading.Barrier(3)
+        worker_threads = []
+        server._remote_ros2_image_runs.clear()
+        server._remote_ros2_image_runs.update({
+            node_id: {"node_id": node_id, "device_id": "jetson"}
+            for node_id in ("rgb", "depth", "ir")
+        })
+
+        def stop_action(_request):
+            with server._remote_ros2_image_lock:
+                self.assertEqual(server._remote_ros2_image_runs, {})
+            worker_threads.append(threading.get_ident())
+            barrier.wait(timeout=1.0)
+            return {"stream": {"running": False, "error": ""}}
+
+        try:
+            with patch.object(server, "_remote_ros2_image_action", side_effect=stop_action):
+                result = server._stop_remote_ros2_image_services()
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["stopped"]["streams"], 3)
+            self.assertEqual(len(set(worker_threads)), 3)
+        finally:
+            server._remote_ros2_image_runs.clear()
+
     def test_stop_runtime_services_aggregates_package_runtime_modules(self):
         def fake_stop(label, _module_name):
             if label == "ros2":
@@ -451,6 +517,57 @@ class EditorRuntimeTests(unittest.TestCase):
         })
         self.assertIn("stopped ros", result["report"])
         self.assertIn("stopped cv2 and reasoning", result["report"])
+
+    def test_stop_runtime_services_stops_independent_modules_concurrently(self):
+        barrier = threading.Barrier(3)
+        worker_threads = []
+
+        def fake_stop(_label, _module_name):
+            worker_threads.append(threading.get_ident())
+            barrier.wait(timeout=1.0)
+            return {"ok": True, "stopped": {"streams": 1}}
+
+        no_remote = lambda: {"ok": True, "stopped": {"streams": 0}}
+        with (
+            patch.object(server, "_RUNTIME_MODULES", {
+                "camera": "camera_runtime",
+                "depth": "depth_runtime",
+                "infrared": "infrared_runtime",
+            }),
+            patch.object(server, "_stop_runtime_module", side_effect=fake_stop),
+            patch.object(server, "_stop_remote_ros2_services", side_effect=no_remote),
+            patch.object(server, "_stop_remote_ros2_image_services", side_effect=no_remote),
+        ):
+            result = server._stop_runtime_services()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["stopped"]["streams"], 3)
+        self.assertEqual(len(set(worker_threads)), 3)
+
+    def test_stop_runtime_services_returns_when_a_package_stop_hangs(self):
+        release = threading.Event()
+
+        def slow_stop(_label, _module_name):
+            release.wait(timeout=2.0)
+            return {"ok": True, "stopped": {"streams": 1}}
+
+        no_remote = lambda: {"ok": True, "stopped": {"streams": 0}}
+        started = time.monotonic()
+        try:
+            with (
+                patch.object(server, "_RUNTIME_MODULES", {"camera": "camera_runtime"}),
+                patch.object(server, "_RUNTIME_STOP_TIMEOUT_SECONDS", 0.05),
+                patch.object(server, "_stop_runtime_module", side_effect=slow_stop),
+                patch.object(server, "_stop_remote_ros2_services", side_effect=no_remote),
+                patch.object(server, "_stop_remote_ros2_image_services", side_effect=no_remote),
+            ):
+                result = server._stop_runtime_services()
+        finally:
+            release.set()
+
+        self.assertLess(time.monotonic() - started, 0.5)
+        self.assertFalse(result["ok"])
+        self.assertIn("still completing in the background", result["modules"]["camera"]["error"])
 
     def test_stop_runtime_services_tolerates_nested_package_counter(self):
         with (
@@ -696,6 +813,48 @@ class EditorRuntimeTests(unittest.TestCase):
             self.assertEqual(stopped.status_code, 200)
             self.assertEqual(stopped.json()["outputs"]["phase"], "stopped")
             self.assertEqual(calls, [("act-test", "status"), ("act-test", "stop")])
+            self.assertNotIn(node_id, server._session.graph._dirty)
+            prepare_cook.assert_not_called()
+        finally:
+            server._session.node_meta.pop(node_id, None)
+            server._session.graph._dirty.discard(node_id)
+            for key in [key for key in server._session.graph._cache if key[0] == node_id]:
+                server._session.graph._cache.pop(key, None)
+
+    def test_ppo_training_control_reports_updates_and_stops_without_cooking_graph(self):
+        node_id = "ppo-training-control-test"
+        server._session.node_meta[node_id] = {
+            "id": node_id, "type": "PPOTraining", "params": {"run_id": "so101-test"},
+        }
+        server._session.graph._dirty.add(node_id)
+        calls: list[tuple[str, str]] = []
+
+        def control(run_id, action):
+            calls.append((run_id, action))
+            return {
+                "ok": True, "running": action == "status",
+                "phase": "running" if action == "status" else "stopped",
+                "update": 7, "status": {"updates": 100},
+                "dashboard": "data:image/svg+xml;base64,test", "checkpoint": "",
+                "viewer": {"running": True, "viewer_url": "http://127.0.0.1:8091"},
+                "viewer_url": "http://127.0.0.1:8091",
+                "report": f"{run_id}:{action}",
+            }
+
+        try:
+            with (
+                patch.object(server, "_runtime_callable", return_value=control),
+                patch.object(server, "_prepare_cook") as prepare_cook,
+            ):
+                client = TestClient(server.app)
+                status = client.post(f"/nodes/{node_id}/control", json={"action": "status"})
+                stopped = client.post(f"/nodes/{node_id}/control", json={"action": "stop"})
+            self.assertEqual(status.status_code, 200)
+            self.assertEqual(status.json()["outputs"]["update"], 7)
+            self.assertEqual(status.json()["outputs"]["viewer_url"], "http://127.0.0.1:8091")
+            self.assertEqual(stopped.status_code, 200)
+            self.assertEqual(stopped.json()["outputs"]["phase"], "stopped")
+            self.assertEqual(calls, [("so101-test", "status"), ("so101-test", "stop")])
             self.assertNotIn(node_id, server._session.graph._dirty)
             prepare_cook.assert_not_called()
         finally:

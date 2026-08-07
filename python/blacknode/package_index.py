@@ -940,16 +940,39 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "ACTPolicyExport",
                         "PolicyArtifactLoad"
                     ]
+                },
+                "reinforcement-learning": {
+                    "name": "reinforcement-learning",
+                    "default": False,
+                    "node_types": [
+                        "PPOTraining",
+                        "PPOCheckpointInspect",
+                        "PPOPolicyEvaluate",
+                        "PPOPolicyExport"
+                    ],
+                    "dependencies": {
+                        "requires": [
+                            {
+                                "package": "blacknode-newton",
+                                "component": "runtime",
+                                "version": ">=0.1,<1"
+                            }
+                        ]
+                    }
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-training.git",
-            "description": "Robot-policy dataset checks, managed PyTorch training, checkpoints, previews, and deployable policy artifacts.",
+            "description": "Robot-policy dataset checks, managed training, checkpoints, previews, reinforcement learning, and deployable policy artifacts.",
             "node_types": [
                 "ACTCheckpointInspect",
                 "ACTPolicyExport",
                 "ACTPolicyPreview",
                 "ACTPolicyReplay",
                 "ACTTraining",
+                "PPOCheckpointInspect",
+                "PPOPolicyEvaluate",
+                "PPOPolicyExport",
+                "PPOTraining",
                 "PolicyArtifactLoad",
                 "TrainingDatasetCheck"
             ]

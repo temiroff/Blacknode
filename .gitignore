@@ -47,6 +47,7 @@ editor-server/api_keys.json
 editor-server/custom_models.json
 editor-server/runs/
 editor-server/robots/
+editor-server/training/
 editor-server/.driver-*.json
 /trajectories/
 /robots/

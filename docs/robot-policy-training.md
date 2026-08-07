@@ -1,8 +1,9 @@
 # SO-ARM101 robot learning
 
-Blacknode connects synchronized demonstrations, dataset validation, ACT
-training, recorded-frame preview, policy artifacts, and safety-gated execution
-into one repeatable robot-learning loop.
+Blacknode connects vectorized reinforcement learning, synchronized
+demonstrations, dataset validation, policy training, simulation or recorded-frame
+evaluation, policy artifacts, and safety-gated execution into repeatable
+robot-learning loops.
 
 ```text
 SO-ARM101 teleoperation
@@ -38,10 +39,41 @@ joint and velocity limits, optional workspace bounds, emergency stop, and
 takeover. The physical driver enforces calibrated joint limits and its command
 watchdog again at the hardware boundary.
 
-The current trainer adapter is Blacknode Native ACT. `LeRobotV3Export` provides
-the implemented dataset interchange path for LeRobot-compatible datasets. A
-trainer that emits the Blacknode policy artifact contract can connect to the
-same runtime and safety workflow.
+The current trainer adapters are Blacknode Native ACT and PPO for the
+SO-ARM101 Newton reach environment. `LeRobotV3Export` provides the implemented
+dataset interchange path for LeRobot-compatible datasets. A trainer that emits
+the Blacknode policy artifact contract can connect to the same runtime and
+safety workflow.
+
+## Start with SO-ARM101 reinforcement learning
+
+Open **SO-ARM101 PPO Training**. This template starts with a reaching task so
+the observation, action, reward, checkpoint, and evaluation contracts can be
+validated before any physical policy test.
+
+1. `SO101ReachTask` loads the bundled SO-ARM101 USD and creates 512 replicated
+   arms by default. Its 21-value observation contains normalized joint
+   positions, joint velocities, Cartesian target error, and the prior action.
+2. The six normalized actions are bounded joint-position deltas. The reaching
+   curriculum holds the gripper near its midpoint; grasping can be introduced
+   as a later curriculum stage.
+3. Press **Run** on `PPOTraining`. Newton advances dynamics through Warp and the
+   managed PyTorch PPO job updates the policy. Start with the template defaults;
+   lower `environment_count` to 64 for a lightweight functional check.
+   Blacknode automatically opens the live simulation pane for one sampled arm.
+   The viewer shows the green reach target, orange end-effector trail, reward,
+   distance, episode step, and training update. Select another environment from
+   the viewer without restarting training.
+4. Use the node's **Stop** control for cooperative shutdown. Keep `resume=true`
+   and the same output directory to continue from the newest atomic checkpoint.
+5. Run `PPOPolicyEvaluate` on the checkpoint, then export it with
+   `PPOPolicyExport`. Evaluation and export retain a simulation-only safety
+   contract.
+
+The RL template never opens the SO-ARM101 transport and never authorizes
+physical motion. Moving the learned policy to the real arm is a separate
+milestone requiring calibrated observations, a bounded safety gate, explicit
+arming, stale-data handling, and an operator-held emergency stop.
 
 ## Milestone: 20 demonstrations to interrupted deployment
 
@@ -202,15 +234,18 @@ artifacts and logs so regressions can be traced to a dataset and training step.
 | Layer | Nodes and artifacts |
 | --- | --- |
 | Dataset | `EpisodeRecorder`, `EpisodeDatasetValidate`, `HDF5EpisodeExport`, `LeRobotV3Export` |
-| Training | `TrainingDatasetCheck`, `ACTTraining`, `ACTCheckpointInspect`, `ACTPolicyPreview` |
-| Artifact | `ACTPolicyExport`, `PolicyArtifactLoad`, `blacknode.policy-artifact` |
+| Simulation | `SO101ReachTask`, Newton/Warp vectorized environments |
+| Training | `TrainingDatasetCheck`, `ACTTraining`, `ACTCheckpointInspect`, `ACTPolicyPreview`, `PPOTraining`, `PPOCheckpointInspect`, `PPOPolicyEvaluate` |
+| Artifact | `ACTPolicyExport`, `PPOPolicyExport`, `PolicyArtifactLoad`, `blacknode.policy-artifact` |
 | Deployment | `PolicySafetyGate`, `PolicyRuntime`, `IsaacPolicySafetyGate`, `IsaacPolicyBridge`, `IsaacPolicyRuntime`, SO-ARM101 `Robot` |
 | Monitoring | training dashboard, policy metrics, `.blacknode/policy-runs/*.jsonl`, dataset replay |
 
 ## Verification boundary
 
-The automated suite uses synthetic HDF5 episodes, a compact ACT model, fake
-camera/state sources, and a fake command transport. It verifies artifact
+The automated suite uses synthetic HDF5 episodes, compact ACT and PPO models,
+fake camera/state sources, and a fake command transport. Development GPU smoke
+tests exercise replicated SO-ARM101 stepping, PPO checkpointing, cooperative
+stop, simulation evaluation, and safe artifact export. The suite verifies artifact
 loading, inference dimensions, disarmed preview, current-pose synchronization,
 joint/velocity/workspace gates, emergency stop, takeover semantics, shutdown,
 and replay logging. Physical SO-ARM101 motion requires deliberate operator-led

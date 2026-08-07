@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { SpatialViewerRole } from '../viewerTypes'
+import { spatialCameraCoordinates as cameraCoordinates } from '../spatialCamera'
 
 interface ViewerScene {
   kind?: string
@@ -11,6 +12,7 @@ interface ViewerScene {
   colors?: unknown
   current_points?: unknown
   current_colors?: unknown
+  points_are_current?: boolean
   floor_points?: unknown
   floor_colors?: unknown
   occupied_points?: unknown
@@ -60,7 +62,14 @@ interface ViewerScene {
     revision?: number
   }
   sensor?: { x_m?: number; y_m?: number; yaw_rad?: number }
-  robot?: { length_m?: number; width_m?: number; height_m?: number }
+  robot?: {
+    x_m?: number
+    y_m?: number
+    yaw_rad?: number
+    length_m?: number
+    width_m?: number
+    height_m?: number
+  }
   scan?: {
     angle_min_rad?: number
     angle_max_rad?: number
@@ -135,9 +144,13 @@ interface ViewerScene {
     width?: number
     height?: number
     input_pixels?: number
+    candidate_points?: number
     valid_points?: number
     display_points?: number
     stride?: number
+    requested_stride?: number
+    buffers_reused?: boolean
+    duplicate_frame?: boolean
     fetch_ms?: number
     pipeline_ms?: number
     cpu_ms?: number
@@ -146,8 +159,19 @@ interface ViewerScene {
     mean_confidence?: number
     encoding?: string
     color_registered?: boolean
+    color_mode?: string
+    color_applied?: string
     color_fetch_ms?: number
     color_error?: string
+    cleanup?: {
+      enabled?: boolean
+      valid_pixels?: number
+      holes_filled?: number
+      outliers_replaced?: number
+      temporally_blended?: number
+      temporal_smoothing?: number
+      temporal_max_delta_m?: number
+    }
   }
   reconstruction?: {
     kind?: string
@@ -270,6 +294,10 @@ interface OccupancyTextureData {
 }
 
 const TOP_VIEW_YAW = Math.PI / 2
+// Depth projection stores camera optical coordinates as +X forward, +Y left,
+// and +Z up. Look almost straight down +X so image-right stays right and +Z
+// stays visually up, while retaining a little depth perspective.
+const DEPTH_CAMERA_VIEW_PITCH = -Math.PI / 2 + Math.PI / 18
 
 const DEFAULT_CAMERA: CameraState = {
   zoom: 1,
@@ -286,8 +314,48 @@ const ROBOT_FOOTPRINT_VISUAL_SCALE = 0.88
 const ROBOT_FIT_RADIUS_MULTIPLIER = 1.65
 const MIN_CAMERA_ZOOM = 0.1
 const MAX_CAMERA_ZOOM = 120
+const UPRIGHT_ORBIT_POLE_MARGIN = Math.PI / 180
+const UPRIGHT_ORBIT_MIN_PITCH = -Math.PI + UPRIGHT_ORBIT_POLE_MARGIN
+const UPRIGHT_ORBIT_MAX_PITCH = -UPRIGHT_ORBIT_POLE_MARGIN
 
 function numericRows(value: unknown): number[][] {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const packed = value as Record<string, unknown>
+    if (packed.kind === 'blacknode.numeric-rows' && typeof packed.data === 'string') {
+      try {
+        const binary = atob(packed.data)
+        const components = Math.max(2, Math.min(4, Math.floor(finite(packed.components, 3))))
+        const count = Math.max(0, Math.floor(finite(packed.count)))
+        const rows: number[][] = []
+        if (packed.encoding === 'float32-le-base64') {
+          const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
+          const view = new DataView(bytes.buffer)
+          const available = Math.min(count, Math.floor(bytes.byteLength / (components * 4)))
+          for (let rowIndex = 0; rowIndex < available; rowIndex += 1) {
+            const row: number[] = []
+            for (let component = 0; component < components; component += 1) {
+              row.push(view.getFloat32((rowIndex * components + component) * 4, true))
+            }
+            rows.push(row)
+          }
+          return rows
+        }
+        if (packed.encoding === 'uint8-normalized-base64') {
+          const available = Math.min(count, Math.floor(binary.length / components))
+          for (let rowIndex = 0; rowIndex < available; rowIndex += 1) {
+            const row: number[] = []
+            for (let component = 0; component < components; component += 1) {
+              row.push(binary.charCodeAt(rowIndex * components + component) / 255)
+            }
+            rows.push(row)
+          }
+          return rows
+        }
+      } catch {
+        return []
+      }
+    }
+  }
   if (!Array.isArray(value)) return []
   return value
     .filter((row): row is unknown[] => Array.isArray(row) && row.length >= 2)
@@ -440,6 +508,10 @@ function drawOccupancyTexture(
   }
 }
 
+function wrapAngle(value: number): number {
+  return Math.atan2(Math.sin(value), Math.cos(value))
+}
+
 function worldToScreen(
   x: number,
   y: number,
@@ -448,16 +520,10 @@ function worldToScreen(
   camera: CameraState,
   pixelsPerMeter: number,
 ): [number, number] {
-  const yawCosine = Math.cos(camera.yaw)
-  const yawSine = Math.sin(camera.yaw)
-  const yawX = yawCosine * x - yawSine * y
-  const yawY = yawSine * x + yawCosine * y
-  const pitchCosine = Math.cos(camera.pitch)
-  const pitchSine = Math.sin(camera.pitch)
-  const pitchedY = pitchCosine * yawY - pitchSine * z
+  const [cameraX, cameraY] = cameraCoordinates(x, y, z, camera.yaw, camera.pitch)
   return [
-    viewport.width / 2 + camera.panX + yawX * pixelsPerMeter,
-    viewport.height / 2 + camera.panY - pitchedY * pixelsPerMeter,
+    viewport.width / 2 + camera.panX + cameraX * pixelsPerMeter,
+    viewport.height / 2 + camera.panY - cameraY * pixelsPerMeter,
   ]
 }
 
@@ -538,6 +604,8 @@ export default function PointCloudViewer({
   onClear,
   onAccumulationToggle,
   onGoalSet,
+  depthColorMode = 'depth',
+  onDepthColorModeChange,
   clearPending = false,
   accumulationPending = false,
   goalPending = false,
@@ -548,6 +616,8 @@ export default function PointCloudViewer({
   onClear?: () => void
   onAccumulationToggle?: () => void
   onGoalSet?: (x: number, y: number) => void
+  depthColorMode?: 'depth' | 'rgb' | 'ir'
+  onDepthColorModeChange?: (mode: 'depth' | 'rgb' | 'ir') => void
   clearPending?: boolean
   accumulationPending?: boolean
   goalPending?: boolean
@@ -575,12 +645,21 @@ export default function PointCloudViewer({
   const showRobot = mapFeatures
   const [showAxes, setShowAxes] = useState(viewerRole !== 'map' && viewerRole !== 'legacy')
   const [showFreeSpace, setShowFreeSpace] = useState(true)
+  const [showLocalization, setShowLocalization] = useState(true)
+  const [showTrajectories, setShowTrajectories] = useState(true)
+  const [frozenDepthScene, setFrozenDepthScene] = useState<ViewerScene | null>(null)
+  const [depthOcclusion, setDepthOcclusion] = useState(false)
   const robotLogoRef = useRef<HTMLImageElement | null>(null)
   const [robotLogoReady, setRobotLogoReady] = useState(false)
   const clearViewRadiusFloorRef = useRef(0)
   const initialResetPendingRef = useRef(true)
   const [viewport, setViewport] = useState<Viewport>({ width: 1, height: 360, ratio: 1 })
-  const parsed = (scene && typeof scene === 'object' ? scene : {}) as ViewerScene
+  const liveParsed = (scene && typeof scene === 'object' ? scene : {}) as ViewerScene
+  const viewFrozen = viewerRole === 'depth-cloud' && frozenDepthScene !== null
+  const parsed = viewFrozen ? frozenDepthScene : liveParsed
+  useEffect(() => {
+    if (viewerRole !== 'depth-cloud' || !scene) setFrozenDepthScene(null)
+  }, [scene, viewerRole])
   useEffect(() => {
     setShowAxes(parsed.show_axes ?? (viewerRole !== 'map' && viewerRole !== 'legacy'))
   }, [parsed.show_axes, viewerRole])
@@ -628,6 +707,33 @@ export default function PointCloudViewer({
     () => [...visibleFloorPoints, ...visibleOccupiedPoints, ...points, ...currentPoints],
     [currentPoints, points, visibleFloorPoints, visibleOccupiedPoints],
   )
+  const pointCloudCenter = useMemo<[number, number, number]>(() => {
+    if (!renderedPoints.length) return [0, 0, 0]
+    let minimumX = Number.POSITIVE_INFINITY
+    let minimumY = Number.POSITIVE_INFINITY
+    let minimumZ = Number.POSITIVE_INFINITY
+    let maximumX = Number.NEGATIVE_INFINITY
+    let maximumY = Number.NEGATIVE_INFINITY
+    let maximumZ = Number.NEGATIVE_INFINITY
+    for (const point of renderedPoints) {
+      const x = Number(point[0])
+      const y = Number(point[1])
+      const z = finite(point[2])
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+      minimumX = Math.min(minimumX, x)
+      minimumY = Math.min(minimumY, y)
+      minimumZ = Math.min(minimumZ, z)
+      maximumX = Math.max(maximumX, x)
+      maximumY = Math.max(maximumY, y)
+      maximumZ = Math.max(maximumZ, z)
+    }
+    if (!Number.isFinite(minimumX)) return [0, 0, 0]
+    return [
+      (minimumX + maximumX) / 2,
+      (minimumY + maximumY) / 2,
+      (minimumZ + maximumZ) / 2,
+    ]
+  }, [renderedPoints])
   const occupancyBackground = useMemo(() => {
     if (!mapFeatures) return []
     if (parsed.occupancy?.fixed_origin !== true) return []
@@ -674,7 +780,7 @@ export default function PointCloudViewer({
   }), [parsed.sensor?.x_m, parsed.sensor?.y_m, parsed.sensor?.yaw_rad])
 
   const animationEnabled = parsed.animation?.enabled !== false
-  const hasCurrentPoints = currentPoints.length > 0
+  const hasCurrentPoints = currentPoints.length > 0 || parsed.points_are_current === true
   const pulseHz = clamp(finite(parsed.animation?.pulse_hz, 1), 0.05, 30)
   const scanPeriodMs = 1000 / pulseHz
   const replayDurationMs = Math.max(scanPeriodMs, 700)
@@ -685,9 +791,25 @@ export default function PointCloudViewer({
   const scanCoverageRad = clamp(Math.abs(scanAngleMaximum - scanAngleMinimum), 0, Math.PI * 2)
   const scanCoverageDeg = scanCoverageRad * 180 / Math.PI
   const fullCircleScan = scanCoverageRad >= Math.PI * 2 - Math.PI / 180
-  const robotHeadingYaw = sensor.yaw + (
+  const inferredRobotHeadingYaw = sensor.yaw + (
     fullCircleScan ? 0 : (scanAngleMinimum + scanAngleMaximum) / 2
   )
+  const robot = useMemo(() => ({
+    x: finite(parsed.robot?.x_m, sensor.x),
+    y: finite(parsed.robot?.y_m, sensor.y),
+    yaw: finite(parsed.robot?.yaw_rad, inferredRobotHeadingYaw),
+  }), [
+    inferredRobotHeadingYaw,
+    parsed.robot?.x_m,
+    parsed.robot?.y_m,
+    parsed.robot?.yaw_rad,
+    sensor.x,
+    sensor.y,
+  ])
+  const robotHeadingYaw = robot.yaw
+  const cameraAnchorReady = viewerRole === 'depth-cloud'
+    ? renderedPoints.length > 0
+    : !showRobot || Boolean(parsed.robot || parsed.sensor || renderedPoints.length)
   const animationPhase = animationEnabled
     ? clamp((animationClock - scanStartedRef.current) / replayDurationMs, 0, 1)
     : 1
@@ -732,8 +854,13 @@ export default function PointCloudViewer({
       0,
     )
     const configured = finite(parsed.view?.radius_m)
-    return clamp(Math.max(configured, pointRadius * 1.08, Math.hypot(sensor.x, sensor.y) + 0.5), 0.5, 10_000)
-  }, [parsed.view?.radius_m, renderedPoints, sensor.x, sensor.y])
+    return clamp(Math.max(
+      configured,
+      pointRadius * 1.08,
+      Math.hypot(sensor.x, sensor.y) + 0.5,
+      Math.hypot(robot.x, robot.y) + 0.5,
+    ), 0.5, 10_000)
+  }, [parsed.view?.radius_m, renderedPoints, robot.x, robot.y, sensor.x, sensor.y])
   // Clear changes map contents, not the camera. Capture the pre-clear metric
   // radius while the request is pending and retain it after the empty scene is
   // applied so removing points cannot briefly enlarge the robot on screen.
@@ -749,11 +876,85 @@ export default function PointCloudViewer({
     Math.min(viewport.width, viewport.height) / (viewRadius * 2.15),
   )
   const pixelsPerMeter = basePixelsPerMeter * camera.zoom
+  const fitPointCloudCamera = (yaw: number, pitch: number): CameraState => {
+    let minimumX = Number.POSITIVE_INFINITY
+    let minimumY = Number.POSITIVE_INFINITY
+    let maximumX = Number.NEGATIVE_INFINITY
+    let maximumY = Number.NEGATIVE_INFINITY
+    for (const point of renderedPoints) {
+      const x = Number(point[0])
+      const y = Number(point[1])
+      const z = finite(point[2])
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+      const [cameraX, cameraY] = cameraCoordinates(x, y, z, yaw, pitch)
+      minimumX = Math.min(minimumX, cameraX)
+      minimumY = Math.min(minimumY, cameraY)
+      maximumX = Math.max(maximumX, cameraX)
+      maximumY = Math.max(maximumY, cameraY)
+    }
+    if (!Number.isFinite(minimumX)) return { ...DEFAULT_CAMERA, yaw, pitch }
+    const spanX = Math.max(0.001, maximumX - minimumX)
+    const spanY = Math.max(0.001, maximumY - minimumY)
+    const fittedPixelsPerMeter = Math.min(
+      Math.max(1, viewport.width * 0.9) / spanX,
+      Math.max(1, viewport.height * 0.9) / spanY,
+    )
+    const zoom = clamp(
+      fittedPixelsPerMeter / basePixelsPerMeter,
+      MIN_CAMERA_ZOOM,
+      MAX_CAMERA_ZOOM,
+    )
+    const appliedPixelsPerMeter = basePixelsPerMeter * zoom
+    return {
+      zoom,
+      yaw,
+      pitch,
+      panX: -(minimumX + maximumX) / 2 * appliedPixelsPerMeter,
+      panY: (minimumY + maximumY) / 2 * appliedPixelsPerMeter,
+    }
+  }
+  const orbitPointCloudCamera = (
+    value: CameraState,
+    requestedYaw: number,
+    requestedPitch: number,
+  ): CameraState => {
+    const yaw = wrapAngle(requestedYaw)
+    // In this camera basis -90° is the front view, 0° is overhead, and -180°
+    // is underneath. Staying inside that negative polar interval guarantees
+    // -sin(pitch) > 0, so world +Z always remains screen-up. Positive pitch
+    // crosses the overhead pole and visually flips the cloud.
+    const pitch = clamp(
+      requestedPitch,
+      UPRIGHT_ORBIT_MIN_PITCH,
+      UPRIGHT_ORBIT_MAX_PITCH,
+    )
+    const [oldX, oldY] = cameraCoordinates(
+      pointCloudCenter[0], pointCloudCenter[1], pointCloudCenter[2], value.yaw, value.pitch,
+    )
+    const [nextX, nextY] = cameraCoordinates(
+      pointCloudCenter[0], pointCloudCenter[1], pointCloudCenter[2], yaw, pitch,
+    )
+    const appliedPixelsPerMeter = basePixelsPerMeter * value.zoom
+    return {
+      ...value,
+      yaw,
+      pitch,
+      panX: value.panX + (oldX - nextX) * appliedPixelsPerMeter,
+      panY: value.panY + (nextY - oldY) * appliedPixelsPerMeter,
+    }
+  }
+  const alignDepthCameraView = () => {
+    setGridFrame({ x: 0, y: 0, yaw: 0 })
+    setCamera(fitPointCloudCamera(TOP_VIEW_YAW, DEPTH_CAMERA_VIEW_PITCH))
+  }
   const resetCamera = () => {
     clearViewRadiusFloorRef.current = 0
     if (!showRobot) {
       setGridFrame({ x: 0, y: 0, yaw: 0 })
-      setCamera({ ...DEFAULT_CAMERA, yaw: TOP_VIEW_YAW, pitch: 0 })
+      setCamera(fitPointCloudCamera(
+        TOP_VIEW_YAW,
+        viewerRole === 'depth-cloud' ? DEPTH_CAMERA_VIEW_PITCH : UPRIGHT_ORBIT_MAX_PITCH,
+      ))
       return
     }
     const robotLength = clamp(finite(parsed.robot?.length_m, 0.25), 0.02, 5)
@@ -774,23 +975,48 @@ export default function PointCloudViewer({
     const resetYaw = TOP_VIEW_YAW - robotHeadingYaw
     const resetYawCosine = Math.cos(resetYaw)
     const resetYawSine = Math.sin(resetYaw)
-    const focusedSensorX = resetYawCosine * sensor.x - resetYawSine * sensor.y
-    const focusedSensorY = resetYawSine * sensor.x + resetYawCosine * sensor.y
-    setGridFrame({ x: sensor.x, y: sensor.y, yaw: robotHeadingYaw })
+    const focusedRobotX = resetYawCosine * robot.x - resetYawSine * robot.y
+    const focusedRobotY = resetYawSine * robot.x + resetYawCosine * robot.y
+    setGridFrame({ x: robot.x, y: robot.y, yaw: robotHeadingYaw })
     setCamera({
       zoom,
       yaw: resetYaw,
       pitch: 0,
-      panX: -focusedSensorX * appliedPixelsPerMeter,
-      panY: focusedSensorY * appliedPixelsPerMeter,
+      panX: -focusedRobotX * appliedPixelsPerMeter,
+      panY: focusedRobotY * appliedPixelsPerMeter,
+    })
+  }
+
+  const alignRobotView = () => {
+    const yaw = TOP_VIEW_YAW - robotHeadingYaw
+    const yawCosine = Math.cos(yaw)
+    const yawSine = Math.sin(yaw)
+    const focusedRobotX = yawCosine * robot.x - yawSine * robot.y
+    const focusedRobotY = yawSine * robot.x + yawCosine * robot.y
+    setGridFrame({ x: robot.x, y: robot.y, yaw: robotHeadingYaw })
+    setCamera(value => {
+      const appliedPixelsPerMeter = basePixelsPerMeter * value.zoom
+      return {
+        ...value,
+        yaw,
+        pitch: 0,
+        panX: -focusedRobotX * appliedPixelsPerMeter,
+        panY: focusedRobotY * appliedPixelsPerMeter,
+      }
     })
   }
 
   useEffect(() => {
-    if (!initialResetPendingRef.current || !scene || viewport.width <= 1 || viewport.height <= 1) return
+    if (
+      !initialResetPendingRef.current
+      || !scene
+      || !cameraAnchorReady
+      || viewport.width <= 1
+      || viewport.height <= 1
+    ) return
     initialResetPendingRef.current = false
     resetCamera()
-  }, [scene, viewport.height, viewport.width])
+  }, [cameraAnchorReady, scene, viewport.height, viewport.width])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -916,7 +1142,17 @@ export default function PointCloudViewer({
     if (canvas.height !== bufferHeight) canvas.height = bufferHeight
     gl.viewport(0, 0, bufferWidth, bufferHeight)
     gl.clearColor(0, 0, 0, 0)
-    gl.clear(gl.COLOR_BUFFER_BIT)
+    const xrayPointCloud = viewerRole === 'depth-cloud' && !depthOcclusion
+    if (xrayPointCloud) {
+      gl.disable(gl.DEPTH_TEST)
+      gl.enable(gl.BLEND)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    } else {
+      gl.disable(gl.BLEND)
+      gl.enable(gl.DEPTH_TEST)
+      gl.depthFunc(gl.LEQUAL)
+    }
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
     const vertexCount = renderedPoints.length
     if (vertexCount === 0) return
 
@@ -925,14 +1161,14 @@ export default function PointCloudViewer({
     let program: WebGLProgram | null = null
     try {
       vertex = shader(gl, gl.VERTEX_SHADER, `
-        attribute vec2 a_position;
+        attribute vec3 a_position;
         attribute vec3 a_color;
         attribute float a_size;
         attribute float a_square;
         varying vec3 v_color;
         varying float v_square;
         void main() {
-          gl_Position = vec4(a_position, 0.0, 1.0);
+          gl_Position = vec4(a_position, 1.0);
           gl_PointSize = a_size;
           v_color = a_color;
           v_square = a_square;
@@ -940,12 +1176,13 @@ export default function PointCloudViewer({
       `)
       fragment = shader(gl, gl.FRAGMENT_SHADER, `
         precision mediump float;
+        uniform float u_alpha;
         varying vec3 v_color;
         varying float v_square;
         void main() {
           vec2 centered = gl_PointCoord - vec2(0.5);
           if (v_square < 0.5 && dot(centered, centered) > 0.25) discard;
-          gl_FragColor = vec4(v_color, 1.0);
+          gl_FragColor = vec4(v_color, u_alpha);
         }
       `)
       program = gl.createProgram()
@@ -955,11 +1192,34 @@ export default function PointCloudViewer({
       gl.linkProgram(program)
       if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return
       gl.useProgram(program)
+      const alphaLocation = gl.getUniformLocation(program, 'u_alpha')
+      if (alphaLocation) gl.uniform1f(alphaLocation, xrayPointCloud ? 0.72 : 1.0)
     } catch {
       return
     }
 
-    const positions = new Float32Array(vertexCount * 2)
+    const positions = new Float32Array(vertexCount * 3)
+    const cameraDepths = new Float32Array(vertexCount)
+    let minimumCameraDepth = Number.POSITIVE_INFINITY
+    let maximumCameraDepth = Number.NEGATIVE_INFINITY
+    renderedPoints.forEach((point, index) => {
+      const [, , cameraDepth] = cameraCoordinates(
+        point[0], point[1], finite(point[2]), camera.yaw, camera.pitch,
+      )
+      cameraDepths[index] = cameraDepth
+      minimumCameraDepth = Math.min(minimumCameraDepth, cameraDepth)
+      maximumCameraDepth = Math.max(maximumCameraDepth, cameraDepth)
+    })
+    const cameraDepthSpan = Math.max(0.001, maximumCameraDepth - minimumCameraDepth)
+    // Standard alpha blending is order-dependent. X-ray points must be drawn
+    // far-to-near in the current camera frame or overlaps appear to flip as
+    // the camera rotates. Solid mode keeps source order and uses the Z buffer.
+    const renderOrder = Array.from({ length: vertexCount }, (_, index) => index)
+    if (xrayPointCloud) {
+      renderOrder.sort((left, right) => (
+        cameraDepths[right] - cameraDepths[left] || left - right
+      ))
+    }
     const palette = new Float32Array(vertexCount * 3)
     const pointSizes = new Float32Array(vertexCount)
     const squarePoints = new Float32Array(vertexCount)
@@ -967,21 +1227,24 @@ export default function PointCloudViewer({
       1.25 * viewport.ratio,
       finite(parsed.occupancy?.resolution_m, 0.05) * pixelsPerMeter * viewport.ratio * 1.45,
     )
-    renderedPoints.forEach((point, index) => {
-      const vertexIndex = index
+    renderOrder.forEach((sourceIndex, vertexIndex) => {
+      const point = renderedPoints[sourceIndex]
       const [screenX, screenY] = worldToScreen(
         point[0], point[1], finite(point[2]), viewport, camera, pixelsPerMeter,
       )
-      positions[vertexIndex * 2] = (screenX / viewport.width) * 2 - 1
-      positions[vertexIndex * 2 + 1] = 1 - (screenY / viewport.height) * 2
+      positions[vertexIndex * 3] = (screenX / viewport.width) * 2 - 1
+      positions[vertexIndex * 3 + 1] = 1 - (screenY / viewport.height) * 2
+      positions[vertexIndex * 3 + 2] = (
+        (cameraDepths[sourceIndex] - minimumCameraDepth) / cameraDepthSpan
+      ) * 2 - 1
       const occupancyPointCount = visibleFloorPoints.length + visibleOccupiedPoints.length
-      const mapIndex = index - occupancyPointCount
+      const mapIndex = sourceIndex - occupancyPointCount
       const currentIndex = mapIndex - points.length
-      const isFloor = index < visibleFloorPoints.length
-      const isOccupied = !isFloor && index < occupancyPointCount
-      const occupiedIndex = index - visibleFloorPoints.length
+      const isFloor = sourceIndex < visibleFloorPoints.length
+      const isOccupied = !isFloor && sourceIndex < occupancyPointCount
+      const occupiedIndex = sourceIndex - visibleFloorPoints.length
       const color = isFloor
-        ? floorColors[index] ?? [0.18, 0.68, 0.36]
+        ? floorColors[sourceIndex] ?? [0.18, 0.68, 0.36]
         : isOccupied
           ? occupiedColors[occupiedIndex] ?? [0.78, 0.88, 0.94]
         : currentIndex >= 0
@@ -1001,7 +1264,7 @@ export default function PointCloudViewer({
     gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW)
     const positionLocation = gl.getAttribLocation(program, 'a_position')
     gl.enableVertexAttribArray(positionLocation)
-    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0)
+    gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0)
 
     const colorBuffer = gl.createBuffer()
     gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer)
@@ -1034,7 +1297,7 @@ export default function PointCloudViewer({
       if (vertex) gl.deleteShader(vertex)
       if (fragment) gl.deleteShader(fragment)
     }
-  }, [camera, colors, currentColors, floorColors, occupiedColors, parsed.occupancy?.resolution_m, pixelsPerMeter, points.length, renderedPoints, viewport, visibleFloorPoints.length, visibleOccupiedPoints.length])
+  }, [camera, colors, currentColors, depthOcclusion, floorColors, occupiedColors, parsed.occupancy?.resolution_m, pixelsPerMeter, points.length, renderedPoints, viewerRole, viewport, visibleFloorPoints.length, visibleOccupiedPoints.length])
 
   useEffect(() => {
     const overlay = overlayRef.current
@@ -1066,22 +1329,22 @@ export default function PointCloudViewer({
       Math.ceil((Math.hypot(viewport.width, viewport.height) + Math.hypot(camera.panX, camera.panY) * 2) / pixelsPerMeter / spacing) * spacing,
     )
     const steps = Math.min(100, Math.ceil(reach / spacing))
-    context.strokeStyle = 'rgba(117, 155, 181, 0.14)'
-    context.beginPath()
-    for (let index = -steps; index <= steps; index += 1) {
-      const value = index * spacing
-      const [x1, y1] = gridFrameToScreen(value, -reach, 0)
-      const [x2, y2] = gridFrameToScreen(value, reach, 0)
-      const [x3, y3] = gridFrameToScreen(-reach, value, 0)
-      const [x4, y4] = gridFrameToScreen(reach, value, 0)
-      context.moveTo(x1, y1)
-      context.lineTo(x2, y2)
-      context.moveTo(x3, y3)
-      context.lineTo(x4, y4)
-    }
-    context.stroke()
-
     if (showAxes) {
+      context.strokeStyle = 'rgba(117, 155, 181, 0.14)'
+      context.beginPath()
+      for (let index = -steps; index <= steps; index += 1) {
+        const value = index * spacing
+        const [x1, y1] = gridFrameToScreen(value, -reach, 0)
+        const [x2, y2] = gridFrameToScreen(value, reach, 0)
+        const [x3, y3] = gridFrameToScreen(-reach, value, 0)
+        const [x4, y4] = gridFrameToScreen(reach, value, 0)
+        context.moveTo(x1, y1)
+        context.lineTo(x2, y2)
+        context.moveTo(x3, y3)
+        context.lineTo(x4, y4)
+      }
+      context.stroke()
+
       const drawAxis = (endX: number, endY: number, endZ: number, color: string) => {
         const start = gridFrameToScreen(-endX, -endY, -endZ)
         const end = gridFrameToScreen(endX, endY, endZ)
@@ -1112,6 +1375,7 @@ export default function PointCloudViewer({
     }
 
     const sensorScreen = worldToScreen(sensor.x, sensor.y, 0, viewport, camera, pixelsPerMeter)
+    const robotScreen = worldToScreen(robot.x, robot.y, 0, viewport, camera, pixelsPerMeter)
     const scanMinimum = sensor.yaw + scanAngleMinimum
     const scanMaximum = sensor.yaw + scanAngleMaximum
     const sweepOrderedPoints = [...currentPoints].sort((left, right) => {
@@ -1181,7 +1445,7 @@ export default function PointCloudViewer({
       }
     }
 
-    if (particles.length > 0) {
+    if (showLocalization && particles.length > 0) {
       for (let index = 0; index < particles.length; index += 1) {
         const particle = particles[index]
         const score = particleScores[index] ?? 0
@@ -1215,7 +1479,7 @@ export default function PointCloudViewer({
       }
     }
 
-    if (trajectoryPaths.length > 0) {
+    if (showTrajectories && trajectoryPaths.length > 0) {
       context.save()
       context.lineCap = 'round'
       context.lineJoin = 'round'
@@ -1297,8 +1561,8 @@ export default function PointCloudViewer({
       [-visualRobotLength / 2, -visualRobotWidth / 2],
       [-visualRobotLength / 2, visualRobotWidth / 2],
     ].map(([localX, localY]) => worldToScreen(
-      sensor.x + headingCosine * localX - headingSine * localY,
-      sensor.y + headingSine * localX + headingCosine * localY,
+      robot.x + headingCosine * localX - headingSine * localY,
+      robot.y + headingSine * localX + headingCosine * localY,
       0,
       viewport,
       camera,
@@ -1321,16 +1585,16 @@ export default function PointCloudViewer({
     context.shadowBlur = 0
 
     const forwardUnit = worldToScreen(
-      sensor.x + headingCosine,
-      sensor.y + headingSine,
+      robot.x + headingCosine,
+      robot.y + headingSine,
       0,
       viewport,
       camera,
       pixelsPerMeter,
     )
     const lateralUnit = worldToScreen(
-      sensor.x - headingSine,
-      sensor.y + headingCosine,
+      robot.x - headingSine,
+      robot.y + headingCosine,
       0,
       viewport,
       camera,
@@ -1352,12 +1616,12 @@ export default function PointCloudViewer({
       roundedPolygonPath(context, robotCorners, robotCornerRadius)
       context.clip()
       context.transform(
-        (forwardUnit[0] - sensorScreen[0]) * visualRobotLength,
-        (forwardUnit[1] - sensorScreen[1]) * visualRobotLength,
-        (lateralUnit[0] - sensorScreen[0]) * visualRobotWidth,
-        (lateralUnit[1] - sensorScreen[1]) * visualRobotWidth,
-        sensorScreen[0],
-        sensorScreen[1],
+        (forwardUnit[0] - robotScreen[0]) * visualRobotLength,
+        (forwardUnit[1] - robotScreen[1]) * visualRobotLength,
+        (lateralUnit[0] - robotScreen[0]) * visualRobotWidth,
+        (lateralUnit[1] - robotScreen[1]) * visualRobotWidth,
+        robotScreen[0],
+        robotScreen[1],
       )
       context.rotate(ROBOT_LOGO_ROTATION_RAD)
       context.globalAlpha = 0.8
@@ -1379,7 +1643,7 @@ export default function PointCloudViewer({
       context.font = `800 ${clamp(shortestRobotEdge * 0.66, 9, 18)}px var(--font-ui)`
       context.textAlign = 'center'
       context.textBaseline = 'middle'
-      context.fillText('B', sensorScreen[0], sensorScreen[1])
+      context.fillText('B', robotScreen[0], robotScreen[1])
       context.textAlign = 'start'
       context.textBaseline = 'alphabetic'
     }
@@ -1411,6 +1675,7 @@ export default function PointCloudViewer({
     particleScores,
     particleYaws,
     particles,
+    robot,
     parsed.robot?.length_m,
     parsed.robot?.width_m,
     parsed.scan?.angle_max_rad,
@@ -1421,8 +1686,10 @@ export default function PointCloudViewer({
     robotHeadingYaw,
     robotLogoReady,
     sensor,
+    showLocalization,
     showRobot,
     showAxes,
+    showTrajectories,
     trajectoryGoal,
     trajectoryPaths,
     trajectorySafe,
@@ -1467,14 +1734,74 @@ export default function PointCloudViewer({
       }}>
         <button type="button" style={controlStyle()} title="Zoom out" onClick={() => setCamera(value => ({ ...value, zoom: clamp(value.zoom / 1.25, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM) }))}>−</button>
         <button type="button" style={controlStyle()} title="Zoom in" onClick={() => setCamera(value => ({ ...value, zoom: clamp(value.zoom * 1.25, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM) }))}>+</button>
-        <button type="button" style={controlStyle()} title="Orbit left" onClick={() => setCamera(value => ({ ...value, yaw: value.yaw - Math.PI / 12 }))}>↶</button>
-        <button type="button" style={controlStyle()} title="Orbit right" onClick={() => setCamera(value => ({ ...value, yaw: value.yaw + Math.PI / 12 }))}>↷</button>
-        <button type="button" style={controlStyle()} title="Tilt camera up" onClick={() => setCamera(value => ({ ...value, pitch: clamp(value.pitch + Math.PI / 18, -1.45, 1.45) }))}>↑</button>
-        <button type="button" style={controlStyle()} title="Tilt camera down" onClick={() => setCamera(value => ({ ...value, pitch: clamp(value.pitch - Math.PI / 18, -1.45, 1.45) }))}>↓</button>
-        <button type="button" style={controlStyle(camera.pitch === 0 && camera.yaw === TOP_VIEW_YAW)} title="Top view with world +X (red axis) pointing up" onClick={() => setCamera(value => ({ ...value, yaw: TOP_VIEW_YAW, pitch: 0 }))}>Top</button>
-        <button type="button" style={controlStyle()} title={mapFeatures ? 'Capture and align the map grid at the current robot pose' : 'Reset the sensor view'} onClick={resetCamera}>Reset</button>
+        <button type="button" style={controlStyle()} title="Orbit left" onClick={() => setCamera(value => orbitPointCloudCamera(value, value.yaw - Math.PI / 12, value.pitch))}>↶</button>
+        <button type="button" style={controlStyle()} title="Orbit right" onClick={() => setCamera(value => orbitPointCloudCamera(value, value.yaw + Math.PI / 12, value.pitch))}>↷</button>
+        <button type="button" style={controlStyle()} title="Tilt camera up to the stable overhead limit" onClick={() => setCamera(value => orbitPointCloudCamera(value, value.yaw, value.pitch + Math.PI / 18))}>↑</button>
+        <button type="button" style={controlStyle()} title="Tilt camera down to the stable underside limit" onClick={() => setCamera(value => orbitPointCloudCamera(value, value.yaw, value.pitch - Math.PI / 18))}>↓</button>
+        <button
+          type="button"
+          style={controlStyle(camera.pitch === (showRobot ? 0 : UPRIGHT_ORBIT_MAX_PITCH) && camera.yaw === TOP_VIEW_YAW)}
+          title="Top view with world +X (red axis) pointing up"
+          onClick={() => setCamera(value => showRobot
+            ? { ...value, yaw: TOP_VIEW_YAW, pitch: 0 }
+            : fitPointCloudCamera(TOP_VIEW_YAW, UPRIGHT_ORBIT_MAX_PITCH))}
+        >
+          Top
+        </button>
+        {viewerRole === 'depth-cloud' && (
+          <button
+            type="button"
+            style={controlStyle(viewFrozen)}
+            title={viewFrozen ? 'Resume displaying incoming depth frames' : 'Freeze the current depth frame for stable inspection'}
+            onClick={() => setFrozenDepthScene(current => current ? null : liveParsed)}
+          >
+            View: {viewFrozen ? 'Frozen' : 'Live'}
+          </button>
+        )}
+        {viewerRole === 'depth-cloud' && (
+          <button
+            type="button"
+            style={controlStyle(!depthOcclusion)}
+            title={depthOcclusion ? 'Show back points with translucent X-ray rendering' : 'Hide points occluded by nearer surfaces'}
+            onClick={() => setDepthOcclusion(value => !value)}
+          >
+            Points: {depthOcclusion ? 'Solid' : 'X-ray'}
+          </button>
+        )}
+        {viewerRole === 'depth-cloud' && (
+          <button
+            type="button"
+            style={controlStyle(camera.pitch === DEPTH_CAMERA_VIEW_PITCH && camera.yaw === TOP_VIEW_YAW)}
+            title="Upright front camera view with image right pointing right and world +Z pointing up"
+            onClick={alignDepthCameraView}
+          >
+            Camera
+          </button>
+        )}
+        {showRobot && (
+          <button
+            type="button"
+            style={controlStyle()}
+            title="Center the B robot and point its forward direction toward the top of the view"
+            onClick={alignRobotView}
+          >
+            Robot ↑
+          </button>
+        )}
+        <button
+          type="button"
+          style={controlStyle()}
+          title={mapFeatures
+            ? 'Capture and align the map grid at the current robot pose'
+            : viewerRole === 'depth-cloud'
+              ? 'Reset to the upright front camera view'
+              : 'Reset the sensor view'}
+          onClick={resetCamera}
+        >
+          Reset
+        </button>
         <label
-          title={`Show fixed ${mapFeatures ? 'map' : 'sensor'} X, Y, and Z axes with metric tick labels`}
+          title={`Show or hide the fixed ${mapFeatures ? 'map' : 'sensor'} grid, X/Y/Z axes, and metric tick labels`}
           style={{ ...controlStyle(showAxes), display: 'inline-flex', alignItems: 'center', gap: 5, width: 'auto' }}
         >
           <input
@@ -1506,7 +1833,42 @@ export default function PointCloudViewer({
             Floor: {showFreeSpace ? 'On' : 'Off'}
           </button>
         )}
+        {mapFeatures && particles.length > 0 && (
+          <button
+            type="button"
+            style={controlStyle(showLocalization)}
+            title="Show or hide localization hypotheses without changing SLAM"
+            onClick={() => setShowLocalization(value => !value)}
+          >
+            Localization: {showLocalization ? 'On' : 'Off'}
+          </button>
+        )}
+        {mapFeatures && trajectoryPaths.length > 0 && (
+          <button
+            type="button"
+            style={controlStyle(showTrajectories)}
+            title="Show or hide candidate navigation paths and their goal without changing evaluation"
+            onClick={() => setShowTrajectories(value => !value)}
+          >
+            Paths: {showTrajectories ? 'On' : 'Off'}
+          </button>
+        )}
         {onClear && (!parsed.depth_projection || parsed.reconstruction) && <button type="button" disabled={clearPending} style={controlStyle()} title={parsed.reconstruction ? 'Clear the persistent RGB-D reconstruction volume and pause integration' : 'Clear accumulated scan history and switch accumulation off'} onClick={onClear}>{clearPending ? 'Clearing…' : parsed.reconstruction ? 'Clear volume' : 'Clear history'}</button>}
+        {viewerRole === 'depth-cloud' && onDepthColorModeChange && (
+          <label style={{ ...controlStyle(true), display: 'inline-flex', alignItems: 'center', gap: 5, width: 'auto' }}>
+            Point color
+            <select
+              value={depthColorMode}
+              onChange={event => onDepthColorModeChange(event.target.value as 'depth' | 'rgb' | 'ir')}
+              title="Color projected points by depth, aligned RGB, or aligned infrared intensity"
+              style={{ border: 0, background: 'transparent', color: 'inherit', font: 'inherit', cursor: 'pointer' }}
+            >
+              <option value="depth">Depth</option>
+              <option value="rgb">RGB</option>
+              <option value="ir">IR</option>
+            </select>
+          </label>
+        )}
         <span style={{ marginLeft: 'auto', color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
           {camera.zoom.toFixed(2)}× · yaw {yawDegrees}° · pitch {pitchDegrees}°
         </span>
@@ -1533,7 +1895,7 @@ export default function PointCloudViewer({
           }}
           onDoubleClick={resetCamera}
           onPointerDown={event => {
-            if (event.shiftKey && event.button === 0 && onGoalSet) {
+            if (event.shiftKey && event.button === 0 && onGoalSet && showTrajectories) {
               event.preventDefault()
               event.stopPropagation()
               if (goalPending) return
@@ -1563,11 +1925,11 @@ export default function PointCloudViewer({
             const deltaX = event.clientX - drag.x
             const deltaY = event.clientY - drag.y
             if (drag.mode === 'rotate') {
-              setCamera({
-                ...drag.camera,
-                yaw: drag.camera.yaw + deltaX * 0.008,
-                pitch: clamp(drag.camera.pitch - deltaY * 0.008, -1.45, 1.45),
-              })
+              setCamera(orbitPointCloudCamera(
+                drag.camera,
+                drag.camera.yaw + deltaX * 0.008,
+                drag.camera.pitch - deltaY * 0.008,
+              ))
             } else {
               setCamera({ ...drag.camera, panX: drag.camera.panX + deltaX, panY: drag.camera.panY + deltaY })
             }
@@ -1608,8 +1970,8 @@ export default function PointCloudViewer({
           border: '1px solid rgba(86, 217, 145, 0.38)', color: '#8df0b5',
           fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
         }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: currentPoints.length ? '#56d991' : '#71808d' }} />
-          {currentPoints.length
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: hasCurrentPoints ? '#56d991' : '#71808d' }} />
+          {hasCurrentPoints
             ? parsed.sensor_fusion?.backend === 'warp-hash-grid'
               ? `SENSOR FUSION · ${Number(parsed.sensor_fusion.matched_points ?? 0).toLocaleString()} ALIGNED`
               : parsed.reconstruction?.integration?.backend === 'warp'
@@ -1662,7 +2024,7 @@ export default function PointCloudViewer({
             HASHGRID ALIGN · {(finite(parsed.sensor_fusion.mean_residual_m) * 100).toFixed(1)} CM · {(finite(parsed.sensor_fusion.matched_ratio) * 100).toFixed(0)}%
           </div>
         )}
-        {parsed.trajectory_evaluation?.backend === 'warp' && (
+        {showTrajectories && parsed.trajectory_evaluation?.backend === 'warp' && (
           <div style={{
             position: 'absolute', zIndex: 3, top: parsed.dynamic_occupancy?.backend === 'warp-hash-grid' ? 70 : 39, right: 9,
             display: 'flex', alignItems: 'center', gap: 6,
@@ -1681,7 +2043,7 @@ export default function PointCloudViewer({
           background: 'rgba(3, 10, 16, 0.72)', color: 'rgba(217, 232, 241, 0.74)',
           fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
         }}>
-          {onGoalSet ? 'shift-click goal · ' : ''}left-drag pan · right-drag orbit · middle-drag pan · wheel zoom · double-click reset
+          {onGoalSet && showTrajectories ? 'shift-click goal · ' : ''}left-drag pan · right-drag orbit · middle-drag pan · wheel zoom · double-click reset
         </div>
       </div>
       <div data-bn-viewer-telemetry style={{
@@ -1711,9 +2073,10 @@ export default function PointCloudViewer({
           </span>
         )}
         {parsed.device && <span>{parsed.device}</span>}
+        {viewFrozen && <span style={{ color: '#ffd27a' }}>depth view frozen for navigation</span>}
         {parsed.frame && <span>{parsed.frame}</span>}
         {parsed.slam && <span>{Number(parsed.slam.keyframes ?? 0).toLocaleString()} keyframes · score {finite(parsed.slam.match_score).toFixed(2)} · {parsed.slam.matching_backend === 'warp' ? `Warp match ${finite(parsed.slam.matching_kernel_ms).toFixed(3)} ms` : 'CPU match'} · {parsed.slam.deskewed ? 'deskew on' : 'deskew unavailable'} · {Number(parsed.slam.loop_closures ?? 0).toLocaleString()} loops</span>}
-        {parsed.localization?.state === 'ready' && (
+        {showLocalization && parsed.localization?.state === 'ready' && (
           <span style={{ color: '#9df0c2' }}>
             {parsed.localization.backend === 'warp' ? 'Warp' : 'CPU'} particles {Number(parsed.localization.evaluated_particles ?? 0).toLocaleString()} × {Number(parsed.localization.beam_count ?? 0).toLocaleString()} beams = {Number(parsed.localization.work_items ?? 0).toLocaleString()} scores · {finite(parsed.localization.pipeline_ms).toFixed(3)} ms
             {finite(parsed.localization.effective_sample_size) > 0 ? ` · ESS ${Math.round(finite(parsed.localization.effective_sample_size)).toLocaleString()}` : ''}
@@ -1728,8 +2091,16 @@ export default function PointCloudViewer({
         )}
         {parsed.depth_projection?.state === 'ready' && (
           <span style={{ color: '#7cf4ff' }}>
-            Warp depth {Number(parsed.depth_projection.input_pixels ?? 0).toLocaleString()} pixels · {Number(parsed.depth_projection.valid_points ?? 0).toLocaleString()} valid · stride {Number(parsed.depth_projection.stride ?? 1)} · {finite(parsed.depth_projection.pipeline_ms).toFixed(3)} ms · fetch {finite(parsed.depth_projection.fetch_ms).toFixed(3)} ms · confidence {finite(parsed.depth_projection.mean_confidence).toFixed(2)}
+            Warp depth {Number(parsed.depth_projection.input_pixels ?? 0).toLocaleString()} pixels → {Number(parsed.depth_projection.candidate_points ?? parsed.depth_projection.valid_points ?? 0).toLocaleString()} candidates · {Number(parsed.depth_projection.valid_points ?? 0).toLocaleString()} valid · stride {Number(parsed.depth_projection.stride ?? 1)} · {finite(parsed.depth_projection.pipeline_ms).toFixed(3)} ms · fetch {finite(parsed.depth_projection.fetch_ms).toFixed(3)} ms · confidence {finite(parsed.depth_projection.mean_confidence).toFixed(2)}
+            {parsed.depth_projection.cleanup?.enabled ? ` · cleanup +${Number(parsed.depth_projection.cleanup.holes_filled ?? 0).toLocaleString()} holes / ${Number(parsed.depth_projection.cleanup.outliers_replaced ?? 0).toLocaleString()} outliers / ${Number(parsed.depth_projection.cleanup.temporally_blended ?? 0).toLocaleString()} stable` : ''}
+            {parsed.depth_projection.buffers_reused ? ' · buffers reused' : ''}
+            {` · color ${String(parsed.depth_projection.color_applied ?? 'depth').toUpperCase()}`}
             {finite(parsed.depth_projection.speedup) > 0 ? ` · ${finite(parsed.depth_projection.speedup).toFixed(1)}× CPU` : ''}
+          </span>
+        )}
+        {parsed.depth_projection?.color_error && (
+          <span style={{ color: '#ffbd6b' }}>
+            {String(parsed.depth_projection.color_error)} · using depth color
           </span>
         )}
         {parsed.reconstruction?.integration?.state === 'ready' && parsed.reconstruction.extraction?.state === 'ready' && (
@@ -1743,7 +2114,7 @@ export default function PointCloudViewer({
             {finite(parsed.sensor_fusion.speedup) > 0 ? ` · ${finite(parsed.sensor_fusion.speedup).toFixed(1)}× CPU` : ''}
           </span>
         )}
-        {parsed.trajectory_evaluation?.state === 'ready' && (
+        {showTrajectories && parsed.trajectory_evaluation?.state === 'ready' && (
           <span style={{ color: '#91f4ff' }}>
             Warp paths {Number(parsed.trajectory_evaluation.trajectory_count ?? 0).toLocaleString()} × {Number(parsed.trajectory_evaluation.time_steps ?? 0).toLocaleString()} steps = {Number(parsed.trajectory_evaluation.work_items ?? 0).toLocaleString()} evaluations · {finite(parsed.trajectory_evaluation.pipeline_ms).toFixed(3)} ms · best clearance {finite(parsed.trajectory_evaluation.best_minimum_clearance_m).toFixed(2)} m
             {finite(parsed.trajectory_evaluation.speedup) > 0 ? ` · ${finite(parsed.trajectory_evaluation.speedup).toFixed(1)}× CPU` : ''}
@@ -1760,15 +2131,15 @@ export default function PointCloudViewer({
         {showRobot && <span style={{ color: '#7cf4ff' }}>B robot {Math.round(finite(parsed.robot?.length_m, 0.25) * 100)}×{Math.round(finite(parsed.robot?.width_m, 0.22) * 100)} cm</span>}
         {!parsed.depth_projection && <span style={{ color: '#72ff9d' }}>— active beam</span>}
         {!parsed.depth_projection && !fullCircleScan && <span style={{ color: '#85a2b8' }}>┄ scan limits</span>}
-        <span style={{ color: '#32d8ef' }}>{parsed.sensor_fusion ? '● LiDAR cyan · RGB-D green aligned / red residual' : parsed.reconstruction ? '● reconstructed surface · aligned RGB when available' : parsed.depth_projection ? '● projected depth · brightness is surface confidence' : '● filtered laser returns'}</span>
+        <span style={{ color: '#32d8ef' }}>{parsed.sensor_fusion ? '● LiDAR cyan · RGB-D green aligned / red residual' : parsed.reconstruction ? '● reconstructed surface · aligned RGB when available' : parsed.depth_projection?.color_applied === 'rgb' ? '● projected depth · aligned RGB color' : parsed.depth_projection?.color_applied === 'ir' ? '● projected depth · aligned IR intensity' : parsed.depth_projection ? '● projected depth · distance and surface confidence color' : '● filtered laser returns'}</span>
         {parsed.sensor_fusion && <span style={{ color: '#91f4ff' }}>calibration Δ {finite(parsed.sensor_fusion.correction?.x_m).toFixed(3)} m X · {finite(parsed.sensor_fusion.correction?.y_m).toFixed(3)} m Y · {finite(parsed.sensor_fusion.correction?.yaw_deg).toFixed(2)}° yaw</span>}
         {mapFeatures && parsed.occupancy?.fixed_origin === true && <span style={{ color: '#486070' }}>■ unknown map extent</span>}
         {mapFeatures && parsed.map_render_mode === 'occupancy-texture' && <span style={{ color: '#74e7a5' }}>GPU map texture · all cells</span>}
         {mapFeatures && showFreeSpace && freeCellCount > 0 && <span style={{ color: '#4fc07a' }}>■ {freeCellCount.toLocaleString()} fixed free-floor cells</span>}
         {mapFeatures && occupiedCellCount > 0 && <span style={{ color: '#c7e0ef' }}>■ {occupiedCellCount.toLocaleString()} occupied wall cells</span>}
-        {particles.length > 0 && <span style={{ color: '#9df0c2' }}>● GPU pose hypotheses · purple low / green high confidence</span>}
+        {showLocalization && particles.length > 0 && <span style={{ color: '#9df0c2' }}>● GPU pose hypotheses · purple low / green high confidence</span>}
         {dynamicPoints.length > 0 && <span style={{ color: '#ffa940' }}>● coherent motion · orange points</span>}
-        {trajectoryPaths.length > 0 && <span><b style={{ color: '#66e091' }}>— safe</b> · <b style={{ color: '#ff5b5b' }}>— blocked</b> · <b style={{ color: '#5bebff' }}>— best GPU path</b></span>}
+        {showTrajectories && trajectoryPaths.length > 0 && <span><b style={{ color: '#66e091' }}>— safe</b> · <b style={{ color: '#ff5b5b' }}>— blocked</b> · <b style={{ color: '#5bebff' }}>— best GPU path</b></span>}
         {showAxes && <span>{mapFeatures ? 'map' : 'sensor'} <b style={{ color: '#ff6b6b' }}>X</b> / <b style={{ color: '#53e091' }}>Y</b> / <b style={{ color: '#539aff' }}>Z</b> axes</span>}
         {parsed.history_registered === true && <span style={{ color: '#74e7a5' }}>pose-registered history · {parsed.pose_source || 'pose stream'}</span>}
         {Array.isArray(parsed.registration?.tf_path) && parsed.registration.tf_path.length > 1 && (
