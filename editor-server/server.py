@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -84,6 +84,7 @@ from local_runtime import (
 from artifact_store import ArtifactStore, ArtifactStoreError
 from project_store import ProjectStore, ProjectStoreError
 from run_store import RunStore
+import cloud_client
 
 
 def package_index_payload(*args, **kwargs):
@@ -350,6 +351,12 @@ class CookTargetReq(BaseModel):
 class CookGraphReq(BaseModel):
     targets: list[CookTargetReq]
     run_mode: str = "once"
+
+class CloudJobReq(BaseModel):
+    entrypoint: dict[str, str]
+    workflow_name: str = "Current Graph"
+    project_ref: str | None = None
+    max_runtime_seconds: int = Field(default=3600, ge=60, le=86_400)
 
 class SetGraphReq(BaseModel):
     nodes: list[dict[str, Any]] = []
@@ -3998,6 +4005,107 @@ def cook_graph_stream(req: CookGraphReq):
         media_type="application/x-ndjson",
         headers=headers,
     )
+
+
+def _cloud_call(method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    try:
+        return cloud_client.json_request(method, path, payload)
+    except cloud_client.CloudClientError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+def _cloud_job_id(value: str) -> str:
+    if not re.fullmatch(r"job_[0-9a-f]{32}", value):
+        raise HTTPException(400, "Invalid Blacknode Cloud job ID.")
+    return value
+
+
+@app.get("/cloud/status")
+def cloud_status():
+    config = cloud_client.configuration()
+    return {
+        "configured": config.configured,
+        "gpu": "NVIDIA L40S",
+        "url": config.base_url if config.configured else "",
+    }
+
+
+@app.post("/cloud/jobs")
+def create_cloud_job(req: CloudJobReq):
+    node_id = str(req.entrypoint.get("node_id") or "").strip()
+    port = str(req.entrypoint.get("port") or "").strip()
+    if node_id not in _session.node_meta or not port:
+        raise HTTPException(400, "Choose a valid workflow output before running on Cloud.")
+    workflow = _workflow_payload(
+        req.workflow_name.strip()[:200] or "Current Graph",
+        entrypoint={"node_id": node_id, "port": port},
+        metadata={"source": "blacknode-editor"},
+    )
+    workflow = _redact_run_snapshot_secrets(workflow)
+    validation = validate_bn_workflow(workflow)
+    if not validation.ok:
+        raise HTTPException(
+            400,
+            {
+                "message": "The workflow is not ready for Cloud execution.",
+                "validation": validation.to_dict(),
+            },
+        )
+    return _cloud_call(
+        "POST",
+        "/v1/jobs",
+        {
+            "contract_version": "blacknode.cloud.jobs/v1",
+            "project_ref": req.project_ref,
+            "workflow": workflow,
+            "compute": {
+                "gpu_class": "l40s",
+                "gpu_count": 1,
+                "max_runtime_seconds": req.max_runtime_seconds,
+            },
+            "runtime": {"release": "gpu-development"},
+        },
+    )
+
+
+@app.get("/cloud/jobs/{job_id}")
+def get_cloud_job(job_id: str):
+    return _cloud_call("GET", f"/v1/jobs/{_cloud_job_id(job_id)}")
+
+
+@app.delete("/cloud/jobs/{job_id}")
+def cancel_cloud_job(job_id: str):
+    return _cloud_call("DELETE", f"/v1/jobs/{_cloud_job_id(job_id)}")
+
+
+@app.get("/cloud/jobs/{job_id}/logs")
+def get_cloud_job_logs(
+    job_id: str,
+    after_seq: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=1000),
+):
+    path = f"/v1/jobs/{_cloud_job_id(job_id)}/logs?after_seq={after_seq}&limit={limit}"
+    return _cloud_call("GET", path)
+
+
+@app.get("/cloud/jobs/{job_id}/artifacts")
+def get_cloud_job_artifacts(job_id: str):
+    return _cloud_call("GET", f"/v1/jobs/{_cloud_job_id(job_id)}/artifacts")
+
+
+@app.get("/cloud/jobs/{job_id}/artifacts/{artifact_id}/download")
+def download_cloud_job_artifact(job_id: str, artifact_id: str):
+    clean_job_id = _cloud_job_id(job_id)
+    if not re.fullmatch(r"artifact_[0-9a-f]{28}", artifact_id):
+        raise HTTPException(400, "Invalid Blacknode Cloud artifact ID.")
+    try:
+        chunks, media_type, disposition = cloud_client.download(
+            f"/v1/jobs/{clean_job_id}/artifacts/{artifact_id}/download",
+        )
+    except cloud_client.CloudClientError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    headers = {"Content-Disposition": disposition} if disposition else None
+    return StreamingResponse(chunks, media_type=media_type, headers=headers)
 
 
 @app.post("/cook/stop")

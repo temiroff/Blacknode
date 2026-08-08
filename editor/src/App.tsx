@@ -16,6 +16,7 @@ import OutputNode from './components/OutputNode'
 import ComputeDeviceNode from './components/ComputeDeviceNode'
 import ROS2GraphExplorerNode from './components/ROS2GraphExplorerNode'
 import SimulationViewerPane from './components/SimulationViewerPane'
+import CloudRunPanel from './components/CloudRunPanel'
 import LocalFilePicker from './components/LocalFilePicker'
 import RobotMonitorNode from './components/RobotMonitorNode'
 import RobotServoNode from './components/RobotServoNode'
@@ -29,7 +30,7 @@ import NodeSearch from './components/NodeSearch'
 import { portColor, portVisualColor, portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
-import { api, type FrameworkExportTarget, type NewtonWorkspaceStatus, type WorkflowMetadata } from './api'
+import { api, type CloudJob, type FrameworkExportTarget, type NewtonWorkspaceStatus, type WorkflowMetadata } from './api'
 import { inferGraphRunTargets } from './graphRun'
 import { copyTextToClipboard } from './clipboard'
 
@@ -209,6 +210,11 @@ export default function App() {
   const [importingFile, setImportingFile] = useState(false)
   const [runtimeStopPending, setRuntimeStopPending] = useState(false)
   const [activeRunMode, setActiveRunMode] = useState<'once' | 'live' | null>(null)
+  const [executionTarget, setExecutionTarget] = useState<'local' | 'cloud'>('local')
+  const [cloudPanelOpen, setCloudPanelOpen] = useState(false)
+  const [cloudJobPending, setCloudJobPending] = useState(false)
+  const [cloudJob, setCloudJob] = useState<CloudJob | null>(null)
+  const [cloudJobError, setCloudJobError] = useState('')
   const [refreshingCanvas, setRefreshingCanvas] = useState(false)
   const [openingUsd, setOpeningUsd] = useState(false)
   const [usdPickerInitialPath, setUsdPickerInitialPath] = useState<string | null>(null)
@@ -1473,6 +1479,43 @@ export default function App() {
     }
   }, [cookNode, edges, fitCurrentCanvas, nodes, workflowEntrypoint])
 
+  const handleCloudRun = useCallback(async () => {
+    if (cloudJobPending) return
+    const explicit = workflowEntrypoint && nodes.some(node => (
+      node.id === workflowEntrypoint.node_id
+      && (node.data.outputs.includes(workflowEntrypoint.port) || node.data.inputs.includes(workflowEntrypoint.port))
+    ))
+      ? { id: workflowEntrypoint.node_id, port: workflowEntrypoint.port }
+      : null
+    const target = explicit ?? inferGraphRunTargets(nodes, edges)[0]
+    if (!target) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'warning',
+          title: 'Run on Cloud',
+          message: 'No runnable workflow output was found. Add an Output node or select an entrypoint.',
+        },
+      }))
+      return
+    }
+    setCloudPanelOpen(true)
+    setCloudJobPending(true)
+    setCloudJob(null)
+    setCloudJobError('')
+    try {
+      const created = await api.createCloudJob(
+        { node_id: target.id, port: target.port },
+        activeTab?.name || 'Current Graph',
+        activeProject?.id ?? activeTab?.slug ?? null,
+      )
+      setCloudJob(created)
+    } catch (cause) {
+      setCloudJobError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setCloudJobPending(false)
+    }
+  }, [activeProject?.id, activeTab?.name, activeTab?.slug, cloudJobPending, edges, nodes, workflowEntrypoint])
+
   const handleResetRun = useCallback(() => {
     stopCook()
     setActiveRunMode(null)
@@ -1749,19 +1792,39 @@ export default function App() {
 
             <div className="bn-topbar-group bn-topbar-run-group" aria-label="Run controls">
               <span className="bn-topbar-group-label">Run</span>
+              <select
+                className="bn-top-select"
+                value={executionTarget}
+                disabled={onceRunActive || liveRunActive || cloudJobPending}
+                onChange={event => setExecutionTarget(event.target.value === 'cloud' ? 'cloud' : 'local')}
+                title="Choose where this graph executes"
+              >
+                <option value="local">Local</option>
+                <option value="cloud">Blacknode Cloud · L40S</option>
+              </select>
               <button
                 className="bn-top-button bn-top-run-button"
-                onClick={() => (onceRunActive ? stopCook() : void handleRunGraph('once'))}
+                onClick={() => {
+                  if (executionTarget === 'cloud') void handleCloudRun()
+                  else if (onceRunActive) stopCook()
+                  else void handleRunGraph('once')
+                }}
                 disabled={!serverOk || liveRunActive || (!onceRunActive && nodes.length === 0)}
-                title={onceRunActive ? 'Stop the current one-time evaluation' : 'Evaluate the graph once. Live-capable nodes return one snapshot and do not keep streaming.'}
+                title={executionTarget === 'cloud'
+                  ? 'Submit this graph to Blacknode Cloud on one NVIDIA L40S.'
+                  : onceRunActive
+                    ? 'Stop the current one-time evaluation'
+                    : 'Evaluate the graph once. Live-capable nodes return one snapshot and do not keep streaming.'}
               >
-                {onceRunActive ? '■ Stop once' : '▶ Run once'}
+                {executionTarget === 'cloud'
+                  ? cloudJobPending ? 'Submitting…' : '☁ Run on Cloud'
+                  : onceRunActive ? '■ Stop once' : '▶ Run once'}
               </button>
 
               <button
                 className={`bn-top-button bn-top-run-button bn-top-live-button${liveRunActive ? ' is-stop-live' : ' is-start-live'}`}
                 onClick={() => (liveRunActive ? void handleStopRuntime() : void handleRunGraph('live'))}
-                disabled={!serverOk || runtimeStopPending || onceRunActive || (!liveRunActive && nodes.length === 0)}
+                disabled={executionTarget === 'cloud' || !serverOk || runtimeStopPending || onceRunActive || (!liveRunActive && nodes.length === 0)}
                 title={liveRunActive
                   ? 'Stop the live graph and its managed runtime services.'
                   : liveCapableCount > 0
@@ -2478,6 +2541,14 @@ export default function App() {
           hidden={cookStatusHidden}
           raised={Boolean(notice)}
           onDismiss={dismissCookStatus}
+        />
+
+        <CloudRunPanel
+          open={cloudPanelOpen}
+          pending={cloudJobPending}
+          initialJob={cloudJob}
+          error={cloudJobError}
+          onClose={() => setCloudPanelOpen(false)}
         />
 
         {notice && (

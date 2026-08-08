@@ -11541,3 +11541,177 @@ html[data-ui-test="refined"] .bn-package-action-menu summary {
   cursor: default;
   opacity: 0.55;
 }
+
+.bn-cloud-run-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.38);
+}
+
+.bn-cloud-run-panel {
+  box-sizing: border-box;
+  width: min(520px, 96vw);
+  height: 100%;
+  overflow: auto;
+  padding: 20px;
+  color: var(--tx1);
+  background: var(--panel);
+  border-left: 1px solid var(--line2);
+  box-shadow: -18px 0 54px rgba(0, 0, 0, 0.38);
+}
+
+.bn-cloud-run-panel > header,
+.bn-cloud-run-section > header,
+.bn-cloud-metric-chart > header,
+.bn-cloud-run-panel > footer,
+.bn-cloud-progress-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bn-cloud-run-panel > header span,
+.bn-cloud-run-panel > header strong {
+  display: block;
+}
+
+.bn-cloud-run-panel > header span {
+  margin-bottom: 5px;
+  color: var(--accent);
+  font: 700 11px var(--font-mono);
+  letter-spacing: 0.12em;
+}
+
+.bn-cloud-run-panel > header strong {
+  font-size: 18px;
+}
+
+.bn-cloud-run-panel button {
+  padding: 7px 11px;
+  color: var(--tx1);
+  background: var(--lift);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.bn-cloud-run-panel > header button {
+  padding: 2px 8px;
+  font-size: 20px;
+}
+
+.bn-cloud-run-message,
+.bn-cloud-run-error {
+  margin-top: 18px;
+  padding: 12px;
+  border-radius: 7px;
+  font-size: 13px;
+}
+
+.bn-cloud-run-message { background: var(--lift); }
+.bn-cloud-run-error { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
+
+.bn-cloud-run-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.bn-cloud-run-facts span,
+.bn-cloud-run-facts strong {
+  display: block;
+}
+
+.bn-cloud-run-facts span {
+  margin-bottom: 4px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-cloud-run-facts strong {
+  overflow: hidden;
+  font: 12px var(--font-mono);
+  text-overflow: ellipsis;
+}
+
+.bn-cloud-run-facts strong.is-running,
+.bn-cloud-run-facts strong.is-completed { color: var(--ok); }
+.bn-cloud-run-facts strong.is-failed,
+.bn-cloud-run-facts strong.is-timed_out { color: var(--err); }
+
+.bn-cloud-progress {
+  height: 8px;
+  margin-top: 22px;
+  overflow: hidden;
+  background: var(--lift);
+  border-radius: 999px;
+}
+
+.bn-cloud-progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 250ms ease;
+}
+
+.bn-cloud-progress-label {
+  margin-top: 7px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-cloud-metric-chart,
+.bn-cloud-run-section {
+  margin-top: 22px;
+  padding: 12px;
+  background: var(--lift);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.bn-cloud-metric-chart { color: var(--accent); }
+.bn-cloud-metric-chart header { color: var(--tx2); font-size: 12px; }
+.bn-cloud-metric-chart svg { width: 100%; height: 84px; margin-top: 8px; }
+
+.bn-cloud-run-section > header {
+  margin-bottom: 10px;
+  color: var(--tx2);
+  font-size: 12px;
+}
+
+.bn-cloud-run-section pre {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  color: var(--tx2);
+  font: 11px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bn-cloud-artifact-list {
+  display: grid;
+  gap: 7px;
+}
+
+.bn-cloud-artifact-list a {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px;
+  color: var(--tx1);
+  background: var(--panel);
+  border-radius: 5px;
+  text-decoration: none;
+}
+
+.bn-cloud-artifact-list a:hover { color: var(--accent); }
+.bn-cloud-artifact-list small,
+.bn-cloud-artifact-list p { color: var(--tx3); font-size: 11px; }
+.bn-cloud-run-panel > footer { margin-top: 18px; justify-content: flex-end; }
