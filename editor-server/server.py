@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -84,6 +84,8 @@ from local_runtime import (
 from artifact_store import ArtifactStore, ArtifactStoreError
 from project_store import ProjectStore, ProjectStoreError
 from run_store import RunStore
+import cloud_client
+import cloud_sessions
 
 
 def package_index_payload(*args, **kwargs):
@@ -112,6 +114,9 @@ def workflow_node_types(*args, **kwargs):
 
 app = FastAPI(title="Blacknode Editor Server")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+_CLOUD_SESSION_COOKIE = "blacknode_cloud_session"
+_cloud_sessions = cloud_sessions.CloudSessionStore()
 
 
 def _reap_orphaned_stream_servers() -> None:
@@ -350,6 +355,22 @@ class CookTargetReq(BaseModel):
 class CookGraphReq(BaseModel):
     targets: list[CookTargetReq]
     run_mode: str = "once"
+
+class CloudJobReq(BaseModel):
+    entrypoint: dict[str, str]
+    workflow_name: str = "Current Graph"
+    project_ref: str | None = None
+    max_runtime_seconds: int = Field(default=3600, ge=60, le=86_400)
+
+
+class CloudLoginReq(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class CloudRegisterReq(CloudLoginReq):
+    password: str = Field(min_length=10, max_length=200)
+    display_name: str = Field(default="", max_length=100)
 
 class SetGraphReq(BaseModel):
     nodes: list[dict[str, Any]] = []
@@ -3998,6 +4019,301 @@ def cook_graph_stream(req: CookGraphReq):
         media_type="application/x-ndjson",
         headers=headers,
     )
+
+
+def _cloud_call(
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    authorization: str | None = None,
+    allow_admin: bool = True,
+) -> dict[str, Any]:
+    try:
+        return cloud_client.json_request(
+            method,
+            path,
+            payload,
+            authorization=authorization,
+            allow_admin=allow_admin,
+        )
+    except cloud_client.CloudClientError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+def _cloud_session(request: Request) -> cloud_sessions.CloudSession:
+    session = _cloud_sessions.get(request.cookies.get(_CLOUD_SESSION_COOKIE))
+    if session is None:
+        raise HTTPException(401, "Sign in to Blacknode Cloud to continue.")
+    return session
+
+
+def _cloud_user_call(
+    request: Request,
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return _cloud_call(
+        method,
+        path,
+        payload,
+        authorization=_cloud_session(request).token,
+        allow_admin=False,
+    )
+
+
+def _cloud_cookie_secure(request: Request) -> bool:
+    forwarded = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    return request.url.scheme == "https" or forwarded == "https"
+
+
+def _set_cloud_cookie(
+    request: Request,
+    response: Response,
+    session_id: str,
+    session: cloud_sessions.CloudSession,
+) -> None:
+    max_age = max(0, int(session.expires_at.timestamp() - time.time()))
+    response.set_cookie(
+        _CLOUD_SESSION_COOKIE,
+        session_id,
+        max_age=max_age,
+        httponly=True,
+        secure=_cloud_cookie_secure(request),
+        samesite="strict",
+        path="/",
+    )
+    response.headers["Cache-Control"] = "no-store"
+
+
+def _clear_cloud_cookie(request: Request, response: Response) -> None:
+    response.delete_cookie(
+        _CLOUD_SESSION_COOKIE,
+        httponly=True,
+        secure=_cloud_cookie_secure(request),
+        samesite="strict",
+        path="/",
+    )
+    response.headers["Cache-Control"] = "no-store"
+
+
+def _cloud_status_payload(request: Request, response: Response) -> dict[str, Any]:
+    config = cloud_client.configuration()
+    status_payload: dict[str, Any] = {
+        "configured": config.available,
+        "gpu": "NVIDIA L40S",
+        "url": config.base_url if config.available else "",
+        "authenticated": False,
+        "account": None,
+        "credits": None,
+    }
+    session_id = request.cookies.get(_CLOUD_SESSION_COOKIE)
+    session = _cloud_sessions.get(session_id)
+    if session is None:
+        if session_id:
+            _clear_cloud_cookie(request, response)
+        return status_payload
+    try:
+        credits = _cloud_call(
+            "GET",
+            "/v1/credits",
+            authorization=session.token,
+            allow_admin=False,
+        )
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            _cloud_sessions.pop(session_id)
+            _clear_cloud_cookie(request, response)
+            return status_payload
+        raise
+    status_payload.update(
+        authenticated=True,
+        account=session.account,
+        credits=credits,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return status_payload
+
+
+def _cloud_job_id(value: str) -> str:
+    if not re.fullmatch(r"job_[0-9a-f]{32}", value):
+        raise HTTPException(400, "Invalid Blacknode Cloud job ID.")
+    return value
+
+
+@app.get("/cloud/status")
+def cloud_status(request: Request, response: Response):
+    return _cloud_status_payload(request, response)
+
+
+def _cloud_authenticate(
+    request: Request,
+    response: Response,
+    path: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    auth = _cloud_call("POST", path, payload, allow_admin=False)
+    token = str(auth.get("token") or "")
+    expires_at = str(auth.get("expires_at") or "")
+    account = auth.get("account")
+    if len(token) < 24 or not expires_at or not isinstance(account, dict):
+        raise HTTPException(502, "Blacknode Cloud returned an invalid login session.")
+    session_id, session = _cloud_sessions.create(token, expires_at, account)
+    _set_cloud_cookie(request, response, session_id, session)
+    config = cloud_client.configuration()
+    credits = _cloud_call(
+        "GET",
+        "/v1/credits",
+        authorization=session.token,
+        allow_admin=False,
+    )
+    return {
+        "configured": config.available,
+        "gpu": "NVIDIA L40S",
+        "url": config.base_url if config.available else "",
+        "authenticated": True,
+        "account": session.account,
+        "credits": credits,
+    }
+
+
+@app.post("/cloud/auth/register")
+def register_cloud_account(
+    req: CloudRegisterReq,
+    request: Request,
+    response: Response,
+):
+    return _cloud_authenticate(
+        request,
+        response,
+        "/v1/auth/register",
+        {
+            "email": req.email,
+            "password": req.password,
+            "display_name": req.display_name,
+        },
+    )
+
+
+@app.post("/cloud/auth/login")
+def login_cloud_account(req: CloudLoginReq, request: Request, response: Response):
+    return _cloud_authenticate(
+        request,
+        response,
+        "/v1/auth/login",
+        {"email": req.email, "password": req.password},
+    )
+
+
+@app.post("/cloud/auth/logout")
+def logout_cloud_account(request: Request, response: Response):
+    session_id = request.cookies.get(_CLOUD_SESSION_COOKIE)
+    session = _cloud_sessions.pop(session_id)
+    revoked = session is None
+    if session is not None:
+        try:
+            _cloud_call(
+                "POST",
+                "/v1/auth/logout",
+                authorization=session.token,
+                allow_admin=False,
+            )
+            revoked = True
+        except HTTPException:
+            revoked = False
+    _clear_cloud_cookie(request, response)
+    return {"ok": True, "revoked": revoked}
+
+
+@app.get("/cloud/credits/history")
+def get_cloud_credit_history(request: Request, limit: int = Query(default=100, ge=1, le=200)):
+    return _cloud_user_call(request, "GET", f"/v1/credits/history?limit={limit}")
+
+
+@app.post("/cloud/jobs")
+def create_cloud_job(req: CloudJobReq, request: Request):
+    node_id = str(req.entrypoint.get("node_id") or "").strip()
+    port = str(req.entrypoint.get("port") or "").strip()
+    if node_id not in _session.node_meta or not port:
+        raise HTTPException(400, "Choose a valid workflow output before running on Cloud.")
+    workflow = _workflow_payload(
+        req.workflow_name.strip()[:200] or "Current Graph",
+        entrypoint={"node_id": node_id, "port": port},
+        metadata={"source": "blacknode-editor"},
+    )
+    workflow = _redact_run_snapshot_secrets(workflow)
+    validation = validate_bn_workflow(workflow)
+    if not validation.ok:
+        raise HTTPException(
+            400,
+            {
+                "message": "The workflow is not ready for Cloud execution.",
+                "validation": validation.to_dict(),
+            },
+        )
+    return _cloud_user_call(
+        request,
+        "POST",
+        "/v1/jobs",
+        {
+            "contract_version": "blacknode.cloud.jobs/v1",
+            "project_ref": req.project_ref,
+            "workflow": workflow,
+            "compute": {
+                "gpu_class": "l40s",
+                "gpu_count": 1,
+                "max_runtime_seconds": req.max_runtime_seconds,
+            },
+            "runtime": {"release": "gpu-development"},
+        },
+    )
+
+
+@app.get("/cloud/jobs/{job_id}")
+def get_cloud_job(job_id: str, request: Request):
+    return _cloud_user_call(request, "GET", f"/v1/jobs/{_cloud_job_id(job_id)}")
+
+
+@app.delete("/cloud/jobs/{job_id}")
+def cancel_cloud_job(job_id: str, request: Request):
+    return _cloud_user_call(request, "DELETE", f"/v1/jobs/{_cloud_job_id(job_id)}")
+
+
+@app.get("/cloud/jobs/{job_id}/logs")
+def get_cloud_job_logs(
+    job_id: str,
+    request: Request,
+    after_seq: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=1000),
+):
+    path = f"/v1/jobs/{_cloud_job_id(job_id)}/logs?after_seq={after_seq}&limit={limit}"
+    return _cloud_user_call(request, "GET", path)
+
+
+@app.get("/cloud/jobs/{job_id}/artifacts")
+def get_cloud_job_artifacts(job_id: str, request: Request):
+    return _cloud_user_call(
+        request,
+        "GET",
+        f"/v1/jobs/{_cloud_job_id(job_id)}/artifacts",
+    )
+
+
+@app.get("/cloud/jobs/{job_id}/artifacts/{artifact_id}/download")
+def download_cloud_job_artifact(job_id: str, artifact_id: str, request: Request):
+    clean_job_id = _cloud_job_id(job_id)
+    if not re.fullmatch(r"artifact_[0-9a-f]{28}", artifact_id):
+        raise HTTPException(400, "Invalid Blacknode Cloud artifact ID.")
+    try:
+        chunks, media_type, disposition = cloud_client.download(
+            f"/v1/jobs/{clean_job_id}/artifacts/{artifact_id}/download",
+            authorization=_cloud_session(request).token,
+        )
+    except cloud_client.CloudClientError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    headers = {"Content-Disposition": disposition} if disposition else None
+    return StreamingResponse(chunks, media_type=media_type, headers=headers)
 
 
 @app.post("/cook/stop")

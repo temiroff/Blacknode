@@ -388,8 +388,9 @@ def test_go_live_button_becomes_stop_live_for_viewer_and_slam_sessions():
     assert "const liveRunActive" in source
     assert "liveRunActive ? '■ Stop live' : '● Go live'" in source
     assert "onceRunActive ? '■ Stop once' : '▶ Run once'" in source
-    assert """className="bn-top-button bn-top-run-button"
-                onClick={() => (onceRunActive ? stopCook() : void handleRunGraph('once'))}""" in source
+    assert "if (executionTarget === 'cloud') void handleCloudRun()" in source
+    assert "else if (onceRunActive) stopCook()" in source
+    assert "else void handleRunGraph('once')" in source
     assert """className={`bn-top-button bn-top-run-button bn-top-live-button${liveRunActive ? ' is-stop-live' : ' is-start-live'}`}
                 onClick={() => (liveRunActive ? void handleStopRuntime() : void handleRunGraph('live'))}""" in source
     assert 'className="bn-top-button bn-top-reset-button"' in source
