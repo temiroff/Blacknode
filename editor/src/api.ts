@@ -1040,6 +1040,37 @@ export interface CloudStatus {
   configured: boolean
   gpu: string
   url: string
+  authenticated: boolean
+  account: CloudAccount | null
+  credits: CloudCredits | null
+}
+
+export interface CloudAccount {
+  id: string
+  organization_id: string
+  email: string
+  display_name: string
+  created_at: string
+}
+
+export interface CloudCredits {
+  unit: 'gpu-second'
+  balance: number
+  reserved: number
+  available: number
+}
+
+export interface CloudCreditEntry {
+  id: string
+  delta_seconds: number
+  reason: string
+  reference_id: string
+  created_at: string
+}
+
+export interface CloudCreditHistory {
+  unit: 'gpu-second'
+  entries: CloudCreditEntry[]
 }
 
 export interface CloudJob {
@@ -1672,6 +1703,18 @@ export const api = {
   deletePackage: (name: string)              => req<{ ok: boolean }>('DELETE', `/packages/${encodeURIComponent(name)}`),
   getGraph:  ()                              => req<GraphSnapshot>('GET', '/graph'),
   cloudStatus: ()                            => req<CloudStatus>('GET', '/cloud/status'),
+  registerCloudAccount: (email: string, password: string, displayName: string) =>
+    req<CloudStatus>('POST', '/cloud/auth/register', {
+      email,
+      password,
+      display_name: displayName,
+    }),
+  loginCloudAccount: (email: string, password: string) =>
+    req<CloudStatus>('POST', '/cloud/auth/login', { email, password }),
+  logoutCloudAccount: () =>
+    req<{ ok: boolean; revoked: boolean }>('POST', '/cloud/auth/logout'),
+  getCloudCreditHistory: () =>
+    req<CloudCreditHistory>('GET', '/cloud/credits/history'),
   createCloudJob: (
     entrypoint: { node_id: string; port: string },
     workflowName: string,

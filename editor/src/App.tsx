@@ -30,7 +30,7 @@ import NodeSearch from './components/NodeSearch'
 import { portColor, portVisualColor, portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
-import { api, type CloudJob, type FrameworkExportTarget, type NewtonWorkspaceStatus, type WorkflowMetadata } from './api'
+import { api, type CloudJob, type CloudStatus, type FrameworkExportTarget, type NewtonWorkspaceStatus, type WorkflowMetadata } from './api'
 import { inferGraphRunTargets } from './graphRun'
 import { copyTextToClipboard } from './clipboard'
 
@@ -215,6 +215,7 @@ export default function App() {
   const [cloudJobPending, setCloudJobPending] = useState(false)
   const [cloudJob, setCloudJob] = useState<CloudJob | null>(null)
   const [cloudJobError, setCloudJobError] = useState('')
+  const [cloudAccountStatus, setCloudAccountStatus] = useState<CloudStatus | null>(null)
   const [refreshingCanvas, setRefreshingCanvas] = useState(false)
   const [openingUsd, setOpeningUsd] = useState(false)
   const [usdPickerInitialPath, setUsdPickerInitialPath] = useState<string | null>(null)
@@ -1503,12 +1504,20 @@ export default function App() {
     setCloudJob(null)
     setCloudJobError('')
     try {
+      const accountStatus = await api.cloudStatus()
+      setCloudAccountStatus(accountStatus)
+      if (!accountStatus.configured) {
+        setCloudJobError('Configure the Blacknode Cloud URL on the editor server.')
+        return
+      }
+      if (!accountStatus.authenticated) return
       const created = await api.createCloudJob(
         { node_id: target.id, port: target.port },
         activeTab?.name || 'Current Graph',
         activeProject?.id ?? activeTab?.slug ?? null,
       )
       setCloudJob(created)
+      void api.cloudStatus().then(setCloudAccountStatus).catch(() => undefined)
     } catch (cause) {
       setCloudJobError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -1802,6 +1811,11 @@ export default function App() {
                 <option value="local">Local</option>
                 <option value="cloud">Blacknode Cloud · L40S</option>
               </select>
+              {executionTarget === 'cloud' && cloudAccountStatus?.credits && (
+                <span className="bn-cloud-credit-badge" title="Available Blacknode Cloud GPU-second credits">
+                  {cloudAccountStatus.credits.available.toLocaleString()} credits
+                </span>
+              )}
               <button
                 className="bn-top-button bn-top-run-button"
                 onClick={() => {
@@ -2548,6 +2562,9 @@ export default function App() {
           pending={cloudJobPending}
           initialJob={cloudJob}
           error={cloudJobError}
+          accountStatus={cloudAccountStatus}
+          onAccountStatus={setCloudAccountStatus}
+          onRun={() => void handleCloudRun()}
           onClose={() => setCloudPanelOpen(false)}
         />
 

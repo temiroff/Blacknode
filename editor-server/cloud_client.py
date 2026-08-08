@@ -18,7 +18,11 @@ class CloudConfiguration:
 
     @property
     def configured(self) -> bool:
-        return self.base_url.startswith(("http://", "https://")) and len(self.api_key) >= 24
+        return self.available and len(self.api_key) >= 24
+
+    @property
+    def available(self) -> bool:
+        return self.base_url.startswith(("http://", "https://"))
 
 
 class CloudClientError(RuntimeError):
@@ -40,8 +44,17 @@ def json_request(
     payload: dict[str, Any] | None = None,
     *,
     timeout: float = 30.0,
+    authorization: str | None = None,
+    allow_admin: bool = True,
 ) -> dict[str, Any]:
-    response = _open(method, path, payload, timeout=timeout)
+    response = _open(
+        method,
+        path,
+        payload,
+        timeout=timeout,
+        authorization=authorization,
+        allow_admin=allow_admin,
+    )
     with response:
         try:
             value = json.loads(response.read().decode("utf-8"))
@@ -52,8 +65,19 @@ def json_request(
     return value
 
 
-def download(path: str, *, timeout: float = 30.0) -> tuple[Iterator[bytes], str, str]:
-    response = _open("GET", path, timeout=timeout)
+def download(
+    path: str,
+    *,
+    authorization: str,
+    timeout: float = 30.0,
+) -> tuple[Iterator[bytes], str, str]:
+    response = _open(
+        "GET",
+        path,
+        timeout=timeout,
+        authorization=authorization,
+        allow_admin=False,
+    )
     media_type = response.headers.get_content_type() or "application/octet-stream"
     disposition = response.headers.get("Content-Disposition", "")
 
@@ -74,18 +98,20 @@ def _open(
     payload: dict[str, Any] | None = None,
     *,
     timeout: float,
+    authorization: str | None = None,
+    allow_admin: bool = True,
 ):
     config = configuration()
-    if not config.configured:
+    if not config.available:
         raise CloudClientError(
             503,
-            "Configure BLACKNODE_CLOUD_URL and BLACKNODE_CLOUD_API_KEY on the editor server.",
+            "Configure BLACKNODE_CLOUD_URL on the editor server.",
         )
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
-    headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {config.api_key}",
-    }
+    headers = {"Accept": "application/json"}
+    bearer = authorization or (config.api_key if allow_admin else "")
+    if bearer:
+        headers["Authorization"] = f"Bearer {bearer}"
     if body is not None:
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(

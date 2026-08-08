@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   api,
   type CloudArtifact,
+  type CloudCreditEntry,
   type CloudJob,
   type CloudJobEvent,
+  type CloudStatus,
 } from '../api'
 
 const TERMINAL = new Set(['COMPLETED', 'FAILED', 'CANCELED', 'TIMED_OUT'])
@@ -14,6 +16,9 @@ interface Props {
   pending: boolean
   initialJob: CloudJob | null
   error: string
+  accountStatus: CloudStatus | null
+  onAccountStatus: (status: CloudStatus) => void
+  onRun: () => void
   onClose: () => void
 }
 
@@ -34,12 +39,46 @@ function bytes(value: number): string {
   return `${(value / 1024 / 1024 / 1024).toFixed(2)} GiB`
 }
 
-export default function CloudRunPanel({ open, pending, initialJob, error, onClose }: Props) {
+function creditReason(entry: CloudCreditEntry): string {
+  if (entry.reason === 'signup-credit') return 'Signup credits'
+  if (entry.reason === 'gpu-job') return 'NVIDIA GPU job'
+  return entry.reason.split('-').join(' ')
+}
+
+export default function CloudRunPanel({
+  open,
+  pending,
+  initialJob,
+  error,
+  accountStatus,
+  onAccountStatus,
+  onRun,
+  onClose,
+}: Props) {
   const [job, setJob] = useState<CloudJob | null>(initialJob)
   const [events, setEvents] = useState<CloudJobEvent[]>([])
   const [artifacts, setArtifacts] = useState<CloudArtifact[]>([])
+  const [history, setHistory] = useState<CloudCreditEntry[]>([])
   const [pollError, setPollError] = useState('')
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const [email, setEmail] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [authPending, setAuthPending] = useState(false)
+  const [authError, setAuthError] = useState('')
   const nextSeq = useRef(0)
+
+  const refreshAccount = useCallback(async () => {
+    const nextStatus = await api.cloudStatus()
+    onAccountStatus(nextStatus)
+    if (nextStatus.authenticated) {
+      const page = await api.getCloudCreditHistory()
+      setHistory(page.entries)
+    } else {
+      setHistory([])
+    }
+  }, [onAccountStatus])
 
   useEffect(() => {
     setJob(initialJob)
@@ -48,6 +87,17 @@ export default function CloudRunPanel({ open, pending, initialJob, error, onClos
     setPollError('')
     nextSeq.current = 0
   }, [initialJob?.id])
+
+  useEffect(() => {
+    if (!open || !accountStatus?.authenticated) return
+    void api.getCloudCreditHistory()
+      .then(page => setHistory(page.entries))
+      .catch(cause => setAuthError(cause instanceof Error ? cause.message : String(cause)))
+  }, [accountStatus?.authenticated, accountStatus?.account?.id, open])
+
+  useEffect(() => {
+    if (job && TERMINAL.has(job.status)) void refreshAccount()
+  }, [job?.status, refreshAccount])
 
   useEffect(() => {
     if (!open || !initialJob) return undefined
@@ -107,20 +157,149 @@ export default function CloudRunPanel({ open, pending, initialJob, error, onClos
   }, [reward])
   const logs = events.filter(event => event.type === 'log').slice(-300)
 
+  const submitAuth = async (event: FormEvent) => {
+    event.preventDefault()
+    if (authMode === 'register' && password !== confirmPassword) {
+      setAuthError('Passwords do not match.')
+      return
+    }
+    setAuthPending(true)
+    setAuthError('')
+    try {
+      const nextStatus = authMode === 'register'
+        ? await api.registerCloudAccount(email, password, displayName)
+        : await api.loginCloudAccount(email, password)
+      onAccountStatus(nextStatus)
+      setPassword('')
+      setConfirmPassword('')
+      const page = await api.getCloudCreditHistory()
+      setHistory(page.entries)
+    } catch (cause) {
+      setAuthError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setAuthPending(false)
+    }
+  }
+
+  const logout = async () => {
+    setAuthPending(true)
+    setAuthError('')
+    try {
+      await api.logoutCloudAccount()
+      await refreshAccount()
+    } catch (cause) {
+      setAuthError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setAuthPending(false)
+    }
+  }
+
   if (!open) return null
+  const credits = accountStatus?.credits
+  const account = accountStatus?.account
+  const activeJob = job && !TERMINAL.has(job.status)
+
   return (
     <div className="bn-cloud-run-backdrop" role="presentation">
-      <section className="bn-cloud-run-panel" role="dialog" aria-modal="true" aria-label="Blacknode Cloud job">
+      <section className="bn-cloud-run-panel" role="dialog" aria-modal="true" aria-label="Blacknode Cloud">
         <header>
           <div>
             <span>BLACKNODE CLOUD</span>
-            <strong>{job ? job.workflow_name : 'Submitting workflow'}</strong>
+            <strong>{job ? job.workflow_name : account?.display_name || 'Cloud account'}</strong>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close Cloud job">×</button>
+          <button type="button" onClick={onClose} aria-label="Close Blacknode Cloud">×</button>
         </header>
 
-        {(pending || (!job && !error)) && <div className="bn-cloud-run-message">Creating NVIDIA L40S job…</div>}
-        {(error || pollError) && <div className="bn-cloud-run-error">{error || pollError}</div>}
+        {(pending || (!accountStatus && !error)) && <div className="bn-cloud-run-message">Connecting to Blacknode Cloud…</div>}
+        {(error || pollError || authError) && <div className="bn-cloud-run-error">{error || pollError || authError}</div>}
+
+        {!pending && accountStatus?.configured && !accountStatus.authenticated && !job && (
+          <div className="bn-cloud-auth">
+            <div className="bn-cloud-auth-tabs">
+              <button type="button" className={authMode === 'login' ? 'is-active' : ''} onClick={() => setAuthMode('login')}>
+                Log in
+              </button>
+              <button type="button" className={authMode === 'register' ? 'is-active' : ''} onClick={() => setAuthMode('register')}>
+                Sign up
+              </button>
+            </div>
+            <form onSubmit={event => void submitAuth(event)}>
+              {authMode === 'register' && (
+                <label>
+                  <span>Display name</span>
+                  <input value={displayName} onChange={event => setDisplayName(event.target.value)} autoComplete="name" maxLength={100} />
+                </label>
+              )}
+              <label>
+                <span>Email</span>
+                <input type="email" required value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" maxLength={254} />
+              </label>
+              <label>
+                <span>Password</span>
+                <input
+                  type="password"
+                  required
+                  minLength={authMode === 'register' ? 10 : 1}
+                  value={password}
+                  onChange={event => setPassword(event.target.value)}
+                  autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                />
+              </label>
+              {authMode === 'register' && (
+                <label>
+                  <span>Confirm password</span>
+                  <input type="password" required minLength={10} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} autoComplete="new-password" />
+                </label>
+              )}
+              <button type="submit" className="is-primary" disabled={authPending}>
+                {authPending ? 'Connecting…' : authMode === 'register' ? 'Create account' : 'Log in'}
+              </button>
+            </form>
+            <p>Your Cloud session stays on this editor server and is not placed in browser storage or workflow payloads.</p>
+          </div>
+        )}
+
+        {!job && accountStatus?.authenticated && account && credits && (
+          <>
+            <div className="bn-cloud-account">
+              <header>
+                <div><strong>{account.display_name}</strong><span>{account.email}</span></div>
+                <button type="button" onClick={() => void logout()} disabled={authPending}>Log out</button>
+              </header>
+              <div className="bn-cloud-credit-grid">
+                <div><span>Available</span><strong>{credits.available.toLocaleString()}</strong></div>
+                <div><span>Reserved</span><strong>{credits.reserved.toLocaleString()}</strong></div>
+                <div><span>Balance</span><strong>{credits.balance.toLocaleString()}</strong></div>
+              </div>
+              <small>Credits are GPU-seconds. This job reserves its runtime limit and charges measured GPU time.</small>
+              <button type="button" className="is-primary bn-cloud-submit" onClick={onRun} disabled={pending}>
+                Run workflow on NVIDIA L40S
+              </button>
+            </div>
+
+            <div className="bn-cloud-run-section">
+              <header><strong>Credit history</strong><span>{history.length}</span></header>
+              <div className="bn-cloud-credit-history">
+                {history.map(entry => (
+                  <div key={entry.id}>
+                    <span>{creditReason(entry)}<small>{new Date(entry.created_at).toLocaleString()}</small></span>
+                    <strong className={entry.delta_seconds >= 0 ? 'is-credit' : 'is-charge'}>
+                      {entry.delta_seconds >= 0 ? '+' : ''}{entry.delta_seconds.toLocaleString()}
+                    </strong>
+                  </div>
+                ))}
+                {history.length === 0 && <p>No credit activity yet.</p>}
+              </div>
+            </div>
+          </>
+        )}
+
+        {job && credits && (
+          <div className="bn-cloud-job-credits">
+            <span>{credits.available.toLocaleString()} available</span>
+            <span>{credits.reserved.toLocaleString()} reserved</span>
+          </div>
+        )}
 
         {job && (
           <>
@@ -155,11 +334,7 @@ export default function CloudRunPanel({ open, pending, initialJob, error, onClos
               <header><strong>Artifacts</strong><span>{artifacts.length}</span></header>
               <div className="bn-cloud-artifact-list">
                 {artifacts.map(artifact => (
-                  <a
-                    key={artifact.id}
-                    href={api.cloudArtifactDownloadUrl(job.id, artifact.id)}
-                    download={artifact.name}
-                  >
+                  <a key={artifact.id} href={api.cloudArtifactDownloadUrl(job.id, artifact.id)} download={artifact.name}>
                     <span>{artifact.name}</span><small>{bytes(artifact.size_bytes)} · download</small>
                   </a>
                 ))}
@@ -174,7 +349,7 @@ export default function CloudRunPanel({ open, pending, initialJob, error, onClos
               </div>
             )}
             {job.error_message && <div className="bn-cloud-run-error">{job.error_message}</div>}
-            {!TERMINAL.has(job.status) && (
+            {activeJob && (
               <footer>
                 <button type="button" onClick={() => void api.cancelCloudJob(job.id).then(setJob)}>
                   Cancel job
