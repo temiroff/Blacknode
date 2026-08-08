@@ -1538,6 +1538,10 @@ function WorkspaceApp() {
         return
       }
       if (!accountStatus.authenticated) return
+      if (!accountStatus.account?.email_verified_at) {
+        setCloudJobError('Verify your email address before running workflows on Blacknode Cloud.')
+        return
+      }
       setCloudJob(null)
       const created = await api.createCloudJob(
         { node_id: target.id, port: target.port },

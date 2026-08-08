@@ -32,6 +32,8 @@ The launchers connect **Run on Cloud** to
 `https://cloud.blacknoderobotics.com` by default. Set
 `BLACKNODE_CLOUD_URL` before launching to use a staging or local Cloud API;
 an explicit value takes precedence over the default.
+After signup, verify the account email to unlock promotional GPU-second credits
+and enable **Run on Cloud**.
 
 If you see `Stopping existing visual editor on port 3000...`, the launcher
 found an old Blacknode Vite server and restarted it so the editor stays on

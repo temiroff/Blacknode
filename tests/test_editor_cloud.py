@@ -107,7 +107,13 @@ class EditorCloudTests(unittest.TestCase):
                     "email_verified_at": datetime.now(UTC).isoformat(),
                 }
             if path == "/v1/credits":
-                return {"unit": "gpu-second", "balance": 7200, "reserved": 0, "available": 7200}
+                return {
+                    "unit": "gpu-second",
+                    "balance": 7200,
+                    "reserved": 0,
+                    "available": 7200,
+                    "locked": 0,
+                }
             raise AssertionError(path)
 
         with patch.object(server, "_cloud_call", side_effect=cloud_call):
@@ -115,6 +121,7 @@ class EditorCloudTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(response.json()["account"]["email_verified_at"])
+        self.assertEqual(response.json()["credits"]["locked"], 0)
 
     def test_login_keeps_cloud_token_in_http_only_server_session(self):
         auth = {
