@@ -1051,6 +1051,7 @@ export interface CloudAccount {
   email: string
   display_name: string
   created_at: string
+  email_verified_at?: string | null
 }
 
 export interface CloudCredits {
@@ -1711,6 +1712,8 @@ export const api = {
     }),
   loginCloudAccount: (email: string, password: string) =>
     req<CloudStatus>('POST', '/cloud/auth/login', { email, password }),
+  verifyCloudEmail: (token: string) =>
+    req<{ verified: boolean; account: CloudAccount }>('POST', '/cloud/auth/verify-email', { token }),
   logoutCloudAccount: () =>
     req<{ ok: boolean; revoked: boolean }>('POST', '/cloud/auth/logout'),
   getCloudCreditHistory: () =>

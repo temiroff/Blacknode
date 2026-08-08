@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
@@ -17,6 +18,7 @@ if str(EDITOR_SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(EDITOR_SERVER_DIR))
 
 import server  # noqa: E402
+import cloud_client  # noqa: E402
 import cloud_sessions  # noqa: E402
 
 
@@ -61,6 +63,58 @@ class EditorCloudTests(unittest.TestCase):
         self.assertEqual(response.json()["gpu"], "NVIDIA L40S")
         self.assertFalse(response.json()["authenticated"])
         self.assertNotIn("private-cloud-key", response.text)
+
+    def test_cloud_validation_errors_name_the_invalid_fields(self):
+        response = SimpleNamespace(
+            read=lambda: json.dumps(
+                {
+                    "detail": [
+                        {
+                            "loc": ["body", "password"],
+                            "msg": "String should have at least 10 characters",
+                            "type": "string_too_short",
+                        },
+                        {
+                            "loc": ["body", "email"],
+                            "msg": "Value error, enter a valid email address",
+                            "type": "value_error",
+                        },
+                    ]
+                }
+            ).encode("utf-8")
+        )
+
+        message = cloud_client._error_message(response)
+
+        self.assertEqual(
+            message,
+            "password: String should have at least 10 characters; "
+            "email: Value error, enter a valid email address",
+        )
+
+    def test_authenticated_cloud_status_refreshes_verification_state(self):
+        client = self.authenticated_client()
+
+        def cloud_call(method, path, payload=None, **kwargs):
+            self.assertEqual(kwargs["authorization"], "registered-user-cloud-token-0123456789")
+            if path == "/v1/account":
+                return {
+                    "id": "user_123",
+                    "organization_id": "org_123",
+                    "email": "robot@example.com",
+                    "display_name": "Robot Builder",
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "email_verified_at": datetime.now(UTC).isoformat(),
+                }
+            if path == "/v1/credits":
+                return {"unit": "gpu-second", "balance": 7200, "reserved": 0, "available": 7200}
+            raise AssertionError(path)
+
+        with patch.object(server, "_cloud_call", side_effect=cloud_call):
+            response = client.get("/cloud/status")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.json()["account"]["email_verified_at"])
 
     def test_login_keeps_cloud_token_in_http_only_server_session(self):
         auth = {
@@ -181,6 +235,25 @@ class EditorCloudTests(unittest.TestCase):
         self.assertEqual(user_call.call_args.args[2], "/v1/credits/history?limit=100")
         self.assertTrue(logged_out.json()["revoked"])
         self.assertIn("Max-Age=0", logged_out.headers["set-cookie"])
+
+    def test_email_verification_proxy_never_uses_admin_or_user_credentials(self):
+        token = "email_verify_" + "a" * 48
+
+        def cloud_call(method, path, payload=None, **kwargs):
+            self.assertEqual((method, path), ("POST", "/v1/auth/verify-email"))
+            self.assertEqual(payload, {"token": token})
+            self.assertFalse(kwargs["allow_admin"])
+            self.assertNotIn("authorization", kwargs)
+            return {"verified": True, "account": {"email": "robot@example.com"}}
+
+        with patch.object(server, "_cloud_call", side_effect=cloud_call):
+            response = TestClient(server.app).post(
+                "/cloud/auth/verify-email",
+                json={"token": token},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["verified"])
 
 
 if __name__ == "__main__":

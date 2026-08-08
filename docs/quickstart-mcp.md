@@ -28,6 +28,11 @@ chmod +x start.sh
 
 These launchers install local dependencies if needed, start the FastAPI backend at `http://127.0.0.1:7777`, restart an old Blacknode editor on port 3000 if needed, start the Vite editor at `http://localhost:3000`, and open the browser. On Windows, `.\start.bat` keeps one launcher window open and writes service logs to `.local-logs/`.
 
+The launchers connect **Run on Cloud** to
+`https://cloud.blacknoderobotics.com` by default. Set
+`BLACKNODE_CLOUD_URL` before launching to use a staging or local Cloud API;
+an explicit value takes precedence over the default.
+
 If you see `Stopping existing visual editor on port 3000...`, the launcher
 found an old Blacknode Vite server and restarted it so the editor stays on
 `http://localhost:3000`.

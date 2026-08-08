@@ -9,6 +9,7 @@ EDITOR_OUT="$LOG_DIR/editor.out.log"
 EDITOR_ERR="$LOG_DIR/editor.err.log"
 PYTHON_BIN="${PYTHON:-}"
 VENV_DIR="${BLACKNODE_VENV:-$ROOT_DIR/.venv}"
+export BLACKNODE_CLOUD_URL="${BLACKNODE_CLOUD_URL:-https://cloud.blacknoderobotics.com}"
 BACKEND_PID=""
 FRONTEND_PID=""
 BACKEND_PORT=7777

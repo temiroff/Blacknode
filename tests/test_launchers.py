@@ -26,6 +26,17 @@ def test_core_launchers_do_not_install_optional_cuda_dependencies():
     assert "pip_install cupy" not in shell.lower()
 
 
+def test_launchers_default_to_the_public_cloud_url_and_allow_overrides():
+    powershell = (ROOT / "start.ps1").read_text(encoding="utf-8")
+    shell = (ROOT / "start.sh").read_text(encoding="utf-8")
+
+    cloud_url = "https://cloud.blacknoderobotics.com"
+    assert f'$DefaultCloudUrl = "{cloud_url}"' in powershell
+    assert '[string]::IsNullOrWhiteSpace($env:BLACKNODE_CLOUD_URL)' in powershell
+    assert '$env:BLACKNODE_CLOUD_URL = $DefaultCloudUrl' in powershell
+    assert f'export BLACKNODE_CLOUD_URL="${{BLACKNODE_CLOUD_URL:-{cloud_url}}}"' in shell
+
+
 def test_launchers_stream_extension_dependency_setup_output():
     powershell = (ROOT / "start.ps1").read_text(encoding="utf-8")
     shell = (ROOT / "start.sh").read_text(encoding="utf-8")

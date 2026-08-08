@@ -140,4 +140,18 @@ def _error_message(response: urllib.error.HTTPError) -> str:
         return detail[:500]
     if isinstance(detail, dict) and isinstance(detail.get("message"), str):
         return detail["message"][:500]
+    if isinstance(detail, list):
+        messages: list[str] = []
+        for issue in detail:
+            if not isinstance(issue, dict) or not isinstance(issue.get("msg"), str):
+                continue
+            location = issue.get("loc")
+            field = ""
+            if isinstance(location, list):
+                parts = [str(part) for part in location if str(part) != "body"]
+                field = ".".join(parts)
+            message = issue["msg"].strip()
+            messages.append(f"{field}: {message}" if field else message)
+        if messages:
+            return "; ".join(messages)[:500]
     return "Blacknode Cloud rejected the request."

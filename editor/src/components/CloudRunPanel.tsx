@@ -13,6 +13,7 @@ const TERMINAL = new Set(['COMPLETED', 'FAILED', 'CANCELED', 'TIMED_OUT'])
 
 interface Props {
   open: boolean
+  view: 'account' | 'job'
   pending: boolean
   initialJob: CloudJob | null
   error: string
@@ -47,6 +48,7 @@ function creditReason(entry: CloudCreditEntry): string {
 
 export default function CloudRunPanel({
   open,
+  view,
   pending,
   initialJob,
   error,
@@ -100,7 +102,7 @@ export default function CloudRunPanel({
   }, [job?.status, refreshAccount])
 
   useEffect(() => {
-    if (!open || !initialJob) return undefined
+    if (!open || view !== 'job' || !initialJob) return undefined
     let stopped = false
     let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -132,7 +134,7 @@ export default function CloudRunPanel({
       stopped = true
       if (timer) clearTimeout(timer)
     }
-  }, [initialJob, open])
+  }, [initialJob, open, view])
 
   const metrics = useMemo(() => events
     .filter(event => event.type === 'metric')
@@ -198,6 +200,7 @@ export default function CloudRunPanel({
   const credits = accountStatus?.credits
   const account = accountStatus?.account
   const activeJob = job && !TERMINAL.has(job.status)
+  const visibleJob = view === 'job' ? job : null
 
   return (
     <div className="bn-cloud-run-backdrop" role="presentation">
@@ -205,15 +208,18 @@ export default function CloudRunPanel({
         <header>
           <div>
             <span>BLACKNODE CLOUD</span>
-            <strong>{job ? job.workflow_name : account?.display_name || 'Cloud account'}</strong>
+            <strong>{visibleJob ? visibleJob.workflow_name : account?.display_name || 'Cloud account'}</strong>
           </div>
           <button type="button" onClick={onClose} aria-label="Close Blacknode Cloud">×</button>
         </header>
 
         {(pending || (!accountStatus && !error)) && <div className="bn-cloud-run-message">Connecting to Blacknode Cloud…</div>}
         {(error || pollError || authError) && <div className="bn-cloud-run-error">{error || pollError || authError}</div>}
+        {!pending && accountStatus && !accountStatus.configured && !error && (
+          <div className="bn-cloud-run-error">Blacknode Cloud is not configured on this editor server.</div>
+        )}
 
-        {!pending && accountStatus?.configured && !accountStatus.authenticated && !job && (
+        {!pending && accountStatus?.configured && !accountStatus.authenticated && !visibleJob && (
           <div className="bn-cloud-auth">
             <div className="bn-cloud-auth-tabs">
               <button type="button" className={authMode === 'login' ? 'is-active' : ''} onClick={() => setAuthMode('login')}>
@@ -255,15 +261,24 @@ export default function CloudRunPanel({
                 {authPending ? 'Connecting…' : authMode === 'register' ? 'Create account' : 'Log in'}
               </button>
             </form>
-            <p>Your Cloud session stays on this editor server and is not placed in browser storage or workflow payloads.</p>
+            <p>
+              Your Cloud session stays on this editor server and is not placed in browser storage or workflow payloads.
+              {authMode === 'register' && ' An unverified account can sign up again with the same password to receive a fresh verification email.'}
+            </p>
           </div>
         )}
 
-        {!job && accountStatus?.authenticated && account && credits && (
+        {!visibleJob && accountStatus?.authenticated && account && credits && (
           <>
             <div className="bn-cloud-account">
               <header>
-                <div><strong>{account.display_name}</strong><span>{account.email}</span></div>
+                <div>
+                  <strong>{account.display_name}</strong>
+                  <span>{account.email}</span>
+                  <small className={account.email_verified_at ? 'is-verified' : 'is-unverified'}>
+                    {account.email_verified_at ? 'Email verified' : 'Email verification pending'}
+                  </small>
+                </div>
                 <button type="button" onClick={() => void logout()} disabled={authPending}>Log out</button>
               </header>
               <div className="bn-cloud-credit-grid">
@@ -294,25 +309,25 @@ export default function CloudRunPanel({
           </>
         )}
 
-        {job && credits && (
+        {visibleJob && credits && (
           <div className="bn-cloud-job-credits">
             <span>{credits.available.toLocaleString()} available</span>
             <span>{credits.reserved.toLocaleString()} reserved</span>
           </div>
         )}
 
-        {job && (
+        {visibleJob && (
           <>
             <div className="bn-cloud-run-facts">
-              <div><span>Job</span><strong>{job.id}</strong></div>
+              <div><span>Job</span><strong>{visibleJob.id}</strong></div>
               <div><span>GPU</span><strong>NVIDIA L40S</strong></div>
-              <div><span>Status</span><strong className={`is-${job.status.toLowerCase()}`}>● {job.status}</strong></div>
-              <div><span>Runtime</span><strong>{elapsed(job)}</strong></div>
+              <div><span>Status</span><strong className={`is-${visibleJob.status.toLowerCase()}`}>● {visibleJob.status}</strong></div>
+              <div><span>Runtime</span><strong>{elapsed(visibleJob)}</strong></div>
             </div>
-            <div className="bn-cloud-progress" aria-label={`${job.progress}% complete`}>
-              <i style={{ width: `${job.progress}%` }} />
+            <div className="bn-cloud-progress" aria-label={`${visibleJob.progress}% complete`}>
+              <i style={{ width: `${visibleJob.progress}%` }} />
             </div>
-            <div className="bn-cloud-progress-label"><span>Progress</span><strong>{job.progress}%</strong></div>
+            <div className="bn-cloud-progress-label"><span>Progress</span><strong>{visibleJob.progress}%</strong></div>
 
             {rewardPoints && (
               <div className="bn-cloud-metric-chart">
@@ -334,7 +349,7 @@ export default function CloudRunPanel({
               <header><strong>Artifacts</strong><span>{artifacts.length}</span></header>
               <div className="bn-cloud-artifact-list">
                 {artifacts.map(artifact => (
-                  <a key={artifact.id} href={api.cloudArtifactDownloadUrl(job.id, artifact.id)} download={artifact.name}>
+                  <a key={artifact.id} href={api.cloudArtifactDownloadUrl(visibleJob.id, artifact.id)} download={artifact.name}>
                     <span>{artifact.name}</span><small>{bytes(artifact.size_bytes)} · download</small>
                   </a>
                 ))}
@@ -342,16 +357,16 @@ export default function CloudRunPanel({
               </div>
             </div>
 
-            {job.result !== null && job.result !== undefined && (
+            {visibleJob.result !== null && visibleJob.result !== undefined && (
               <div className="bn-cloud-run-section">
                 <header><strong>Result</strong></header>
-                <pre>{JSON.stringify(job.result, null, 2)}</pre>
+                <pre>{JSON.stringify(visibleJob.result, null, 2)}</pre>
               </div>
             )}
-            {job.error_message && <div className="bn-cloud-run-error">{job.error_message}</div>}
+            {visibleJob.error_message && <div className="bn-cloud-run-error">{visibleJob.error_message}</div>}
             {activeJob && (
               <footer>
-                <button type="button" onClick={() => void api.cancelCloudJob(job.id).then(setJob)}>
+                <button type="button" onClick={() => void api.cancelCloudJob(visibleJob.id).then(setJob)}>
                   Cancel job
                 </button>
               </footer>

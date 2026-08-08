@@ -17,6 +17,7 @@ import ComputeDeviceNode from './components/ComputeDeviceNode'
 import ROS2GraphExplorerNode from './components/ROS2GraphExplorerNode'
 import SimulationViewerPane from './components/SimulationViewerPane'
 import CloudRunPanel from './components/CloudRunPanel'
+import EmailVerificationPage from './components/EmailVerificationPage'
 import LocalFilePicker from './components/LocalFilePicker'
 import RobotMonitorNode from './components/RobotMonitorNode'
 import RobotServoNode from './components/RobotServoNode'
@@ -171,6 +172,13 @@ function nodeIdAtScreenPoint(point: { x: number; y: number }): string | null {
 }
 
 export default function App() {
+  if (window.location.pathname.replace(/\/+$/, '') === '/verify-email') {
+    return <EmailVerificationPage />
+  }
+  return <WorkspaceApp />
+}
+
+function WorkspaceApp() {
   const {
     nodes, edges, nodeTypes, nodeDefs, selectedId, serverOk, serverError, cookLog, cookActive, cookStatusHidden,
     tabs, activeTabId, activeProject, workflowEntrypoint,
@@ -216,6 +224,7 @@ export default function App() {
   const [cloudJob, setCloudJob] = useState<CloudJob | null>(null)
   const [cloudJobError, setCloudJobError] = useState('')
   const [cloudAccountStatus, setCloudAccountStatus] = useState<CloudStatus | null>(null)
+  const [cloudPanelView, setCloudPanelView] = useState<'account' | 'job'>('account')
   const [refreshingCanvas, setRefreshingCanvas] = useState(false)
   const [openingUsd, setOpeningUsd] = useState(false)
   const [usdPickerInitialPath, setUsdPickerInitialPath] = useState<string | null>(null)
@@ -428,6 +437,24 @@ export default function App() {
     setHdriPickerInitialPath(null)
     if (selected) void controlNewtonWorkspace('set_environment', { hdri: 'custom', hdri_path: selected })
   }, [controlNewtonWorkspace])
+
+  useEffect(() => {
+    if (!serverOk) {
+      setCloudAccountStatus(null)
+      return
+    }
+    let cancelled = false
+    void api.cloudStatus()
+      .then(status => {
+        if (!cancelled) setCloudAccountStatus(status)
+      })
+      .catch(() => {
+        if (!cancelled) setCloudAccountStatus(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [serverOk])
 
   useEffect(() => {
     if (!nodeTypes.includes('NewtonSimulation')) {
@@ -1499,9 +1526,9 @@ export default function App() {
       }))
       return
     }
+    setCloudPanelView('account')
     setCloudPanelOpen(true)
     setCloudJobPending(true)
-    setCloudJob(null)
     setCloudJobError('')
     try {
       const accountStatus = await api.cloudStatus()
@@ -1511,12 +1538,14 @@ export default function App() {
         return
       }
       if (!accountStatus.authenticated) return
+      setCloudJob(null)
       const created = await api.createCloudJob(
         { node_id: target.id, port: target.port },
         activeTab?.name || 'Current Graph',
         activeProject?.id ?? activeTab?.slug ?? null,
       )
       setCloudJob(created)
+      setCloudPanelView('job')
       void api.cloudStatus().then(setCloudAccountStatus).catch(() => undefined)
     } catch (cause) {
       setCloudJobError(cause instanceof Error ? cause.message : String(cause))
@@ -1524,6 +1553,21 @@ export default function App() {
       setCloudJobPending(false)
     }
   }, [activeProject?.id, activeTab?.name, activeTab?.slug, cloudJobPending, edges, nodes, workflowEntrypoint])
+
+  const handleCloudAccountOpen = useCallback(async () => {
+    if (cloudJobPending || !serverOk) return
+    setCloudPanelView('account')
+    setCloudPanelOpen(true)
+    setCloudJobError('')
+    setCloudJobPending(true)
+    try {
+      setCloudAccountStatus(await api.cloudStatus())
+    } catch (cause) {
+      setCloudJobError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setCloudJobPending(false)
+    }
+  }, [cloudJobPending, serverOk])
 
   const handleResetRun = useCallback(() => {
     stopCook()
@@ -2083,6 +2127,36 @@ export default function App() {
             </span>
           </span>
           </div>
+
+          <button
+            type="button"
+            className={`bn-cloud-account-trigger${cloudAccountStatus?.authenticated ? ' is-authenticated' : ''}`}
+            onClick={() => void handleCloudAccountOpen()}
+            disabled={!serverOk || cloudJobPending}
+            aria-haspopup="dialog"
+            aria-expanded={cloudPanelOpen && cloudPanelView === 'account'}
+            title={cloudAccountStatus?.authenticated
+              ? `Open Blacknode Cloud account for ${cloudAccountStatus.account?.email ?? 'signed-in user'}`
+              : serverOk ? 'Sign in to Blacknode Cloud' : 'Backend connection required'}
+          >
+            <span className="bn-cloud-account-avatar" aria-hidden="true">
+              {cloudAccountStatus?.authenticated
+                ? String(cloudAccountStatus.account?.display_name || cloudAccountStatus.account?.email || '?').trim().charAt(0).toUpperCase()
+                : '☁'}
+            </span>
+            <span className="bn-cloud-account-trigger-copy">
+              <strong>
+                {cloudAccountStatus?.authenticated && cloudAccountStatus.credits
+                  ? `${cloudAccountStatus.credits.available.toLocaleString()} GPU-s`
+                  : cloudAccountStatus?.configured === false ? 'Cloud unavailable' : 'Sign in'}
+              </strong>
+              <small>
+                {cloudAccountStatus?.authenticated
+                  ? cloudAccountStatus.account?.display_name || cloudAccountStatus.account?.email
+                  : 'Blacknode Cloud'}
+              </small>
+            </span>
+          </button>
         </div>
 
         {/* ── workflow tab bar ── */}
@@ -2559,6 +2633,7 @@ export default function App() {
 
         <CloudRunPanel
           open={cloudPanelOpen}
+          view={cloudPanelView}
           pending={cloudJobPending}
           initialJob={cloudJob}
           error={cloudJobError}

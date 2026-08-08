@@ -372,6 +372,11 @@ class CloudRegisterReq(CloudLoginReq):
     password: str = Field(min_length=10, max_length=200)
     display_name: str = Field(default="", max_length=100)
 
+
+class CloudEmailVerificationReq(BaseModel):
+    token: str = Field(min_length=32, max_length=500)
+
+
 class SetGraphReq(BaseModel):
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -4115,6 +4120,12 @@ def _cloud_status_payload(request: Request, response: Response) -> dict[str, Any
             _clear_cloud_cookie(request, response)
         return status_payload
     try:
+        account = _cloud_call(
+            "GET",
+            "/v1/account",
+            authorization=session.token,
+            allow_admin=False,
+        )
         credits = _cloud_call(
             "GET",
             "/v1/credits",
@@ -4129,7 +4140,7 @@ def _cloud_status_payload(request: Request, response: Response) -> dict[str, Any
         raise
     status_payload.update(
         authenticated=True,
-        account=session.account,
+        account=account,
         credits=credits,
     )
     response.headers["Cache-Control"] = "no-store"
@@ -4203,6 +4214,16 @@ def login_cloud_account(req: CloudLoginReq, request: Request, response: Response
         response,
         "/v1/auth/login",
         {"email": req.email, "password": req.password},
+    )
+
+
+@app.post("/cloud/auth/verify-email")
+def verify_cloud_email(req: CloudEmailVerificationReq):
+    return _cloud_call(
+        "POST",
+        "/v1/auth/verify-email",
+        {"token": req.token},
+        allow_admin=False,
     )
 
 
