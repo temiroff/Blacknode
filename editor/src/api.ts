@@ -1059,6 +1059,7 @@ export interface CloudCredits {
   balance: number
   reserved: number
   available: number
+  locked?: number
 }
 
 export interface CloudCreditEntry {

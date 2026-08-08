@@ -196,9 +196,26 @@ export default function CloudRunPanel({
     }
   }
 
+  const refreshVerification = async () => {
+    setAuthPending(true)
+    setAuthError('')
+    try {
+      await refreshAccount()
+    } catch (cause) {
+      setAuthError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setAuthPending(false)
+    }
+  }
+
   if (!open) return null
   const credits = accountStatus?.credits
   const account = accountStatus?.account
+  const emailVerified = Boolean(account?.email_verified_at)
+  const availableCredits = emailVerified ? credits?.available ?? 0 : 0
+  const lockedCredits = emailVerified
+    ? credits?.locked ?? 0
+    : Math.max(credits?.locked ?? 0, credits?.available ?? 0)
   const activeJob = job && !TERMINAL.has(job.status)
   const visibleJob = view === 'job' ? job : null
 
@@ -282,13 +299,23 @@ export default function CloudRunPanel({
                 <button type="button" onClick={() => void logout()} disabled={authPending}>Log out</button>
               </header>
               <div className="bn-cloud-credit-grid">
-                <div><span>Available</span><strong>{credits.available.toLocaleString()}</strong></div>
+                <div><span>Available</span><strong>{availableCredits.toLocaleString()}</strong></div>
+                <div><span>Locked</span><strong>{lockedCredits.toLocaleString()}</strong></div>
                 <div><span>Reserved</span><strong>{credits.reserved.toLocaleString()}</strong></div>
                 <div><span>Balance</span><strong>{credits.balance.toLocaleString()}</strong></div>
               </div>
               <small>Credits are GPU-seconds. This job reserves its runtime limit and charges measured GPU time.</small>
-              <button type="button" className="is-primary bn-cloud-submit" onClick={onRun} disabled={pending}>
-                Run workflow on NVIDIA L40S
+              {!emailVerified && (
+                <div className="bn-cloud-verification-lock" role="status">
+                  <strong>Verify your email to unlock Cloud runs</strong>
+                  <span>Your signup credits are saved and will become available after verification.</span>
+                  <button type="button" onClick={() => void refreshVerification()} disabled={authPending}>
+                    {authPending ? 'Refreshing…' : 'I verified — refresh status'}
+                  </button>
+                </div>
+              )}
+              <button type="button" className="is-primary bn-cloud-submit" onClick={onRun} disabled={pending || !emailVerified}>
+                {emailVerified ? 'Run workflow on NVIDIA L40S' : 'Email verification required'}
               </button>
             </div>
 
@@ -311,7 +338,7 @@ export default function CloudRunPanel({
 
         {visibleJob && credits && (
           <div className="bn-cloud-job-credits">
-            <span>{credits.available.toLocaleString()} available</span>
+            <span>{availableCredits.toLocaleString()} available</span>
             <span>{credits.reserved.toLocaleString()} reserved</span>
           </div>
         )}

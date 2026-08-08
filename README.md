@@ -143,6 +143,8 @@ need on-demand GPU compute. Cloud accounts use compute credits measured in
 GPU-seconds: a job reserves its runtime limit, charges measured GPU time, and
 returns progress, logs, metrics, and downloadable artifacts to the editor. The
 same workflow format runs locally, on paired devices, and in Blacknode Cloud.
+Signup credits remain visible but locked until email verification succeeds;
+the editor and Cloud API both block job submission before verification.
 
 Cloud usage funds the hosted compute infrastructure, security maintenance,
 release engineering, and continued development of the open-source project.

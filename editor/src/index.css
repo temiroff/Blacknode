@@ -11957,7 +11957,7 @@ html[data-ui-test="refined"] .bn-package-action-menu summary {
 
 .bn-cloud-credit-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   margin-top: 18px;
 }
@@ -11998,6 +11998,26 @@ html[data-ui-test="refined"] .bn-package-action-menu summary {
   width: 100%;
   margin-top: 16px;
 }
+
+.bn-cloud-verification-lock {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 11px;
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 38%, var(--line2));
+  border-radius: 6px;
+}
+
+.bn-cloud-verification-lock strong,
+.bn-cloud-verification-lock span {
+  display: block;
+}
+
+.bn-cloud-verification-lock strong { font-size: 12px; }
+.bn-cloud-verification-lock span { color: var(--tx2); font-size: 11px; line-height: 1.45; }
+.bn-cloud-verification-lock button { justify-self: start; margin-top: 3px; }
 
 .bn-cloud-credit-history {
   display: grid;
