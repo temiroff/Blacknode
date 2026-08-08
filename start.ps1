@@ -8,6 +8,10 @@ $EditorOut = Join-Path $LogDir "editor.out.log"
 $EditorErr = Join-Path $LogDir "editor.err.log"
 $LauncherOwner = Join-Path $LogDir "launcher.owner"
 $VenvDir = if ($env:BLACKNODE_VENV) { $env:BLACKNODE_VENV } else { Join-Path $Root ".venv" }
+$DefaultCloudUrl = "https://cloud.blacknoderobotics.com"
+if ([string]::IsNullOrWhiteSpace($env:BLACKNODE_CLOUD_URL)) {
+    $env:BLACKNODE_CLOUD_URL = $DefaultCloudUrl
+}
 
 $BackendProcess = $null
 $FrontendProcess = $null

@@ -1026,6 +1026,90 @@ export interface WorkflowSnapshot {
   edges?: Array<Record<string, unknown>>
 }
 
+export type CloudJobStatus =
+  | 'QUEUED'
+  | 'PROVISIONING'
+  | 'STARTING'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELED'
+  | 'TIMED_OUT'
+
+export interface CloudStatus {
+  configured: boolean
+  gpu: string
+  url: string
+  authenticated: boolean
+  account: CloudAccount | null
+  credits: CloudCredits | null
+}
+
+export interface CloudAccount {
+  id: string
+  organization_id: string
+  email: string
+  display_name: string
+  created_at: string
+  email_verified_at?: string | null
+}
+
+export interface CloudCredits {
+  unit: 'gpu-second'
+  balance: number
+  reserved: number
+  available: number
+}
+
+export interface CloudCreditEntry {
+  id: string
+  delta_seconds: number
+  reason: string
+  reference_id: string
+  created_at: string
+}
+
+export interface CloudCreditHistory {
+  unit: 'gpu-second'
+  entries: CloudCreditEntry[]
+}
+
+export interface CloudJob {
+  id: string
+  project_ref: string | null
+  workflow_name: string
+  status: CloudJobStatus
+  cleanup_status: string
+  progress: number
+  compute: { gpu_class: 'l40s'; gpu_count: 1; max_runtime_seconds: number }
+  runtime: { release: string }
+  error_code: string | null
+  error_message: string | null
+  result: unknown
+  created_at: string
+  updated_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export interface CloudJobEvent {
+  seq: number
+  type: 'state' | 'log' | 'progress' | 'metric' | 'artifact'
+  created_at: string
+  payload: Record<string, unknown>
+}
+
+export interface CloudArtifact {
+  id: string
+  name: string
+  kind: string
+  size_bytes: number
+  sha256: string
+  media_type: string
+  locator: string
+  created_at: string
+}
+
 export interface RunRecord extends RunSummary {
   events: Array<Record<string, unknown> & { type: string; ts?: string | number }>
   workflow?: WorkflowSnapshot
@@ -1619,6 +1703,46 @@ export const api = {
     }>('GET', `/packages/${encodeURIComponent(name)}/components/${encodeURIComponent(component)}/dependencies`),
   deletePackage: (name: string)              => req<{ ok: boolean }>('DELETE', `/packages/${encodeURIComponent(name)}`),
   getGraph:  ()                              => req<GraphSnapshot>('GET', '/graph'),
+  cloudStatus: ()                            => req<CloudStatus>('GET', '/cloud/status'),
+  registerCloudAccount: (email: string, password: string, displayName: string) =>
+    req<CloudStatus>('POST', '/cloud/auth/register', {
+      email,
+      password,
+      display_name: displayName,
+    }),
+  loginCloudAccount: (email: string, password: string) =>
+    req<CloudStatus>('POST', '/cloud/auth/login', { email, password }),
+  verifyCloudEmail: (token: string) =>
+    req<{ verified: boolean; account: CloudAccount }>('POST', '/cloud/auth/verify-email', { token }),
+  logoutCloudAccount: () =>
+    req<{ ok: boolean; revoked: boolean }>('POST', '/cloud/auth/logout'),
+  getCloudCreditHistory: () =>
+    req<CloudCreditHistory>('GET', '/cloud/credits/history'),
+  createCloudJob: (
+    entrypoint: { node_id: string; port: string },
+    workflowName: string,
+    projectRef?: string | null,
+  ) => req<CloudJob>('POST', '/cloud/jobs', {
+    entrypoint,
+    workflow_name: workflowName,
+    project_ref: projectRef ?? null,
+  }),
+  getCloudJob: (jobId: string) =>
+    req<CloudJob>('GET', `/cloud/jobs/${encodeURIComponent(jobId)}`),
+  cancelCloudJob: (jobId: string) =>
+    req<CloudJob>('DELETE', `/cloud/jobs/${encodeURIComponent(jobId)}`),
+  getCloudJobLogs: (jobId: string, afterSeq = 0) =>
+    req<{ job_id: string; events: CloudJobEvent[]; next_seq: number }>(
+      'GET',
+      `/cloud/jobs/${encodeURIComponent(jobId)}/logs?after_seq=${afterSeq}`,
+    ),
+  getCloudJobArtifacts: (jobId: string) =>
+    req<{ job_id: string; artifacts: CloudArtifact[] }>(
+      'GET',
+      `/cloud/jobs/${encodeURIComponent(jobId)}/artifacts`,
+    ),
+  cloudArtifactDownloadUrl: (jobId: string, artifactId: string) =>
+    `${BASE}/cloud/jobs/${encodeURIComponent(jobId)}/artifacts/${encodeURIComponent(artifactId)}/download`,
   setGraph:  (
     nodes: any[],
     edges: any[],

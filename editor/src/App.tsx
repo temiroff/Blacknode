@@ -16,6 +16,8 @@ import OutputNode from './components/OutputNode'
 import ComputeDeviceNode from './components/ComputeDeviceNode'
 import ROS2GraphExplorerNode from './components/ROS2GraphExplorerNode'
 import SimulationViewerPane from './components/SimulationViewerPane'
+import CloudRunPanel from './components/CloudRunPanel'
+import EmailVerificationPage from './components/EmailVerificationPage'
 import LocalFilePicker from './components/LocalFilePicker'
 import RobotMonitorNode from './components/RobotMonitorNode'
 import RobotServoNode from './components/RobotServoNode'
@@ -29,7 +31,7 @@ import NodeSearch from './components/NodeSearch'
 import { portColor, portVisualColor, portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
-import { api, type FrameworkExportTarget, type NewtonWorkspaceStatus, type WorkflowMetadata } from './api'
+import { api, type CloudJob, type CloudStatus, type FrameworkExportTarget, type NewtonWorkspaceStatus, type WorkflowMetadata } from './api'
 import { inferGraphRunTargets } from './graphRun'
 import { copyTextToClipboard } from './clipboard'
 
@@ -170,6 +172,13 @@ function nodeIdAtScreenPoint(point: { x: number; y: number }): string | null {
 }
 
 export default function App() {
+  if (window.location.pathname.replace(/\/+$/, '') === '/verify-email') {
+    return <EmailVerificationPage />
+  }
+  return <WorkspaceApp />
+}
+
+function WorkspaceApp() {
   const {
     nodes, edges, nodeTypes, nodeDefs, selectedId, serverOk, serverError, cookLog, cookActive, cookStatusHidden,
     tabs, activeTabId, activeProject, workflowEntrypoint,
@@ -209,6 +218,13 @@ export default function App() {
   const [importingFile, setImportingFile] = useState(false)
   const [runtimeStopPending, setRuntimeStopPending] = useState(false)
   const [activeRunMode, setActiveRunMode] = useState<'once' | 'live' | null>(null)
+  const [executionTarget, setExecutionTarget] = useState<'local' | 'cloud'>('local')
+  const [cloudPanelOpen, setCloudPanelOpen] = useState(false)
+  const [cloudJobPending, setCloudJobPending] = useState(false)
+  const [cloudJob, setCloudJob] = useState<CloudJob | null>(null)
+  const [cloudJobError, setCloudJobError] = useState('')
+  const [cloudAccountStatus, setCloudAccountStatus] = useState<CloudStatus | null>(null)
+  const [cloudPanelView, setCloudPanelView] = useState<'account' | 'job'>('account')
   const [refreshingCanvas, setRefreshingCanvas] = useState(false)
   const [openingUsd, setOpeningUsd] = useState(false)
   const [usdPickerInitialPath, setUsdPickerInitialPath] = useState<string | null>(null)
@@ -421,6 +437,24 @@ export default function App() {
     setHdriPickerInitialPath(null)
     if (selected) void controlNewtonWorkspace('set_environment', { hdri: 'custom', hdri_path: selected })
   }, [controlNewtonWorkspace])
+
+  useEffect(() => {
+    if (!serverOk) {
+      setCloudAccountStatus(null)
+      return
+    }
+    let cancelled = false
+    void api.cloudStatus()
+      .then(status => {
+        if (!cancelled) setCloudAccountStatus(status)
+      })
+      .catch(() => {
+        if (!cancelled) setCloudAccountStatus(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [serverOk])
 
   useEffect(() => {
     if (!nodeTypes.includes('NewtonSimulation')) {
@@ -1473,6 +1507,68 @@ export default function App() {
     }
   }, [cookNode, edges, fitCurrentCanvas, nodes, workflowEntrypoint])
 
+  const handleCloudRun = useCallback(async () => {
+    if (cloudJobPending) return
+    const explicit = workflowEntrypoint && nodes.some(node => (
+      node.id === workflowEntrypoint.node_id
+      && (node.data.outputs.includes(workflowEntrypoint.port) || node.data.inputs.includes(workflowEntrypoint.port))
+    ))
+      ? { id: workflowEntrypoint.node_id, port: workflowEntrypoint.port }
+      : null
+    const target = explicit ?? inferGraphRunTargets(nodes, edges)[0]
+    if (!target) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'warning',
+          title: 'Run on Cloud',
+          message: 'No runnable workflow output was found. Add an Output node or select an entrypoint.',
+        },
+      }))
+      return
+    }
+    setCloudPanelView('account')
+    setCloudPanelOpen(true)
+    setCloudJobPending(true)
+    setCloudJobError('')
+    try {
+      const accountStatus = await api.cloudStatus()
+      setCloudAccountStatus(accountStatus)
+      if (!accountStatus.configured) {
+        setCloudJobError('Configure the Blacknode Cloud URL on the editor server.')
+        return
+      }
+      if (!accountStatus.authenticated) return
+      setCloudJob(null)
+      const created = await api.createCloudJob(
+        { node_id: target.id, port: target.port },
+        activeTab?.name || 'Current Graph',
+        activeProject?.id ?? activeTab?.slug ?? null,
+      )
+      setCloudJob(created)
+      setCloudPanelView('job')
+      void api.cloudStatus().then(setCloudAccountStatus).catch(() => undefined)
+    } catch (cause) {
+      setCloudJobError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setCloudJobPending(false)
+    }
+  }, [activeProject?.id, activeTab?.name, activeTab?.slug, cloudJobPending, edges, nodes, workflowEntrypoint])
+
+  const handleCloudAccountOpen = useCallback(async () => {
+    if (cloudJobPending || !serverOk) return
+    setCloudPanelView('account')
+    setCloudPanelOpen(true)
+    setCloudJobError('')
+    setCloudJobPending(true)
+    try {
+      setCloudAccountStatus(await api.cloudStatus())
+    } catch (cause) {
+      setCloudJobError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setCloudJobPending(false)
+    }
+  }, [cloudJobPending, serverOk])
+
   const handleResetRun = useCallback(() => {
     stopCook()
     setActiveRunMode(null)
@@ -1749,19 +1845,44 @@ export default function App() {
 
             <div className="bn-topbar-group bn-topbar-run-group" aria-label="Run controls">
               <span className="bn-topbar-group-label">Run</span>
+              <select
+                className="bn-top-select"
+                value={executionTarget}
+                disabled={onceRunActive || liveRunActive || cloudJobPending}
+                onChange={event => setExecutionTarget(event.target.value === 'cloud' ? 'cloud' : 'local')}
+                title="Choose where this graph executes"
+              >
+                <option value="local">Local</option>
+                <option value="cloud">Blacknode Cloud · L40S</option>
+              </select>
+              {executionTarget === 'cloud' && cloudAccountStatus?.credits && (
+                <span className="bn-cloud-credit-badge" title="Available Blacknode Cloud GPU-second credits">
+                  {cloudAccountStatus.credits.available.toLocaleString()} credits
+                </span>
+              )}
               <button
                 className="bn-top-button bn-top-run-button"
-                onClick={() => (onceRunActive ? stopCook() : void handleRunGraph('once'))}
+                onClick={() => {
+                  if (executionTarget === 'cloud') void handleCloudRun()
+                  else if (onceRunActive) stopCook()
+                  else void handleRunGraph('once')
+                }}
                 disabled={!serverOk || liveRunActive || (!onceRunActive && nodes.length === 0)}
-                title={onceRunActive ? 'Stop the current one-time evaluation' : 'Evaluate the graph once. Live-capable nodes return one snapshot and do not keep streaming.'}
+                title={executionTarget === 'cloud'
+                  ? 'Submit this graph to Blacknode Cloud on one NVIDIA L40S.'
+                  : onceRunActive
+                    ? 'Stop the current one-time evaluation'
+                    : 'Evaluate the graph once. Live-capable nodes return one snapshot and do not keep streaming.'}
               >
-                {onceRunActive ? '■ Stop once' : '▶ Run once'}
+                {executionTarget === 'cloud'
+                  ? cloudJobPending ? 'Submitting…' : '☁ Run on Cloud'
+                  : onceRunActive ? '■ Stop once' : '▶ Run once'}
               </button>
 
               <button
                 className={`bn-top-button bn-top-run-button bn-top-live-button${liveRunActive ? ' is-stop-live' : ' is-start-live'}`}
                 onClick={() => (liveRunActive ? void handleStopRuntime() : void handleRunGraph('live'))}
-                disabled={!serverOk || runtimeStopPending || onceRunActive || (!liveRunActive && nodes.length === 0)}
+                disabled={executionTarget === 'cloud' || !serverOk || runtimeStopPending || onceRunActive || (!liveRunActive && nodes.length === 0)}
                 title={liveRunActive
                   ? 'Stop the live graph and its managed runtime services.'
                   : liveCapableCount > 0
@@ -2006,6 +2127,36 @@ export default function App() {
             </span>
           </span>
           </div>
+
+          <button
+            type="button"
+            className={`bn-cloud-account-trigger${cloudAccountStatus?.authenticated ? ' is-authenticated' : ''}`}
+            onClick={() => void handleCloudAccountOpen()}
+            disabled={!serverOk || cloudJobPending}
+            aria-haspopup="dialog"
+            aria-expanded={cloudPanelOpen && cloudPanelView === 'account'}
+            title={cloudAccountStatus?.authenticated
+              ? `Open Blacknode Cloud account for ${cloudAccountStatus.account?.email ?? 'signed-in user'}`
+              : serverOk ? 'Sign in to Blacknode Cloud' : 'Backend connection required'}
+          >
+            <span className="bn-cloud-account-avatar" aria-hidden="true">
+              {cloudAccountStatus?.authenticated
+                ? String(cloudAccountStatus.account?.display_name || cloudAccountStatus.account?.email || '?').trim().charAt(0).toUpperCase()
+                : '☁'}
+            </span>
+            <span className="bn-cloud-account-trigger-copy">
+              <strong>
+                {cloudAccountStatus?.authenticated && cloudAccountStatus.credits
+                  ? `${cloudAccountStatus.credits.available.toLocaleString()} GPU-s`
+                  : cloudAccountStatus?.configured === false ? 'Cloud unavailable' : 'Sign in'}
+              </strong>
+              <small>
+                {cloudAccountStatus?.authenticated
+                  ? cloudAccountStatus.account?.display_name || cloudAccountStatus.account?.email
+                  : 'Blacknode Cloud'}
+              </small>
+            </span>
+          </button>
         </div>
 
         {/* ── workflow tab bar ── */}
@@ -2478,6 +2629,18 @@ export default function App() {
           hidden={cookStatusHidden}
           raised={Boolean(notice)}
           onDismiss={dismissCookStatus}
+        />
+
+        <CloudRunPanel
+          open={cloudPanelOpen}
+          view={cloudPanelView}
+          pending={cloudJobPending}
+          initialJob={cloudJob}
+          error={cloudJobError}
+          accountStatus={cloudAccountStatus}
+          onAccountStatus={setCloudAccountStatus}
+          onRun={() => void handleCloudRun()}
+          onClose={() => setCloudPanelOpen(false)}
         />
 
         {notice && (

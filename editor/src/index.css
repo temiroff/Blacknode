@@ -702,7 +702,7 @@ html[data-theme="light"] .bn-logo-image-light {
   flex-shrink: 0;
   gap: 10px;
   height: 100%;
-  padding-right: 18px;
+  padding-right: 210px;
 }
 
 .bn-topbar-controls > * {
@@ -6178,7 +6178,7 @@ html[data-ui-test="refined"] .bn-topbar-controls {
   flex: 1;
   gap: 0 !important;
   margin-right: 10px;
-  padding: 4px 10px 4px 14px !important;
+  padding: 4px 210px 4px 14px !important;
   background: transparent;
 }
 
@@ -11540,4 +11540,505 @@ html[data-ui-test="refined"] .bn-package-action-menu summary {
 .bn-xacro-environment-dialog button:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+.bn-cloud-run-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.38);
+}
+
+.bn-cloud-account-trigger {
+  position: fixed;
+  top: 8px;
+  right: 12px;
+  z-index: 70;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  max-width: 190px;
+  padding: 4px 10px 4px 5px;
+  color: var(--tx1);
+  background: color-mix(in srgb, var(--panel) 92%, var(--lift));
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+.bn-cloud-account-trigger:hover:not(:disabled),
+.bn-cloud-account-trigger.is-authenticated {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line2));
+}
+
+.bn-cloud-account-trigger:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.bn-cloud-account-trigger:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.bn-cloud-account-avatar {
+  display: inline-grid;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--lift));
+  border-radius: 50%;
+  font: 750 12px var(--font-mono);
+}
+
+.bn-cloud-account-trigger.is-authenticated .bn-cloud-account-avatar {
+  color: var(--action-ink);
+  background: var(--accent);
+}
+
+.bn-cloud-account-trigger-copy,
+.bn-cloud-account-trigger-copy strong,
+.bn-cloud-account-trigger-copy small {
+  display: block;
+  min-width: 0;
+}
+
+.bn-cloud-account-trigger-copy {
+  overflow: hidden;
+  text-align: left;
+}
+
+.bn-cloud-account-trigger-copy strong,
+.bn-cloud-account-trigger-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-cloud-account-trigger-copy strong {
+  color: var(--tx1);
+  font: 700 11px var(--font-mono);
+}
+
+.bn-cloud-account-trigger-copy small {
+  margin-top: 1px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+@media (max-width: 860px) {
+  .bn-topbar-controls {
+    padding-right: 108px;
+  }
+
+  html[data-ui-test="refined"] .bn-topbar-controls {
+    padding-right: 108px !important;
+  }
+
+  .bn-cloud-account-trigger {
+    right: 8px;
+    max-width: 96px;
+  }
+
+  .bn-cloud-account-trigger-copy small {
+    display: none;
+  }
+}
+
+.bn-cloud-run-panel {
+  box-sizing: border-box;
+  width: min(520px, 96vw);
+  height: 100%;
+  overflow: auto;
+  padding: 20px;
+  color: var(--tx1);
+  background: var(--panel);
+  border-left: 1px solid var(--line2);
+  box-shadow: -18px 0 54px rgba(0, 0, 0, 0.38);
+}
+
+.bn-cloud-run-panel > header,
+.bn-cloud-run-section > header,
+.bn-cloud-metric-chart > header,
+.bn-cloud-run-panel > footer,
+.bn-cloud-progress-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bn-cloud-run-panel > header span,
+.bn-cloud-run-panel > header strong {
+  display: block;
+}
+
+.bn-cloud-run-panel > header span {
+  margin-bottom: 5px;
+  color: var(--accent);
+  font: 700 11px var(--font-mono);
+  letter-spacing: 0.12em;
+}
+
+.bn-cloud-run-panel > header strong {
+  font-size: 18px;
+}
+
+.bn-cloud-run-panel button {
+  padding: 7px 11px;
+  color: var(--tx1);
+  background: var(--lift);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.bn-cloud-run-panel > header button {
+  padding: 2px 8px;
+  font-size: 20px;
+}
+
+.bn-cloud-run-message,
+.bn-cloud-run-error {
+  margin-top: 18px;
+  padding: 12px;
+  border-radius: 7px;
+  font-size: 13px;
+}
+
+.bn-cloud-run-message { background: var(--lift); }
+.bn-cloud-run-error { color: var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
+
+.bn-cloud-run-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.bn-cloud-run-facts span,
+.bn-cloud-run-facts strong {
+  display: block;
+}
+
+.bn-cloud-run-facts span {
+  margin-bottom: 4px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-cloud-run-facts strong {
+  overflow: hidden;
+  font: 12px var(--font-mono);
+  text-overflow: ellipsis;
+}
+
+.bn-cloud-run-facts strong.is-running,
+.bn-cloud-run-facts strong.is-completed { color: var(--ok); }
+.bn-cloud-run-facts strong.is-failed,
+.bn-cloud-run-facts strong.is-timed_out { color: var(--err); }
+
+.bn-cloud-progress {
+  height: 8px;
+  margin-top: 22px;
+  overflow: hidden;
+  background: var(--lift);
+  border-radius: 999px;
+}
+
+.bn-cloud-progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 250ms ease;
+}
+
+.bn-cloud-progress-label {
+  margin-top: 7px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-cloud-metric-chart,
+.bn-cloud-run-section {
+  margin-top: 22px;
+  padding: 12px;
+  background: var(--lift);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.bn-cloud-metric-chart { color: var(--accent); }
+.bn-cloud-metric-chart header { color: var(--tx2); font-size: 12px; }
+.bn-cloud-metric-chart svg { width: 100%; height: 84px; margin-top: 8px; }
+
+.bn-cloud-run-section > header {
+  margin-bottom: 10px;
+  color: var(--tx2);
+  font-size: 12px;
+}
+
+.bn-cloud-run-section pre {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  color: var(--tx2);
+  font: 11px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bn-cloud-artifact-list {
+  display: grid;
+  gap: 7px;
+}
+
+.bn-cloud-artifact-list a {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px;
+  color: var(--tx1);
+  background: var(--panel);
+  border-radius: 5px;
+  text-decoration: none;
+}
+
+.bn-cloud-artifact-list a:hover { color: var(--accent); }
+.bn-cloud-artifact-list small,
+.bn-cloud-artifact-list p { color: var(--tx3); font-size: 11px; }
+.bn-cloud-run-panel > footer { margin-top: 18px; justify-content: flex-end; }
+
+.bn-cloud-credit-badge {
+  color: var(--ok);
+  font: 700 11px var(--font-mono);
+  white-space: nowrap;
+}
+
+.bn-cloud-auth,
+.bn-cloud-account {
+  margin-top: 24px;
+  padding: 16px;
+  background: var(--lift);
+  border: 1px solid var(--line2);
+  border-radius: 9px;
+}
+
+.bn-cloud-auth-tabs,
+.bn-cloud-account > header,
+.bn-cloud-job-credits {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bn-cloud-verification-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  color: var(--tx1);
+  background:
+    radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--accent) 15%, transparent), transparent 42%),
+    var(--bg);
+}
+
+.bn-cloud-verification-card {
+  width: min(480px, 100%);
+  padding: 34px;
+  border: 1px solid var(--line2);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+
+.bn-cloud-verification-card.is-verified { border-color: var(--ok); }
+.bn-cloud-verification-card.is-invalid { border-color: var(--err); }
+
+.bn-cloud-verification-mark {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #fff;
+  background: var(--accent);
+  font: 800 15px var(--font-mono);
+}
+
+.bn-cloud-verification-eyebrow {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.bn-cloud-verification-card h1 { margin: 0 0 14px; }
+.bn-cloud-verification-card p { margin: 8px 0 0; color: var(--tx2); line-height: 1.55; }
+
+.bn-cloud-auth-tabs {
+  justify-content: flex-start;
+  margin-bottom: 16px;
+}
+
+.bn-cloud-auth-tabs button.is-active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.bn-cloud-auth form {
+  display: grid;
+  gap: 12px;
+}
+
+.bn-cloud-auth label,
+.bn-cloud-auth label > span {
+  display: block;
+}
+
+.bn-cloud-auth label > span {
+  margin-bottom: 5px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-cloud-auth input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 10px;
+  color: var(--tx1);
+  background: var(--panel);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+}
+
+.bn-cloud-auth input:focus { border-color: var(--accent); }
+.bn-cloud-auth button.is-primary,
+.bn-cloud-account button.is-primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.bn-cloud-auth > p,
+.bn-cloud-account > small {
+  display: block;
+  margin: 12px 0 0;
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.bn-cloud-account > header strong,
+.bn-cloud-account > header span {
+  display: block;
+}
+
+.bn-cloud-account > header span {
+  margin-top: 3px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-cloud-credit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.bn-cloud-account small.is-verified,
+.bn-cloud-account small.is-unverified {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bn-cloud-account small.is-verified { color: var(--ok); }
+.bn-cloud-account small.is-unverified { color: var(--warn); }
+
+.bn-cloud-credit-grid > div {
+  padding: 10px;
+  background: var(--panel);
+  border-radius: 6px;
+}
+
+.bn-cloud-credit-grid span,
+.bn-cloud-credit-grid strong {
+  display: block;
+}
+
+.bn-cloud-credit-grid span {
+  margin-bottom: 5px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-cloud-credit-grid strong {
+  font: 700 15px var(--font-mono);
+}
+
+.bn-cloud-submit {
+  width: 100%;
+  margin-top: 16px;
+}
+
+.bn-cloud-credit-history {
+  display: grid;
+  gap: 6px;
+}
+
+.bn-cloud-credit-history > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px;
+  background: var(--panel);
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.bn-cloud-credit-history span,
+.bn-cloud-credit-history small {
+  display: block;
+}
+
+.bn-cloud-credit-history small {
+  margin-top: 3px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-cloud-credit-history strong {
+  font-family: var(--font-mono);
+}
+
+.bn-cloud-credit-history strong.is-credit { color: var(--ok); }
+.bn-cloud-credit-history strong.is-charge { color: var(--warn); }
+.bn-cloud-credit-history > p { color: var(--tx3); font-size: 11px; }
+
+.bn-cloud-job-credits {
+  margin-top: 18px;
+  padding: 9px 11px;
+  color: var(--tx2);
+  background: var(--lift);
+  border-radius: 6px;
+  font: 11px var(--font-mono);
 }

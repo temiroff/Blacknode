@@ -132,6 +132,21 @@ blacknode packages install https://github.com/temiroff/blacknode-robot.git
 Workflow templates declare the packages they need, so missing nodes can be
 resolved before a run or deployment.
 
+## Open source and business model
+
+Blacknode is Apache-2.0 software with a usage-based cloud service. The editor,
+runtime, workflow format, package system, and device deployment tools remain
+available for local and self-hosted operation.
+
+Blacknode Cloud provides optional hosted execution for portable workflows that
+need on-demand GPU compute. Cloud accounts use compute credits measured in
+GPU-seconds: a job reserves its runtime limit, charges measured GPU time, and
+returns progress, logs, metrics, and downloadable artifacts to the editor. The
+same workflow format runs locally, on paired devices, and in Blacknode Cloud.
+
+Cloud usage funds the hosted compute infrastructure, security maintenance,
+release engineering, and continued development of the open-source project.
+
 ## Learn more
 
 - [Beginner Walkthrough](docs/walkthrough.md)
