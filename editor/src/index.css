@@ -11833,6 +11833,105 @@ html[data-ui-test="refined"] .bn-package-action-menu summary {
   white-space: nowrap;
 }
 
+.bn-hosted-target-badge {
+  color: var(--tx2);
+  font: 700 11px var(--font-mono);
+  white-space: nowrap;
+}
+
+/* Hosted editor: keep the account action in layout and move secondary view
+   actions into a menu so the 52px toolbar never collides or shows a scrollbar. */
+.bn-topbar.is-hosted-preview {
+  overflow: hidden;
+}
+
+.bn-topbar.is-hosted-preview .bn-brand {
+  width: 154px !important;
+  padding-inline: 12px !important;
+}
+
+.bn-topbar.is-hosted-preview .bn-topbar-controls {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-right: 0;
+  scrollbar-width: none;
+}
+
+.bn-topbar.is-hosted-preview .bn-topbar-controls::-webkit-scrollbar {
+  display: none;
+}
+
+html[data-ui-test="refined"] .bn-topbar.is-hosted-preview .bn-topbar-controls {
+  margin-right: 0;
+  padding: 5px 0 5px 8px !important;
+}
+
+html[data-ui-test="refined"] .bn-topbar.is-hosted-preview .bn-topbar-group {
+  box-sizing: border-box;
+  min-height: 42px;
+  padding: 0 10px;
+}
+
+html[data-ui-test="refined"] .bn-topbar.is-hosted-preview .bn-topbar-group-label {
+  display: none;
+}
+
+.bn-topbar.is-hosted-preview > .bn-cloud-account-trigger {
+  position: static;
+  z-index: auto;
+  flex: 0 0 auto;
+  margin: 0 10px 0 8px;
+}
+
+.bn-topbar.is-hosted-preview .bn-backend-label {
+  display: none;
+}
+
+.bn-hosted-view-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bn-hosted-view-menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line2);
+}
+
+.bn-hosted-view-menu-items button.is-danger {
+  color: var(--err);
+}
+
+.bn-hosted-view-menu-items button.is-danger:hover {
+  background: var(--err-soft);
+  color: var(--err);
+}
+
+@media (max-width: 1180px) {
+  .bn-topbar.is-hosted-preview .bn-brand {
+    width: 52px !important;
+    padding-inline: 10px !important;
+  }
+
+  .bn-topbar.is-hosted-preview .bn-brand span,
+  .bn-topbar.is-hosted-preview .bn-hosted-target-badge {
+    display: none;
+  }
+
+  html[data-ui-test="refined"] .bn-topbar.is-hosted-preview .bn-topbar-group {
+    padding-inline: 6px;
+  }
+}
+
+@media (max-width: 1050px) {
+  .bn-topbar.is-hosted-preview .bn-hosted-preview-badge {
+    display: none;
+  }
+}
+
 .bn-cloud-auth,
 .bn-cloud-account {
   margin-top: 24px;

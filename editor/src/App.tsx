@@ -245,6 +245,8 @@ function WorkspaceApp() {
   const [simulationViewerHeight, setSimulationViewerHeight] = useState(loadSimulationViewerHeight)
   const [simulationViewerMenuOpen, setSimulationViewerMenuOpen] = useState(false)
   const [simulationViewerMenuPosition, setSimulationViewerMenuPosition] = useState({ top: 0, left: 0 })
+  const [hostedViewMenuOpen, setHostedViewMenuOpen] = useState(false)
+  const [hostedViewMenuPosition, setHostedViewMenuPosition] = useState({ top: 0, left: 0 })
   const [newtonWorkspace, setNewtonWorkspace] = useState<NewtonWorkspaceStatus | null>(null)
   const [newtonWorkspaceAvailable, setNewtonWorkspaceAvailable] = useState(false)
   const [newtonWorkspaceBusy, setNewtonWorkspaceBusy] = useState(false)
@@ -271,6 +273,8 @@ function WorkspaceApp() {
   const lastSimulationViewerUrl = useRef('')
   const simulationViewerMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
   const simulationViewerMenuRef = useRef<HTMLDivElement | null>(null)
+  const hostedViewMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const hostedViewMenuRef = useRef<HTMLDivElement | null>(null)
   const updatePendingCloseName = useCallback((draftName: string) => {
     setPendingClose(current => current ? { ...current, draftName } : current)
   }, [])
@@ -541,6 +545,36 @@ function WorkspaceApp() {
       window.removeEventListener('scroll', positionMenu, true)
     }
   }, [simulationViewerMenuOpen])
+
+  useLayoutEffect(() => {
+    if (!hostedViewMenuOpen) return
+    const positionMenu = () => {
+      const trigger = hostedViewMenuTriggerRef.current
+      if (!trigger) return
+      const bounds = trigger.getBoundingClientRect()
+      const width = 210
+      setHostedViewMenuPosition({
+        top: bounds.bottom + 7,
+        left: Math.max(8, Math.min(window.innerWidth - width - 8, bounds.right - width)),
+      })
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (hostedViewMenuTriggerRef.current?.contains(target)) return
+      if (hostedViewMenuRef.current?.contains(target)) return
+      setHostedViewMenuOpen(false)
+    }
+    positionMenu()
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    window.addEventListener('resize', positionMenu)
+    window.addEventListener('scroll', positionMenu, true)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      window.removeEventListener('resize', positionMenu)
+      window.removeEventListener('scroll', positionMenu, true)
+    }
+  }, [hostedViewMenuOpen])
 
   useEffect(() => {
     if (!activeSimulationViewer) {
@@ -1821,7 +1855,7 @@ function WorkspaceApp() {
       <div className="bn-editor-main" style={{ flex: 1, position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver} onMouseMove={trackMouseFlowPos}>
 
         {/* ── top bar ── */}
-        <div className="bn-topbar" style={{
+        <div className={`bn-topbar${hostedPreview ? ' is-hosted-preview' : ''}`} style={{
           position: 'fixed', top: 0, left: leftRailW, right: 0, zIndex: 50,
           background: 'var(--panel)',
           borderBottom: '1px solid var(--line)',
@@ -1879,16 +1913,22 @@ function WorkspaceApp() {
             <div className="bn-topbar-group bn-topbar-run-group" aria-label="Run controls">
               <span className="bn-topbar-group-label">Run</span>
               {hostedPreview && <span className="bn-hosted-preview-badge">WEB PREVIEW</span>}
-              <select
-                className="bn-top-select"
-                value={executionTarget}
-                disabled={hostedPreview || onceRunActive || liveRunActive || cloudJobPending}
-                onChange={event => setExecutionTarget(event.target.value === 'cloud' ? 'cloud' : 'local')}
-                title="Choose where this graph executes"
-              >
-                {!hostedPreview && <option value="local">Local</option>}
-                <option value="cloud">Blacknode Cloud · L40S</option>
-              </select>
+              {hostedPreview ? (
+                <span className="bn-hosted-target-badge" title="Runs on Blacknode Cloud using one NVIDIA L40S">
+                  Cloud · L40S
+                </span>
+              ) : (
+                <select
+                  className="bn-top-select"
+                  value={executionTarget}
+                  disabled={onceRunActive || liveRunActive || cloudJobPending}
+                  onChange={event => setExecutionTarget(event.target.value === 'cloud' ? 'cloud' : 'local')}
+                  title="Choose where this graph executes"
+                >
+                  <option value="local">Local</option>
+                  <option value="cloud">Blacknode Cloud · L40S</option>
+                </select>
+              )}
               {executionTarget === 'cloud' && cloudAccountStatus?.credits && (
                 <span className="bn-cloud-credit-badge" title="Available Blacknode Cloud GPU-second credits">
                   {cloudAccountStatus.credits.available.toLocaleString()} credits
@@ -1939,6 +1979,98 @@ function WorkspaceApp() {
 
             <div className="bn-topbar-group bn-topbar-view-group" aria-label="View controls">
               <span className="bn-topbar-group-label">View</span>
+              {hostedPreview ? (
+                <>
+                  <button
+                    ref={hostedViewMenuTriggerRef}
+                    type="button"
+                    className="bn-top-button bn-hosted-view-menu-trigger"
+                    title="Canvas and appearance options"
+                    aria-haspopup="menu"
+                    aria-expanded={hostedViewMenuOpen}
+                    onClick={() => setHostedViewMenuOpen(open => !open)}
+                  >
+                    View <span aria-hidden="true">▾</span>
+                  </button>
+                  {hostedViewMenuOpen && createPortal(
+                    <div
+                      ref={hostedViewMenuRef}
+                      className="bn-simulation-viewer-menu-items bn-hosted-view-menu-items is-portal"
+                      role="menu"
+                      style={hostedViewMenuPosition}
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          void handleOrganize()
+                          setHostedViewMenuOpen(false)
+                        }}
+                      >
+                        Organize graph
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!serverOk || cookActive || refreshingCanvas}
+                        onClick={() => {
+                          void handleRefreshCanvas()
+                          setHostedViewMenuOpen(false)
+                        }}
+                      >
+                        {refreshingCanvas ? 'Refreshing…' : 'Refresh canvas'}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setIsDark(dark => !dark)
+                          setHostedViewMenuOpen(false)
+                        }}
+                      >
+                        {isDark ? 'Use light theme' : 'Use dark theme'}
+                      </button>
+                      <div className="bn-hosted-view-menu-divider" role="separator" />
+                      <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={nodeDensity === 'compact'}
+                        onClick={() => {
+                          setNodeDensity('compact')
+                          setHostedViewMenuOpen(false)
+                        }}
+                      >
+                        Compact nodes{nodeDensity === 'compact' ? ' ✓' : ''}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={nodeDensity === 'detailed'}
+                        onClick={() => {
+                          setNodeDensity('detailed')
+                          setHostedViewMenuOpen(false)
+                        }}
+                      >
+                        Detailed nodes{nodeDensity === 'detailed' ? ' ✓' : ''}
+                      </button>
+                      <div className="bn-hosted-view-menu-divider" role="separator" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="is-danger"
+                        onClick={() => {
+                          void reset()
+                          setHostedViewMenuOpen(false)
+                        }}
+                      >
+                        Clear workflow
+                      </button>
+                    </div>,
+                    document.body,
+                  )}
+                </>
+              ) : (
+                <>
               <button
                 className={`bn-top-button bn-simulation-viewer-toggle${activeSimulationViewer && (simulationViewerVisible || simulationViewerDetached) ? ' is-visible' : ''}`}
                 type="button"
@@ -2129,6 +2261,8 @@ function WorkspaceApp() {
               >
                 Clear
               </button>
+                </>
+              )}
             </div>
 
             <button
