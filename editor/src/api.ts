@@ -1045,6 +1045,12 @@ export interface CloudStatus {
   credits: CloudCredits | null
 }
 
+export interface HostedEditorStatus {
+  hosted: boolean
+  workspace_persistence: 'session' | 'local'
+  execution: 'cloud-only' | 'local-and-cloud'
+}
+
 export interface CloudAccount {
   id: string
   organization_id: string
@@ -1664,6 +1670,7 @@ async function streamDeviceAction<T>(
 }
 
 export const api = {
+  hostedStatus: ()                           => req<HostedEditorStatus>('GET', '/hosted/status'),
   nodeTypes: ()                              => req<string[]>('GET', '/node-types'),
   nodeDefs:  ()                              => req<Record<string, BnNodeDef>>('GET', '/node-defs'),
   depthFrame: (nodeId: string, signal?: AbortSignal) =>
