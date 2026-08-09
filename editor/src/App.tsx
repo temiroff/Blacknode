@@ -219,6 +219,7 @@ function WorkspaceApp() {
   const [runtimeStopPending, setRuntimeStopPending] = useState(false)
   const [activeRunMode, setActiveRunMode] = useState<'once' | 'live' | null>(null)
   const [executionTarget, setExecutionTarget] = useState<'local' | 'cloud'>('local')
+  const [hostedPreview, setHostedPreview] = useState(false)
   const [cloudPanelOpen, setCloudPanelOpen] = useState(false)
   const [cloudJobPending, setCloudJobPending] = useState(false)
   const [cloudJob, setCloudJob] = useState<CloudJob | null>(null)
@@ -239,6 +240,15 @@ function WorkspaceApp() {
   const [newtonWorkspace, setNewtonWorkspace] = useState<NewtonWorkspaceStatus | null>(null)
   const [newtonWorkspaceAvailable, setNewtonWorkspaceAvailable] = useState(false)
   const [newtonWorkspaceBusy, setNewtonWorkspaceBusy] = useState(false)
+
+  useEffect(() => {
+    void api.hostedStatus()
+      .then(status => {
+        setHostedPreview(status.hosted)
+        if (status.hosted) setExecutionTarget('cloud')
+      })
+      .catch(() => undefined)
+  }, [])
   const lastSimulationViewerUrl = useRef('')
   const simulationViewerMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
   const simulationViewerMenuRef = useRef<HTMLDivElement | null>(null)
@@ -1849,14 +1859,15 @@ function WorkspaceApp() {
 
             <div className="bn-topbar-group bn-topbar-run-group" aria-label="Run controls">
               <span className="bn-topbar-group-label">Run</span>
+              {hostedPreview && <span className="bn-hosted-preview-badge">WEB PREVIEW</span>}
               <select
                 className="bn-top-select"
                 value={executionTarget}
-                disabled={onceRunActive || liveRunActive || cloudJobPending}
+                disabled={hostedPreview || onceRunActive || liveRunActive || cloudJobPending}
                 onChange={event => setExecutionTarget(event.target.value === 'cloud' ? 'cloud' : 'local')}
                 title="Choose where this graph executes"
               >
-                <option value="local">Local</option>
+                {!hostedPreview && <option value="local">Local</option>}
                 <option value="cloud">Blacknode Cloud · L40S</option>
               </select>
               {executionTarget === 'cloud' && cloudAccountStatus?.credits && (
@@ -1883,18 +1894,20 @@ function WorkspaceApp() {
                   : onceRunActive ? '■ Stop once' : '▶ Run once'}
               </button>
 
-              <button
-                className={`bn-top-button bn-top-run-button bn-top-live-button${liveRunActive ? ' is-stop-live' : ' is-start-live'}`}
-                onClick={() => (liveRunActive ? void handleStopRuntime() : void handleRunGraph('live'))}
-                disabled={executionTarget === 'cloud' || !serverOk || runtimeStopPending || onceRunActive || (!liveRunActive && nodes.length === 0)}
-                title={liveRunActive
-                  ? 'Stop the live graph and its managed runtime services.'
-                  : liveCapableCount > 0
-                  ? `Start ${liveCapableCount} live-capable node${liveCapableCount === 1 ? '' : 's'}; evaluate the other ${runOnceNodeCount} node${runOnceNodeCount === 1 ? '' : 's'} once.`
-                  : 'No live-capable nodes are present; this will run the graph once.'}
-              >
-                {runtimeStopPending ? 'Stopping live…' : liveRunActive ? '■ Stop live' : '● Go live'}
-              </button>
+              {!hostedPreview && (
+                <button
+                  className={`bn-top-button bn-top-run-button bn-top-live-button${liveRunActive ? ' is-stop-live' : ' is-start-live'}`}
+                  onClick={() => (liveRunActive ? void handleStopRuntime() : void handleRunGraph('live'))}
+                  disabled={executionTarget === 'cloud' || !serverOk || runtimeStopPending || onceRunActive || (!liveRunActive && nodes.length === 0)}
+                  title={liveRunActive
+                    ? 'Stop the live graph and its managed runtime services.'
+                    : liveCapableCount > 0
+                    ? `Start ${liveCapableCount} live-capable node${liveCapableCount === 1 ? '' : 's'}; evaluate the other ${runOnceNodeCount} node${runOnceNodeCount === 1 ? '' : 's'} once.`
+                    : 'No live-capable nodes are present; this will run the graph once.'}
+                >
+                  {runtimeStopPending ? 'Stopping live…' : liveRunActive ? '■ Stop live' : '● Go live'}
+                </button>
+              )}
 
               <button
                 className="bn-top-button bn-top-reset-button"

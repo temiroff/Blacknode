@@ -11822,6 +11822,17 @@ html[data-ui-test="refined"] .bn-package-action-menu summary {
   white-space: nowrap;
 }
 
+.bn-hosted-preview-badge {
+  padding: 3px 6px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line2));
+  border-radius: 4px;
+  font: 700 11px var(--font-mono);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
 .bn-cloud-auth,
 .bn-cloud-account {
   margin-top: 24px;

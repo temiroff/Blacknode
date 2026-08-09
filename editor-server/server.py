@@ -4,6 +4,7 @@ import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time,
 from array import array
 import urllib.error, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor, wait
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -86,6 +87,7 @@ from project_store import ProjectStore, ProjectStoreError
 from run_store import RunStore
 import cloud_client
 import cloud_sessions
+from hosted_mode import HostedWorkspaceStore, route_allowed as hosted_route_allowed
 
 
 def package_index_payload(*args, **kwargs):
@@ -112,8 +114,23 @@ def workflow_node_types(*args, **kwargs):
     return bn_package_index.workflow_node_types(*args, **kwargs)
 
 
+_HOSTED_MODE = os.environ.get("BLACKNODE_HOSTED_MODE", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+_HOSTED_PUBLIC_ORIGIN = os.environ.get(
+    "BLACKNODE_HOSTED_PUBLIC_ORIGIN",
+    "https://app.blacknoderobotics.com",
+).strip().rstrip("/")
+
 app = FastAPI(title="Blacknode Editor Server")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[] if _HOSTED_MODE else ["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _CLOUD_SESSION_COOKIE = "blacknode_cloud_session"
 _cloud_sessions = cloud_sessions.CloudSessionStore()
@@ -221,6 +238,8 @@ def _save_now() -> None:
 
 def _save(debounce: float = 0.0) -> None:
     """Write graph to disk. Pass debounce > 0 to coalesce rapid calls (e.g. node drag)."""
+    if _HOSTED_MODE:
+        return
     global _save_timer
     if _save_timer:
         _save_timer.cancel()
@@ -284,7 +303,85 @@ class Session:
         self.metadata: dict[str, Any] = {}
         self.entrypoint: dict[str, str] | None = None
 
-_session = Session()
+
+_local_session = Session()
+_hosted_session_context: ContextVar[Session | None] = ContextVar(
+    "blacknode_hosted_session",
+    default=None,
+)
+_hosted_workspaces = HostedWorkspaceStore(Session)
+
+
+class _SessionProxy:
+    def _target(self) -> Session:
+        return _hosted_session_context.get() or _local_session
+
+    def __getattr__(self, name: str):
+        return getattr(self._target(), name)
+
+    def __setattr__(self, name: str, value) -> None:
+        setattr(self._target(), name, value)
+
+
+_session = _SessionProxy()
+
+
+def _hosted_error(code: str, message: str) -> Response:
+    response = Response(
+        content=json.dumps({"detail": {"code": code, "message": message}}),
+        status_code=403,
+        media_type="application/json",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@app.middleware("http")
+async def hosted_preview_boundary(request: Request, call_next):
+    if not _HOSTED_MODE:
+        return await call_next(request)
+    path = request.url.path
+    method = request.method.upper()
+    if not hosted_route_allowed(method, path, query=request.url.query):
+        return _hosted_error(
+            "HOSTED_CAPABILITY_UNAVAILABLE",
+            "This capability is available in the installed Blacknode Editor.",
+        )
+    if method in {"POST", "PUT", "PATCH", "DELETE"}:
+        origin = request.headers.get("origin", "").rstrip("/")
+        if origin != _HOSTED_PUBLIC_ORIGIN:
+            return _hosted_error("INVALID_ORIGIN", "The request origin is not allowed.")
+    workspace_token = None
+    context_token = None
+    created = False
+    if path not in {"/healthz", "/readyz", "/hosted/status"}:
+        workspace_token, workspace, created = _hosted_workspaces.get_or_create(
+            request.cookies.get("__Host-blacknode_workspace")
+        )
+        context_token = _hosted_session_context.set(workspace)
+    try:
+        response = await call_next(request)
+    finally:
+        if context_token is not None:
+            _hosted_session_context.reset(context_token)
+    if created and workspace_token:
+        response.set_cookie(
+            "__Host-blacknode_workspace",
+            workspace_token,
+            max_age=86_400,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            path="/",
+        )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 # ── Schema models ─────────────────────────────────────────────────────────────
@@ -2035,7 +2132,27 @@ def _broadcast_learned_node_event(event_type: str, name: str) -> dict[str, Any]:
     return event
 
 
-_load()   # restore last session on startup
+if not _HOSTED_MODE:
+    _load()   # restore the trusted local session on startup
+
+
+@app.get("/healthz")
+def editor_health():
+    return {"status": "ok", "mode": "hosted" if _HOSTED_MODE else "local"}
+
+
+@app.get("/readyz")
+def editor_readiness():
+    return {"status": "ready", "mode": "hosted" if _HOSTED_MODE else "local"}
+
+
+@app.get("/hosted/status")
+def hosted_status():
+    return {
+        "hosted": _HOSTED_MODE,
+        "workspace_persistence": "session" if _HOSTED_MODE else "local",
+        "execution": "cloud-only" if _HOSTED_MODE else "local-and-cloud",
+    }
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
