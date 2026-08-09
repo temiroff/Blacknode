@@ -91,6 +91,10 @@ def route_allowed(method: str, path: str, *, query: str = "") -> bool:
         return True
     if path == "/cloud/status" and method == "GET":
         return True
+    if path == "/cloud/account" and method == "PATCH":
+        return True
+    if path == "/cloud/newsletter/subscribe" and method == "POST":
+        return True
     if path in {
         "/cloud/auth/register",
         "/cloud/auth/login",

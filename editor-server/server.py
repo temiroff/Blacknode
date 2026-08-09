@@ -130,9 +130,11 @@ _HOSTED_ACCOUNT_ORIGINS = frozenset(
 )
 _HOSTED_ACCOUNT_CORS_METHODS = {
     "/cloud/status": frozenset({"GET"}),
+    "/cloud/account": frozenset({"PATCH"}),
     "/cloud/auth/register": frozenset({"POST"}),
     "/cloud/auth/login": frozenset({"POST"}),
     "/cloud/auth/logout": frozenset({"POST"}),
+    "/cloud/newsletter/subscribe": frozenset({"POST"}),
 }
 
 app = FastAPI(title="Blacknode Editor Server")
@@ -509,6 +511,21 @@ class CloudLoginReq(BaseModel):
 class CloudRegisterReq(CloudLoginReq):
     password: str = Field(min_length=10, max_length=200)
     display_name: str = Field(default="", max_length=100)
+
+
+class CloudUpdateAccountReq(BaseModel):
+    display_name: str = Field(min_length=1, max_length=100)
+
+
+class CloudNewsletterReq(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    consent: bool
+    source: str = Field(
+        default="website",
+        min_length=1,
+        max_length=50,
+        pattern=r"^[a-z0-9_-]+$",
+    )
 
 
 class CloudEmailVerificationReq(BaseModel):
@@ -4316,6 +4333,31 @@ def cloud_status(request: Request, response: Response):
     return _cloud_status_payload(request, response)
 
 
+@app.patch("/cloud/account")
+def update_cloud_account(
+    req: CloudUpdateAccountReq,
+    request: Request,
+    response: Response,
+):
+    account = _cloud_user_call(
+        request,
+        "PATCH",
+        "/v1/account",
+        {"display_name": req.display_name},
+    )
+    credits = _cloud_user_call(request, "GET", "/v1/credits")
+    config = cloud_client.configuration()
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "configured": config.available,
+        "gpu": "NVIDIA L40S",
+        "url": config.base_url if config.available else "",
+        "authenticated": True,
+        "account": account,
+        "credits": credits,
+    }
+
+
 def _cloud_authenticate(
     request: Request,
     response: Response,
@@ -4372,6 +4414,16 @@ def login_cloud_account(req: CloudLoginReq, request: Request, response: Response
         response,
         "/v1/auth/login",
         {"email": req.email, "password": req.password},
+    )
+
+
+@app.post("/cloud/newsletter/subscribe")
+def subscribe_cloud_newsletter(req: CloudNewsletterReq):
+    return _cloud_call(
+        "POST",
+        "/v1/newsletter/subscriptions",
+        {"email": req.email, "consent": req.consent, "source": req.source},
+        allow_admin=False,
     )
 
 

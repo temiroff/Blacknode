@@ -123,6 +123,39 @@ class EditorCloudTests(unittest.TestCase):
         self.assertIsNotNone(response.json()["account"]["email_verified_at"])
         self.assertEqual(response.json()["credits"]["locked"], 0)
 
+    def test_account_display_name_update_uses_registered_session(self):
+        client = self.authenticated_client()
+
+        def cloud_user_call(request, method, path, payload=None):
+            self.assertIsNotNone(request.cookies.get(server._CLOUD_SESSION_COOKIE))
+            if path == "/v1/account":
+                self.assertEqual((method, payload), ("PATCH", {"display_name": "Robotics Team"}))
+                return {
+                    "id": "user_123",
+                    "organization_id": "org_123",
+                    "email": "robot@example.com",
+                    "display_name": "Robotics Team",
+                    "created_at": datetime.now(UTC).isoformat(),
+                }
+            if path == "/v1/credits":
+                self.assertEqual(method, "GET")
+                return {"unit": "gpu-second", "balance": 7200, "reserved": 0, "available": 7200}
+            raise AssertionError(path)
+
+        with (
+            patch.dict(os.environ, {"BLACKNODE_CLOUD_URL": "https://cloud.blacknode.example"}),
+            patch.object(server, "_cloud_user_call", side_effect=cloud_user_call),
+        ):
+            response = client.patch(
+                "/cloud/account",
+                json={"display_name": "Robotics Team"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["account"]["display_name"], "Robotics Team")
+        self.assertEqual(response.json()["credits"]["available"], 7200)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+
     def test_login_keeps_cloud_token_in_http_only_server_session(self):
         auth = {
             "token": "registered-user-cloud-token-0123456789",
@@ -262,6 +295,30 @@ class EditorCloudTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["verified"])
 
+    def test_newsletter_proxy_never_uses_admin_or_user_credentials(self):
+        def cloud_call(method, path, payload=None, **kwargs):
+            self.assertEqual((method, path), ("POST", "/v1/newsletter/subscriptions"))
+            self.assertEqual(
+                payload,
+                {"email": "reader@example.com", "consent": True, "source": "website"},
+            )
+            self.assertFalse(kwargs["allow_admin"])
+            self.assertNotIn("authorization", kwargs)
+            return {"subscribed": True}
+
+        with patch.object(server, "_cloud_call", side_effect=cloud_call):
+            response = TestClient(server.app).post(
+                "/cloud/newsletter/subscribe",
+                json={
+                    "email": "reader@example.com",
+                    "consent": True,
+                    "source": "website",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"subscribed": True})
+
     def test_trusted_website_origin_can_use_only_account_routes(self):
         website_origin = "https://blacknoderobotics.com"
         client = TestClient(server.app)
@@ -282,6 +339,22 @@ class EditorCloudTests(unittest.TestCase):
                 "/cloud/status",
                 headers={"Origin": website_origin},
             )
+            account_preflight = client.options(
+                "/cloud/account",
+                headers={
+                    "Origin": website_origin,
+                    "Access-Control-Request-Method": "PATCH",
+                    "Access-Control-Request-Headers": "content-type",
+                },
+            )
+            newsletter_preflight = client.options(
+                "/cloud/newsletter/subscribe",
+                headers={
+                    "Origin": website_origin,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "content-type",
+                },
+            )
             graph_response = client.get(
                 "/graph",
                 headers={"Origin": website_origin},
@@ -299,6 +372,10 @@ class EditorCloudTests(unittest.TestCase):
         self.assertEqual(preflight.headers["access-control-allow-credentials"], "true")
         self.assertEqual(status_response.status_code, 200)
         self.assertEqual(status_response.headers["access-control-allow-origin"], website_origin)
+        self.assertEqual(account_preflight.status_code, 204)
+        self.assertEqual(account_preflight.headers["access-control-allow-methods"], "PATCH")
+        self.assertEqual(newsletter_preflight.status_code, 204)
+        self.assertEqual(newsletter_preflight.headers["access-control-allow-methods"], "POST")
         self.assertEqual(graph_response.status_code, 403)
         self.assertEqual(graph_response.json()["detail"]["code"], "INVALID_ORIGIN")
         self.assertEqual(rejected.status_code, 403)
