@@ -36,6 +36,8 @@ class EditorHostedModeTests(unittest.TestCase):
         self.assertTrue(route_allowed("POST", "/edges"))
         self.assertTrue(route_allowed("POST", "/templates/hello/load"))
         self.assertTrue(route_allowed("POST", "/cloud/auth/login"))
+        self.assertTrue(route_allowed("PATCH", "/cloud/account"))
+        self.assertTrue(route_allowed("POST", "/cloud/newsletter/subscribe"))
         self.assertTrue(route_allowed("POST", "/cloud/jobs"))
         self.assertTrue(route_allowed("GET", "/cloud/jobs/job_123/artifacts"))
         self.assertTrue(
