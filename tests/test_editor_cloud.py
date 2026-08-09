@@ -262,6 +262,47 @@ class EditorCloudTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["verified"])
 
+    def test_trusted_website_origin_can_use_only_account_routes(self):
+        website_origin = "https://blacknoderobotics.com"
+        client = TestClient(server.app)
+        with (
+            patch.object(server, "_HOSTED_MODE", True),
+            patch.object(server, "_HOSTED_ACCOUNT_ORIGINS", frozenset({website_origin})),
+            patch.dict(os.environ, {"BLACKNODE_CLOUD_URL": "https://cloud.blacknode.example"}),
+        ):
+            preflight = client.options(
+                "/cloud/auth/login",
+                headers={
+                    "Origin": website_origin,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "content-type",
+                },
+            )
+            status_response = client.get(
+                "/cloud/status",
+                headers={"Origin": website_origin},
+            )
+            graph_response = client.get(
+                "/graph",
+                headers={"Origin": website_origin},
+            )
+            rejected = client.options(
+                "/cloud/auth/login",
+                headers={
+                    "Origin": "https://untrusted.example",
+                    "Access-Control-Request-Method": "POST",
+                },
+            )
+
+        self.assertEqual(preflight.status_code, 204)
+        self.assertEqual(preflight.headers["access-control-allow-origin"], website_origin)
+        self.assertEqual(preflight.headers["access-control-allow-credentials"], "true")
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(status_response.headers["access-control-allow-origin"], website_origin)
+        self.assertEqual(graph_response.status_code, 403)
+        self.assertEqual(graph_response.json()["detail"]["code"], "INVALID_ORIGIN")
+        self.assertEqual(rejected.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

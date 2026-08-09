@@ -33,3 +33,23 @@ not execute in the hosted Editor service.
 
 The installed Editor remains the operator surface for local files, packages,
 devices, ROS 2, cameras, local CUDA, and managed robot hardware.
+
+## Website account entry
+
+The Blacknode website can present its own account dialog while using the hosted
+Editor's existing Cloud account endpoints. Configure the exact HTTPS website
+origins in `BLACKNODE_HOSTED_ACCOUNT_ORIGINS`. The hosted server grants those
+origins credentialed browser access only to account status, login,
+registration, and logout. Graph, package, device, filesystem, and job routes do
+not receive cross-origin access.
+
+The website sends account requests directly to the hosted Editor origin with
+browser credentials enabled. The Editor continues to keep the Cloud bearer
+token in its server-side session behind an HttpOnly, Secure, SameSite cookie;
+the website JavaScript cannot read that token. Because the cookie remains
+host-only for `app.blacknoderobotics.com`, the same authenticated session is
+available when the user opens the Editor.
+
+`https://app.blacknoderobotics.com/?cloud=account` remains available as a
+direct account-panel entry and fallback when a trusted website origin is not
+configured.

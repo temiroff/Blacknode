@@ -123,6 +123,17 @@ _HOSTED_PUBLIC_ORIGIN = os.environ.get(
     "BLACKNODE_HOSTED_PUBLIC_ORIGIN",
     "https://app.blacknoderobotics.com",
 ).strip().rstrip("/")
+_HOSTED_ACCOUNT_ORIGINS = frozenset(
+    origin.strip().rstrip("/")
+    for origin in os.environ.get("BLACKNODE_HOSTED_ACCOUNT_ORIGINS", "").split(",")
+    if origin.strip().startswith(("http://", "https://"))
+)
+_HOSTED_ACCOUNT_CORS_METHODS = {
+    "/cloud/status": frozenset({"GET"}),
+    "/cloud/auth/register": frozenset({"POST"}),
+    "/cloud/auth/login": frozenset({"POST"}),
+    "/cloud/auth/logout": frozenset({"POST"}),
+}
 
 app = FastAPI(title="Blacknode Editor Server")
 app.add_middleware(
@@ -339,20 +350,48 @@ def _hosted_error(code: str, message: str) -> Response:
     return response
 
 
+def _hosted_account_cors_allowed(origin: str, method: str, path: str) -> bool:
+    return (
+        origin in _HOSTED_ACCOUNT_ORIGINS
+        and method.upper() in _HOSTED_ACCOUNT_CORS_METHODS.get(path, frozenset())
+    )
+
+
+def _set_hosted_account_cors(response: Response, origin: str) -> None:
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    vary = response.headers.get("Vary", "")
+    if "origin" not in {item.strip().lower() for item in vary.split(",") if item.strip()}:
+        response.headers["Vary"] = f"{vary}, Origin".strip(", ")
+
+
 @app.middleware("http")
 async def hosted_preview_boundary(request: Request, call_next):
     if not _HOSTED_MODE:
         return await call_next(request)
     path = request.url.path
     method = request.method.upper()
+    origin = request.headers.get("origin", "").rstrip("/")
+    requested_method = request.headers.get("access-control-request-method", "").upper()
+    if method == "OPTIONS":
+        if not _hosted_account_cors_allowed(origin, requested_method, path):
+            return _hosted_error("INVALID_ORIGIN", "The request origin is not allowed.")
+        response = Response(status_code=204)
+        _set_hosted_account_cors(response, origin)
+        response.headers["Access-Control-Allow-Methods"] = requested_method
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Max-Age"] = "600"
+        return response
+    cross_origin_account_request = bool(origin and origin != _HOSTED_PUBLIC_ORIGIN)
+    if cross_origin_account_request and not _hosted_account_cors_allowed(origin, method, path):
+        return _hosted_error("INVALID_ORIGIN", "The request origin is not allowed.")
     if not hosted_route_allowed(method, path, query=request.url.query):
         return _hosted_error(
             "HOSTED_CAPABILITY_UNAVAILABLE",
             "This capability is available in the installed Blacknode Editor.",
         )
     if method in {"POST", "PUT", "PATCH", "DELETE"}:
-        origin = request.headers.get("origin", "").rstrip("/")
-        if origin != _HOSTED_PUBLIC_ORIGIN:
+        if origin != _HOSTED_PUBLIC_ORIGIN and not cross_origin_account_request:
             return _hosted_error("INVALID_ORIGIN", "The request origin is not allowed.")
     workspace_token = None
     context_token = None
@@ -381,6 +420,8 @@ async def hosted_preview_boundary(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
+    if cross_origin_account_request:
+        _set_hosted_account_cors(response, origin)
     return response
 
 

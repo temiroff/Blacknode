@@ -67,6 +67,14 @@ function loadDarkThemePreference() {
   }
 }
 
+function loadCloudAccountEntryRequest(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get('cloud') === 'account'
+  } catch {
+    return false
+  }
+}
+
 function loadUiTestPreference() {
   return true
 }
@@ -220,7 +228,7 @@ function WorkspaceApp() {
   const [activeRunMode, setActiveRunMode] = useState<'once' | 'live' | null>(null)
   const [executionTarget, setExecutionTarget] = useState<'local' | 'cloud'>('local')
   const [hostedPreview, setHostedPreview] = useState(false)
-  const [cloudPanelOpen, setCloudPanelOpen] = useState(false)
+  const [cloudPanelOpen, setCloudPanelOpen] = useState(loadCloudAccountEntryRequest)
   const [cloudJobPending, setCloudJobPending] = useState(false)
   const [cloudJob, setCloudJob] = useState<CloudJob | null>(null)
   const [cloudJobError, setCloudJobError] = useState('')
@@ -248,6 +256,17 @@ function WorkspaceApp() {
         if (status.hosted) setExecutionTarget('cloud')
       })
       .catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    if (!loadCloudAccountEntryRequest()) return
+    const url = new URL(window.location.href)
+    url.searchParams.delete('cloud')
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${url.pathname}${url.search}${url.hash}`,
+    )
   }, [])
   const lastSimulationViewerUrl = useRef('')
   const simulationViewerMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
