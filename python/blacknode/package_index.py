@@ -198,6 +198,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             "default": False,
                             "node_types": [
                                 "BaseSafetyGate",
+                                "NavigateTo",
+                                "NavigationSession",
                                 "ROS2BaseMove",
                                 "ROS2BaseStop",
                                 "ROS2LaserScanCheck",
@@ -205,6 +207,11 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             ],
                             "dependencies": {
                                 "requires": [
+                                    {
+                                        "package": "blacknode-ros2",
+                                        "component": "core",
+                                        "version": ">=0.6.2,<1.0.0"
+                                    },
                                     {
                                         "package": "blacknode-ros2",
                                         "component": "rosbridge",
@@ -270,6 +277,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "node_types": [
                 "BaseSafetyGate",
                 "JointMotionProfile",
+                "NavigateTo",
+                "NavigationSession",
                 "PolicyRuntime",
                 "PolicySafetyGate",
                 "ROS2BaseMove",
@@ -780,7 +789,23 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "slam": {
                     "name": "slam",
                     "default": False,
-                    "node_types": []
+                    "node_types": [],
+                    "adapters": {
+                        "ros2": {
+                            "name": "ros2",
+                            "default": False,
+                            "node_types": ["MapEnvironment"],
+                            "dependencies": {
+                                "requires": [
+                                    {
+                                        "package": "blacknode-ros2",
+                                        "component": "core",
+                                        "version": ">=0.6.2,<1.0.0"
+                                    }
+                                ]
+                            }
+                        }
+                    }
                 },
                 "localization": {
                     "name": "localization",
@@ -815,6 +840,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "FramePrompt",
                 "LaserScanProcessor",
                 "LiDAR",
+                "MapEnvironment",
                 "IMUProcessor",
                 "IMU",
                 "IMUViewer",
