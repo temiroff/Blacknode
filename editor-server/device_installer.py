@@ -33,6 +33,7 @@ _INSPECTION_MARKER = "__BLACKNODE_RUNTIME_INSPECTION__="
 _HARDWARE_PAIRING_INSPECTION_MARKER = "__BLACKNODE_HARDWARE_PAIRINGS__="
 _HARDWARE_ADOPTION_MARKER = "__BLACKNODE_HARDWARE_ADOPTION__="
 _HARDWARE_CONFIGURATION_MARKER = "__BLACKNODE_HARDWARE_CONFIGURATION__="
+_HARDWARE_INSTALL_MARKER = "__BLACKNODE_HARDWARE_INSTALL__="
 _UPDATE_REPORT_MARKER = "__BLACKNODE_UPDATE_REPORT__="
 _OFFLINE_BUNDLE_SCHEMA_VERSION = 2
 _OFFLINE_BUNDLE_LOCK = threading.Lock()
@@ -2080,16 +2081,35 @@ instance="$1"
   exit 2
 }
 stack_root="$HOME/Blacknode/devices/$instance"
-runtime_dir="$stack_root/runtime"
-hardware_dir="$stack_root/hardware"
+organized_runtime_dir="$stack_root/runtime"
+organized_hardware_dir="$stack_root/hardware"
 service_instance=""
 [[ "$instance" == "default" ]] || service_instance="$instance"
+if [[ "$instance" == "default" ]]; then
+  legacy_runtime_dir="$HOME/blacknode-runtime"
+  legacy_hardware_dir="$HOME/blacknode-hardware"
+else
+  legacy_runtime_dir="$HOME/blacknode-runtimes/$instance"
+  legacy_hardware_dir="$HOME/blacknode-hardware-instances/$instance"
+fi
+runtime_dir="$organized_runtime_dir"
+hardware_dir="$organized_hardware_dir"
+layout="organized"
+if [[ ! -d "$runtime_dir/.git" || ! -f "$runtime_dir/pyproject.toml" ]]; then
+  runtime_dir="$legacy_runtime_dir"
+  hardware_dir="$legacy_hardware_dir"
+  layout="legacy"
+fi
 case "$hardware_dir" in
-  "$HOME/Blacknode/devices/"*/hardware) ;;
+  "$HOME/Blacknode/devices/"*/hardware|\
+  "$HOME/blacknode-hardware"|\
+  "$HOME/blacknode-hardware-instances/"*) ;;
   *) echo "Unsafe Hardware directory."; exit 2 ;;
 esac
 [[ -d "$runtime_dir/.git" && -f "$runtime_dir/pyproject.toml" ]] || {
-  echo "The organized Runtime installation is missing: $runtime_dir"
+  echo "No valid Runtime installation was found. Checked:"
+  echo "  $organized_runtime_dir"
+  echo "  $legacy_runtime_dir"
   exit 3
 }
 created=false
@@ -2154,6 +2174,8 @@ manifest_path.write_text(
 )
 PY
 created=false
+printf '__BLACKNODE_HARDWARE_INSTALL__={"hardware_dir":"%s","layout":"%s","stack_mode":"isolated"}\n' \
+  "$hardware_dir" "$layout"
 progress 100 "Robot Hardware package installed"
 """
     remote_script_path = (
@@ -2167,7 +2189,7 @@ progress 100 "Robot Hardware package installed"
             sftp.chmod(remote_script_path, 0o700)
         finally:
             sftp.close()
-        _run(
+        output = _run(
             connection,
             f"bash {remote_script_path} {selected_instance}",
             stdin_text=_sudo_input(password, attempts=8),
@@ -2184,13 +2206,33 @@ progress 100 "Robot Hardware package installed"
                 else None
             ),
         )
+        marker_line = next(
+            (
+                line[len(_HARDWARE_INSTALL_MARKER):]
+                for line in output.splitlines()
+                if line.startswith(_HARDWARE_INSTALL_MARKER)
+            ),
+            "",
+        )
+        if not marker_line:
+            raise DeviceInstallError(
+                "The device did not confirm the Robot Hardware installation path."
+            )
+        try:
+            installation = json.loads(marker_line)
+            hardware_dir = str(installation["hardware_dir"])
+            stack_mode = str(installation.get("stack_mode") or "isolated")
+            layout = str(installation.get("layout") or "organized")
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise DeviceInstallError(
+                "The device returned invalid Robot Hardware installation information."
+            ) from exc
         return {
             "ok": True,
             "instance_id": selected_instance,
-            "hardware_dir": (
-                f"~/Blacknode/devices/{selected_instance}/hardware"
-            ),
-            "stack_mode": "isolated",
+            "hardware_dir": hardware_dir,
+            "stack_mode": stack_mode,
+            "layout": layout,
         }
     finally:
         try:

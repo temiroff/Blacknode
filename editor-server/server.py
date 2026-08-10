@@ -7400,7 +7400,7 @@ def _install_device_host_hardware_payload(
         updated_management = {
             **managed,
             "hardware_dir": str(installed["hardware_dir"]),
-            "stack_mode": "isolated",
+            "stack_mode": str(installed.get("stack_mode") or "isolated"),
         }
         device = _device_registry.set_host_management(
             host_id,
