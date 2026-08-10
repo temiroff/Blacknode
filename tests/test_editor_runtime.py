@@ -849,12 +849,18 @@ class EditorRuntimeTests(unittest.TestCase):
                 client = TestClient(server.app)
                 status = client.post(f"/nodes/{node_id}/control", json={"action": "status"})
                 stopped = client.post(f"/nodes/{node_id}/control", json={"action": "stop"})
+                closed = client.post(f"/nodes/{node_id}/control", json={"action": "close-viewer"})
             self.assertEqual(status.status_code, 200)
             self.assertEqual(status.json()["outputs"]["update"], 7)
             self.assertEqual(status.json()["outputs"]["viewer_url"], "http://127.0.0.1:8091")
             self.assertEqual(stopped.status_code, 200)
             self.assertEqual(stopped.json()["outputs"]["phase"], "stopped")
-            self.assertEqual(calls, [("so101-test", "status"), ("so101-test", "stop")])
+            self.assertEqual(closed.status_code, 200)
+            self.assertEqual(
+                calls,
+                [("so101-test", "status"), ("so101-test", "stop"),
+                 ("so101-test", "close-viewer")],
+            )
             self.assertNotIn(node_id, server._session.graph._dirty)
             prepare_cook.assert_not_called()
         finally:

@@ -291,12 +291,13 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["ACTPolicyExport"]["package"] == "blacknode-training"
     assert payload["nodes"]["ACTPolicyReplay"]["package"] == "blacknode-training"
     assert payload["nodes"]["PPOTraining"]["package"] == "blacknode-training"
+    assert payload["nodes"]["PPOPolicyImport"]["package"] == "blacknode-training"
     assert payload["packages"]["blacknode-training"]["components"]["reinforcement-learning"]["dependencies"] == {
         "requires": [
             {
                 "package": "blacknode-newton",
                 "component": "runtime",
-                "version": ">=0.1,<1",
+                "version": ">=0.1.3,<1",
             }
         ]
     }
@@ -310,6 +311,12 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "git_url": "https://github.com/temiroff/blacknode-isaac.git",
     }
     assert payload["nodes"]["IsaacPolicyRuntime"]["package"] == "blacknode-isaac"
+    assert payload["packages"]["blacknode-isaac"]["components"]["core"]["dependencies"] == {
+        "requires": [{
+            "package": "blacknode-motion", "component": "policy",
+            "version": ">=0.6.1,<1.0.0",
+        }]
+    }
 
 
 def test_installed_package_manifest_maps_new_node_types_without_core_edit():

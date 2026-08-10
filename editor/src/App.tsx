@@ -307,7 +307,10 @@ function WorkspaceApp() {
           ? results.viewer as Record<string, unknown>
           : {}
         const url = String(results.viewer_url ?? status.viewer_url ?? viewer.viewer_url ?? '').trim()
-        if (!url || results.running !== true) continue
+        const viewerRunning = results.viewer_running === true
+          || status.viewer_running === true
+          || viewer.running === true
+        if (!url || (results.running !== true && !viewerRunning)) continue
         return {
           url,
           label: String(node.data.params?.run_id ?? 'SO-ARM101 PPO training'),
@@ -1848,6 +1851,12 @@ function WorkspaceApp() {
         .join(' '),
     }))
   }, [edges, hoveredEdgeId, hoveredPort, nodes])
+  const cloudProviderLabel = cloudAccountStatus?.compute_providers?.options.find(
+    option => option.id === (
+      cloudAccountStatus.account?.compute_provider_preference
+        ?? cloudAccountStatus.compute_providers?.preference
+    ),
+  )?.label ?? 'Auto'
   return (
     <div className="bn-editor-shell" style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
       <NodePalette />
@@ -1914,8 +1923,8 @@ function WorkspaceApp() {
               <span className="bn-topbar-group-label">Run</span>
               {hostedPreview && <span className="bn-hosted-preview-badge">WEB PREVIEW</span>}
               {hostedPreview ? (
-                <span className="bn-hosted-target-badge" title="Runs on Blacknode Cloud using one NVIDIA L40S">
-                  Cloud · L40S
+                <span className="bn-hosted-target-badge" title={`Runs on Blacknode Cloud via ${cloudProviderLabel} using one NVIDIA L40S`}>
+                  Cloud · {cloudProviderLabel} · L40S
                 </span>
               ) : (
                 <select
@@ -1926,7 +1935,7 @@ function WorkspaceApp() {
                   title="Choose where this graph executes"
                 >
                   <option value="local">Local</option>
-                  <option value="cloud">Blacknode Cloud · L40S</option>
+                  <option value="cloud">Blacknode Cloud · {cloudProviderLabel} · L40S</option>
                 </select>
               )}
               {executionTarget === 'cloud' && cloudAccountStatus?.credits && (
@@ -1943,7 +1952,7 @@ function WorkspaceApp() {
                 }}
                 disabled={!serverOk || liveRunActive || (!onceRunActive && nodes.length === 0)}
                 title={executionTarget === 'cloud'
-                  ? 'Submit this graph to Blacknode Cloud on one NVIDIA L40S.'
+                  ? `Submit this graph to Blacknode Cloud via ${cloudProviderLabel} on one NVIDIA L40S.`
                   : onceRunActive
                     ? 'Stop the current one-time evaluation'
                     : 'Evaluate the graph once. Live-capable nodes return one snapshot and do not keep streaming.'}

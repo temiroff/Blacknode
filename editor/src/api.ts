@@ -1043,6 +1043,21 @@ export interface CloudStatus {
   authenticated: boolean
   account: CloudAccount | null
   credits: CloudCredits | null
+  compute_providers: CloudProviderCatalog | null
+}
+
+export type CloudProviderPreference = 'auto' | 'nvcf' | 'nebius'
+
+export interface CloudProviderOption {
+  id: CloudProviderPreference
+  label: string
+  gpu: string
+  available: boolean
+}
+
+export interface CloudProviderCatalog {
+  preference: CloudProviderPreference
+  options: CloudProviderOption[]
 }
 
 export interface HostedEditorStatus {
@@ -1058,6 +1073,7 @@ export interface CloudAccount {
   display_name: string
   created_at: string
   email_verified_at?: string | null
+  compute_provider_preference: CloudProviderPreference
 }
 
 export interface CloudCredits {
@@ -1720,6 +1736,10 @@ export const api = {
     }),
   loginCloudAccount: (email: string, password: string) =>
     req<CloudStatus>('POST', '/cloud/auth/login', { email, password }),
+  updateCloudAccount: (settings: {
+    display_name?: string
+    compute_provider_preference?: CloudProviderPreference
+  }) => req<CloudStatus>('PATCH', '/cloud/account', settings),
   verifyCloudEmail: (token: string) =>
     req<{ verified: boolean; account: CloudAccount }>('POST', '/cloud/auth/verify-email', { token }),
   logoutCloudAccount: () =>

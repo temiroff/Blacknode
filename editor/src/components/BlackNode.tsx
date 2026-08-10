@@ -560,7 +560,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const [manualMovePending, setManualMovePending] = useState<null | 'release' | 'monitor' | 'hold'>(null)
   const [calibrationPending, setCalibrationPending] = useState<null | 'start' | 'pause' | 'capture_home' | 'finish' | 'cancel'>(null)
   const [episodePending, setEpisodePending] = useState<null | 'start' | 'pause' | 'resume' | 'save' | 'stop' | 'discard'>(null)
-  const [trainingPending, setTrainingPending] = useState<null | 'start' | 'stop'>(null)
+  const [trainingPending, setTrainingPending] = useState<null | 'start' | 'stop' | 'replay' | 'close-viewer'>(null)
   const [datasetFolderPending, setDatasetFolderPending] = useState(false)
   const dashboardAutoFitDone = useRef(false)
   const streamFitDone = useRef(false)
@@ -980,6 +980,14 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     && edges.some(edge => edge.target === id && (edge.targetHandle === 'camera_stream' || edge.targetHandle === 'camera_streams'))
   const trainingRunning = isPolicyTraining && data.portResults?.running === true
   const trainingPhase = isPolicyTraining ? String(data.portResults?.phase ?? 'not started') : ''
+  const trainingViewer = isPolicyTraining && data.portResults?.viewer && typeof data.portResults.viewer === 'object'
+    ? data.portResults.viewer as Record<string, unknown>
+    : {}
+  const trainingViewerRunning = isPPOTraining && (
+    data.portResults?.viewer_running === true || trainingViewer.running === true
+  )
+  const trainingReplaying = isPPOTraining && trainingPhase === 'replaying'
+  const trainingCheckpoint = isPPOTraining ? String(data.portResults?.checkpoint ?? '').trim() : ''
   const trainingStopping = trainingRunning && trainingPhase === 'stopping'
   const trainingStep = isPolicyTraining
     ? Number(data.portResults?.[isPPOTraining ? 'update' : 'step'] ?? 0)
@@ -1506,12 +1514,21 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     }
   }
 
-  const runTrainingAction = async (action: 'start' | 'stop') => {
+  const runTrainingAction = async (action: 'start' | 'stop' | 'replay' | 'close-viewer') => {
     if (trainingPending) return
     setTrainingPending(action)
     try {
       if (action === 'stop') {
         await controlNode(id, 'stop')
+      } else if (action === 'close-viewer') {
+        await controlNode(id, 'close-viewer')
+      } else if (action === 'replay') {
+        await updateParam(id, 'action', 'replay')
+        try {
+          await cookNode(id, 'dashboard')
+        } finally {
+          await updateParam(id, 'action', 'start')
+        }
       } else {
         await updateParam(id, 'action', 'start')
         await cookNode(id, 'dashboard')
@@ -1672,7 +1689,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   }, [id, isViewer, updateNodeInternals])
 
   useEffect(() => {
-    if (!isPolicyTraining || !trainingRunning) return
+    if (!isPolicyTraining || (!trainingRunning && !trainingViewerRunning)) return
     let cancelled = false
     const refresh = async () => {
       try {
@@ -1688,7 +1705,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [controlNode, id, isPolicyTraining, trainingRunning])
+  }, [controlNode, id, isPolicyTraining, trainingRunning, trainingViewerRunning])
 
   return (
     <NodeFrame
@@ -1743,14 +1760,14 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
           onMouseDown={e => e.stopPropagation()}
           style={{ padding: '7px 10px', borderBottom: '1px solid var(--line)', fontFamily: 'var(--font-ui)' }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
             <span style={{
               width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
               background: trainingRunning ? 'var(--ok)' : trainingPhase === 'failed' ? 'var(--err)' : 'var(--tx3)',
               boxShadow: trainingRunning ? '0 0 8px var(--ok)' : 'none',
             }} />
             <strong style={{ color: trainingRunning ? 'var(--ok)' : trainingPhase === 'failed' ? 'var(--err)' : 'var(--tx2)', fontSize: 12 }}>
-              {trainingStopping ? 'STOPPING' : trainingRunning ? 'TRAINING' : trainingPhase.toUpperCase()}
+              {trainingStopping ? 'STOPPING' : trainingReplaying ? 'REPLAYING' : trainingRunning ? 'TRAINING' : trainingPhase.toUpperCase()}
             </strong>
             <span style={{ marginLeft: 'auto', color: 'var(--tx2)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
               {trainingStep}/{trainingSteps || '—'} · {Math.round(trainingProgress * 100)}%
@@ -1765,6 +1782,30 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
             >
               {trainingPending === 'stop' || trainingStopping ? 'Stopping…' : trainingPending === 'start' ? 'Starting…' : trainingRunning ? '■ Stop' : '▶ Start / resume'}
             </button>
+            {isPPOTraining && !trainingRunning && trainingCheckpoint && (
+              <button
+                disabled={Boolean(trainingPending)}
+                onClick={e => { e.stopPropagation(); void runTrainingAction('replay') }}
+                style={{
+                  ...driverBtn('var(--accent)', Boolean(trainingPending)),
+                  padding: '3px 8px', fontSize: 11,
+                }}
+              >
+                {trainingPending === 'replay' ? 'Opening replay…' : '↻ Replay checkpoint'}
+              </button>
+            )}
+            {isPPOTraining && !trainingRunning && trainingViewerRunning && (
+              <button
+                disabled={Boolean(trainingPending)}
+                onClick={e => { e.stopPropagation(); void runTrainingAction('close-viewer') }}
+                style={{
+                  ...driverBtn('var(--tx3)', Boolean(trainingPending)),
+                  padding: '3px 8px', fontSize: 11,
+                }}
+              >
+                {trainingPending === 'close-viewer' ? 'Closing…' : 'Close viewer'}
+              </button>
+            )}
           </div>
           <div style={{ height: 5, marginTop: 6, borderRadius: 3, overflow: 'hidden', background: 'var(--line2)' }}>
             <div style={{ width: `${trainingProgress * 100}%`, height: '100%', background: trainingPhase === 'failed' ? 'var(--err)' : 'var(--ok)', transition: 'width .25s ease' }} />

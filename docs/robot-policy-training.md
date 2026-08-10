@@ -61,12 +61,17 @@ validated before any physical policy test.
    managed PyTorch PPO job updates the policy. Start with the template defaults;
    lower `environment_count` to 64 for a lightweight functional check.
    Blacknode automatically opens the live simulation pane for one sampled arm.
-   The viewer shows the green reach target, orange end-effector trail, reward,
-   distance, episode step, and training update. Select another environment from
-   the viewer without restarting training.
-4. Use the node's **Stop** control for cooperative shutdown. Keep `resume=true`
+   Choose `viewer_provider=viser` for the target, trail, metrics, and environment
+   selector, or enable `blacknode-newton/viewer-ovrtx` in **Packages** and choose
+   `viewer_provider=ovrtx` for the RTX-rendered USD view.
+4. The final sampled arm remains visible after training completes while
+   Blacknode releases the replicated training batch. Press **Replay checkpoint**
+   to run the newest checkpoint deterministically in a one-arm Newton environment
+   at visible speed. Set `replay_episodes` to control the replay length, and use
+   **Close viewer** when inspection is complete.
+5. Use the node's **Stop** control for cooperative shutdown. Keep `resume=true`
    and the same output directory to continue from the newest atomic checkpoint.
-5. Run `PPOPolicyEvaluate` on the checkpoint, then export it with
+6. Run `PPOPolicyEvaluate` on the checkpoint, then export it with
    `PPOPolicyExport`. Evaluation and export retain a simulation-only safety
    contract.
 
@@ -179,11 +184,13 @@ command is published during preview.
 
 ### Closed-loop evaluation in Isaac Sim
 
-Open **Isaac Sim ACT Policy Deployment** to run the same artifact against live
-simulator observations before physical evaluation. Start `IsaacPolicyBridge`,
-then run `clients/isaac_policy_client.py` inside Isaac Sim with the articulation
-root and one USD camera prim for every policy camera name. The client sends
-measured joint positions, USD limits, and rendered RGB frames to Blacknode.
+Open **Isaac Sim ACT Policy Deployment** for an ACT artifact or **Isaac Sim PPO
+Evaluation** for a compatible SO-ARM101 reach artifact. Start
+`IsaacPolicyBridge`, then run `clients/isaac_policy_client.py` inside Isaac Sim.
+ACT maps the articulation root and one USD camera prim for every policy camera
+name. PPO maps the articulation root, task target, and end-effector prim; the
+client sends ordered joint positions and velocities, USD limits, and both xyz
+positions in metres.
 
 Set `IsaacPolicyRuntime.action=check`, then `start` for disarmed continuous
 inference. Use a separate `arm` action only after inspecting predictions. The
@@ -192,6 +199,14 @@ through USD limits, maximum velocity, maximum per-cycle step, workspace, and
 freshness checks. The Isaac client clamps against USD limits again before
 applying a target. `disarm`, `estop`, `takeover`, `stop`, **Stop All**, stale
 observations, and faults suppress future articulation commands.
+
+PPO artifacts exported by Blacknode carry a
+`blacknode.ppo-compatibility-contract` and can run in Newton or Isaac Sim. For
+the reverse direction, export an Isaac-trained deterministic actor as
+TorchScript with shape `[batch,21] -> [batch,6]`, then open **SO-ARM101 Isaac
+PPO Import**. `PPOPolicyImport` validates and packages it, and
+`PPOPolicyEvaluate` evaluates it in Newton. Joint order, observation fields,
+action scale, and the simulation-only safety contract must match exactly.
 
 ### 6. Arm, interrupt, and take over
 

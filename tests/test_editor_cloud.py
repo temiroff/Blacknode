@@ -47,6 +47,17 @@ class EditorCloudTests(unittest.TestCase):
         client.cookies.set(server._CLOUD_SESSION_COOKIE, session_id)
         return client
 
+    @staticmethod
+    def provider_catalog(preference="auto"):
+        return {
+            "preference": preference,
+            "options": [
+                {"id": "auto", "label": "Auto", "gpu": "NVIDIA L40S", "available": True},
+                {"id": "nvcf", "label": "NVIDIA", "gpu": "NVIDIA L40S", "available": True},
+                {"id": "nebius", "label": "Nebius", "gpu": "NVIDIA L40S", "available": True},
+            ],
+        }
+
     def test_cloud_status_reports_configuration_without_exposing_key(self):
         with patch.dict(
             os.environ,
@@ -114,6 +125,8 @@ class EditorCloudTests(unittest.TestCase):
                     "available": 7200,
                     "locked": 0,
                 }
+            if path == "/v1/compute/providers":
+                return self.provider_catalog()
             raise AssertionError(path)
 
         with patch.object(server, "_cloud_call", side_effect=cloud_call):
@@ -140,6 +153,9 @@ class EditorCloudTests(unittest.TestCase):
             if path == "/v1/credits":
                 self.assertEqual(method, "GET")
                 return {"unit": "gpu-second", "balance": 7200, "reserved": 0, "available": 7200}
+            if path == "/v1/compute/providers":
+                self.assertEqual(method, "GET")
+                return self.provider_catalog()
             raise AssertionError(path)
 
         with (
@@ -154,7 +170,47 @@ class EditorCloudTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["account"]["display_name"], "Robotics Team")
         self.assertEqual(response.json()["credits"]["available"], 7200)
+        self.assertEqual(response.json()["compute_providers"]["preference"], "auto")
         self.assertEqual(response.headers["cache-control"], "no-store")
+
+    def test_account_compute_provider_update_forwards_nebius_preference(self):
+        client = self.authenticated_client()
+
+        def cloud_user_call(_request, method, path, payload=None):
+            if path == "/v1/account":
+                self.assertEqual(
+                    (method, payload),
+                    ("PATCH", {"compute_provider_preference": "nebius"}),
+                )
+                return {
+                    "id": "user_123",
+                    "organization_id": "org_123",
+                    "email": "robot@example.com",
+                    "display_name": "Robot Builder",
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "compute_provider_preference": "nebius",
+                }
+            if path == "/v1/credits":
+                return {"unit": "gpu-second", "balance": 7200, "reserved": 0, "available": 7200}
+            if path == "/v1/compute/providers":
+                return self.provider_catalog("nebius")
+            raise AssertionError(path)
+
+        with (
+            patch.dict(os.environ, {"BLACKNODE_CLOUD_URL": "https://cloud.blacknode.example"}),
+            patch.object(server, "_cloud_user_call", side_effect=cloud_user_call),
+        ):
+            response = client.patch(
+                "/cloud/account",
+                json={"compute_provider_preference": "nebius"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["account"]["compute_provider_preference"],
+            "nebius",
+        )
+        self.assertEqual(response.json()["compute_providers"]["preference"], "nebius")
 
     def test_login_keeps_cloud_token_in_http_only_server_session(self):
         auth = {
@@ -176,6 +232,9 @@ class EditorCloudTests(unittest.TestCase):
             if path == "/v1/credits":
                 self.assertEqual(kwargs["authorization"], auth["token"])
                 return {"unit": "gpu-second", "balance": 7200, "reserved": 0, "available": 7200}
+            if path == "/v1/compute/providers":
+                self.assertEqual(kwargs["authorization"], auth["token"])
+                return self.provider_catalog()
             raise AssertionError(path)
 
         with (

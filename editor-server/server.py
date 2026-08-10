@@ -514,7 +514,11 @@ class CloudRegisterReq(CloudLoginReq):
 
 
 class CloudUpdateAccountReq(BaseModel):
-    display_name: str = Field(min_length=1, max_length=100)
+    display_name: str | None = Field(default=None, min_length=1, max_length=100)
+    compute_provider_preference: str | None = Field(
+        default=None,
+        pattern=r"^(auto|nvcf|nebius)$",
+    )
 
 
 class CloudNewsletterReq(BaseModel):
@@ -2865,8 +2869,12 @@ def control_node(node_id: str, req: NodeControlReq):
         _session.graph._dirty.discard(node_id)
         return {"ok": True, "node_id": node_id, "outputs": outputs}
     if meta.get("type") == "PPOTraining":
-        if req.action not in {"status", "stop"}:
-            raise HTTPException(400, "PPOTraining direct controls support status or stop; use Run to start")
+        if req.action not in {"status", "stop", "close-viewer"}:
+            raise HTTPException(
+                400,
+                "PPOTraining direct controls support status, stop, or close-viewer; "
+                "use Run to start training or replay",
+            )
         control_fn = _runtime_callable("training", _RUNTIME_MODULES["training"], "control_ppo_training_job")
         if control_fn is None:
             raise HTTPException(503, "blacknode-training PPO runtime is not loaded")
@@ -4287,6 +4295,7 @@ def _cloud_status_payload(request: Request, response: Response) -> dict[str, Any
         "authenticated": False,
         "account": None,
         "credits": None,
+        "compute_providers": None,
     }
     session_id = request.cookies.get(_CLOUD_SESSION_COOKIE)
     session = _cloud_sessions.get(session_id)
@@ -4307,6 +4316,12 @@ def _cloud_status_payload(request: Request, response: Response) -> dict[str, Any
             authorization=session.token,
             allow_admin=False,
         )
+        compute_providers = _cloud_call(
+            "GET",
+            "/v1/compute/providers",
+            authorization=session.token,
+            allow_admin=False,
+        )
     except HTTPException as exc:
         if exc.status_code == 401:
             _cloud_sessions.pop(session_id)
@@ -4317,6 +4332,7 @@ def _cloud_status_payload(request: Request, response: Response) -> dict[str, Any
         authenticated=True,
         account=account,
         credits=credits,
+        compute_providers=compute_providers,
     )
     response.headers["Cache-Control"] = "no-store"
     return status_payload
@@ -4339,13 +4355,24 @@ def update_cloud_account(
     request: Request,
     response: Response,
 ):
+    payload = {
+        key: value
+        for key, value in {
+            "display_name": req.display_name,
+            "compute_provider_preference": req.compute_provider_preference,
+        }.items()
+        if value is not None
+    }
+    if not payload:
+        raise HTTPException(422, "Provide at least one Cloud account setting.")
     account = _cloud_user_call(
         request,
         "PATCH",
         "/v1/account",
-        {"display_name": req.display_name},
+        payload,
     )
     credits = _cloud_user_call(request, "GET", "/v1/credits")
+    compute_providers = _cloud_user_call(request, "GET", "/v1/compute/providers")
     config = cloud_client.configuration()
     response.headers["Cache-Control"] = "no-store"
     return {
@@ -4355,6 +4382,7 @@ def update_cloud_account(
         "authenticated": True,
         "account": account,
         "credits": credits,
+        "compute_providers": compute_providers,
     }
 
 
@@ -4379,6 +4407,12 @@ def _cloud_authenticate(
         authorization=session.token,
         allow_admin=False,
     )
+    compute_providers = _cloud_call(
+        "GET",
+        "/v1/compute/providers",
+        authorization=session.token,
+        allow_admin=False,
+    )
     return {
         "configured": config.available,
         "gpu": "NVIDIA L40S",
@@ -4386,6 +4420,7 @@ def _cloud_authenticate(
         "authenticated": True,
         "account": session.account,
         "credits": credits,
+        "compute_providers": compute_providers,
     }
 
 

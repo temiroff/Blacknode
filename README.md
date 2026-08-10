@@ -143,6 +143,10 @@ need on-demand GPU compute. Cloud accounts use compute credits measured in
 GPU-seconds: a job reserves its runtime limit, charges measured GPU time, and
 returns progress, logs, metrics, and downloadable artifacts to the editor. The
 same workflow format runs locally, on paired devices, and in Blacknode Cloud.
+Signed-in users choose **Auto**, **NVIDIA**, or **Nebius** in the editor's Cloud
+account settings when those compute providers are configured. The workflow and
+job contract stay provider-neutral, and existing jobs keep their original
+provider if the account preference changes.
 Signup credits remain visible but locked until email verification succeeds;
 the editor and Cloud API both block job submission before verification.
 The hosted Editor preview and its cloud-only security boundary are documented

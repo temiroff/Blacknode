@@ -4,7 +4,9 @@ The Blacknode hosted preview provides the visual workflow canvas and Blacknode
 Cloud execution at `https://app.blacknoderobotics.com`. Each browser receives
 an isolated, process-local graph workspace. The preview supports core node
 schemas, graph editing, templates, Cloud account access, GPU-second credits,
-job submission, progress, logs, and artifact downloads.
+compute-provider preference, job submission, progress, logs, and artifact
+downloads. Available accounts can choose Auto, NVIDIA, or Nebius in the Cloud
+account panel; Auto follows the Cloud service default.
 
 Set these values only on the hosted Editor server:
 
