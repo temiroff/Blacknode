@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, BinaryIO
 
 
 @dataclass(frozen=True)
@@ -90,6 +90,48 @@ def download(
                 yield chunk
 
     return chunks(), media_type, disposition
+
+
+def upload(
+    path: str,
+    stream: BinaryIO,
+    *,
+    size: int,
+    headers: dict[str, str],
+    authorization: str,
+    timeout: float = 86_400.0,
+) -> dict[str, Any]:
+    config = configuration()
+    if not config.available:
+        raise CloudClientError(503, "Configure BLACKNODE_CLOUD_URL on the editor server.")
+    request = urllib.request.Request(
+        f"{config.base_url}{path}",
+        data=stream,
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {authorization}",
+            "Content-Length": str(size),
+            "Content-Type": "application/gzip",
+            **headers,
+        },
+        method="PUT",
+    )
+    try:
+        response = urllib.request.urlopen(request, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        message = _error_message(exc)
+        exc.close()
+        raise CloudClientError(exc.code, message) from exc
+    except (OSError, urllib.error.URLError) as exc:
+        raise CloudClientError(502, "Blacknode Cloud is unreachable.") from exc
+    with response:
+        try:
+            value = json.loads(response.read().decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CloudClientError(502, "Blacknode Cloud returned invalid JSON.") from exc
+    if not isinstance(value, dict):
+        raise CloudClientError(502, "Blacknode Cloud returned an invalid response.")
+    return value
 
 
 def _open(

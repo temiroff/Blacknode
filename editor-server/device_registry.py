@@ -632,6 +632,14 @@ class RuntimeDeviceClient(HardwareDeviceClient):
             timeout=15.0,
         )
 
+    def save_deployment_map(self, deployment_id: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"{self._deployment_endpoint(deployment_id)}/control",
+            payload={"command": "save-map"},
+            timeout=150.0,
+        )
+
     def ros2_diagnostics(self) -> dict[str, Any]:
         return self._request("GET", "/diagnostics/ros2", timeout=90.0)
 

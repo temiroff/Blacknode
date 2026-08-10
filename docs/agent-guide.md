@@ -359,6 +359,19 @@ Use these instead:
 
 ## Template Workflow
 
+Shared templates are outcome-producing product workflows, not test fixtures or
+proof-of-concept graphs. A template should perform a real task and produce the
+artifact, service, deployment, model, dataset, action, or decision its name
+promises. Keep the graph short and direct, and include only nodes that
+materially contribute to that result.
+
+Do not add checker, test, echo, report, or confirmation nodes merely to prove
+that another node works. Put implementation checks in automated tests or local
+developer workflows. Operation-owning nodes should handle practical preflight
+validation, progress, and actionable failures. Required motion safety,
+authorization, cost consent, and destructive-action confirmation still apply
+and should be integrated into the owning action when the contract allows it.
+
 To make a new shared template:
 
 1. Build and save the workflow in the editor.

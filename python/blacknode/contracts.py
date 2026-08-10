@@ -50,6 +50,7 @@ SHIPPING_KINDS: dict[str, str] = {
     "blacknode.episode-dataset": "blacknode-dataset",
     "blacknode.episode-replay": "blacknode-dataset",
     "blacknode.dataset-catalog": "blacknode-dataset",
+    "blacknode.dataset-source": "blacknode-dataset",
     # Export / publishing
     "blacknode.hdf5-export": "blacknode-dataset",
     "blacknode.hub-dataset": "blacknode-dataset",
@@ -62,6 +63,7 @@ SHIPPING_KINDS: dict[str, str] = {
     "blacknode.action-chunking-checkpoint": "blacknode-training",
     "blacknode.act-policy-model": "blacknode-training",
     "blacknode.policy-artifact": "blacknode-training",
+    "blacknode.vla-model": "blacknode-training",
     "blacknode.policy-prediction": "blacknode-training",
     "blacknode.policy-preview": "blacknode-training",
     "blacknode.policy-replay": "blacknode-training",

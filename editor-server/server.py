@@ -1,6 +1,6 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib, math, copy, base64
+import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib, math, copy, base64, tempfile
 from array import array
 import urllib.error, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -501,6 +501,16 @@ class CloudJobReq(BaseModel):
     workflow_name: str = "Current Graph"
     project_ref: str | None = None
     max_runtime_seconds: int = Field(default=3600, ge=60, le=86_400)
+
+
+class CloudVLATrainReq(BaseModel):
+    dataset_uri: str = Field(min_length=1, max_length=1000)
+    dataset_revision: str = Field(default="", max_length=200)
+    steps: int = Field(default=5000, ge=1, le=10_000_000)
+    batch_size: int = Field(default=8, ge=1, le=1024)
+    action_horizon: int = Field(default=10, ge=1, le=256)
+    max_runtime_seconds: int = Field(default=14_400, ge=60, le=86_400)
+    project_ref: str | None = None
 
 
 class CloudLoginReq(BaseModel):
@@ -4536,6 +4546,132 @@ def create_cloud_job(req: CloudJobReq, request: Request):
     )
 
 
+@app.get("/cloud/datasets")
+def list_cloud_datasets(request: Request):
+    return _cloud_user_call(request, "GET", "/v1/datasets")
+
+
+@app.put("/cloud/datasets")
+async def upload_cloud_dataset(request: Request):
+    name = Path(request.headers.get("X-Dataset-Name", "")).name
+    if not name.endswith((".tar.gz", ".tgz")):
+        raise HTTPException(400, "Choose a .tar.gz LeRobot dataset archive.")
+    descriptor, temporary_name = tempfile.mkstemp(prefix="blacknode-dataset-", suffix=".tar.gz")
+    os.close(descriptor)
+    temporary = Path(temporary_name).resolve()
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with temporary.open("wb") as handle:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > 50 * 1024 * 1024 * 1024:
+                    raise HTTPException(413, "Dataset archive exceeds the 50 GiB V0 limit.")
+                digest.update(chunk)
+                handle.write(chunk)
+        if not size:
+            raise HTTPException(400, "Dataset archive is empty.")
+        sha256 = digest.hexdigest()
+        asset_id = f"dataset_{sha256[:32]}"
+        try:
+            with temporary.open("rb") as stream:
+                return cloud_client.upload(
+                    f"/v1/datasets/{asset_id}",
+                    stream,
+                    size=size,
+                    headers={
+                        "X-Dataset-Name": name,
+                        "X-Dataset-SHA256": sha256,
+                        "X-Dataset-Size": str(size),
+                    },
+                    authorization=_cloud_session(request).token,
+                )
+        except cloud_client.CloudClientError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+@app.post("/cloud/vla/jobs")
+def create_cloud_vla_job(req: CloudVLATrainReq, request: Request):
+    uri = req.dataset_uri.strip()
+    revision = req.dataset_revision.strip()
+    if uri.startswith("hf://") and not revision:
+        raise HTTPException(400, "Pin the Hugging Face dataset to an immutable revision.")
+    if not uri.startswith(("hf://", "blacknode-cloud://datasets/")):
+        raise HTTPException(400, "Choose a pinned Hugging Face or uploaded Cloud dataset.")
+    workflow = {
+        "kind": "blacknode.workflow",
+        "schema_version": 1,
+        "name": "OpenPI π0.5 Fine-Tune",
+        "entrypoint": {"node_id": "train", "port": "model"},
+        "metadata": {
+            "source": "blacknode-editor-vla",
+            "required_packages": ["blacknode-dataset", "blacknode-training"],
+            "required_components": [
+                "blacknode-dataset/adapters",
+                "blacknode-training/vla-openpi",
+            ],
+            "cloud": {"workload": "vla_train", "gpu_class": "l40s"},
+            "safety": {"physical_motion_authorized": False},
+        },
+        "node_meta": {
+            "dataset": {
+                "id": "dataset",
+                "type": "LeRobotDataset",
+                "params": {"uri": uri, "revision": revision, "source_uri": ""},
+                "inputs": ["trigger", "uri", "revision", "source_uri"],
+                "outputs": ["dataset", "uri", "revision", "report"],
+            },
+            "train": {
+                "id": "train",
+                "type": "OpenPIFineTune",
+                "params": {
+                    "action": "run",
+                    "dataset": {},
+                    "run_id": f"pi05-{uuid.uuid4().hex[:12]}",
+                    "output_dir": "",
+                    "steps": req.steps,
+                    "batch_size": req.batch_size,
+                    "action_horizon": req.action_horizon,
+                    "action_mode": "absolute_joint",
+                    "learning_rate": 0.00005,
+                    "save_interval": min(1000, req.steps),
+                    "seed": 42,
+                    "resume": True,
+                    "overwrite": False,
+                },
+                "inputs": [
+                    "trigger", "action", "dataset", "run_id", "output_dir", "steps",
+                    "batch_size", "action_horizon", "action_mode", "learning_rate",
+                    "save_interval", "seed", "resume", "overwrite",
+                ],
+                "outputs": [
+                    "ok", "running", "phase", "step", "progress", "status", "metrics",
+                    "model", "model_path", "report",
+                ],
+            },
+        },
+        "edges": [
+            {"from": "dataset", "from_port": "dataset", "to": "train", "to_port": "dataset"}
+        ],
+    }
+    return _cloud_user_call(
+        request,
+        "POST",
+        "/v1/jobs",
+        {
+            "contract_version": "blacknode.cloud.jobs/v1",
+            "project_ref": req.project_ref,
+            "workflow": workflow,
+            "compute": {
+                "gpu_class": "l40s",
+                "gpu_count": 1,
+                "max_runtime_seconds": req.max_runtime_seconds,
+            },
+            "runtime": {"release": "gpu-development"},
+        },
+    )
 @app.get("/cloud/jobs/{job_id}")
 def get_cloud_job(job_id: str, request: Request):
     return _cloud_user_call(request, "GET", f"/v1/jobs/{_cloud_job_id(job_id)}")
@@ -8274,6 +8410,31 @@ def _workflow_motion_controls(workflow: dict[str, Any]) -> list[dict[str, str]]:
     return controls
 
 
+def _workflow_mapping_controls(workflow: dict[str, Any]) -> list[dict[str, Any]]:
+    """Capture the portable MapEnvironment settings for device-side controls."""
+    controls: list[dict[str, Any]] = []
+    for node_id, meta in (workflow.get("node_meta") or {}).items():
+        if not isinstance(meta, dict) or str(meta.get("type") or "") != "MapEnvironment":
+            continue
+        params = meta.get("params") if isinstance(meta.get("params"), dict) else {}
+        controls.append({
+            "kind": "slam_toolbox",
+            "node_id": str(node_id),
+            "map_topic": str(params.get("map_topic") or "/map"),
+            "save_directory": str(params.get("save_directory") or "~/Blacknode/maps"),
+            "map_name": str(params.get("map_name") or "map_01"),
+            "save_map_service": str(
+                params.get("save_map_service") or "/slam_toolbox/save_map"
+            ),
+            "serialize_service": str(
+                params.get("serialize_service") or "/slam_toolbox/serialize_map"
+            ),
+            "serialize_pose_graph": bool(params.get("serialize_pose_graph", True)),
+            "service_timeout": float(params.get("service_timeout") or 30.0),
+        })
+    return controls
+
+
 def _disarm_workflow_motion_controls(workflow: dict[str, Any]) -> list[str]:
     """Force remotely controlled motion gates off in the deployed snapshot."""
     node_meta = workflow.get("node_meta")
@@ -11335,6 +11496,7 @@ def _stage_device_deployment_payload(
             "required_capabilities": _workflow_required_capabilities(workflow),
             "telemetry_required": _workflow_requires_deployment_telemetry(workflow),
             "motion_controls": _workflow_motion_controls(workflow),
+            "mapping_controls": _workflow_mapping_controls(workflow),
             "required_packages": _workflow_target_packages(workflow),
             "package_requirements": _workflow_target_package_specs(workflow),
             "blacknode_version": str(getattr(bn, "__version__", "")),
@@ -11496,6 +11658,73 @@ def control_device_deployment_motion(
     return result
 
 
+@app.post("/devices/{device_id}/deployments/{deployment_id}/mapping/save")
+def save_device_deployment_map(device_id: str, deployment_id: str):
+    deployment = _require_targeted_deployment(device_id, deployment_id)
+    if str(deployment.get("state") or "") != "running":
+        raise HTTPException(409, "Start mapping before saving the map.")
+    if int(deployment.get("mapping_control_count") or 0) != 1:
+        raise HTTPException(409, "This deployment does not contain one MapEnvironment control.")
+    try:
+        return _runtime_client_or_404(device_id).save_deployment_map(deployment_id)
+    except DeviceRegistryError as exc:
+        detail = str(exc)
+        if "HTTP 404" in detail or "not found" in detail.casefold():
+            raise HTTPException(
+                409,
+                "This Runtime cannot save deployed maps yet. Update blacknode-runtime "
+                "to 0.4.13 or newer and stage the mapping workflow again.",
+            ) from exc
+        raise HTTPException(502, detail) from exc
+
+
+@app.get("/devices/{device_id}/deployments/{deployment_id}/mapping/snapshot")
+def get_device_deployment_map_snapshot(device_id: str, deployment_id: str):
+    deployment = _require_targeted_deployment(device_id, deployment_id)
+    if str(deployment.get("state") or "") != "running":
+        raise HTTPException(409, "Start mapping to view the live occupancy map.")
+    if int(deployment.get("mapping_control_count") or 0) != 1:
+        raise HTTPException(409, "This deployment does not contain one MapEnvironment control.")
+    topic = str(deployment.get("mapping_topic") or "/map").strip()
+    stream_id = ("map-" + re.sub(r"[^a-z0-9-]+", "-", deployment_id.lower()))[:64].rstrip("-")
+    try:
+        client = _runtime_client_or_404(device_id)
+        response = client.ros2_topic_status(stream_id)
+        current_outputs = (
+            response.get("outputs")
+            if isinstance(response.get("outputs"), dict)
+            else {}
+        )
+        current_status = (
+            current_outputs.get("status")
+            if isinstance(current_outputs.get("status"), dict)
+            else {}
+        )
+        if not current_status.get("worker_alive"):
+            response = client.start_ros2_topic(
+                stream_id,
+                {
+                    "topic": topic,
+                    "message_type": "nav_msgs/msg/OccupancyGrid",
+                    "node_name": "blacknode_mapping_view",
+                    "history": 1,
+                    "timeout": 3.0,
+                    "stale_after_seconds": 5.0,
+                    "qos": "transient_local",
+                },
+            )
+    except DeviceRegistryError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    outputs = response.get("outputs") if isinstance(response.get("outputs"), dict) else {}
+    return {
+        "deployment_id": deployment_id,
+        "topic": topic,
+        "message": outputs.get("message") if isinstance(outputs.get("message"), dict) else {},
+        "status": outputs.get("status") if isinstance(outputs.get("status"), dict) else {},
+        "report": str(outputs.get("report") or ""),
+    }
+
+
 @app.get("/devices/{device_id}/ros2-diagnostics")
 def get_device_ros2_diagnostics(device_id: str):
     try:
@@ -11534,10 +11763,18 @@ def start_device_deployment(device_id: str, deployment_id: str):
 
 @app.post("/devices/{device_id}/deployments/{deployment_id}/stop")
 def stop_device_deployment(device_id: str, deployment_id: str):
-    _require_targeted_deployment(device_id, deployment_id)
+    current = _require_targeted_deployment(device_id, deployment_id)
     try:
         runtime_client = _runtime_client_or_404(device_id)
         deployment = runtime_client.stop_deployment(deployment_id)
+        if int(current.get("mapping_control_count") or 0) == 1:
+            stream_id = (
+                "map-" + re.sub(r"[^a-z0-9-]+", "-", deployment_id.lower())
+            )[:64].rstrip("-")
+            try:
+                runtime_client.stop_ros2_topic(stream_id)
+            except DeviceRegistryError:
+                pass
     except DeviceRegistryError as exc:
         raise HTTPException(502, str(exc)) from exc
     remaining = _target_deployment_records(

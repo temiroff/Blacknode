@@ -904,10 +904,17 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "HuggingFaceDatasetUpload",
                         "StreamPublisher"
                     ]
+                },
+                "adapters": {
+                    "name": "adapters",
+                    "default": False,
+                    "node_types": [
+                        "LeRobotDataset"
+                    ]
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-dataset.git",
-            "description": "Native episode recording, recovery, validation, LeRobot v3 export, and explicit Hugging Face dataset upload.",
+            "description": "BlacknodeDataset recording, recovery, validation, lazy LeRobot adaptation, export, and explicit Hugging Face upload.",
             "node_types": [
                 "BlacknodeHubExport",
                 "DatasetBrowser",
@@ -922,6 +929,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "HDF5EpisodeExport",
                 "HuggingFaceDatasetUpload",
                 "LeRobotV3Export",
+                "LeRobotDataset",
                 "StreamPublisher",
                 "TrajectorySmoother"
             ]
@@ -986,10 +994,26 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             }
                         ]
                     }
+                },
+                "vla-openpi": {
+                    "name": "vla-openpi",
+                    "default": False,
+                    "node_types": [
+                        "OpenPIFineTune"
+                    ],
+                    "dependencies": {
+                        "requires": [
+                            {
+                                "package": "blacknode-dataset",
+                                "component": "adapters",
+                                "version": ">=0.3,<1"
+                            }
+                        ]
+                    }
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-training.git",
-            "description": "Robot-policy dataset checks, managed training, checkpoints, previews, reinforcement learning, and deployable policy artifacts.",
+            "description": "Managed robot-policy and OpenPI π0.5 VLA training, checkpoints, previews, and deployable model artifacts.",
             "node_types": [
                 "ACTCheckpointInspect",
                 "ACTPolicyExport",
@@ -1001,6 +1025,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "PPOPolicyExport",
                 "PPOPolicyImport",
                 "PPOTraining",
+                "OpenPIFineTune",
                 "PolicyArtifactLoad",
                 "TrainingDatasetCheck"
             ]

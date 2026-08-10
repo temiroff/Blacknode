@@ -4,6 +4,7 @@ import {
   api,
   type CloudArtifact,
   type CloudCreditEntry,
+  type CloudDataset,
   type CloudJob,
   type CloudJobEvent,
   type CloudProviderPreference,
@@ -21,6 +22,15 @@ interface Props {
   accountStatus: CloudStatus | null
   onAccountStatus: (status: CloudStatus) => void
   onRun: () => void
+  onRunVla: (request: {
+    dataset_uri: string
+    dataset_revision: string
+    steps: number
+    batch_size: number
+    action_horizon: number
+    max_runtime_seconds: number
+  }) => Promise<void>
+  onJobCompleted: (job: CloudJob) => void
   onClose: () => void
 }
 
@@ -56,6 +66,8 @@ export default function CloudRunPanel({
   accountStatus,
   onAccountStatus,
   onRun,
+  onRunVla,
+  onJobCompleted,
   onClose,
 }: Props) {
   const [job, setJob] = useState<CloudJob | null>(initialJob)
@@ -73,7 +85,19 @@ export default function CloudRunPanel({
   const [providerPending, setProviderPending] = useState(false)
   const [providerError, setProviderError] = useState('')
   const [providerPreference, setProviderPreference] = useState<CloudProviderPreference>('auto')
+  const [datasets, setDatasets] = useState<CloudDataset[]>([])
+  const [vlaSource, setVlaSource] = useState<'huggingface' | 'cloud'>('huggingface')
+  const [vlaDatasetUri, setVlaDatasetUri] = useState('hf://lerobot/aloha_sim_insertion_human')
+  const [vlaDatasetRevision, setVlaDatasetRevision] = useState('')
+  const [vlaDatasetId, setVlaDatasetId] = useState('')
+  const [vlaSteps, setVlaSteps] = useState(5000)
+  const [vlaBatchSize, setVlaBatchSize] = useState(8)
+  const [vlaActionHorizon, setVlaActionHorizon] = useState(10)
+  const [vlaRuntime, setVlaRuntime] = useState(14400)
+  const [vlaPending, setVlaPending] = useState(false)
+  const [vlaError, setVlaError] = useState('')
   const nextSeq = useRef(0)
+  const completedJobId = useRef('')
 
   const refreshAccount = useCallback(async () => {
     const nextStatus = await api.cloudStatus()
@@ -102,6 +126,16 @@ export default function CloudRunPanel({
   }, [accountStatus?.authenticated, accountStatus?.account?.id, open])
 
   useEffect(() => {
+    if (!open || !accountStatus?.authenticated) return
+    void api.listCloudDatasets()
+      .then(items => {
+        setDatasets(items)
+        setVlaDatasetId(current => current || items[0]?.id || '')
+      })
+      .catch(cause => setVlaError(cause instanceof Error ? cause.message : String(cause)))
+  }, [accountStatus?.authenticated, open])
+
+  useEffect(() => {
     setProviderPreference(
       accountStatus?.account?.compute_provider_preference
         ?? accountStatus?.compute_providers?.preference
@@ -111,7 +145,11 @@ export default function CloudRunPanel({
 
   useEffect(() => {
     if (job && TERMINAL.has(job.status)) void refreshAccount()
-  }, [job?.status, refreshAccount])
+    if (job?.status === 'COMPLETED' && completedJobId.current !== job.id) {
+      completedJobId.current = job.id
+      onJobCompleted(job)
+    }
+  }, [job, onJobCompleted, refreshAccount])
 
   useEffect(() => {
     if (!open || view !== 'job' || !initialJob) return undefined
@@ -169,6 +207,19 @@ export default function CloudRunPanel({
       return `${x.toFixed(1)},${y.toFixed(1)}`
     }).join(' ')
   }, [reward])
+  const loss = metrics.filter(metric => metric.name.toLowerCase() === 'loss').slice(-60)
+  const lossPoints = useMemo(() => {
+    if (loss.length < 2) return ''
+    const values = loss.map(item => item.value)
+    const low = Math.min(...values)
+    const high = Math.max(...values)
+    const span = Math.max(0.0001, high - low)
+    return values.map((value, index) => {
+      const x = (index / (values.length - 1)) * 300
+      const y = 76 - ((value - low) / span) * 68
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    }).join(' ')
+  }, [loss])
   const logs = events.filter(event => event.type === 'log').slice(-300)
 
   const submitAuth = async (event: FormEvent) => {
@@ -235,6 +286,48 @@ export default function CloudRunPanel({
     }
   }
 
+  const uploadDataset = async (file: File | undefined) => {
+    if (!file) return
+    setVlaPending(true)
+    setVlaError('')
+    try {
+      const uploaded = await api.uploadCloudDataset(file)
+      setDatasets(current => [uploaded, ...current.filter(item => item.id !== uploaded.id)])
+      setVlaDatasetId(uploaded.id)
+      setVlaSource('cloud')
+    } catch (cause) {
+      setVlaError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setVlaPending(false)
+    }
+  }
+
+  const runVla = async () => {
+    const datasetUri = vlaSource === 'cloud'
+      ? (vlaDatasetId ? `blacknode-cloud://datasets/${vlaDatasetId}` : '')
+      : vlaDatasetUri.trim()
+    if (!datasetUri) {
+      setVlaError('Choose a dataset.')
+      return
+    }
+    setVlaPending(true)
+    setVlaError('')
+    try {
+      await onRunVla({
+        dataset_uri: datasetUri,
+        dataset_revision: vlaSource === 'huggingface' ? vlaDatasetRevision.trim() : '',
+        steps: vlaSteps,
+        batch_size: vlaBatchSize,
+        action_horizon: vlaActionHorizon,
+        max_runtime_seconds: vlaRuntime,
+      })
+    } catch (cause) {
+      setVlaError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setVlaPending(false)
+    }
+  }
+
   if (!open) return null
   const credits = accountStatus?.credits
   const account = accountStatus?.account
@@ -245,6 +338,9 @@ export default function CloudRunPanel({
     : Math.max(credits?.locked ?? 0, credits?.available ?? 0)
   const activeJob = job && !TERMINAL.has(job.status)
   const visibleJob = view === 'job' ? job : null
+  const vlaModel = visibleJob?.result && typeof visibleJob.result === 'object'
+    ? visibleJob.result as Record<string, unknown>
+    : null
   const providerOptions = accountStatus?.compute_providers?.options ?? []
   const selectedProvider = providerOptions.find(option => option.id === providerPreference)
   const providerLabel = selectedProvider?.label ?? 'Auto'
@@ -261,7 +357,7 @@ export default function CloudRunPanel({
         </header>
 
         {(pending || (!accountStatus && !error)) && <div className="bn-cloud-run-message">Connecting to Blacknode Cloud…</div>}
-        {(error || pollError || authError || providerError) && <div className="bn-cloud-run-error">{error || pollError || authError || providerError}</div>}
+        {(error || pollError || authError || providerError || vlaError) && <div className="bn-cloud-run-error">{error || pollError || authError || providerError || vlaError}</div>}
         {!pending && accountStatus && !accountStatus.configured && !error && (
           <div className="bn-cloud-run-error">Blacknode Cloud is not configured on this editor server.</div>
         )}
@@ -370,6 +466,55 @@ export default function CloudRunPanel({
               </button>
             </div>
 
+            <div className="bn-cloud-run-section bn-cloud-vla-form">
+              <header><strong>Fine Tune VLA</strong><span>π0.5 · JAX LoRA</span></header>
+              <label>
+                <span>Dataset source</span>
+                <select value={vlaSource} onChange={event => setVlaSource(event.target.value as 'huggingface' | 'cloud')}>
+                  <option value="huggingface">Pinned Hugging Face dataset</option>
+                  <option value="cloud">Uploaded Blacknode dataset</option>
+                </select>
+              </label>
+              {vlaSource === 'huggingface' ? (
+                <>
+                  <label>
+                    <span>Dataset URI</span>
+                    <input value={vlaDatasetUri} onChange={event => setVlaDatasetUri(event.target.value)} placeholder="hf://owner/dataset" />
+                  </label>
+                  <label>
+                    <span>Immutable revision</span>
+                    <input value={vlaDatasetRevision} onChange={event => setVlaDatasetRevision(event.target.value)} placeholder="commit SHA" />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label>
+                    <span>Cloud dataset</span>
+                    <select value={vlaDatasetId} onChange={event => setVlaDatasetId(event.target.value)}>
+                      <option value="">Choose uploaded dataset</option>
+                      {datasets.map(dataset => (
+                        <option key={dataset.id} value={dataset.id}>{dataset.name} · {bytes(dataset.size_bytes)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Upload LeRobot archive</span>
+                    <input type="file" accept=".tar.gz,.tgz,application/gzip" disabled={vlaPending} onChange={event => void uploadDataset(event.target.files?.[0])} />
+                  </label>
+                </>
+              )}
+              <div className="bn-cloud-credit-grid">
+                <label><span>Steps</span><input type="number" min={1} max={10000000} value={vlaSteps} onChange={event => setVlaSteps(Number(event.target.value))} /></label>
+                <label><span>Batch size</span><input type="number" min={1} max={1024} value={vlaBatchSize} onChange={event => setVlaBatchSize(Number(event.target.value))} /></label>
+                <label><span>Action horizon</span><input type="number" min={1} max={256} value={vlaActionHorizon} onChange={event => setVlaActionHorizon(Number(event.target.value))} /></label>
+                <label><span>Max runtime (seconds)</span><input type="number" min={60} max={86400} value={vlaRuntime} onChange={event => setVlaRuntime(Number(event.target.value))} /></label>
+              </div>
+              <small>GPU is selected by Blacknode Cloud. V0 resolves to one NVIDIA L40S and produces a downloadable Blacknode VLA model.</small>
+              <button type="button" className="is-primary bn-cloud-submit" onClick={() => void runVla()} disabled={vlaPending || !emailVerified}>
+                {vlaPending ? 'Preparing…' : 'Fine tune π0.5'}
+              </button>
+            </div>
+
             <div className="bn-cloud-run-section">
               <header><strong>Credit history</strong><span>{history.length}</span></header>
               <div className="bn-cloud-credit-history">
@@ -399,8 +544,13 @@ export default function CloudRunPanel({
             <div className="bn-cloud-run-facts">
               <div><span>Job</span><strong>{visibleJob.id}</strong></div>
               <div><span>GPU</span><strong>NVIDIA L40S</strong></div>
+              <div><span>Workload</span><strong>{visibleJob.workload_kind === 'vla_train' ? 'VLA training' : 'Workflow'}</strong></div>
+              <div><span>Provider</span><strong>{visibleJob.compute_provider}</strong></div>
               <div><span>Status</span><strong className={`is-${visibleJob.status.toLowerCase()}`}>● {visibleJob.status}</strong></div>
               <div><span>Runtime</span><strong>{elapsed(visibleJob)}</strong></div>
+              {vlaModel?.kind === 'blacknode.vla-model' && (
+                <div><span>Inference</span><strong>{(vlaModel.inference as Record<string, unknown> | undefined)?.verified ? 'Verified' : 'Unavailable'}</strong></div>
+              )}
             </div>
             <div className="bn-cloud-progress" aria-label={`${visibleJob.progress}% complete`}>
               <i style={{ width: `${visibleJob.progress}%` }} />
@@ -412,6 +562,15 @@ export default function CloudRunPanel({
                 <header><span>Reward</span><strong>{reward[reward.length - 1]?.value.toFixed(3)}</strong></header>
                 <svg viewBox="0 0 300 84" preserveAspectRatio="none" aria-label="Reward metric">
                   <polyline points={rewardPoints} fill="none" stroke="currentColor" strokeWidth="2" />
+                </svg>
+              </div>
+            )}
+
+            {lossPoints && (
+              <div className="bn-cloud-metric-chart">
+                <header><span>Loss</span><strong>{loss[loss.length - 1]?.value.toFixed(4)}</strong></header>
+                <svg viewBox="0 0 300 84" preserveAspectRatio="none" aria-label="Loss metric">
+                  <polyline points={lossPoints} fill="none" stroke="currentColor" strokeWidth="2" />
                 </svg>
               </div>
             )}

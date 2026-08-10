@@ -1639,6 +1639,45 @@ function WorkspaceApp() {
     }
   }, [cloudJobPending, serverOk])
 
+  const handleCloudVlaRun = useCallback(async (request: {
+    dataset_uri: string
+    dataset_revision: string
+    steps: number
+    batch_size: number
+    action_horizon: number
+    max_runtime_seconds: number
+  }) => {
+    if (cloudJobPending) return
+    setCloudJobPending(true)
+    setCloudJobError('')
+    try {
+      setCloudJob(null)
+      const created = await api.createCloudVlaJob({
+        ...request,
+        project_ref: activeProject?.id ?? activeTab?.slug ?? null,
+      })
+      setCloudJob(created)
+      setCloudPanelView('job')
+      void api.cloudStatus().then(setCloudAccountStatus).catch(() => undefined)
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      setCloudJobError(message)
+      throw cause
+    } finally {
+      setCloudJobPending(false)
+    }
+  }, [activeProject?.id, activeTab?.slug, cloudJobPending])
+
+  const handleCloudJobCompleted = useCallback((job: CloudJob) => {
+    if (!activeProject || job.result === null || job.result === undefined) return
+    void api.importProjectArtifacts(activeProject.id, {
+      node_type: job.workload_kind === 'vla_train' ? 'OpenPIFineTune' : '',
+      value: job.result,
+    }).then(() => {
+      useStore.setState(state => ({ projectRevision: state.projectRevision + 1 }))
+    }).catch(() => undefined)
+  }, [activeProject])
+
   const handleResetRun = useCallback(() => {
     stopCook()
     setActiveRunMode(null)
@@ -2819,6 +2858,8 @@ function WorkspaceApp() {
           accountStatus={cloudAccountStatus}
           onAccountStatus={setCloudAccountStatus}
           onRun={() => void handleCloudRun()}
+          onRunVla={handleCloudVlaRun}
+          onJobCompleted={handleCloudJobCompleted}
           onClose={() => setCloudPanelOpen(false)}
         />
 

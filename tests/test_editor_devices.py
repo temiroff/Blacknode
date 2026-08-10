@@ -77,6 +77,7 @@ class _HardwareService:
         self.runtime_workflows: dict[str, dict] = {}
         self.runtime_telemetry: dict[str, dict] = {}
         self.runtime_services: dict[str, dict] = {}
+        self.runtime_ros2_topics: dict[str, dict] = {}
         self.runtime_packages = [
             {"name": "blacknode-runtime", "version": "0.2.0"},
         ]
@@ -92,8 +93,10 @@ class _HardwareService:
             "deployment_ownership_v1",
             "deployment_workflow_v1",
             "deployment_motion_control_v1",
+            "deployment_mapping_control_v1",
             "ros2_diagnostics_v1",
             "managed_ros2_services_v1",
+            "remote_ros2_topic_stream_v1",
         ]
         self.runtime_version = runtime_version
         self.ros2_diagnostics_payload = {
@@ -198,6 +201,41 @@ class _HardwareService:
             })
         if path == "/diagnostics/ros2":
             return _JsonResponse(self.ros2_diagnostics_payload)
+        if path.startswith("/ros2/topics/"):
+            parts = path.strip("/").split("/")
+            stream_id = parts[2]
+            action = parts[3] if len(parts) > 3 else ""
+            if request.method == "GET" and not action:
+                return _JsonResponse(self.runtime_ros2_topics.get(stream_id, {
+                    "id": stream_id,
+                    "outputs": {
+                        "message": {},
+                        "status": {"worker_alive": False, "source_fresh": False},
+                        "report": "topic stream has not been started on this device",
+                    },
+                }))
+            if action == "start":
+                result = {
+                    "id": stream_id,
+                    "outputs": {
+                        "message": {
+                            "info": {"width": 2, "height": 2, "resolution": 0.05},
+                            "data": [-1, 0, 75, 100],
+                        },
+                        "status": {
+                            "worker_alive": True,
+                            "source_fresh": True,
+                            "received": 1,
+                        },
+                        "report": f"ROS2 streaming {body['topic']}",
+                    },
+                }
+                self.runtime_ros2_topics[stream_id] = result
+                return _JsonResponse(result)
+            if action == "stop":
+                self.runtime_ros2_topics.pop(stream_id, None)
+                return _JsonResponse({"id": stream_id, "outputs": {"status": {"worker_alive": False}}})
+            raise AssertionError(f"Unexpected fake ROS 2 topic action: {action}")
         if path.startswith("/services/"):
             parts = path.strip("/").split("/")
             service_id = parts[1]
@@ -299,6 +337,14 @@ class _HardwareService:
                 "motion_control_count": len(
                     body.get("manifest", {}).get("motion_controls") or []
                 ),
+                "mapping_control_count": len(
+                    body.get("manifest", {}).get("mapping_controls") or []
+                ),
+                "mapping_topic": next((
+                    str(item.get("map_topic") or "/map")
+                    for item in body.get("manifest", {}).get("mapping_controls") or []
+                ), ""),
+                "last_map_artifact": {},
                 "created_at": "2026-07-23T00:00:00+00:00",
                 "updated_at": "2026-07-23T00:00:01+00:00",
             }
@@ -342,6 +388,20 @@ class _HardwareService:
             elif action == "rollback":
                 record.update(state="staged", pid=None)
             elif action == "control":
+                if body.get("command") == "save-map":
+                    artifact = {
+                        "kind": "blacknode.map-artifact",
+                        "map_name": "map_01",
+                        "map_yaml": "/home/ubuntu/Blacknode/maps/map_01.yaml",
+                    }
+                    record["last_map_artifact"] = artifact
+                    return _JsonResponse({
+                        "ok": True,
+                        "id": deployment_id,
+                        "artifact": artifact,
+                        "warning": "",
+                        "deployment": record,
+                    })
                 armed = body.get("command") == "arm"
                 record["motion_armed"] = armed
                 return _JsonResponse({
@@ -7402,6 +7462,54 @@ class EditorDeviceApiTests(unittest.TestCase):
             authorization == f"Bearer {hardware.token}"
             for _method, _path, authorization, _body in remote_requests
         ))
+
+    def test_running_mapping_deployment_streams_and_saves_occupancy_map(self):
+        hardware = _HardwareService()
+        deployment_id = "rosorin-map"
+        hardware.runtime_deployments[deployment_id] = {
+            "id": deployment_id,
+            "name": "ROSOrin Map Environment",
+            "state": "running",
+            "staged_revision": "cafebabecafebabe",
+            "active_revision": "cafebabecafebabe",
+            "revisions": ["cafebabecafebabe"],
+            "pid": 4321,
+            "exit_code": None,
+            "error": "",
+            "mapping_control_count": 1,
+            "mapping_topic": "/map",
+            "last_map_artifact": {},
+            "created_at": "2026-08-10T00:00:00+00:00",
+            "updated_at": "2026-08-10T00:00:01+00:00",
+        }
+        with patch("device_registry.urllib.request.urlopen", side_effect=hardware):
+            device_id = self.client.post("/devices", json={
+                "name": "ROSOrin",
+                "base_url": "http://192.168.1.87:8765",
+                "token": hardware.token,
+            }).json()["device"]["id"]
+            hardware.runtime_deployments[deployment_id]["target_device_id"] = device_id
+            snapshot = self.client.get(
+                f"/devices/{device_id}/deployments/{deployment_id}/mapping/snapshot",
+            )
+            saved = self.client.post(
+                f"/devices/{device_id}/deployments/{deployment_id}/mapping/save",
+            )
+            stopped = self.client.post(
+                f"/devices/{device_id}/deployments/{deployment_id}/stop",
+            )
+
+        self.assertEqual(snapshot.status_code, 200)
+        self.assertEqual(snapshot.json()["message"]["info"]["width"], 2)
+        self.assertEqual(snapshot.json()["message"]["data"], [-1, 0, 75, 100])
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()["artifact"]["map_name"], "map_01")
+        self.assertEqual(stopped.json()["state"], "stopped")
+        self.assertEqual(hardware.runtime_ros2_topics, {})
+        self.assertIn(
+            ("POST", f"/deployments/{deployment_id}/control", f"Bearer {hardware.token}", {"command": "save-map"}),
+            hardware.requests,
+        )
 
     def test_remote_deployments_are_scoped_to_the_selected_robot(self):
         hardware = _HardwareService()

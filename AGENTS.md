@@ -43,6 +43,26 @@ under `packages/` are separate Git repositories and carry their own `AGENTS.md`.
 - Keep physical motion disarmed by default. Retain stale-data, joint-limit, and
   shutdown safeguards in every transport path.
 
+## Outcome-first workflows and templates
+
+- Ship tracked templates only when they perform a real user or operator task
+  and produce the intended artifact, service, deployment, model, dataset,
+  action, or decision.
+- Do not add tracked templates whose primary purpose is proving that a node
+  works, showcasing wiring, smoke testing, or confirming readiness. Put those
+  checks in automated tests or untracked local developer workflows.
+- Keep graphs as short and direct as the outcome permits. Every visible node
+  must materially create, transform, route, persist, deploy, or operate
+  something required by the result.
+- Do not pad workflows with separate checker, test, report, echo, or
+  confirmation nodes when the node that owns the operation can validate its
+  inputs, preflight dependencies, report progress, and return actionable
+  errors.
+- Required physical-motion safety, authorization, cost consent, and
+  destructive-action confirmation remain mandatory. Prefer integrating these
+  controls into the owning action or managed service; use a separate node only
+  when the safety contract must remain explicit and reusable.
+
 ## Managed Runtime release decision
 
 Decide whether a managed-device Runtime release is required before completing
