@@ -1128,6 +1128,12 @@ class EditorDeviceApiTests(unittest.TestCase):
                     "__BLACKNODE_HARDWARE_INSTALL_PROGRESS__=50|"
                     "Setting up the Robot Hardware environment"
                 )
+            if "blacknode-hardware-install-" in command and command.startswith("bash "):
+                return (
+                    '__BLACKNODE_HARDWARE_INSTALL__={"hardware_dir":'
+                    '"/home/alex/Blacknode/devices/default/hardware",'
+                    '"layout":"organized","stack_mode":"isolated"}\n'
+                )
             return ""
 
         with (
@@ -1146,17 +1152,21 @@ class EditorDeviceApiTests(unittest.TestCase):
 
         self.assertEqual(
             result["hardware_dir"],
-            "~/Blacknode/devices/default/hardware",
+            "/home/alex/Blacknode/devices/default/hardware",
         )
         self.assertEqual(result["stack_mode"], "isolated")
+        self.assertEqual(result["layout"], "organized")
         self.assertTrue(any(item["progress"] == 50 for item in progress))
         self.assertIn("bash /tmp/blacknode-hardware-install-", commands[0])
         self.assertEqual(stdin_values[0], "ssh-password\n" * 8)
         self.assertNotIn("ssh-password", uploaded[0])
         self.assertIn(
-            'hardware_dir="$stack_root/hardware"',
+            'organized_hardware_dir="$stack_root/hardware"',
             uploaded[0],
         )
+        self.assertIn('legacy_runtime_dir="$HOME/blacknode-runtime"', uploaded[0])
+        self.assertIn('legacy_hardware_dir="$HOME/blacknode-hardware"', uploaded[0])
+        self.assertIn('layout="legacy"', uploaded[0])
         self.assertIn(
             "git clone https://github.com/temiroff/blacknode-robot.git",
             uploaded[0],
@@ -1171,6 +1181,56 @@ class EditorDeviceApiTests(unittest.TestCase):
         )
         remote_python = uploaded[0].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
         compile(remote_python, "<hardware-environment-install>", "exec")
+
+    def test_hardware_environment_reports_legacy_layout_without_moving_runtime(self):
+        class RemoteFile(io.StringIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                self.close()
+                return False
+
+        class Sftp:
+            def file(self, _path, _mode):
+                return RemoteFile()
+
+            def chmod(self, _path, _mode):
+                return None
+
+            def close(self):
+                return None
+
+        connection = SimpleNamespace(
+            client=SimpleNamespace(open_sftp=lambda: Sftp()),
+            fingerprint="SHA256:trusted-device-key",
+            close=lambda: None,
+        )
+
+        def fake_run(_connection, command, **_kwargs):
+            if command.startswith("bash "):
+                return (
+                    '__BLACKNODE_HARDWARE_INSTALL__={"hardware_dir":'
+                    '"/home/ubuntu/blacknode-hardware","layout":"legacy",'
+                    '"stack_mode":"isolated"}\n'
+                )
+            return ""
+
+        with (
+            patch.object(device_installer, "_connect", return_value=connection),
+            patch.object(device_installer, "_run", side_effect=fake_run),
+        ):
+            result = device_installer.install_hardware_environment(
+                host="192.168.1.87",
+                port=22,
+                username="ubuntu",
+                password="ssh-password",
+                host_fingerprint="SHA256:trusted-device-key",
+                instance_id="default",
+            )
+
+        self.assertEqual(result["hardware_dir"], "/home/ubuntu/blacknode-hardware")
+        self.assertEqual(result["layout"], "legacy")
 
     def test_default_stack_can_adopt_recognized_legacy_hardware_services(self):
         uploaded = []
