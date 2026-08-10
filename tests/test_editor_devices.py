@@ -1168,6 +1168,14 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn('legacy_hardware_dir="$HOME/blacknode-hardware"', uploaded[0])
         self.assertIn('layout="legacy"', uploaded[0])
         self.assertIn(
+            '[[ -f "$1/pyproject.toml" && -f "$1/blacknode_runtime/__init__.py" ]]',
+            uploaded[0],
+        )
+        self.assertNotIn(
+            '[[ -d "$runtime_dir/.git" && -f "$runtime_dir/pyproject.toml" ]]',
+            uploaded[0],
+        )
+        self.assertIn(
             "git clone https://github.com/temiroff/blacknode-robot.git",
             uploaded[0],
         )
