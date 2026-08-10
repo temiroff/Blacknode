@@ -2095,7 +2095,10 @@ fi
 runtime_dir="$organized_runtime_dir"
 hardware_dir="$organized_hardware_dir"
 layout="organized"
-if [[ ! -d "$runtime_dir/.git" || ! -f "$runtime_dir/pyproject.toml" ]]; then
+valid_runtime() {
+  [[ -f "$1/pyproject.toml" && -f "$1/blacknode_runtime/__init__.py" ]]
+}
+if ! valid_runtime "$runtime_dir"; then
   runtime_dir="$legacy_runtime_dir"
   hardware_dir="$legacy_hardware_dir"
   layout="legacy"
@@ -2106,7 +2109,7 @@ case "$hardware_dir" in
   "$HOME/blacknode-hardware-instances/"*) ;;
   *) echo "Unsafe Hardware directory."; exit 2 ;;
 esac
-[[ -d "$runtime_dir/.git" && -f "$runtime_dir/pyproject.toml" ]] || {
+valid_runtime "$runtime_dir" || {
   echo "No valid Runtime installation was found. Checked:"
   echo "  $organized_runtime_dir"
   echo "  $legacy_runtime_dir"
