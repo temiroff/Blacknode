@@ -493,6 +493,31 @@ class EditorProjectApiTests(unittest.TestCase):
             "Unlinking must not delete the provider-owned artifact reference",
         )
 
+    def test_vla_model_manifest_is_indexed_as_a_trained_model(self):
+        model_path = Path(self._tmp.name) / "models" / "pi05-lora"
+        model_path.mkdir(parents=True)
+        (model_path / "manifest.json").write_text(json.dumps({
+            "kind": "blacknode.vla-model",
+            "schema_version": 1,
+            "model_id": "vla-0123456789abcdef",
+            "provider": "openpi",
+            "architecture": "pi05",
+            "backend": "jax",
+            "training_method": "lora",
+            "checkpoint": "adapter-checkpoint.tar.gz",
+            "checkpoint_sha256": "a" * 64,
+            "physical_motion_authorized": False,
+        }), encoding="utf-8")
+
+        artifacts = server._artifact_store.inspect_path(model_path)
+
+        self.assertEqual(len(artifacts), 1)
+        artifact = artifacts[0]
+        self.assertEqual(artifact["artifact_type"], "model")
+        self.assertEqual(artifact["provider"], "blacknode-training")
+        self.assertEqual(artifact["metadata"]["architecture"], "pi05")
+        self.assertFalse(artifact["metadata"]["physical_motion_authorized"])
+
     def test_native_dataset_manifest_and_run_outputs_map_to_typed_evidence(self):
         self._workflow(
             "learning",

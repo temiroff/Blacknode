@@ -299,6 +299,73 @@ class EditorCloudTests(unittest.TestCase):
         self.assertEqual(payload["workflow"]["entrypoint"]["node_id"], "out")
         self.assertNotIn("image", payload["runtime"])
 
+    def test_create_vla_job_builds_direct_two_node_workflow(self):
+        calls: list[tuple[str, str, dict]] = []
+
+        def cloud_call(request, method, path, payload=None):
+            self.assertIsNotNone(request.cookies.get(server._CLOUD_SESSION_COOKIE))
+            calls.append((method, path, payload))
+            return {
+                "id": "job_" + "a" * 32,
+                "status": "QUEUED",
+                "workload_kind": "vla_train",
+            }
+
+        with patch.object(server, "_cloud_user_call", side_effect=cloud_call):
+            response = self.authenticated_client().post(
+                "/cloud/vla/jobs",
+                json={
+                    "dataset_uri": "hf://owner/dataset",
+                    "dataset_revision": "a" * 40,
+                    "steps": 5000,
+                    "batch_size": 8,
+                    "action_horizon": 10,
+                    "max_runtime_seconds": 14400,
+                    "project_ref": "robot-project",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        method, path, payload = calls[0]
+        self.assertEqual((method, path), ("POST", "/v1/jobs"))
+        workflow = payload["workflow"]
+        self.assertEqual(workflow["entrypoint"], {"node_id": "train", "port": "model"})
+        self.assertEqual(
+            {node["type"] for node in workflow["node_meta"].values()},
+            {"LeRobotDataset", "OpenPIFineTune"},
+        )
+        self.assertEqual(len(workflow["edges"]), 1)
+        self.assertEqual(workflow["node_meta"]["train"]["params"]["action"], "run")
+        self.assertNotIn("Output", {node["type"] for node in workflow["node_meta"].values()})
+
+    def test_dataset_upload_streams_verified_archive_to_cloud(self):
+        received: dict[str, object] = {}
+
+        def upload(path, stream, **kwargs):
+            received.update(path=path, content=stream.read(), **kwargs)
+            return {
+                "id": "dataset_" + "a" * 32,
+                "kind": "blacknode.cloud-dataset",
+                "name": "robot.tar.gz",
+                "size_bytes": 7,
+                "sha256": "a" * 64,
+                "media_type": "application/gzip",
+                "locator": "/v1/datasets/dataset_" + "a" * 32 + "/download",
+            }
+
+        with patch.object(cloud_client, "upload", side_effect=upload):
+            response = self.authenticated_client().put(
+                "/cloud/datasets",
+                headers={"X-Dataset-Name": "robot.tar.gz"},
+                content=b"archive",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(received["content"], b"archive")
+        self.assertEqual(received["size"], 7)
+        self.assertEqual(received["authorization"], "registered-user-cloud-token-0123456789")
+        self.assertTrue(str(received["path"]).startswith("/v1/datasets/dataset_"))
+
     def test_invalid_job_id_never_reaches_cloud(self):
         with patch.object(server, "_cloud_user_call") as cloud_call:
             response = self.authenticated_client().get("/cloud/jobs/../../secrets")

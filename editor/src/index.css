@@ -5429,6 +5429,47 @@ button.bn-device-fact {
   white-space: normal;
 }
 
+.bn-live-map {
+  margin-top: 12px;
+  padding: 10px;
+  background: #111720;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+}
+
+.bn-live-map-head,
+.bn-live-map-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.bn-live-map-head strong {
+  color: var(--tx1);
+}
+
+.bn-live-map-head span.is-live {
+  color: var(--ok);
+}
+
+.bn-live-map canvas {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  margin: 9px 0;
+  background: #1e2430;
+  image-rendering: pixelated;
+  object-fit: contain;
+}
+
+.bn-live-map-foot {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
 @container deployment-panel (min-width: 621px) {
   .bn-deploy-target {
     padding: 18px 24px 20px;
@@ -11793,6 +11834,41 @@ html[data-ui-test="refined"] .bn-package-action-menu summary {
   font: 11px/1.5 var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.bn-cloud-vla-form {
+  display: grid;
+  gap: 12px;
+}
+
+.bn-cloud-vla-form > header { margin-bottom: 0; }
+.bn-cloud-vla-form > label,
+.bn-cloud-vla-form .bn-cloud-credit-grid > label {
+  display: grid;
+  gap: 5px;
+  color: var(--tx2);
+  font-size: 11px;
+}
+
+.bn-cloud-vla-form input,
+.bn-cloud-vla-form select {
+  min-width: 0;
+  width: 100%;
+  padding: 8px 9px;
+  color: var(--tx1);
+  background: var(--panel);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+}
+
+.bn-cloud-vla-form .bn-cloud-credit-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0;
+}
+
+.bn-cloud-vla-form > small {
+  color: var(--tx3);
+  line-height: 1.45;
 }
 
 .bn-cloud-artifact-list {

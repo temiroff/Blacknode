@@ -23,6 +23,7 @@ of its files and native manifest.
 | Training run | `blacknode-training` | run ID, output path, phase, progress, losses |
 | Checkpoint | `blacknode-training` | checkpoint path, run ID, step |
 | Policy | `blacknode-training` | policy path, type, source checkpoint, dimensions |
+| VLA model | `blacknode-training` | model ID, architecture, provider, base revision, dataset revision, checkpoint digest |
 | Replay evaluation | `blacknode-training` | episode, frames, aggregate errors |
 | Simulation run | `blacknode-isaac` | run ID, log path, phase, inference counters |
 
@@ -56,7 +57,7 @@ Each indexed reference has this provider-neutral shape:
 ```
 
 `artifact_type` is one of `dataset`, `training_run`, `checkpoint`, `policy`,
-`evaluation`, or `simulation_run`. `status` is `available`, `running`,
+`model`, `evaluation`, or `simulation_run`. `status` is `available`, `running`,
 `completed`, or `failed`.
 
 The ID is deterministic from provider, artifact type, and locator. Repeated
@@ -78,6 +79,7 @@ The v1 importer understands:
 - `blacknode.training-run`
 - `blacknode.action-chunking-checkpoint`
 - `blacknode.policy-artifact`
+- `blacknode.vla-model`
 - `blacknode.policy-replay-metrics`
 - `blacknode.policy-runtime` from an Isaac node
 
@@ -103,7 +105,7 @@ successful node cook into a failed cook.
 | Stage | Complete evidence |
 |---|---|
 | Collect | A linked dataset reports one or more saved episodes |
-| Train | A linked policy artifact exists |
+| Train | A linked policy or VLA model artifact exists |
 | Simulate | A linked simulation run or evaluation is completed |
 
 A created empty dataset, running training job, checkpoint, or running

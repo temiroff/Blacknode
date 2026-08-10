@@ -62,6 +62,7 @@ const ARTIFACT_LABELS: Record<ProjectArtifact['artifact_type'], string> = {
   training_run: 'Training run',
   checkpoint: 'Checkpoint',
   policy: 'Policy',
+  model: 'VLA model',
   simulation_run: 'Simulation run',
   evaluation: 'Evaluation',
 }
@@ -84,6 +85,11 @@ function artifactDetail(artifact: ProjectArtifact): string {
     return frames > 0
       ? `${frames} frame${frames === 1 ? '' : 's'} evaluated`
       : `${artifact.status} · ${artifact.provider}`
+  }
+  if (artifact.artifact_type === 'model') {
+    const architecture = String(metadata.architecture ?? 'VLA')
+    const backend = String(metadata.backend ?? '')
+    return `${architecture}${backend ? ` · ${backend}` : ''} · ${artifact.status}`
   }
   return `${artifact.status} · ${artifact.provider}`
 }
@@ -398,10 +404,10 @@ export default function ProjectPanel() {
     artifact => Number(artifact.metadata.episode_count ?? 0) > 0,
   )
   const trainingArtifacts = selected?.artifacts.filter(
-    artifact => ['training_run', 'checkpoint', 'policy'].includes(artifact.artifact_type),
+    artifact => ['training_run', 'checkpoint', 'policy', 'model'].includes(artifact.artifact_type),
   ) ?? []
   const policyArtifacts = trainingArtifacts.filter(
-    artifact => artifact.artifact_type === 'policy' && artifact.exists,
+    artifact => ['policy', 'model'].includes(artifact.artifact_type) && artifact.exists,
   )
   const runningTraining = trainingArtifacts.filter(
     artifact => artifact.status === 'running',
@@ -497,7 +503,7 @@ export default function ProjectPanel() {
             ? 'available'
             : 'optional',
         detail: policyArtifacts.length
-          ? `${policyArtifacts.length} policy artifact${policyArtifacts.length === 1 ? '' : 's'} ready`
+          ? `${policyArtifacts.length} trained model${policyArtifacts.length === 1 ? '' : 's'} ready`
           : runningTraining.length
             ? `${runningTraining.length} training run${runningTraining.length === 1 ? '' : 's'} running`
             : trainingArtifacts.length

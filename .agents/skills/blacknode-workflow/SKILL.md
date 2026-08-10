@@ -43,6 +43,25 @@ return here to integrate it into a validated workflow.
 6. Use `PythonFn` only for workflow-local adapters. Use
    `blacknode-development` for reusable nodes or packages.
 
+## Outcome-First Workflow Design
+
+- Begin with the requested outcome and build the shortest coherent graph that
+  produces it.
+- A tracked template must perform a useful end-to-end task. Do not create
+  templates whose main result is proving a node works, showcasing wiring,
+  smoke testing, or confirming that a dependency is ready.
+- Every visible node must materially create, transform, route, persist,
+  deploy, or operate something needed by the final result.
+- Do not add checker, test, report, echo, or confirmation nodes as graph
+  padding. The node that owns an operation should validate inputs, preflight
+  dependencies, report progress, and return actionable errors when practical.
+- Keep implementation validation in automated tests or untracked local
+  developer workflows rather than turning it into a product template.
+- Preserve required physical-motion safety, authorization, cost consent, and
+  destructive-action confirmation. Integrate these controls into the owning
+  action or managed service when possible; keep a separate node when the
+  safety contract must be explicit and reusable.
+
 ## Available Surfaces
 
 Preferred MCP stdio command:
@@ -187,7 +206,7 @@ then return a concise graph plan with node ids, node types, key params, edges,
 entrypoint, and expected result.
 
 Build loop:
-1. Understand the user goal and choose the smallest runnable graph.
+1. Understand the user goal and choose the smallest outcome-producing graph.
 2. Inspect list_nodes or get_node_schema before using unfamiliar nodes.
 3. Create or load a workflow.
 4. Add nodes with stable, descriptive ids.
@@ -221,6 +240,8 @@ Use `list_nodes` for the live catalog. Current core groups:
 
 ## Graph Reliability Rules
 
+- Make every node contribute directly to the requested result; never add a
+  node merely to prove, echo, check, or confirm another node.
 - Treat Blacknode workflows as DAGs. Do not create cycles or back-edges.
 - Always connect from `outputs` to `inputs`; never invent port names.
 - Respect types: `Any` accepts everything, exact type matches are valid, and

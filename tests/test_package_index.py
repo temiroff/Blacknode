@@ -260,6 +260,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["DatasetBrowser"]["package"] == "blacknode-dataset"
     assert payload["nodes"]["HDF5EpisodeExport"]["package"] == "blacknode-dataset"
     assert payload["nodes"]["StreamPublisher"]["package"] == "blacknode-dataset"
+    assert payload["nodes"]["LeRobotDataset"]["package"] == "blacknode-dataset"
     assert payload["nodes"]["ROS2LeaderFollower"]["package"] == "blacknode-skills"
     assert payload["nodes"]["ROS2PublishJointState"]["package"] == "blacknode-skills"
     assert payload["nodes"]["ROS2SubscribeJointState"]["package"] == "blacknode-skills"
@@ -292,6 +293,16 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["ACTPolicyReplay"]["package"] == "blacknode-training"
     assert payload["nodes"]["PPOTraining"]["package"] == "blacknode-training"
     assert payload["nodes"]["PPOPolicyImport"]["package"] == "blacknode-training"
+    assert payload["nodes"]["OpenPIFineTune"]["package"] == "blacknode-training"
+    assert payload["packages"]["blacknode-training"]["components"]["vla-openpi"]["dependencies"] == {
+        "requires": [
+            {
+                "package": "blacknode-dataset",
+                "component": "adapters",
+                "version": ">=0.3,<1",
+            }
+        ]
+    }
     assert payload["packages"]["blacknode-training"]["components"]["reinforcement-learning"]["dependencies"] == {
         "requires": [
             {

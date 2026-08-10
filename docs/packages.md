@@ -169,7 +169,7 @@ development:
 | `blacknode-agent` | Persistent task memory and executive planning, mission execution, skill selection, confirmation, and review. |
 | `blacknode-motion` | Arm and base planning, trajectories, execution, learned policies, arbitration, and motion safety. |
 | `blacknode-cuda` | CUDA capability, image-processing, tensor-operation, and optional benchmark components backed by internal kernels. |
-| `blacknode-dataset` | Default recording, replay, and validation with optional evaluation, export, and repository publishing. |
+| `blacknode-dataset` | Default recording, replay, and validation with optional BlacknodeDataset adapters, evaluation, export, and repository publishing. |
 | `blacknode-drivers` | Selectively enabled concrete physical drivers; the `feetech` component provides inert bus configuration, read-only probing, and torque-safe bus primitives. |
 | `blacknode-isaac` | Direct closed-loop ACT and compatible PPO evaluation using Isaac Sim articulation state, semantic observations, safety-gated targets, and runtime replay logs. |
 | `blacknode-perception` | Camera, tracking, VLM, and spatial-perception components, organized as selectable components. |
@@ -177,7 +177,7 @@ development:
 | `blacknode-ros2` | Native DDS graph, topic, service, and diagnostic integration with optional rosbridge and managed processes. |
 | `blacknode-runtime` | Authenticated remote deployment, target manifests, process supervision, logs, and rollback on Raspberry Pi, Jetson, and Linux targets. |
 | `blacknode-skills` | Task-level follow, pick-place, delivery, docking, and inspection behavior over stable capabilities. |
-| `blacknode-training` | Optional dataset checks, managed jobs, checkpoints, policy previews, and deployable policy artifacts for training workloads. |
+| `blacknode-training` | Optional managed policy, reinforcement-learning, and OpenPI π0.5 VLA training with deployable model artifacts. |
 
 Keep the layers separate: `blacknode-robot` owns profiles, calibration,
 connected devices, normalized telemetry, and the generic robot contract;

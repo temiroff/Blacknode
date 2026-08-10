@@ -809,6 +809,7 @@ export type ProjectArtifactType =
   | 'training_run'
   | 'checkpoint'
   | 'policy'
+  | 'model'
   | 'simulation_run'
   | 'evaluation'
 
@@ -992,6 +993,9 @@ export interface RemoteDeployment {
   error: string
   motion_armed?: boolean
   motion_control_count?: number
+  mapping_control_count?: number
+  mapping_topic?: string
+  last_map_artifact?: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -1101,6 +1105,8 @@ export interface CloudJob {
   id: string
   project_ref: string | null
   workflow_name: string
+  workload_kind: 'workflow' | 'vla_train'
+  compute_provider: string
   status: CloudJobStatus
   cleanup_status: string
   progress: number
@@ -1131,6 +1137,39 @@ export interface CloudArtifact {
   media_type: string
   locator: string
   created_at: string
+}
+
+export interface MappingSnapshot {
+  deployment_id: string
+  topic: string
+  message: {
+    header?: Record<string, unknown>
+    info?: {
+      resolution?: number
+      width?: number
+      height?: number
+      origin?: Record<string, unknown>
+    }
+    data?: number[]
+  }
+  status: {
+    state?: string
+    source_fresh?: boolean
+    age_seconds?: number | null
+    received?: number
+    error?: string
+  }
+  report: string
+}
+
+export interface CloudDataset {
+  id: string
+  kind: 'blacknode.cloud-dataset'
+  name: string
+  size_bytes: number
+  sha256: string
+  media_type: string
+  locator: string
 }
 
 export interface RunRecord extends RunSummary {
@@ -1755,6 +1794,27 @@ export const api = {
     workflow_name: workflowName,
     project_ref: projectRef ?? null,
   }),
+  listCloudDatasets: () => req<CloudDataset[]>('GET', '/cloud/datasets'),
+  uploadCloudDataset: async (file: File) => {
+    const response = await fetchBackend('/cloud/datasets', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/gzip',
+        'X-Dataset-Name': file.name,
+      },
+      body: file,
+    })
+    return responseJson<CloudDataset>(response, '/cloud/datasets')
+  },
+  createCloudVlaJob: (payload: {
+    dataset_uri: string
+    dataset_revision: string
+    steps: number
+    batch_size: number
+    action_horizon: number
+    max_runtime_seconds: number
+    project_ref?: string | null
+  }) => req<CloudJob>('POST', '/cloud/vla/jobs', payload),
   getCloudJob: (jobId: string) =>
     req<CloudJob>('GET', `/cloud/jobs/${encodeURIComponent(jobId)}`),
   cancelCloudJob: (jobId: string) =>
@@ -2411,6 +2471,26 @@ export const api = {
       `/devices/${encodeURIComponent(deviceId)}/deployments/${encodeURIComponent(deploymentId)}/motion`,
       { armed },
       20000,
+    ),
+  saveRemoteDeploymentMap: (deviceId: string, deploymentId: string) =>
+    req<{
+      ok: boolean
+      id: string
+      artifact: Record<string, unknown>
+      warning?: string
+      deployment: RemoteDeployment
+    }>(
+      'POST',
+      `/devices/${encodeURIComponent(deviceId)}/deployments/${encodeURIComponent(deploymentId)}/mapping/save`,
+      {},
+      150000,
+    ),
+  remoteDeploymentMapSnapshot: (deviceId: string, deploymentId: string) =>
+    req<MappingSnapshot>(
+      'GET',
+      `/devices/${encodeURIComponent(deviceId)}/deployments/${encodeURIComponent(deploymentId)}/mapping/snapshot`,
+      undefined,
+      15000,
     ),
   remoteRos2Diagnostics: (deviceId: string) =>
     req<RemoteRos2Diagnostics>(

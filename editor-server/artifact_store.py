@@ -70,6 +70,8 @@ def _path_locator(value: Any) -> str:
     clean = _clean_text(value, maximum=2000)
     if not clean:
         return ""
+    if clean.startswith(("blacknode://", "blacknode-cloud://")):
+        return clean
     return str(Path(clean).expanduser().resolve())
 
 
@@ -190,6 +192,38 @@ def _artifact_candidate(
                 "state_dim",
                 "action_dim",
                 "metrics",
+            ),
+        )
+    elif kind == "blacknode.vla-model":
+        artifact_type = "model"
+        provider = "blacknode-training"
+        locator = _path_locator(payload.get("path"))
+        model_id = _clean_text(payload.get("model_id"), maximum=160)
+        name = model_id or (Path(locator).name if locator else "VLA model")
+        status = "completed"
+        metadata = _safe_metadata(
+            payload,
+            (
+                "model_id",
+                "owner",
+                "provider",
+                "architecture",
+                "backend",
+                "base_model",
+                "base_model_revision",
+                "dataset",
+                "training_method",
+                "step",
+                "seed",
+                "action_horizon",
+                "action_mode",
+                "checkpoint",
+                "checkpoint_sha256",
+                "normalization",
+                "metrics",
+                "inference",
+                "physical_motion_authorized",
+                "job_id",
             ),
         )
     elif kind == "blacknode.policy-replay-metrics":
@@ -432,6 +466,7 @@ class ArtifactStore:
                 if payload.get("kind") in {
                     "blacknode.episode-dataset",
                     "blacknode.policy-artifact",
+                    "blacknode.vla-model",
                 }:
                     payload["path"] = str(candidate.parent)
                 elif not payload.get("path"):
@@ -503,6 +538,6 @@ class ArtifactStore:
     def _hydrate(record: dict[str, Any]) -> dict[str, Any]:
         locator = str(record.get("locator") or "")
         exists = True
-        if locator and not locator.startswith("blacknode://"):
+        if locator and not locator.startswith(("blacknode://", "blacknode-cloud://")):
             exists = Path(locator).exists()
         return {**record, "exists": exists}
