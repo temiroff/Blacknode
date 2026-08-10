@@ -45,11 +45,21 @@ def test_newton_viewer_floats_inside_editor_without_recreating_its_iframe():
 
 def test_newton_managed_runtime_state_supplies_and_clears_the_viewer_url():
     store = (ROOT / "editor" / "src" / "store.ts").read_text(encoding="utf-8")
+    app = (ROOT / "editor" / "src" / "App.tsx").read_text(encoding="utf-8")
+    node = (
+        ROOT / "editor" / "src" / "components" / "BlackNode.tsx"
+    ).read_text(encoding="utf-8")
 
     assert "record.runtime === 'newton'" in store
     assert "viewer_url: String(managedRun.viewer_url ?? '')" in store
+    assert "viewer_running: managedRun.viewer_running === true" in store
+    assert "data.type === 'PPOTraining'" in store
     assert "node.data.type !== 'NewtonSimulation'" in store
     assert "viewer_url: ''" in store
+    assert "status.viewer_running === true" in app
+    assert "↻ Replay checkpoint" in node
+    assert "Close viewer" in node
+    assert "controlNode(id, 'close-viewer')" in node
 
 
 def test_open_newton_scene_uses_the_in_editor_file_browser():

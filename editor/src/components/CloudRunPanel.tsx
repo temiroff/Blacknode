@@ -6,6 +6,7 @@ import {
   type CloudCreditEntry,
   type CloudJob,
   type CloudJobEvent,
+  type CloudProviderPreference,
   type CloudStatus,
 } from '../api'
 
@@ -42,7 +43,7 @@ function bytes(value: number): string {
 
 function creditReason(entry: CloudCreditEntry): string {
   if (entry.reason === 'signup-credit') return 'Signup credits'
-  if (entry.reason === 'gpu-job') return 'NVIDIA GPU job'
+  if (entry.reason === 'gpu-job') return 'Cloud GPU job'
   return entry.reason.split('-').join(' ')
 }
 
@@ -69,6 +70,9 @@ export default function CloudRunPanel({
   const [confirmPassword, setConfirmPassword] = useState('')
   const [authPending, setAuthPending] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [providerPending, setProviderPending] = useState(false)
+  const [providerError, setProviderError] = useState('')
+  const [providerPreference, setProviderPreference] = useState<CloudProviderPreference>('auto')
   const nextSeq = useRef(0)
 
   const refreshAccount = useCallback(async () => {
@@ -96,6 +100,14 @@ export default function CloudRunPanel({
       .then(page => setHistory(page.entries))
       .catch(cause => setAuthError(cause instanceof Error ? cause.message : String(cause)))
   }, [accountStatus?.authenticated, accountStatus?.account?.id, open])
+
+  useEffect(() => {
+    setProviderPreference(
+      accountStatus?.account?.compute_provider_preference
+        ?? accountStatus?.compute_providers?.preference
+        ?? 'auto',
+    )
+  }, [accountStatus?.account?.compute_provider_preference, accountStatus?.compute_providers?.preference])
 
   useEffect(() => {
     if (job && TERMINAL.has(job.status)) void refreshAccount()
@@ -208,6 +220,21 @@ export default function CloudRunPanel({
     }
   }
 
+  const updateProviderPreference = async (preference: CloudProviderPreference) => {
+    const previous = providerPreference
+    setProviderPreference(preference)
+    setProviderPending(true)
+    setProviderError('')
+    try {
+      onAccountStatus(await api.updateCloudAccount({ compute_provider_preference: preference }))
+    } catch (cause) {
+      setProviderPreference(previous)
+      setProviderError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setProviderPending(false)
+    }
+  }
+
   if (!open) return null
   const credits = accountStatus?.credits
   const account = accountStatus?.account
@@ -218,6 +245,9 @@ export default function CloudRunPanel({
     : Math.max(credits?.locked ?? 0, credits?.available ?? 0)
   const activeJob = job && !TERMINAL.has(job.status)
   const visibleJob = view === 'job' ? job : null
+  const providerOptions = accountStatus?.compute_providers?.options ?? []
+  const selectedProvider = providerOptions.find(option => option.id === providerPreference)
+  const providerLabel = selectedProvider?.label ?? 'Auto'
 
   return (
     <div className="bn-cloud-run-backdrop" role="presentation">
@@ -231,7 +261,7 @@ export default function CloudRunPanel({
         </header>
 
         {(pending || (!accountStatus && !error)) && <div className="bn-cloud-run-message">Connecting to Blacknode Cloud…</div>}
-        {(error || pollError || authError) && <div className="bn-cloud-run-error">{error || pollError || authError}</div>}
+        {(error || pollError || authError || providerError) && <div className="bn-cloud-run-error">{error || pollError || authError || providerError}</div>}
         {!pending && accountStatus && !accountStatus.configured && !error && (
           <div className="bn-cloud-run-error">Blacknode Cloud is not configured on this editor server.</div>
         )}
@@ -304,6 +334,27 @@ export default function CloudRunPanel({
                 <div><span>Reserved</span><strong>{credits.reserved.toLocaleString()}</strong></div>
                 <div><span>Balance</span><strong>{credits.balance.toLocaleString()}</strong></div>
               </div>
+              <label className="bn-cloud-provider-setting">
+                <span>Cloud compute provider</span>
+                <select
+                  value={providerPreference}
+                  disabled={providerPending}
+                  onChange={event => void updateProviderPreference(event.target.value as CloudProviderPreference)}
+                >
+                  {providerOptions.map(option => (
+                    <option key={option.id} value={option.id} disabled={!option.available}>
+                      {option.label}{option.available ? '' : ' (unavailable)'}
+                    </option>
+                  ))}
+                </select>
+                <small>
+                  {providerPending
+                    ? 'Saving provider preference…'
+                    : providerPreference === 'auto'
+                      ? 'Auto uses the Cloud service default provider.'
+                      : `New jobs will use ${providerLabel}. Existing jobs stay with their original provider.`}
+                </small>
+              </label>
               <small>Credits are GPU-seconds. This job reserves its runtime limit and charges measured GPU time.</small>
               {!emailVerified && (
                 <div className="bn-cloud-verification-lock" role="status">
@@ -315,7 +366,7 @@ export default function CloudRunPanel({
                 </div>
               )}
               <button type="button" className="is-primary bn-cloud-submit" onClick={onRun} disabled={pending || !emailVerified}>
-                {emailVerified ? 'Run workflow on NVIDIA L40S' : 'Email verification required'}
+                {emailVerified ? `Run workflow via ${providerLabel} · NVIDIA L40S` : 'Email verification required'}
               </button>
             </div>
 

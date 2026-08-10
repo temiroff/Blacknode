@@ -718,6 +718,28 @@ function clearRuntimeNodeData(data: NodeData): NodeData {
       },
     }
   }
+  if (data.type === 'PPOTraining') {
+    const previousStatus = data.portResults?.status
+    const status = previousStatus && typeof previousStatus === 'object' && !Array.isArray(previousStatus)
+      ? previousStatus as Record<string, unknown>
+      : {}
+    return {
+      ...base,
+      portResults: {
+        ...stoppedResults,
+        viewer_running: false,
+        viewer_url: '',
+        viewer: { running: false, viewer_url: '', error: '' },
+        status: {
+          ...status,
+          service_running: false,
+          viewer_running: false,
+          viewer_url: '',
+          viewer: { running: false, viewer_url: '', error: '' },
+        },
+      },
+    }
+  }
   if (VIEWER_NODE_TYPES.has(data.type)) {
     const previousStatus = data.portResults?.status
     const status = previousStatus && typeof previousStatus === 'object' && !Array.isArray(previousStatus)
@@ -1774,14 +1796,27 @@ export const useStore = create<Store>((set, get) => ({
             armed: managedRun.armed === true,
             phase: String(managedRun.phase ?? ''),
             viewer_url: String(managedRun.viewer_url ?? ''),
+            viewer_running: managedRun.viewer_running === true,
+            viewer: managedRun.viewer && typeof managedRun.viewer === 'object'
+              ? managedRun.viewer
+              : {},
             session: managedRun,
             positions: managedRun.positions ?? managedRun.positions_radians ?? {},
             positions_radians: managedRun.positions_radians ?? {},
             rigid_bodies: managedRun.rigid_body_positions_m ?? {},
+            ...(node.data.type === 'PPOTraining' ? {
+              status: managedRun,
+              update: Number(managedRun.update ?? 0),
+              checkpoint: String(managedRun.checkpoint ?? ''),
+              mode: String(managedRun.mode ?? 'training'),
+              replay_episode: Number(managedRun.replay_episode ?? 0),
+              replay_episodes: Number(managedRun.replay_episodes ?? 0),
+            } : {}),
           } : {}
           if (Object.keys(liveOutputs).length === 0 && Object.keys(managedOutputs).length === 0) {
             const runtimeWasActive = Boolean(
               node.data.portResults?.running === true
+              || node.data.portResults?.viewer_running === true
               || node.data.portResults?.live === true
               || node.data.portResults?.streaming === true
               || node.data.portResults?.launched === true

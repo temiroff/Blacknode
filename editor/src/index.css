@@ -12054,6 +12054,36 @@ html[data-ui-test="refined"] .bn-topbar.is-hosted-preview .bn-topbar-group-label
   line-height: 1.45;
 }
 
+.bn-cloud-provider-setting {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%);
+}
+
+.bn-cloud-provider-setting > span {
+  color: var(--tx1);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bn-cloud-provider-setting select {
+  width: 100%;
+  padding: 8px 10px;
+  color: var(--tx1);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.bn-cloud-provider-setting small {
+  color: var(--tx3);
+  line-height: 1.45;
+}
+
 .bn-cloud-account > header strong,
 .bn-cloud-account > header span {
   display: block;

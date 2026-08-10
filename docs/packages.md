@@ -171,7 +171,7 @@ development:
 | `blacknode-cuda` | CUDA capability, image-processing, tensor-operation, and optional benchmark components backed by internal kernels. |
 | `blacknode-dataset` | Default recording, replay, and validation with optional evaluation, export, and repository publishing. |
 | `blacknode-drivers` | Selectively enabled concrete physical drivers; the `feetech` component provides inert bus configuration, read-only probing, and torque-safe bus primitives. |
-| `blacknode-isaac` | Direct closed-loop policy deployment using Isaac Sim articulation state, named RGB sensors, safety-gated targets, and runtime replay logs. |
+| `blacknode-isaac` | Direct closed-loop ACT and compatible PPO evaluation using Isaac Sim articulation state, semantic observations, safety-gated targets, and runtime replay logs. |
 | `blacknode-perception` | Camera, tracking, VLM, and spatial-perception components, organized as selectable components. |
 | `blacknode-robot` | Robot contracts, profiles, calibration, connected-device discovery and lifecycle, normalized telemetry, driver descriptors, and driver process launch. |
 | `blacknode-ros2` | Native DDS graph, topic, service, and diagnostic integration with optional rosbridge and managed processes. |

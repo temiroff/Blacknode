@@ -948,14 +948,15 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "PPOTraining",
                         "PPOCheckpointInspect",
                         "PPOPolicyEvaluate",
-                        "PPOPolicyExport"
+                        "PPOPolicyExport",
+                        "PPOPolicyImport"
                     ],
                     "dependencies": {
                         "requires": [
                             {
                                 "package": "blacknode-newton",
                                 "component": "runtime",
-                                "version": ">=0.1,<1"
+                                "version": ">=0.1.3,<1"
                             }
                         ]
                     }
@@ -972,6 +973,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "PPOCheckpointInspect",
                 "PPOPolicyEvaluate",
                 "PPOPolicyExport",
+                "PPOPolicyImport",
                 "PPOTraining",
                 "PolicyArtifactLoad",
                 "TrainingDatasetCheck"
@@ -990,7 +992,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             {
                                 "package": "blacknode-motion",
                                 "component": "policy",
-                                "version": ">=0.1.0,<1.0.0"
+                                "version": ">=0.6.1,<1.0.0"
                             }
                         ]
                     }
@@ -1037,7 +1039,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 }
             },
             "git_url": "https://github.com/temiroff/blacknode-isaac.git",
-            "description": "Closed-loop policy deployment for Isaac Sim articulations and named RGB sensors.",
+            "description": "Closed-loop ACT and compatible PPO policy evaluation for Isaac Sim articulations and semantic observations.",
             "node_types": [
                 "IsaacPolicyBridge",
                 "IsaacPolicyRuntime",
