@@ -2289,7 +2289,7 @@ printf '__BLACKNODE_HARDWARE_CONFIGURATION__={"configured":%d}\n' "$configured"
             ) from exc
         if configured < 1:
             raise DeviceInstallError(
-                "No connected serial robots were configured."
+                "No connected robot Hardware provider was configured."
             )
         return {"ok": True, "configured": configured}
     finally:
