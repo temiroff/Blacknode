@@ -7249,6 +7249,7 @@ def discover_and_pair_host_robots(host_id: str, req: DiscoverHostRobotsReq):
                     host_fingerprint=str(managed.get("host_fingerprint") or ""),
                     instance_id="default",
                     runtime_port=int(managed.get("runtime_port") or 0),
+                    robot_name=str(host.get("name") or "ROS 2 Robot"),
                 )
                 configured = int(configuration.get("configured") or 0)
                 if configured:

@@ -9,6 +9,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import socket
 import subprocess
@@ -2027,8 +2028,9 @@ def configure_hardware_services(
     host_fingerprint: str,
     instance_id: str,
     runtime_port: int,
+    robot_name: str = "",
 ) -> dict[str, Any]:
-    """Configure connected serial robots in an organized Hardware stack."""
+    """Configure robots from a confirmed provider in an organized Hardware stack."""
 
     selected_instance = _clean_instance_id(instance_id or "default")
     selected_runtime_port = int(runtime_port)
@@ -2047,6 +2049,58 @@ def configure_hardware_services(
         expected_fingerprint=expected,
         timeout=15.0,
     )
+    inspection = _inspect_connection(connection)
+    graph = (
+        inspection.get("ros2_graph")
+        if isinstance(inspection.get("ros2_graph"), dict)
+        else {}
+    )
+    topic_names = {
+        str(value or "").split(" [", 1)[0].strip()
+        for value in (graph.get("topics") or [])
+        if str(value or "").strip().startswith("/")
+    }
+    # One odometry source and one scan source are enough to prove that this is
+    # the live robot graph. Other interfaces remain reported as capabilities.
+    required_topics = []
+    for candidates in (("/odom", "/odom_raw"), ("/scan", "/scan_raw")):
+        selected_topic = next(
+            (topic for topic in candidates if topic in topic_names),
+            "",
+        )
+        if selected_topic:
+            required_topics.append(selected_topic)
+    capabilities = ["existing_ros2", "ros2_graph"] if required_topics else []
+    if any(topic in topic_names for topic in ("/cmd_vel", "/controller/cmd_vel", "/app/cmd_vel")):
+        capabilities.append("mobile_base")
+    if any(topic in topic_names for topic in ("/odom", "/odom_raw")):
+        capabilities.append("odometry")
+    if any(topic in topic_names for topic in ("/scan", "/scan_raw")):
+        capabilities.append("lidar")
+    if any("image" in topic and "depth" not in topic for topic in topic_names):
+        capabilities.append("camera")
+    if any("depth" in topic and "image" in topic for topic in topic_names):
+        capabilities.append("depth_camera")
+    if any("imu" in topic.lower() for topic in topic_names):
+        capabilities.append("imu")
+    if any(topic.endswith("/joint_states") or topic == "/joint_states" for topic in topic_names):
+        capabilities.append("joint_state")
+    ros_profile = (
+        {
+            "name": str(robot_name or "ROS 2 Robot").strip()[:80] or "ROS 2 Robot",
+            "required_topics": required_topics,
+            "capabilities": capabilities,
+        }
+        if bool(graph.get("available")) and required_topics
+        else {}
+    )
+    profile_payload = (
+        base64.urlsafe_b64encode(
+            json.dumps(ros_profile, separators=(",", ":")).encode("utf-8")
+        ).decode("ascii")
+        if ros_profile
+        else ""
+    )
     script = r"""#!/usr/bin/env bash
 set -euo pipefail
 sudo() {
@@ -2055,6 +2109,7 @@ sudo() {
 export -f sudo
 instance="$1"
 runtime_port="$2"
+profile_payload="${3:-}"
 [[ "$instance" == "default" || "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || {
   echo "Invalid Blacknode Hardware instance." >&2
   exit 2
@@ -2123,9 +2178,34 @@ if (( ${#orphan_units[@]} > 0 )); then
 fi
 (
   cd "$target"
+  configuration_args=()
+  if [[ -n "$profile_payload" ]]; then
+    mapfile -t configuration_args < <(
+      "$target/.venv/bin/python" - "$profile_payload" <<'PY'
+import base64
+import json
+import sys
+
+profile = json.loads(base64.urlsafe_b64decode(sys.argv[1]).decode("utf-8"))
+print("--existing-ros2")
+print("--rosbridge-host")
+print("127.0.0.1")
+print("--rosbridge-port")
+print("9090")
+print("--name")
+print(profile["name"])
+for topic in profile["required_topics"]:
+    print("--required-topic")
+    print(topic)
+for capability in profile["capabilities"]:
+    print("--capability")
+    print(capability)
+PY
+    )
+  fi
   BLACKNODE_HARDWARE_INSTANCE="$service_instance" \
     BLACKNODE_RUNTIME_PORT="$runtime_port" \
-    bash ./configure.sh --all --install
+    bash ./configure.sh --all --install "${configuration_args[@]}"
 )
 
 for unit in "${orphan_units[@]}"; do
@@ -2160,7 +2240,7 @@ done < <(
   } | awk '{print $1}' | sort -u
 )
 (( configured > 0 )) || {
-  echo "No connected serial robots were configured." >&2
+  echo "No robot Hardware services were configured." >&2
   exit 6
 }
 restore_orphans=false
@@ -2182,7 +2262,8 @@ printf '__BLACKNODE_HARDWARE_CONFIGURATION__={"configured":%d}\n' "$configured"
             connection,
             (
                 f"bash {remote_script_path} "
-                f"{selected_instance} {selected_runtime_port}"
+                f"{selected_instance} {selected_runtime_port} "
+                f"{shlex.quote(profile_payload)}"
             ),
             stdin_text=_sudo_input(password, attempts=32),
             timeout=300.0,
