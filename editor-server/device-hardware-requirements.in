@@ -1,0 +1,11 @@
+# Linux Python 3.11 dependencies staged by the editor for managed Robot Hardware.
+# Keep this aligned with the blacknode-robot pyproject and setup script.
+feetech-servo-sdk>=1.0
+# Autobahn 26.x does not publish a CPython 3.11 manylinux2014 aarch64 wheel.
+autobahn>=24.4.2,<=25.12.1
+cbor2<=5.9.0
+pyserial>=3.5
+roslibpy>=1.5
+setuptools>=68
+smbus2>=0.5
+wheel

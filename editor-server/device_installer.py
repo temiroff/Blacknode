@@ -43,7 +43,9 @@ _PYTHON_STANDALONE_RELEASES_URL = (
 )
 _RUNTIME_REPOSITORY = "temiroff/blacknode-runtime"
 _CORE_REPOSITORY = "temiroff/Blacknode"
+_HARDWARE_REPOSITORY = "temiroff/blacknode-robot"
 _OFFLINE_PYTHON_MINOR = "3.11"
+_HARDWARE_BUNDLE_SCHEMA_VERSION = 1
 _RUNTIME_DEVICE_SOURCE_PATHS = (
     "blacknode-package.toml",
     "blacknode_runtime",
@@ -527,6 +529,13 @@ class _RuntimeBundle:
     core_commit: str
 
 
+@dataclass(frozen=True)
+class _HardwareBundle:
+    path: Path
+    architecture: str
+    hardware_commit: str
+
+
 def _offline_cache_root() -> Path:
     configured = str(os.environ.get("BLACKNODE_DEVICE_INSTALL_CACHE") or "").strip()
     root = (
@@ -825,6 +834,7 @@ def _runtime_source_lock() -> dict[str, dict[str, str]]:
     expected = {
         "runtime": _RUNTIME_REPOSITORY,
         "core": _CORE_REPOSITORY,
+        "hardware": _HARDWARE_REPOSITORY,
     }
     result: dict[str, dict[str, str]] = {}
     for key, expected_repository in expected.items():
@@ -1091,6 +1101,181 @@ def _prepare_runtime_bundle(
                 report(12, "Using the cached offline Runtime bundle")
                 return cached
             raise
+
+
+def _prepare_hardware_wheelhouse(cache_root: Path, platform_tag: str) -> Path:
+    lock_path = Path(__file__).with_name("device-hardware-requirements.lock")
+    try:
+        lock_payload = lock_path.read_bytes()
+    except OSError as exc:
+        raise DeviceInstallError(
+            "The editor installation is missing its Robot Hardware dependency lock."
+        ) from exc
+    requirements_key = hashlib.sha256(lock_payload).hexdigest()[:12]
+    wheelhouse = cache_root / f"hardware-wheelhouse-cp311-{platform_tag}-{requirements_key}"
+    if wheelhouse.is_dir() and any(path.is_file() for path in wheelhouse.iterdir()):
+        return wheelhouse
+    temporary = cache_root / f".{wheelhouse.name}.{secrets.token_hex(6)}.tmp"
+    shutil.rmtree(temporary, ignore_errors=True)
+    temporary.mkdir(parents=True)
+    command = [
+        sys.executable,
+        "-m",
+        "pip",
+        "download",
+        "--disable-pip-version-check",
+        "--dest",
+        str(temporary),
+        "--only-binary=:all:",
+        "--no-binary=feetech-servo-sdk,py-ubjson",
+        "--platform",
+        platform_tag,
+        "--implementation",
+        "cp",
+        "--python-version",
+        "311",
+        "--abi",
+        "cp311",
+        "--no-deps",
+        "--require-hashes",
+        "--requirement",
+        str(lock_path),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=600.0,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise DeviceInstallError(
+            "The editor computer could not prepare Robot Hardware wheels."
+        ) from exc
+    if completed.returncode != 0:
+        detail = "\n".join(
+            value.strip()
+            for value in (completed.stdout, completed.stderr)
+            if value and value.strip()
+        )[-1600:]
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise DeviceInstallError(
+            "The editor computer could not prepare the locked Robot Hardware "
+            "dependencies."
+            + (f" {detail}" if detail else "")
+        )
+    if not any(path.is_file() for path in temporary.iterdir()):
+        shutil.rmtree(temporary, ignore_errors=True)
+        raise DeviceInstallError(
+            "The editor computer produced an empty Robot Hardware wheelhouse."
+        )
+    if wheelhouse.exists():
+        shutil.rmtree(wheelhouse)
+    os.replace(temporary, wheelhouse)
+    return wheelhouse
+
+
+def _read_cached_hardware_bundle(
+    path: Path,
+    architecture: str,
+) -> _HardwareBundle | None:
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            member = archive.getmember("manifest.json")
+            extracted = archive.extractfile(member)
+            if extracted is None:
+                return None
+            payload = json.loads(extracted.read().decode("utf-8"))
+    except (OSError, KeyError, tarfile.TarError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or int(payload.get("schema_version") or 0) != _HARDWARE_BUNDLE_SCHEMA_VERSION
+        or str(payload.get("architecture") or "") != architecture
+        or not re.fullmatch(r"[0-9a-f]{40}", str(payload.get("hardware_commit") or ""))
+    ):
+        return None
+    return _HardwareBundle(
+        path=path,
+        architecture=architecture,
+        hardware_commit=str(payload["hardware_commit"]),
+    )
+
+
+def _prepare_hardware_bundle(
+    architecture: str,
+    report: Callable[[int, str], None],
+) -> _HardwareBundle:
+    target_arch, platform_tag = _target_architecture(architecture)
+    cache_root = _offline_cache_root()
+    with _OFFLINE_BUNDLE_LOCK:
+        report(8, f"Preparing Linux {target_arch} Robot Hardware on this computer")
+        downloads = cache_root / "downloads"
+        sources = _runtime_source_lock()
+        source_archive, hardware_commit = _repository_snapshot(
+            sources["hardware"]["repository"],
+            sources["hardware"]["commit"],
+            downloads,
+        )
+        requirements_key = hashlib.sha256(
+            Path(__file__).with_name("device-hardware-requirements.lock").read_bytes()
+        ).hexdigest()[:12]
+        bundle_name = (
+            f"hardware-offline-v{_HARDWARE_BUNDLE_SCHEMA_VERSION}-{target_arch}-"
+            f"{hardware_commit[:10]}-{requirements_key}.tar.gz"
+        )
+        bundle_path = cache_root / bundle_name
+        cached = _read_cached_hardware_bundle(bundle_path, target_arch)
+        if cached is not None:
+            report(12, "Using the verified PC Robot Hardware cache")
+            return cached
+        report(10, "Downloading Robot Hardware dependencies on this computer")
+        wheelhouse = _prepare_hardware_wheelhouse(cache_root, platform_tag)
+        artifacts: list[tuple[Path, str]] = [(source_archive, "hardware-source.tar.gz")]
+        artifacts.extend(
+            (wheel, f"wheelhouse/{wheel.name}")
+            for wheel in sorted(path for path in wheelhouse.iterdir() if path.is_file())
+        )
+        manifest = {
+            "schema_version": _HARDWARE_BUNDLE_SCHEMA_VERSION,
+            "delivery_mode": "pc_assisted",
+            "architecture": target_arch,
+            "python_minor": _OFFLINE_PYTHON_MINOR,
+            "hardware_commit": hardware_commit,
+            "artifacts": [
+                {
+                    "path": archive_name,
+                    "size": source.stat().st_size,
+                    "sha256": _sha256_file(source),
+                }
+                for source, archive_name in artifacts
+            ],
+        }
+        temporary = bundle_path.with_name(
+            f".{bundle_path.name}.{secrets.token_hex(6)}.tmp"
+        )
+        manifest_file = cache_root / f".hardware-manifest-{secrets.token_hex(6)}.json"
+        try:
+            manifest_file.write_text(
+                json.dumps(manifest, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            with tarfile.open(temporary, "w:gz") as archive:
+                archive.add(manifest_file, arcname="manifest.json")
+                for source, archive_name in artifacts:
+                    archive.add(source, arcname=archive_name)
+            os.replace(temporary, bundle_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+            manifest_file.unlink(missing_ok=True)
+        report(12, "Verified the PC-assisted Robot Hardware bundle")
+        return _HardwareBundle(
+            path=bundle_path,
+            architecture=target_arch,
+            hardware_commit=hardware_commit,
+        )
 
 
 def _upload_sftp_file(
@@ -2040,6 +2225,8 @@ def install_hardware_environment(
     password: str,
     host_fingerprint: str,
     instance_id: str,
+    delivery_mode: str = "device_online",
+    architecture: str = "",
     progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Install the managed Hardware package beside an existing Runtime."""
@@ -2057,7 +2244,11 @@ def install_hardware_environment(
         raise DeviceInstallError(
             "Check the SSH connection and confirm its host fingerprint first."
         )
-    report(5, "Connecting to the verified device")
+    clean_delivery_mode = str(delivery_mode or "device_online").strip().lower()
+    hardware_bundle = None
+    if clean_delivery_mode == "pc_assisted":
+        hardware_bundle = _prepare_hardware_bundle(architecture, report)
+    report(15 if hardware_bundle is not None else 5, "Connecting to the verified device")
     connection = _connect(
         host,
         port,
@@ -2076,6 +2267,14 @@ sudo() {
 }
 export -f sudo
 instance="$1"
+bundle_path="$2"
+hardware_commit="$3"
+[[ "$bundle_path" != "-" ]] || bundle_path=""
+[[ "$hardware_commit" != "-" ]] || hardware_commit=""
+[[ -z "$hardware_commit" || "$hardware_commit" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "Invalid Robot Hardware source commit."
+  exit 2
+}
 [[ "$instance" == "default" || "$instance" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || {
   echo "Invalid Blacknode runtime instance."
   exit 2
@@ -2083,6 +2282,8 @@ instance="$1"
 stack_root="$HOME/Blacknode/devices/$instance"
 organized_runtime_dir="$stack_root/runtime"
 organized_hardware_dir="$stack_root/hardware"
+bundle_dir="$stack_root/.hardware-install-bundle"
+python_dir="$stack_root/python"
 service_instance=""
 [[ "$instance" == "default" ]] || service_instance="$instance"
 if [[ "$instance" == "default" ]]; then
@@ -2122,26 +2323,94 @@ cleanup_failed_install() {
     progress 0 "Cleaning the incomplete Hardware package"
     rm -rf -- "$hardware_dir"
   fi
+  rm -rf -- "$bundle_dir"
   exit "$exit_code"
 }
 trap cleanup_failed_install EXIT
+case "$bundle_dir" in
+  "$HOME/Blacknode/devices/"*/.hardware-install-bundle) ;;
+  *) echo "Unsafe Hardware bundle directory."; exit 2 ;;
+esac
+valid_hardware() {
+  [[ -f "$1/pyproject.toml" \
+    && -f "$1/blacknode_robot/__init__.py" \
+    && -f "$1/install-service.sh" ]]
+}
+if [[ -n "$bundle_path" ]]; then
+  progress 30 "Verifying the Robot Hardware package transferred by the editor"
+  rm -rf -- "$bundle_dir"
+  mkdir -p "$bundle_dir"
+  tar -xzf "$bundle_path" -C "$bundle_dir" --no-same-owner --no-same-permissions
+  python3 - "$bundle_dir" "$hardware_commit" <<'PY'
+import hashlib
+import json
+import platform
+import sys
+from pathlib import Path, PurePosixPath
+
+root = Path(sys.argv[1]).resolve()
+expected_commit = sys.argv[2]
+manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+if manifest.get("schema_version") != __BLACKNODE_HARDWARE_BUNDLE_SCHEMA_VERSION__:
+    raise SystemExit("Unsupported PC-assisted Robot Hardware bundle.")
+if manifest.get("hardware_commit") != expected_commit:
+    raise SystemExit("Robot Hardware bundle commit does not match the pinned source.")
+machine = platform.machine().lower().replace("-", "_")
+aliases = {"arm64": "aarch64", "amd64": "x86_64"}
+if manifest.get("architecture") != aliases.get(machine, machine):
+    raise SystemExit("Robot Hardware bundle targets a different device architecture.")
+for artifact in manifest.get("artifacts", []):
+    relative = str(artifact.get("path") or "")
+    parts = PurePosixPath(relative).parts
+    if not relative or relative.startswith("/") or ".." in parts:
+        raise SystemExit("Robot Hardware bundle contains an unsafe artifact path.")
+    path = (root / Path(*parts)).resolve()
+    if root not in path.parents or not path.is_file():
+        raise SystemExit(f"Robot Hardware bundle artifact is missing: {relative}")
+    if path.stat().st_size != int(artifact.get("size") or -1):
+        raise SystemExit(f"Robot Hardware bundle artifact size changed: {relative}")
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != artifact.get("sha256"):
+        raise SystemExit(f"Robot Hardware bundle checksum failed: {relative}")
+PY
+fi
 if [[ -e "$hardware_dir" ]]; then
-  [[ -d "$hardware_dir/.git" && -f "$hardware_dir/pyproject.toml" ]] || {
-    echo "The existing Hardware directory is not a valid package checkout:"
-    echo "  $hardware_dir"
-    exit 4
-  }
-  origin="$(git -C "$hardware_dir" remote get-url origin 2>/dev/null || true)"
-  [[ "$origin" =~ (github\.com[:/])temiroff/blacknode-robot(\.git)?$ ]] || {
-    echo "The existing Hardware checkout has an unrecognized Git origin."
-    exit 4
-  }
+  if ! valid_hardware "$hardware_dir"; then
+    origin="$(git -C "$hardware_dir" remote get-url origin 2>/dev/null || true)"
+    if [[ -d "$hardware_dir/.git" \
+      && "$origin" =~ (github\.com[:/])temiroff/blacknode-robot(\.git)?$ ]]; then
+      progress 18 "Cleaning the recognized incomplete Robot Hardware download"
+      rm -rf -- "$hardware_dir"
+    else
+      echo "The existing Hardware directory is not a recognized package:"
+      echo "  $hardware_dir"
+      exit 4
+    fi
+  fi
+fi
+if [[ -e "$hardware_dir" ]]; then
+  if [[ -d "$hardware_dir/.git" ]]; then
+    origin="$(git -C "$hardware_dir" remote get-url origin 2>/dev/null || true)"
+    [[ "$origin" =~ (github\.com[:/])temiroff/blacknode-robot(\.git)?$ ]] || {
+      echo "The existing Hardware checkout has an unrecognized Git origin."
+      exit 4
+    }
+  fi
   progress 25 "Using the existing Robot Hardware package"
+elif [[ -n "$bundle_path" ]]; then
+  progress 32 "Installing the Robot Hardware package transferred by the editor"
+  created=true
+  mkdir -p "$hardware_dir"
+  tar -xzf "$bundle_dir/hardware-source.tar.gz" -C "$hardware_dir" \
+    --strip-components=1 --no-same-owner --no-same-permissions
 else
   progress 20 "Downloading the Robot Hardware package"
   mkdir -p "$(dirname -- "$hardware_dir")"
-  git clone https://github.com/temiroff/blacknode-robot.git "$hardware_dir"
   created=true
+  git clone https://github.com/temiroff/blacknode-robot.git "$hardware_dir"
 fi
 if ! grep -q 'BLACKNODE_HARDWARE_INSTANCE' "$hardware_dir/install-service.sh" \
   || ! grep -q 'previous_working_directory' "$hardware_dir/install-service.sh"; then
@@ -2149,12 +2418,32 @@ if ! grep -q 'BLACKNODE_HARDWARE_INSTANCE' "$hardware_dir/install-service.sh" \
   exit 4
 fi
 progress 50 "Setting up the Robot Hardware environment"
-(
-  cd "$hardware_dir"
-  BLACKNODE_HARDWARE_INSTANCE="$service_instance" bash ./setup_ubuntu.sh
-)
+if [[ -n "$bundle_path" ]]; then
+  [[ -x "$python_dir/bin/python3" ]] || {
+    echo "The managed Python 3.11 installation is missing: $python_dir"
+    exit 4
+  }
+  "$python_dir/bin/python3" -m venv "$hardware_dir/.venv"
+  "$hardware_dir/.venv/bin/python" -m pip install \
+    --disable-pip-version-check --no-index \
+    --find-links "$bundle_dir/wheelhouse" setuptools wheel
+  "$hardware_dir/.venv/bin/python" -m pip install \
+    --disable-pip-version-check --no-index \
+    --find-links "$bundle_dir/wheelhouse" --no-build-isolation \
+    -e "$hardware_dir" smbus2
+  if getent group i2c >/dev/null 2>&1; then
+    sudo usermod -aG i2c "$USER"
+  fi
+  "$hardware_dir/.venv/bin/python" "$hardware_dir/scripts/hardware_doctor.py" || true
+else
+  (
+    cd "$hardware_dir"
+    BLACKNODE_HARDWARE_INSTANCE="$service_instance" bash ./setup_ubuntu.sh
+  )
+fi
 progress 88 "Recording the complete device stack"
-python3 - "$stack_root/install.json" "$instance" "$runtime_dir" "$hardware_dir" <<'PY'
+python3 - "$stack_root/install.json" "$instance" "$runtime_dir" "$hardware_dir" \
+  "$hardware_commit" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -2170,6 +2459,8 @@ except (OSError, ValueError):
         "packages_dir": str(Path(sys.argv[3]) / "packages"),
     }
 payload["hardware_dir"] = sys.argv[4]
+payload["hardware_commit"] = sys.argv[5]
+payload["hardware_delivery_mode"] = "pc_assisted" if sys.argv[5] else "device_online"
 manifest_path.parent.mkdir(parents=True, exist_ok=True)
 manifest_path.write_text(
     json.dumps(payload, indent=2) + "\n",
@@ -2177,16 +2468,37 @@ manifest_path.write_text(
 )
 PY
 created=false
+rm -rf -- "$bundle_dir"
 printf '__BLACKNODE_HARDWARE_INSTALL__={"hardware_dir":"%s","layout":"%s","stack_mode":"isolated"}\n' \
   "$hardware_dir" "$layout"
 progress 100 "Robot Hardware package installed"
 """
+    script = script.replace(
+        "__BLACKNODE_HARDWARE_BUNDLE_SCHEMA_VERSION__",
+        str(_HARDWARE_BUNDLE_SCHEMA_VERSION),
+    )
     remote_script_path = (
         f"/tmp/blacknode-hardware-install-{secrets.token_hex(8)}.sh"
+    )
+    remote_bundle_path = (
+        f"/tmp/blacknode-hardware-bundle-{secrets.token_hex(8)}.tar.gz"
+        if hardware_bundle is not None
+        else ""
     )
     try:
         sftp = connection.client.open_sftp()
         try:
+            if hardware_bundle is not None:
+                report(16, "Transferring Robot Hardware from this computer")
+                _upload_sftp_file(
+                    sftp,
+                    hardware_bundle.path,
+                    remote_bundle_path,
+                    progress=lambda value: report(
+                        16 + int(value * 14 / 100),
+                        f"Transferring Robot Hardware from this computer ({value}%)",
+                    ),
+                )
             with sftp.file(remote_script_path, "w") as remote_script:
                 remote_script.write(script)
             sftp.chmod(remote_script_path, 0o700)
@@ -2194,7 +2506,11 @@ progress 100 "Robot Hardware package installed"
             sftp.close()
         output = _run(
             connection,
-            f"bash {remote_script_path} {selected_instance}",
+            (
+                f"bash {remote_script_path} {selected_instance} "
+                f"{remote_bundle_path or '-'} "
+                f"{hardware_bundle.hardware_commit if hardware_bundle is not None else '-'}"
+            ),
             stdin_text=_sudo_input(password, attempts=8),
             timeout=900.0,
             on_output=lambda line: (
@@ -2239,9 +2555,12 @@ progress 100 "Robot Hardware package installed"
         }
     finally:
         try:
+            cleanup_targets = remote_script_path
+            if remote_bundle_path:
+                cleanup_targets += f" {remote_bundle_path}"
             _run(
                 connection,
-                f"rm -f -- {remote_script_path}",
+                f"rm -f -- {cleanup_targets}",
                 timeout=10.0,
             )
         except DeviceInstallError:
