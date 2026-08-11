@@ -2370,6 +2370,8 @@ stack_root="$HOME/Blacknode/devices/$instance"
 organized_runtime_dir="$stack_root/runtime"
 organized_hardware_dir="$stack_root/hardware"
 bundle_dir="$stack_root/.hardware-install-bundle"
+replacement_dir="$stack_root/.hardware-source-new"
+backup_dir="$stack_root/.hardware-source-backup"
 python_dir="$stack_root/python"
 service_instance=""
 [[ "$instance" == "default" ]] || service_instance="$instance"
@@ -2404,19 +2406,38 @@ valid_runtime "$runtime_dir" || {
   exit 3
 }
 created=false
+replaced_snapshot=false
+restart_units=()
 cleanup_failed_install() {
   exit_code=$?
-  if [[ "$exit_code" -ne 0 && "$created" == true ]]; then
-    progress 0 "Cleaning the incomplete Hardware package"
-    rm -rf -- "$hardware_dir"
+  if [[ "$exit_code" -ne 0 ]]; then
+    if [[ "$replaced_snapshot" == true && -d "$backup_dir" ]]; then
+      progress 0 "Restoring the previous Robot Hardware snapshot"
+      rm -rf -- "$hardware_dir"
+      mv -- "$backup_dir" "$hardware_dir"
+    elif [[ "$created" == true ]]; then
+      progress 0 "Cleaning the incomplete Hardware package"
+      rm -rf -- "$hardware_dir"
+    fi
+    for unit in "${restart_units[@]}"; do
+      sudo systemctl start "$unit" >/dev/null 2>&1 || true
+    done
   fi
-  rm -rf -- "$bundle_dir"
+  rm -rf -- "$bundle_dir" "$replacement_dir"
   exit "$exit_code"
 }
 trap cleanup_failed_install EXIT
 case "$bundle_dir" in
   "$HOME/Blacknode/devices/"*/.hardware-install-bundle) ;;
   *) echo "Unsafe Hardware bundle directory."; exit 2 ;;
+esac
+case "$replacement_dir" in
+  "$HOME/Blacknode/devices/"*/.hardware-source-new) ;;
+  *) echo "Unsafe Hardware replacement directory."; exit 2 ;;
+esac
+case "$backup_dir" in
+  "$HOME/Blacknode/devices/"*/.hardware-source-backup) ;;
+  *) echo "Unsafe Hardware backup directory."; exit 2 ;;
 esac
 valid_hardware() {
   [[ -f "$1/pyproject.toml" \
@@ -2486,7 +2507,55 @@ if [[ -e "$hardware_dir" ]]; then
       exit 4
     }
   fi
-  progress 25 "Using the existing Robot Hardware package"
+  installed_hardware_commit="$(
+    python3 - "$stack_root/install.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    print(str(payload.get("hardware_commit") or ""))
+except (OSError, ValueError, AttributeError):
+    pass
+PY
+  )"
+  if [[ -n "$bundle_path" \
+    && ! -d "$hardware_dir/.git" \
+    && "$installed_hardware_commit" != "$hardware_commit" ]]; then
+    progress 32 "Replacing the Robot Hardware snapshot"
+    mapfile -t restart_units < <(
+      {
+        systemctl list-unit-files 'blacknode-hardware*.service' --no-legend 2>/dev/null
+        systemctl list-units --all --type=service 'blacknode-hardware*.service' \
+          --no-legend 2>/dev/null
+      } | awk '{print $1}' | sort -u | while read -r unit; do
+        [[ "$unit" =~ ^blacknode-hardware([-.@][A-Za-z0-9_.@-]+)?\.service$ ]] \
+          || continue
+        directory="$(
+          systemctl show "$unit" --property=WorkingDirectory --value 2>/dev/null || true
+        )"
+        [[ "$directory" == "$hardware_dir" ]] || continue
+        systemctl is-active --quiet "$unit" || continue
+        printf '%s\n' "$unit"
+      done
+    )
+    for unit in "${restart_units[@]}"; do
+      sudo systemctl stop "$unit"
+    done
+    rm -rf -- "$replacement_dir" "$backup_dir"
+    mkdir -p "$replacement_dir"
+    tar -xzf "$bundle_dir/hardware-source.tar.gz" -C "$replacement_dir" \
+      --strip-components=1 --no-same-owner --no-same-permissions
+    mv -- "$hardware_dir" "$backup_dir"
+    replaced_snapshot=true
+    if [[ -d "$backup_dir/.blacknode-hardware" ]]; then
+      mv -- "$backup_dir/.blacknode-hardware" "$replacement_dir/.blacknode-hardware"
+    fi
+    mv -- "$replacement_dir" "$hardware_dir"
+  else
+    progress 25 "Using the existing Robot Hardware package"
+  fi
 elif [[ -n "$bundle_path" ]]; then
   progress 32 "Installing the Robot Hardware package transferred by the editor"
   created=true
@@ -2554,6 +2623,17 @@ manifest_path.write_text(
     encoding="utf-8",
 )
 PY
+if [[ "$replaced_snapshot" == true ]]; then
+  for unit in "${restart_units[@]}"; do
+    sudo systemctl start "$unit"
+    systemctl is-active --quiet "$unit" || {
+      echo "$unit did not restart after the Robot Hardware snapshot update."
+      exit 6
+    }
+  done
+  rm -rf -- "$backup_dir"
+  replaced_snapshot=false
+fi
 created=false
 rm -rf -- "$bundle_dir"
 printf '__BLACKNODE_HARDWARE_INSTALL__={"hardware_dir":"%s","layout":"%s","stack_mode":"isolated"}\n' \
@@ -2639,6 +2719,11 @@ progress 100 "Robot Hardware package installed"
             "hardware_dir": hardware_dir,
             "stack_mode": stack_mode,
             "layout": layout,
+            "hardware_commit": (
+                hardware_bundle.hardware_commit
+                if hardware_bundle is not None
+                else ""
+            ),
         }
     finally:
         try:
