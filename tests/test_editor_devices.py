@@ -1428,7 +1428,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             uploaded[0],
         )
 
-    def test_default_stack_can_configure_connected_serial_robots(self):
+    def test_default_stack_configures_existing_ros2_robot_from_live_graph(self):
         uploaded = []
 
         class RemoteFile(io.StringIO):
@@ -1473,6 +1473,22 @@ class EditorDeviceApiTests(unittest.TestCase):
 
         with (
             patch.object(device_installer, "_connect", return_value=connection),
+            patch.object(
+                device_installer,
+                "_inspect_connection",
+                return_value={
+                    "ros2_graph": {
+                        "available": True,
+                        "topics": [
+                            "/odom [nav_msgs/msg/Odometry]",
+                            "/scan [sensor_msgs/msg/LaserScan]",
+                            "/cmd_vel [geometry_msgs/msg/Twist]",
+                            "/camera/image_raw [sensor_msgs/msg/Image]",
+                            "/imu/data [sensor_msgs/msg/Imu]",
+                        ],
+                    }
+                },
+            ),
             patch.object(device_installer, "_run", side_effect=fake_run),
         ):
             result = device_installer.configure_hardware_services(
@@ -1503,6 +1519,8 @@ class EditorDeviceApiTests(unittest.TestCase):
             uploaded[0],
         )
         self.assertIn("./configure.sh --all --install", uploaded[0])
+        self.assertIn('print("--existing-ros2")', uploaded[0])
+        self.assertNotIn(" default 8766 ''", commands[0])
         self.assertIn(
             'sudo systemctl stop "$unit"',
             uploaded[0],
@@ -2463,6 +2481,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             host_fingerprint="SHA256:trusted-device-key",
             instance_id="default",
             runtime_port=8766,
+            robot_name="alex-desktop",
         )
         self.assertNotIn(hardware_token, response.text)
         self.assertNotIn("ssh-password", response.text)
