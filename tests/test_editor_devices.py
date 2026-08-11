@@ -1202,7 +1202,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             r"(?ms)^[^\n]*<<'PY'(?:\s*&)?\n(.*?)^PY$",
             uploaded[0],
         )
-        self.assertEqual(len(python_blocks), 2)
+        self.assertEqual(len(python_blocks), 3)
         for index, python_block in enumerate(python_blocks, start=1):
             compile(
                 python_block,
@@ -1286,6 +1286,14 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertIn('python_dir="$stack_root/python"', script)
         self.assertIn('"$python_dir/bin/python3" -m venv', script)
         self.assertIn('--find-links "$bundle_dir/wheelhouse"', script)
+        self.assertIn('progress 32 "Replacing the Robot Hardware snapshot"', script)
+        self.assertIn('mv -- "$backup_dir/.blacknode-hardware"', script)
+        self.assertIn('[[ "$directory" == "$hardware_dir" ]] || continue', script)
+        self.assertIn(
+            'progress 0 "Restoring the previous Robot Hardware snapshot"',
+            script,
+        )
+        self.assertEqual(result["hardware_commit"], "a" * 40)
         self.assertIn(
             'progress 18 "Cleaning the recognized incomplete Robot Hardware download"',
             script,
@@ -1295,7 +1303,7 @@ class EditorDeviceApiTests(unittest.TestCase):
             r"(?ms)^[^\n]*<<'PY'(?:\s*&)?\n(.*?)^PY$",
             script,
         )
-        self.assertEqual(len(python_blocks), 2)
+        self.assertEqual(len(python_blocks), 3)
         for index, python_block in enumerate(python_blocks, start=1):
             compile(python_block, f"<pc-hardware-install-{index}>", "exec")
         checked = subprocess.run(
