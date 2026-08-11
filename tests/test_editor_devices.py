@@ -1411,8 +1411,11 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertNotIn("ssh-password", uploaded[0])
         self.assertIn('target="$HOME/Blacknode/devices/default/hardware"', uploaded[0])
         self.assertIn('legacy="$HOME/blacknode-hardware"', uploaded[0])
-        self.assertIn("valid_target_checkout", uploaded[0])
+        self.assertIn("valid_target_package", uploaded[0])
         self.assertIn("valid_legacy_checkout", uploaded[0])
+        self.assertIn('"$1/blacknode_robot/__init__.py"', uploaded[0])
+        target_validation = uploaded[0].split("valid_legacy_checkout()", 1)[0]
+        self.assertNotIn('"$1/.git"', target_validation)
         self.assertIn("blacknode-robot", uploaded[0])
         self.assertIn("blacknode-hardware", uploaded[0])
         self.assertIn('cp -a -- "$legacy_private" "$temporary_private"', uploaded[0])
@@ -1489,6 +1492,8 @@ class EditorDeviceApiTests(unittest.TestCase):
             'target="$HOME/Blacknode/devices/$instance/hardware"',
             uploaded[0],
         )
+        self.assertIn('"$target/blacknode_robot/__init__.py"', uploaded[0])
+        self.assertNotIn('[[ -d "$target/.git"', uploaded[0])
         self.assertIn(
             '[[ "$directory" == "$legacy" ]] || continue',
             uploaded[0],

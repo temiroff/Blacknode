@@ -1887,8 +1887,11 @@ target_private="$target/.blacknode-hardware"
 legacy_private="$legacy/.blacknode-hardware"
 marker="__BLACKNODE_HARDWARE_ADOPTION__="
 
-valid_target_checkout() {
-  [[ -d "$1/.git" && -f "$1/pyproject.toml" ]] \
+valid_target_package() {
+  [[ -f "$1/pyproject.toml" \
+    && -f "$1/blacknode_robot/__init__.py" \
+    && -f "$1/configure.sh" \
+    && -f "$1/install-service.sh" ]] \
     && grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*["'"'"']blacknode-robot["'"'"'][[:space:]]*$' \
       "$1/pyproject.toml"
 }
@@ -1899,7 +1902,7 @@ valid_legacy_checkout() {
       "$1/pyproject.toml"
 }
 
-valid_target_checkout "$target" || {
+valid_target_package "$target" || {
   echo "The organized Hardware package is missing or invalid: $target" >&2
   exit 4
 }
@@ -2068,7 +2071,10 @@ if [[ "$instance" == "default" ]]; then
   service_instance=""
   legacy="$HOME/blacknode-hardware"
 fi
-[[ -d "$target/.git" && -f "$target/pyproject.toml" ]] \
+[[ -f "$target/pyproject.toml" \
+  && -f "$target/blacknode_robot/__init__.py" \
+  && -f "$target/configure.sh" \
+  && -f "$target/install-service.sh" ]] \
   && grep -Eq '^[[:space:]]*name[[:space:]]*=[[:space:]]*["'"'"']blacknode-(robot|hardware)["'"'"'][[:space:]]*$' \
     "$target/pyproject.toml" || {
   echo "The organized Hardware package is missing or invalid: $target" >&2
