@@ -2494,6 +2494,67 @@ class EditorDeviceApiTests(unittest.TestCase):
         self.assertNotIn(hardware_token, response.text)
         self.assertNotIn("ssh-password", response.text)
 
+    def test_hardware_reinstall_before_robot_attachment_uses_package_installer(self):
+        host = server._device_registry.pair_host(
+            name="Jetson",
+            runtime_url="http://192.168.1.171:8766",
+            runtime_token="runtime-pairing-token-1234567890",
+            manifest={
+                "service": "blacknode-runtime",
+                "protocol_version": 1,
+                "device_id": "ubuntu",
+            },
+            managed_runtime={
+                "ssh_host": "192.168.1.171",
+                "ssh_port": 22,
+                "ssh_username": "ubuntu",
+                "host_fingerprint": "SHA256:trusted-device-key",
+                "instance_id": "default",
+                "runtime_port": 8766,
+                "service_name": "blacknode-runtime.service",
+                "install_root": "~/Blacknode/devices/default",
+                "runtime_dir": "~/Blacknode/devices/default/runtime",
+                "packages_dir": "~/Blacknode/devices/default/runtime/packages",
+                "delivery_mode": "pc_assisted",
+                "stack_mode": "isolated",
+                "hardware_dir": "~/Blacknode/devices/default/hardware",
+            },
+        )
+        installed_device = server._device_registry.get_host_public(host["id"])
+        progress = []
+
+        with patch.object(
+            server,
+            "_install_device_host_hardware_payload",
+            return_value={
+                "ok": True,
+                "device": installed_device,
+                "install": {
+                    "hardware_dir": "~/Blacknode/devices/default/hardware",
+                    "hardware_commit": "a" * 40,
+                },
+            },
+        ) as install:
+            result = server._update_device_host_payload(
+                host["id"],
+                server.UpdateManagedDeviceReq(
+                    password="ssh-password",
+                    scope="hardware",
+                    operation="reinstall",
+                ),
+                progress.append,
+            )
+
+        install.assert_called_once()
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["update"]["components"][0]["port"], 0)
+        self.assertEqual(
+            result["update"]["components"][0]["after"]["commit"],
+            "a" * 12,
+        )
+        self.assertIn("Find and attach robots", result["summary"])
+        self.assertEqual(progress[-1]["progress"], 100)
+
     def test_runtime_only_device_can_install_managed_hardware_package(self):
         managed = {
             "ssh_host": "192.168.1.87",
