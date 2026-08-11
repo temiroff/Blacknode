@@ -6254,7 +6254,56 @@ def _update_device_host_payload(
         hardware_ports if scope in {"all", "hardware"} else []
     )
     if scope == "hardware" and not selected_hardware_ports:
-        raise HTTPException(409, "This device has no attached Hardware services to update.")
+        operation = str(req.operation or "auto").strip().lower()
+        if operation not in {"auto", "update", "reinstall"}:
+            raise HTTPException(
+                400,
+                "Hardware package operation must be update or reinstall.",
+            )
+        report(10, "Reinstalling Robot Hardware before robot discovery")
+        installed = _install_device_host_hardware_payload(
+            host_id,
+            DiscoverHostRobotsReq(password=req.password),
+            progress=lambda value: report(
+                10 + int(int(value.get("progress") or 0) * 0.85),
+                str(value.get("message") or "Installing Robot Hardware"),
+            ),
+        )
+        hardware_commit = str(
+            (installed.get("install") or {}).get("hardware_commit") or ""
+        )
+        summary = (
+            "Robot Hardware package reinstalled. Use Find and attach robots "
+            "to configure the detected hardware provider."
+        )
+        report(100, summary)
+        return {
+            "ok": True,
+            "scope": "hardware",
+            "device": installed["device"],
+            "update": {
+                "ok": True,
+                "components": [{
+                    "kind": "hardware",
+                    "service_name": "blacknode-hardware-awaiting-device",
+                    "port": 0,
+                    "before": {"version": "unknown", "commit": ""},
+                    "after": {
+                        "version": "unknown",
+                        "commit": hardware_commit[:12],
+                    },
+                    "changed": True,
+                    "state": "configured",
+                    "source_mode": "snapshot",
+                }],
+            },
+            "runtime": {},
+            "robots": [],
+            "stopped_deployments": [],
+            "controlled_robots": [],
+            "warnings": [],
+            "summary": summary,
+        }
 
     stopped_deployments: list[str] = []
     controlled_robots: list[str] = []
