@@ -8,5 +8,9 @@
   "core": {
     "repository": "temiroff/Blacknode",
     "commit": "62f812412561f9ab59dde67d749ff291087222fb"
+  },
+  "hardware": {
+    "repository": "temiroff/blacknode-robot",
+    "commit": "0311491e73e3b71fe0d2d6c18d64588dd38947b0"
   }
 }

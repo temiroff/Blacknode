@@ -7388,6 +7388,21 @@ def _install_device_host_hardware_payload(
             "Enter the device SSH password to install Robot Hardware.",
         )
     try:
+        inspection = (
+            host.get("last_inspection")
+            if isinstance(host.get("last_inspection"), dict)
+            else {}
+        )
+        environment = (
+            inspection.get("environment")
+            if isinstance(inspection.get("environment"), dict)
+            else {}
+        )
+        operating_system = (
+            environment.get("os")
+            if isinstance(environment.get("os"), dict)
+            else {}
+        )
         installed = install_hardware_environment(
             host=str(managed.get("ssh_host") or ""),
             port=int(managed.get("ssh_port") or 22),
@@ -7395,6 +7410,8 @@ def _install_device_host_hardware_payload(
             password=req.password,
             host_fingerprint=str(managed.get("host_fingerprint") or ""),
             instance_id=str(managed.get("instance_id") or "default"),
+            delivery_mode=str(managed.get("delivery_mode") or "device_online"),
+            architecture=str(operating_system.get("architecture") or ""),
             progress=progress,
         )
         updated_management = {

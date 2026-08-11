@@ -157,7 +157,13 @@ manageable.
 
 A Runtime-only managed device can add the organized Hardware checkout in place
 from **Attach robot → Install Hardware package**. This preserves the Runtime
-pairing and does not require deleting the device.
+pairing and does not require deleting the device. For a PC-assisted device, the
+editor downloads the pinned Robot Hardware source and Linux dependencies,
+verifies and caches them, then transfers the bundle over SSH. Hardware uses the
+stack's managed Python 3.11 and does not require the device to contact GitHub or
+PyPI. A recognized partial Hardware clone from an interrupted earlier install
+is cleaned before the verified bundle is applied; unrelated directories remain
+untouched.
 
 **Delete device** stops the selected Runtime and its deployments, removes its
 Runtime checkout, synchronized workflow packages, managed Linux Python,

@@ -1001,6 +1001,17 @@ class EditorDeviceApiTests(unittest.TestCase):
             "temiroff/blacknode-runtime",
         )
         self.assertRegex(source_lock["core"]["commit"], r"^[0-9a-f]{40}$")
+        self.assertEqual(
+            source_lock["hardware"]["repository"],
+            "temiroff/blacknode-robot",
+        )
+        self.assertRegex(source_lock["hardware"]["commit"], r"^[0-9a-f]{40}$")
+        hardware_lock = (
+            EDITOR_SERVER_DIR / "device-hardware-requirements.lock"
+        ).read_text(encoding="utf-8")
+        self.assertIn("feetech-servo-sdk==", hardware_lock)
+        self.assertIn("roslibpy==", hardware_lock)
+        self.assertNotIn("pywin32", hardware_lock.lower())
 
     def test_hardware_pairing_discovery_reads_only_verified_service_files(self):
         token = "hardware-pairing-token-1234567890"
@@ -1187,8 +1198,113 @@ class EditorDeviceApiTests(unittest.TestCase):
             'BLACKNODE_HARDWARE_INSTANCE="$service_instance" bash ./setup_ubuntu.sh',
             uploaded[0],
         )
-        remote_python = uploaded[0].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
-        compile(remote_python, "<hardware-environment-install>", "exec")
+        python_blocks = re.findall(
+            r"(?ms)^[^\n]*<<'PY'(?:\s*&)?\n(.*?)^PY$",
+            uploaded[0],
+        )
+        self.assertEqual(len(python_blocks), 2)
+        for index, python_block in enumerate(python_blocks, start=1):
+            compile(
+                python_block,
+                f"<hardware-environment-install-{index}>",
+                "exec",
+            )
+
+    def test_hardware_environment_uses_pc_assisted_bundle_and_managed_python(self):
+        uploaded = []
+
+        class RemoteFile(io.StringIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                uploaded.append(self.getvalue())
+                self.close()
+                return False
+
+        class Sftp:
+            def file(self, _path, _mode):
+                return RemoteFile()
+
+            def chmod(self, _path, _mode):
+                return None
+
+            def close(self):
+                return None
+
+        connection = SimpleNamespace(
+            client=SimpleNamespace(open_sftp=lambda: Sftp()),
+            fingerprint="SHA256:trusted-device-key",
+            close=lambda: None,
+        )
+        commands = []
+        bundle = device_installer._HardwareBundle(
+            path=Path("hardware-bundle.tar.gz"),
+            architecture="aarch64",
+            hardware_commit="a" * 40,
+        )
+
+        def fake_run(_connection, command, **_kwargs):
+            commands.append(command)
+            if command.startswith("bash "):
+                return (
+                    '__BLACKNODE_HARDWARE_INSTALL__={"hardware_dir":'
+                    '"/home/ubuntu/Blacknode/devices/default/hardware",'
+                    '"layout":"organized","stack_mode":"isolated"}\n'
+                )
+            return ""
+
+        with (
+            patch.object(device_installer, "_connect", return_value=connection),
+            patch.object(device_installer, "_run", side_effect=fake_run),
+            patch.object(
+                device_installer,
+                "_prepare_hardware_bundle",
+                return_value=bundle,
+            ) as prepare,
+            patch.object(device_installer, "_upload_sftp_file") as upload_bundle,
+        ):
+            result = device_installer.install_hardware_environment(
+                host="192.168.1.171",
+                port=22,
+                username="ubuntu",
+                password="ssh-password",
+                host_fingerprint="SHA256:trusted-device-key",
+                instance_id="default",
+                delivery_mode="pc_assisted",
+                architecture="aarch64",
+            )
+
+        self.assertEqual(result["layout"], "organized")
+        prepare.assert_called_once()
+        self.assertEqual(prepare.call_args.args[0], "aarch64")
+        upload_bundle.assert_called_once()
+        self.assertIn("blacknode-hardware-bundle-", upload_bundle.call_args.args[2])
+        self.assertIn("blacknode-hardware-bundle-", commands[0])
+        self.assertIn(" " + ("a" * 40), commands[0])
+        script = uploaded[0]
+        self.assertIn('python_dir="$stack_root/python"', script)
+        self.assertIn('"$python_dir/bin/python3" -m venv', script)
+        self.assertIn('--find-links "$bundle_dir/wheelhouse"', script)
+        self.assertIn(
+            'progress 18 "Cleaning the recognized incomplete Robot Hardware download"',
+            script,
+        )
+        self.assertLess(script.index("created=true\n  git clone"), script.index("fi\nif ! grep"))
+        python_blocks = re.findall(
+            r"(?ms)^[^\n]*<<'PY'(?:\s*&)?\n(.*?)^PY$",
+            script,
+        )
+        self.assertEqual(len(python_blocks), 2)
+        for index, python_block in enumerate(python_blocks, start=1):
+            compile(python_block, f"<pc-hardware-install-{index}>", "exec")
+        checked = subprocess.run(
+            ["bash", "-n"],
+            input=script.encode("utf-8"),
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(checked.returncode, 0, checked.stderr.decode("utf-8"))
 
     def test_hardware_environment_reports_legacy_layout_without_moving_runtime(self):
         class RemoteFile(io.StringIO):
@@ -2417,6 +2533,8 @@ class EditorDeviceApiTests(unittest.TestCase):
             password="ssh-password",
             host_fingerprint="SHA256:trusted-device-key",
             instance_id="default",
+            delivery_mode="device_online",
+            architecture="",
             progress=None,
         )
         self.assertEqual(
