@@ -585,6 +585,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "node_types": [
                         "ComputeDevice",
                         "DeviceInspect",
+                        "PhysicalRobot",
                         "RobotAttachment",
                         "RobotAttachmentList",
                         "RobotCapabilityBinding",
@@ -592,12 +593,14 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "RobotCapabilityList",
                         "RobotCapabilityProfile",
                         "RobotConnectionDashboard",
+                        "RobotDeployment",
                         "RobotDiscovery",
                         "RobotMonitor",
                         "RobotRawMonitor",
                         "RobotRawMonitorMockProvider",
                         "RobotROSCapabilityDiscover",
                         "RobotROSInterfaceCheck",
+                        "RobotStream",
                         "RobotUSBDiscovery"
                     ]
                 },
@@ -633,6 +636,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "ComputeDevice",
                 "DeviceInspect",
                 "HardwareCapabilities",
+                "PhysicalRobot",
                 "Robot",
                 "RobotAttachment",
                 "RobotAttachmentList",
@@ -645,6 +649,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "RobotCapabilityProfile",
                 "RobotConnectionDashboard",
                 "RobotDefinition",
+                "RobotDeployment",
                 "RobotDiscovery",
                 "RobotDriverDescriptor",
                 "RobotDriverLauncher",
@@ -661,6 +666,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "RobotROSCapabilityDiscover",
                 "RobotROSInterfaceCheck",
                 "RobotServo",
+                "RobotStream",
                 "RobotUSBDiscovery"
             ]
         },

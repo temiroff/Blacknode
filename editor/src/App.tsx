@@ -52,7 +52,6 @@ const NODE_TYPES = {
 const TAB_H = 52  // workflow tab bar height
 const THEME_STORAGE_KEY = 'blacknode-theme'
 const UI_TEST_STORAGE_KEY = 'blacknode-ui-test'
-const NODE_DENSITY_STORAGE_KEY = 'blacknode-node-density'
 const SIMULATION_VIEWER_HEIGHT_STORAGE_KEY = 'blacknode-simulation-viewer-height'
 const NEWTON_SCENE_FILE_EXTENSIONS = [
   '.usd', '.usda', '.usdc', '.urdf', '.xacro', '.xml', '.mjcf',
@@ -77,14 +76,6 @@ function loadCloudAccountEntryRequest(): boolean {
 
 function loadUiTestPreference() {
   return true
-}
-
-function loadNodeDensityPreference(): 'detailed' | 'compact' {
-  try {
-    return window.localStorage.getItem(NODE_DENSITY_STORAGE_KEY) === 'compact' ? 'compact' : 'detailed'
-  } catch {
-    return 'detailed'
-  }
 }
 
 function loadSimulationViewerHeight(): number {
@@ -126,6 +117,61 @@ interface PendingXacroEnvironmentState {
   assetPath: string
   variableName: string
   values: Record<string, string>
+}
+
+function ToolbarIcon({
+  name,
+  className,
+}: {
+  name: 'organize' | 'refresh' | 'light' | 'dark' | 'clear'
+  className?: string
+}) {
+  return (
+    <svg
+      className={['bn-top-icon', className].filter(Boolean).join(' ')}
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {name === 'organize' && (
+        <>
+          <rect x="2.5" y="2.5" width="5" height="5" rx="1" />
+          <rect x="12.5" y="2.5" width="5" height="5" rx="1" />
+          <rect x="2.5" y="12.5" width="5" height="5" rx="1" />
+          <rect x="12.5" y="12.5" width="5" height="5" rx="1" />
+        </>
+      )}
+      {name === 'refresh' && (
+        <>
+          <path d="M16.4 7.2A7 7 0 0 0 4.6 4.6L3 6.2" />
+          <path d="M3 2.8v3.4h3.4" />
+          <path d="M3.6 12.8a7 7 0 0 0 11.8 2.6l1.6-1.6" />
+          <path d="M17 17.2v-3.4h-3.4" />
+        </>
+      )}
+      {name === 'light' && (
+        <>
+          <circle cx="10" cy="10" r="3.2" />
+          <path d="M10 2v1.6M10 16.4V18M2 10h1.6M16.4 10H18M4.3 4.3l1.1 1.1M14.6 14.6l1.1 1.1M15.7 4.3l-1.1 1.1M5.4 14.6l-1.1 1.1" />
+        </>
+      )}
+      {name === 'dark' && (
+        <path d="M16.7 12.3A6.8 6.8 0 0 1 7.7 3.3 6.8 6.8 0 1 0 16.7 12.3Z" />
+      )}
+      {name === 'clear' && (
+        <>
+          <path d="M3.5 5.5h13" />
+          <path d="M7.5 3.5h5" />
+          <path d="M5.5 5.5l.7 11h7.6l.7-11" />
+          <path d="M8.2 8.2v5.5M11.8 8.2v5.5" />
+        </>
+      )}
+    </svg>
+  )
 }
 
 function missingXacroEnvironmentVariable(message: string): string | null {
@@ -205,7 +251,6 @@ function WorkspaceApp() {
   const [search, setSearch] = useState<SearchState | null>(null)
   const [isDark, setIsDark] = useState(loadDarkThemePreference)
   const [isUiTest, setIsUiTest] = useState(loadUiTestPreference)
-  const [nodeDensity, setNodeDensity] = useState<'detailed' | 'compact'>(loadNodeDensityPreference)
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null)
   const [hoveredPort, setHoveredPort] = useState<{
     nodeId: string
@@ -243,10 +288,10 @@ function WorkspaceApp() {
   const [simulationViewerVisible, setSimulationViewerVisible] = useState(true)
   const [simulationViewerDetached, setSimulationViewerDetached] = useState(false)
   const [simulationViewerHeight, setSimulationViewerHeight] = useState(loadSimulationViewerHeight)
+  const [fileMenuOpen, setFileMenuOpen] = useState(false)
+  const [fileMenuPosition, setFileMenuPosition] = useState({ top: 0, left: 0 })
   const [simulationViewerMenuOpen, setSimulationViewerMenuOpen] = useState(false)
   const [simulationViewerMenuPosition, setSimulationViewerMenuPosition] = useState({ top: 0, left: 0 })
-  const [hostedViewMenuOpen, setHostedViewMenuOpen] = useState(false)
-  const [hostedViewMenuPosition, setHostedViewMenuPosition] = useState({ top: 0, left: 0 })
   const [newtonWorkspace, setNewtonWorkspace] = useState<NewtonWorkspaceStatus | null>(null)
   const [newtonWorkspaceAvailable, setNewtonWorkspaceAvailable] = useState(false)
   const [newtonWorkspaceBusy, setNewtonWorkspaceBusy] = useState(false)
@@ -271,10 +316,10 @@ function WorkspaceApp() {
     )
   }, [])
   const lastSimulationViewerUrl = useRef('')
+  const fileMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const fileMenuRef = useRef<HTMLDivElement | null>(null)
   const simulationViewerMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
   const simulationViewerMenuRef = useRef<HTMLDivElement | null>(null)
-  const hostedViewMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const hostedViewMenuRef = useRef<HTMLDivElement | null>(null)
   const updatePendingCloseName = useCallback((draftName: string) => {
     setPendingClose(current => current ? { ...current, draftName } : current)
   }, [])
@@ -520,6 +565,42 @@ function WorkspaceApp() {
   }, [newtonWorkspace?.open, nodeTypes])
 
   useLayoutEffect(() => {
+    if (!fileMenuOpen) return
+    const positionMenu = () => {
+      const trigger = fileMenuTriggerRef.current
+      if (!trigger) return
+      const bounds = trigger.getBoundingClientRect()
+      const width = 250
+      setFileMenuPosition({
+        top: bounds.bottom + 7,
+        left: Math.max(8, Math.min(window.innerWidth - width - 8, bounds.left)),
+      })
+    }
+    const closeMenu = () => setFileMenuOpen(false)
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (fileMenuTriggerRef.current?.contains(target)) return
+      if (fileMenuRef.current?.contains(target)) return
+      closeMenu()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    positionMenu()
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    document.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('resize', positionMenu)
+    window.addEventListener('scroll', positionMenu, true)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      document.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('resize', positionMenu)
+      window.removeEventListener('scroll', positionMenu, true)
+    }
+  }, [fileMenuOpen])
+
+  useLayoutEffect(() => {
     if (!simulationViewerMenuOpen) return
     const positionMenu = () => {
       const trigger = simulationViewerMenuTriggerRef.current
@@ -548,36 +629,6 @@ function WorkspaceApp() {
       window.removeEventListener('scroll', positionMenu, true)
     }
   }, [simulationViewerMenuOpen])
-
-  useLayoutEffect(() => {
-    if (!hostedViewMenuOpen) return
-    const positionMenu = () => {
-      const trigger = hostedViewMenuTriggerRef.current
-      if (!trigger) return
-      const bounds = trigger.getBoundingClientRect()
-      const width = 210
-      setHostedViewMenuPosition({
-        top: bounds.bottom + 7,
-        left: Math.max(8, Math.min(window.innerWidth - width - 8, bounds.right - width)),
-      })
-    }
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      const target = event.target
-      if (!(target instanceof Node)) return
-      if (hostedViewMenuTriggerRef.current?.contains(target)) return
-      if (hostedViewMenuRef.current?.contains(target)) return
-      setHostedViewMenuOpen(false)
-    }
-    positionMenu()
-    document.addEventListener('pointerdown', closeOnOutsidePointer)
-    window.addEventListener('resize', positionMenu)
-    window.addEventListener('scroll', positionMenu, true)
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer)
-      window.removeEventListener('resize', positionMenu)
-      window.removeEventListener('scroll', positionMenu, true)
-    }
-  }, [hostedViewMenuOpen])
 
   useEffect(() => {
     if (!activeSimulationViewer) {
@@ -626,15 +677,6 @@ function WorkspaceApp() {
       // The comparison mode still applies for this session when storage is unavailable.
     }
   }, [isUiTest])
-
-  useLayoutEffect(() => {
-    document.documentElement.setAttribute('data-node-density', isUiTest ? nodeDensity : 'detailed')
-    try {
-      window.localStorage.setItem(NODE_DENSITY_STORAGE_KEY, nodeDensity)
-    } catch {
-      // The density remains available for this editor session.
-    }
-  }, [isUiTest, nodeDensity])
 
   useEffect(() => {
     const onPortHover = (event: Event) => {
@@ -1925,20 +1967,6 @@ function WorkspaceApp() {
 
           <div className="bn-topbar-controls">
             <div className="bn-topbar-group bn-topbar-file-group" aria-label="File controls">
-              <span className="bn-topbar-group-label">File</span>
-              <select
-                className="bn-top-select"
-                value={exportingTarget}
-                onChange={e => void handleFrameworkExport(e.target.value)}
-                disabled={!serverOk || nodes.length === 0 || Boolean(exportingTarget)}
-                title="Export current graph"
-              >
-                <option value="">{exportingTarget ? 'Exporting...' : 'Export'}</option>
-                {frameworkExportTargets.map(target => (
-                  <option key={target.id} value={target.id}>{target.label}</option>
-                ))}
-              </select>
-
               <input
                 ref={pythonImportInput}
                 type="file"
@@ -1948,18 +1976,63 @@ function WorkspaceApp() {
               />
 
               <button
-                className="bn-top-button"
-                onClick={() => pythonImportInput.current?.click()}
-                disabled={!serverOk || importingFile}
-                title="Import a workflow JSON, Python export, or LangGraph export"
+                ref={fileMenuTriggerRef}
+                type="button"
+                className="bn-top-button bn-file-menu-trigger"
+                onClick={() => {
+                  setSimulationViewerMenuOpen(false)
+                  setFileMenuOpen(open => !open)
+                }}
+                disabled={!serverOk || importingFile || Boolean(exportingTarget)}
+                title="Import or export a workflow"
+                aria-haspopup="menu"
+                aria-expanded={fileMenuOpen}
               >
-                {importingFile ? 'Importing...' : 'Import'}
+                {importingFile ? 'Importing…' : exportingTarget ? 'Exporting…' : 'File'}
+                <span aria-hidden="true">▾</span>
               </button>
 
+              {fileMenuOpen && createPortal(
+                <div
+                  ref={fileMenuRef}
+                  className="bn-simulation-viewer-menu-items bn-file-menu-items is-portal"
+                  role="menu"
+                  style={fileMenuPosition}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setFileMenuOpen(false)
+                      pythonImportInput.current?.click()
+                    }}
+                  >
+                    <span>Import workflow…</span>
+                    <small>JSON or Python</small>
+                  </button>
+                  <div className="bn-file-menu-divider" role="separator" />
+                  <span className="bn-file-menu-label">Export as</span>
+                  {frameworkExportTargets.map(target => (
+                    <button
+                      key={target.id}
+                      type="button"
+                      role="menuitem"
+                      disabled={nodes.length === 0}
+                      onClick={() => {
+                        setFileMenuOpen(false)
+                        void handleFrameworkExport(target.id)
+                      }}
+                    >
+                      <span>{target.label}</span>
+                      <small>{target.extension}</small>
+                    </button>
+                  ))}
+                </div>,
+                document.body,
+              )}
             </div>
 
             <div className="bn-topbar-group bn-topbar-run-group" aria-label="Run controls">
-              <span className="bn-topbar-group-label">Run</span>
               {hostedPreview && <span className="bn-hosted-preview-badge">WEB PREVIEW</span>}
               {hostedPreview ? (
                 <span className="bn-hosted-target-badge" title={`Runs on Blacknode Cloud via ${cloudProviderLabel} using one NVIDIA L40S`}>
@@ -2026,98 +2099,7 @@ function WorkspaceApp() {
             </div>
 
             <div className="bn-topbar-group bn-topbar-view-group" aria-label="View controls">
-              <span className="bn-topbar-group-label">View</span>
-              {hostedPreview ? (
-                <>
-                  <button
-                    ref={hostedViewMenuTriggerRef}
-                    type="button"
-                    className="bn-top-button bn-hosted-view-menu-trigger"
-                    title="Canvas and appearance options"
-                    aria-haspopup="menu"
-                    aria-expanded={hostedViewMenuOpen}
-                    onClick={() => setHostedViewMenuOpen(open => !open)}
-                  >
-                    View <span aria-hidden="true">▾</span>
-                  </button>
-                  {hostedViewMenuOpen && createPortal(
-                    <div
-                      ref={hostedViewMenuRef}
-                      className="bn-simulation-viewer-menu-items bn-hosted-view-menu-items is-portal"
-                      role="menu"
-                      style={hostedViewMenuPosition}
-                    >
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          void handleOrganize()
-                          setHostedViewMenuOpen(false)
-                        }}
-                      >
-                        Organize graph
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={!serverOk || cookActive || refreshingCanvas}
-                        onClick={() => {
-                          void handleRefreshCanvas()
-                          setHostedViewMenuOpen(false)
-                        }}
-                      >
-                        {refreshingCanvas ? 'Refreshing…' : 'Refresh canvas'}
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setIsDark(dark => !dark)
-                          setHostedViewMenuOpen(false)
-                        }}
-                      >
-                        {isDark ? 'Use light theme' : 'Use dark theme'}
-                      </button>
-                      <div className="bn-hosted-view-menu-divider" role="separator" />
-                      <button
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={nodeDensity === 'compact'}
-                        onClick={() => {
-                          setNodeDensity('compact')
-                          setHostedViewMenuOpen(false)
-                        }}
-                      >
-                        Compact nodes{nodeDensity === 'compact' ? ' ✓' : ''}
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={nodeDensity === 'detailed'}
-                        onClick={() => {
-                          setNodeDensity('detailed')
-                          setHostedViewMenuOpen(false)
-                        }}
-                      >
-                        Detailed nodes{nodeDensity === 'detailed' ? ' ✓' : ''}
-                      </button>
-                      <div className="bn-hosted-view-menu-divider" role="separator" />
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="is-danger"
-                        onClick={() => {
-                          void reset()
-                          setHostedViewMenuOpen(false)
-                        }}
-                      >
-                        Clear workflow
-                      </button>
-                    </div>,
-                    document.body,
-                  )}
-                </>
-              ) : (
+              {!hostedPreview && (
                 <>
               <button
                 className={`bn-top-button bn-simulation-viewer-toggle${activeSimulationViewer && (simulationViewerVisible || simulationViewerDetached) ? ' is-visible' : ''}`}
@@ -2144,7 +2126,10 @@ function WorkspaceApp() {
                   aria-label="Viewer options"
                   aria-haspopup="menu"
                   aria-expanded={simulationViewerMenuOpen}
-                  onClick={() => setSimulationViewerMenuOpen(open => !open)}
+                  onClick={() => {
+                    setFileMenuOpen(false)
+                    setSimulationViewerMenuOpen(open => !open)
+                  }}
                 >
                   ▾
                 </button>
@@ -2250,29 +2235,37 @@ function WorkspaceApp() {
                 document.body,
                 )}
               </div>
+                </>
+              )}
               <button
-                className="bn-top-button"
+                type="button"
+                className="bn-top-button bn-top-icon-button"
                 onClick={() => void handleOrganize()}
                 title="Organize current graph"
+                aria-label="Organize current graph"
               >
-                Organize
+                <ToolbarIcon name="organize" />
               </button>
 
               <button
-                className="bn-top-button"
+                type="button"
+                className="bn-top-button bn-top-icon-button"
                 onClick={() => void handleRefreshCanvas()}
                 disabled={!serverOk || cookActive || refreshingCanvas}
                 title="Reload custom-node files and update sockets on existing canvas nodes"
+                aria-label={refreshingCanvas ? 'Refreshing canvas' : 'Refresh canvas'}
               >
-                {refreshingCanvas ? 'Refreshing…' : 'Refresh canvas'}
+                <ToolbarIcon name="refresh" className={refreshingCanvas ? 'is-spinning' : undefined} />
               </button>
 
               <button
-                className="bn-top-button"
+                type="button"
+                className="bn-top-button bn-top-icon-button"
                 onClick={() => setIsDark(d => !d)}
                 title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+                aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
               >
-                Theme
+                <ToolbarIcon name={isDark ? 'light' : 'dark'} />
               </button>
 
               <button
@@ -2284,33 +2277,15 @@ function WorkspaceApp() {
                 UI Test
               </button>
 
-              <span className="bn-node-density-controls" aria-label="Node detail level">
-                <button
-                  className={`bn-node-density-button${nodeDensity === 'compact' ? ' is-active' : ''}`}
-                  onClick={() => setNodeDensity('compact')}
-                  title="Show compact node cards for large workflows"
-                  aria-pressed={nodeDensity === 'compact'}
-                >
-                  Compact
-                </button>
-                <button
-                  className={`bn-node-density-button${nodeDensity === 'detailed' ? ' is-active' : ''}`}
-                  onClick={() => setNodeDensity('detailed')}
-                  title="Show full node controls, previews, and port labels"
-                  aria-pressed={nodeDensity === 'detailed'}
-                >
-                  Detailed
-                </button>
-              </span>
-
               <button
-                className="bn-top-button"
+                type="button"
+                className="bn-top-button bn-top-icon-button bn-top-clear-button"
                 onClick={() => void reset()}
+                title="Clear workflow"
+                aria-label="Clear workflow"
               >
-                Clear
+                <ToolbarIcon name="clear" />
               </button>
-                </>
-              )}
             </div>
 
             <button

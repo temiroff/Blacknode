@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   api,
   type ComputeDevice,
@@ -12,11 +12,11 @@ import {
   type DeviceActionProgress,
   type HardwareDevice,
   type HardwareDeviceStatus,
-  type MappingSnapshot,
   type RemoteDeployment,
   type RemoteDeploymentState,
 } from '../api'
 import { useStore } from '../store'
+import LiveOccupancyMap from './LiveOccupancyMap'
 
 const REFRESH_INTERVAL_MS = 3000
 const DEFAULT_DEPLOYMENT_NAME = 'Deployed graph'
@@ -123,6 +123,7 @@ export default function DeploymentsPanel({
   const [remoteDeploymentName, setRemoteDeploymentName] = useState('')
   const [remoteAction, setRemoteAction] = useState<'send' | 'send-run' | null>(null)
   const [remoteProgress, setRemoteProgress] = useState<DeviceActionProgress | null>(null)
+  const [remoteOperationProgress, setRemoteOperationProgress] = useState<Record<string, DeviceActionProgress>>({})
   const [remoteNotice, setRemoteNotice] = useState<string | null>(null)
   const [rosDiagnostics, setRosDiagnostics] = useState('')
   const stopRuntimeServices = useStore(s => s.stopRuntimeServices)
@@ -598,14 +599,19 @@ export default function DeploymentsPanel({
     setRemoteDeployments(deploymentsForRobot(result.deployments, selectedDeviceId))
   }
 
-  const actRemote = async (fn: () => Promise<unknown>) => {
+  const actRemote = async (
+    fn: () => Promise<unknown>,
+    onFailure?: (message: string) => void,
+  ) => {
     setBusy(true)
     setError(null)
     try {
       await fn()
       await refreshRemote()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      const message = err instanceof Error ? err.message : String(err)
+      setError(message)
+      onFailure?.(message)
     } finally {
       setBusy(false)
     }
@@ -731,10 +737,69 @@ export default function DeploymentsPanel({
         } for this robot? The other deployment will remain available in a stopped state.`,
       )
     ) return
-    await actRemote(() => api.startRemoteDeployment(
-      selectedDeviceId,
-      deployment.id,
-    ))
+    setRemoteOperationProgress(previous => ({
+      ...previous,
+      [deployment.id]: {
+        progress: 10,
+        message: Number(deployment.mapping_control_count || 0) === 1
+          ? 'Starting mapping session'
+          : 'Starting deployment',
+      },
+    }))
+    await actRemote(async () => {
+      setRemoteOperationProgress(previous => ({
+        ...previous,
+        [deployment.id]: { progress: 55, message: 'Waiting for the device Runtime' },
+      }))
+      await api.startRemoteDeployment(selectedDeviceId, deployment.id)
+      setRemoteOperationProgress(previous => ({
+        ...previous,
+        [deployment.id]: {
+          progress: 100,
+          message: Number(deployment.mapping_control_count || 0) === 1
+            ? 'Mapping session started'
+            : 'Deployment started',
+        },
+      }))
+    }, message => setRemoteOperationProgress(previous => ({
+      ...previous,
+      [deployment.id]: { progress: 0, message: `Deployment start failed: ${message}` },
+    })))
+  }
+
+  const stopRemote = async (deployment: RemoteDeployment) => {
+    if (!selectedDeviceId) return
+    const isMapping = Number(deployment.mapping_control_count || 0) === 1
+    setRemoteOperationProgress(previous => ({
+      ...previous,
+      [deployment.id]: {
+        progress: 10,
+        message: isMapping ? 'Stopping mapping session' : 'Stopping deployment',
+      },
+    }))
+    await actRemote(async () => {
+      setRemoteOperationProgress(previous => ({
+        ...previous,
+        [deployment.id]: {
+          progress: 60,
+          message: isMapping ? 'Closing map stream and SLAM process' : 'Waiting for process shutdown',
+        },
+      }))
+      await api.stopRemoteDeployment(selectedDeviceId, deployment.id)
+      setRemoteOperationProgress(previous => ({
+        ...previous,
+        [deployment.id]: {
+          progress: 100,
+          message: isMapping ? 'Mapping session stopped' : 'Deployment stopped',
+        },
+      }))
+    }, message => setRemoteOperationProgress(previous => ({
+      ...previous,
+      [deployment.id]: {
+        progress: 0,
+        message: `${isMapping ? 'Mapping stop' : 'Deployment stop'} failed: ${message}`,
+      },
+    })))
   }
 
   const openRemoteWorkflow = async (deployment: RemoteDeployment) => {
@@ -799,20 +864,40 @@ export default function DeploymentsPanel({
     if (!selectedDeviceId) return
     setBusy(true)
     setError(null)
+    setRemoteOperationProgress(previous => ({
+      ...previous,
+      [deployment.id]: { progress: 10, message: 'Preparing map save' },
+    }))
     try {
+      setRemoteOperationProgress(previous => ({
+        ...previous,
+        [deployment.id]: {
+          progress: 45,
+          message: 'Saving occupancy grid and pose graph on the robot',
+        },
+      }))
       const result = await api.saveRemoteDeploymentMap(
         selectedDeviceId,
         deployment.id,
       )
       await refreshRemote()
       const mapPath = String(result.artifact?.map_yaml || result.artifact?.directory || '')
+      setRemoteOperationProgress(previous => ({
+        ...previous,
+        [deployment.id]: { progress: 100, message: 'Map saved' },
+      }))
       setRemoteNotice(
         `Map "${String(result.artifact?.map_name || 'map')}" saved on the device${
           mapPath ? ` at ${mapPath}` : ''
         }.${result.warning ? ` ${result.warning}` : ''}`,
       )
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      const message = err instanceof Error ? err.message : String(err)
+      setRemoteOperationProgress(previous => ({
+        ...previous,
+        [deployment.id]: { progress: 0, message: `Map save failed: ${message}` },
+      }))
+      setError(message)
     } finally {
       setBusy(false)
     }
@@ -1420,9 +1505,8 @@ export default function DeploymentsPanel({
             onStart={() => startRemote(deployment)}
             onSetMotion={armed => setRemoteMotion(deployment, armed)}
             onSaveMap={() => saveRemoteMap(deployment)}
-            onStop={() => actRemote(() => (
-              api.stopRemoteDeployment(selectedDeviceId, deployment.id)
-            ))}
+            onStop={() => stopRemote(deployment)}
+            actionProgress={remoteOperationProgress[deployment.id]}
             onRollback={() => {
               if (!window.confirm(`Roll back "${deployment.name}" to its previous revision?`)) return
               actRemote(() => api.rollbackRemoteDeployment(
@@ -1548,6 +1632,7 @@ function RemoteDeploymentRow({
   onStop,
   onRollback,
   onDelete,
+  actionProgress,
 }: {
   deployment: RemoteDeployment
   targetDeviceId: string
@@ -1564,6 +1649,7 @@ function RemoteDeploymentRow({
   onStop: () => void
   onRollback: () => void
   onDelete: () => void
+  actionProgress?: DeviceActionProgress
 }) {
   const isRunning = deployment.state === 'running'
   const isMapping = Number(deployment.mapping_control_count || 0) === 1
@@ -1650,6 +1736,7 @@ function RemoteDeploymentRow({
               Delete
             </button>
           </div>
+          {actionProgress && <DeploymentActionProgress value={actionProgress} />}
           {isRunning && isMapping && (
             <LiveOccupancyMap
               deviceId={targetDeviceId}
@@ -1663,79 +1750,25 @@ function RemoteDeploymentRow({
   )
 }
 
-function LiveOccupancyMap({
-  deviceId,
-  deploymentId,
-  topic,
-}: {
-  deviceId: string
-  deploymentId: string
-  topic: string
-}) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const [snapshot, setSnapshot] = useState<MappingSnapshot | null>(null)
-  const [message, setMessage] = useState('Connecting to the live map…')
-
-  useEffect(() => {
-    let cancelled = false
-    const pull = async () => {
-      try {
-        const next = await api.remoteDeploymentMapSnapshot(deviceId, deploymentId)
-        if (cancelled) return
-        setSnapshot(next)
-        setMessage(next.report || 'Waiting for occupancy data…')
-      } catch (err) {
-        if (!cancelled) setMessage(err instanceof Error ? err.message : String(err))
-      }
-    }
-    void pull()
-    const timer = window.setInterval(pull, 2000)
-    return () => { cancelled = true; window.clearInterval(timer) }
-  }, [deviceId, deploymentId])
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    const info = snapshot?.message?.info
-    const data = snapshot?.message?.data
-    const width = Math.max(0, Number(info?.width || 0))
-    const height = Math.max(0, Number(info?.height || 0))
-    if (!canvas || !Array.isArray(data) || !width || !height || data.length < width * height) return
-    canvas.width = width
-    canvas.height = height
-    const context = canvas.getContext('2d')
-    if (!context) return
-    const image = context.createImageData(width, height)
-    for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        const sourceIndex = y * width + x
-        const targetIndex = ((height - y - 1) * width + x) * 4
-        const occupancy = Number(data[sourceIndex])
-        const color = occupancy < 0 ? [30, 36, 48] : occupancy >= 65 ? [20, 24, 31] : [226, 232, 240]
-        image.data[targetIndex] = color[0]
-        image.data[targetIndex + 1] = color[1]
-        image.data[targetIndex + 2] = color[2]
-        image.data[targetIndex + 3] = 255
-      }
-    }
-    context.putImageData(image, 0, 0)
-  }, [snapshot])
-
-  const info = snapshot?.message?.info
-  const fresh = snapshot?.status?.source_fresh !== false && Boolean(snapshot?.message?.data?.length)
+function DeploymentActionProgress({ value }: { value: DeviceActionProgress }) {
+  const failed = value.progress <= 0 && value.message.toLowerCase().includes('failed')
   return (
-    <section className="bn-live-map" aria-label={`Live occupancy map from ${topic}`}>
-      <div className="bn-live-map-head">
-        <strong>Live mapping · {topic}</strong>
-        <span className={fresh ? 'is-live' : ''}>{fresh ? 'LIVE' : 'WAITING'}</span>
+    <div
+      className={`bn-device-install-progress bn-device-action-progress is-compact${failed ? ' is-error' : ''}`}
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={value.progress}
+      aria-valuetext={value.message}
+    >
+      <div>
+        <strong>{value.message}</strong>
+        <span>{value.progress}%</span>
       </div>
-      <canvas ref={canvasRef} />
-      <div className="bn-live-map-foot">
-        <span>{message}</span>
-        {info?.width && info?.height && (
-          <span>{info.width} × {info.height} cells · {Number(info.resolution || 0).toFixed(3)} m/cell</span>
-        )}
-      </div>
-    </section>
+      <span className="bn-device-install-progress-track" aria-hidden="true">
+        <span style={{ width: `${value.progress}%` }} />
+      </span>
+    </div>
   )
 }
 

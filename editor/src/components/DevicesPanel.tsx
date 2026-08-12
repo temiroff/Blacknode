@@ -16,6 +16,7 @@ import {
 } from '../api'
 import { useStore } from '../store'
 import { RobotAttachmentsPanel } from './RobotAttachmentsPanel'
+import LiveOccupancyMap from './LiveOccupancyMap'
 import { RobotLiveMonitor } from './RobotMonitorNode'
 
 type RobotState = {
@@ -2330,11 +2331,69 @@ export default function DevicesPanel({
     if (!window.confirm(`Stop the deployment using "${robot.name}"?`)) return
     setBusy(true)
     setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [robot.id]: { progress: 10, message: 'Stopping robot deployment' },
+    }))
     try {
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: { progress: 60, message: 'Waiting for deployment shutdown' },
+      }))
       await api.stopRemoteDeployment(robot.id, deploymentId)
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: { progress: 100, message: 'Deployment stopped' },
+      }))
       await refreshRobot(robot)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: { progress: 0, message: `Deployment stop failed: ${message}` },
+      }))
+      setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveDeploymentMap = async (
+    robot: HardwareDevice,
+    deploymentId: string,
+    deploymentName: string,
+  ) => {
+    setBusy(true)
+    setError(null)
+    setActionProgress(previous => ({
+      ...previous,
+      [robot.id]: { progress: 10, message: 'Preparing map save' },
+    }))
+    try {
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: {
+          progress: 45,
+          message: 'Saving occupancy grid and pose graph on the robot',
+        },
+      }))
+      const result = await api.saveRemoteDeploymentMap(robot.id, deploymentId)
+      const mapName = String(result.artifact?.map_name || 'map')
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: {
+          progress: 100,
+          message: `Map "${mapName}" saved from "${deploymentName}"`,
+        },
+      }))
+      await refreshRobot(robot)
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      setActionProgress(previous => ({
+        ...previous,
+        [robot.id]: { progress: 0, message: `Map save failed: ${message}` },
+      }))
+      setError(message)
     } finally {
       setBusy(false)
     }
@@ -5163,6 +5222,9 @@ export default function DevicesPanel({
                 onSetDeploymentMotion={(deploymentId, deploymentName, armed) => (
                   setDeploymentMotion(robot, deploymentId, deploymentName, armed)
                 )}
+                onSaveDeploymentMap={(deploymentId, deploymentName) => (
+                  saveDeploymentMap(robot, deploymentId, deploymentName)
+                )}
                 onOpenDeployedGraph={(deploymentId, deploymentName) => (
                   openDeployedGraph(robot, deploymentId, deploymentName)
                 )}
@@ -5559,6 +5621,7 @@ function RobotRow({
   onStopDeployment,
   onStartDeployment,
   onSetDeploymentMotion,
+  onSaveDeploymentMap,
   onOpenDeployedGraph,
   onReleaseTorque,
   onControl,
@@ -5584,6 +5647,10 @@ function RobotRow({
     deploymentName: string,
     armed: boolean,
   ) => void
+  onSaveDeploymentMap: (
+    deploymentId: string,
+    deploymentName: string,
+  ) => void
   onOpenDeployedGraph: (
     deploymentId: string,
     deploymentName: string,
@@ -5607,6 +5674,9 @@ function RobotRow({
     ? undefined
     : status?.inactive_deployment ?? status?.stored_deployment
   const displayedDeployment = runningDeployment ?? inactiveDeployment
+  const mappingDeployment = Number(displayedDeployment?.mapping_control_count || 0) === 1
+    ? displayedDeployment
+    : undefined
   const torqueReleaseSupported = Boolean(
     status?.service_features?.includes('torque_release_v1'),
   )
@@ -5816,6 +5886,21 @@ function RobotRow({
                 : 'No deployment currently controls this robot.'}
             </span>
           </div>
+          {mappingDeployment?.id && (
+            <div className="bn-device-capability-control" role="group" aria-label="Mapping capability">
+              <div>
+                <strong>Mapping</strong>
+                <span>
+                  {runningDeployment
+                    ? `Live occupancy stream · ${mappingDeployment.mapping_topic || '/map'}`
+                    : `Saved deployment · ${mappingDeployment.state} · ready to restart`}
+                </span>
+              </div>
+              <span className={runningDeployment ? 'is-live' : ''}>
+                {runningDeployment ? 'RUNNING' : 'STOPPED'}
+              </span>
+            </div>
+          )}
           <div className="bn-device-facts">
             <DeviceFact
               label="Motion"
@@ -5938,6 +6023,19 @@ function RobotRow({
                   {runningDeployment.motion_armed ? 'Disarm follower' : 'Arm follower'}
                 </button>
               )}
+            {runningDeployment?.id && mappingDeployment?.id && (
+              <button
+                type="button"
+                onClick={() => onSaveDeploymentMap(
+                  runningDeployment.id,
+                  runningDeployment.name,
+                )}
+                disabled={busy || state?.loading}
+                className="bn-device-action-button is-primary"
+              >
+                Save map
+              </button>
+            )}
             <button
               onClick={() => {
                 if (inactiveDeployment?.id) {
@@ -5956,7 +6054,9 @@ function RobotRow({
                   ? `Start the ${inactiveDeployment.state} deployment`
                   : 'Open deployment setup and history for this robot'}
             >
-              {inactiveDeployment ? 'Restart deployment' : 'Deploy workflow'}
+              {inactiveDeployment
+                ? mappingDeployment ? 'Restart mapping' : 'Restart deployment'
+                : 'Deploy workflow'}
             </button>
             <button
               type="button"
@@ -6015,9 +6115,18 @@ function RobotRow({
                   : 'No deployment exists for this robot'}
               className="bn-device-action-button"
             >
-              {inactiveDeployment ? 'Deployment details' : 'Stop deployment'}
+              {inactiveDeployment
+                ? 'Deployment details'
+                : mappingDeployment ? 'Stop mapping' : 'Stop deployment'}
             </button>
           </div>
+          {runningDeployment?.id && mappingDeployment?.id && (
+            <LiveOccupancyMap
+              deviceId={robot.id}
+              deploymentId={runningDeployment.id}
+              topic={mappingDeployment.mapping_topic || '/map'}
+            />
+          )}
           {showMonitor && (
             <div className="bn-device-inline-monitor">
               <RobotLiveMonitor

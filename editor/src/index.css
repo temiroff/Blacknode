@@ -261,6 +261,38 @@ html[data-theme="light"] .bn-logo-image-light {
   transform: translateY(1px);
 }
 
+.bn-top-icon-button {
+  display: inline-grid;
+  width: 30px;
+  min-width: 30px;
+  padding: 5px !important;
+  place-items: center;
+}
+
+.bn-top-icon {
+  display: block;
+  width: 17px;
+  height: 17px;
+}
+
+.bn-top-icon.is-spinning {
+  animation: bn-toolbar-spin .8s linear infinite;
+}
+
+.bn-top-clear-button:hover:not(:disabled) {
+  color: var(--err) !important;
+}
+
+@keyframes bn-toolbar-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bn-top-icon.is-spinning {
+    animation: none;
+  }
+}
+
 .bn-top-select {
   background: var(--panel);
   border: 1px solid var(--line2);
@@ -688,6 +720,8 @@ html[data-theme="light"] .bn-logo-image-light {
 .bn-topbar {
   overflow-x: auto;
   overflow-y: hidden;
+  gap: 8px;
+  padding-inline: 8px;
   scrollbar-width: thin;
   scrollbar-color: var(--line2) transparent;
 }
@@ -717,7 +751,6 @@ html[data-theme="light"] .bn-logo-image-light {
   flex-shrink: 0;
 }
 
-.bn-topbar-group-label,
 .bn-template-search-icon,
 .bn-inspector-empty-sections {
   display: none;
@@ -5437,6 +5470,40 @@ button.bn-device-fact {
   border-radius: 6px;
 }
 
+.bn-device-capability-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 86%, var(--ok) 14%);
+}
+
+.bn-device-capability-control > div {
+  display: grid;
+  gap: 3px;
+}
+
+.bn-device-capability-control > div > span {
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.bn-device-capability-control > span {
+  color: var(--tx3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .08em;
+}
+
+.bn-device-capability-control > span.is-live {
+  color: var(--ok);
+}
+
 .bn-live-map-head,
 .bn-live-map-foot {
   display: flex;
@@ -6229,25 +6296,12 @@ html[data-ui-test="refined"] .bn-topbar-group {
   align-items: center;
   gap: 4px;
   min-height: 38px;
-  padding: 12px 16px 2px;
+  padding: 2px 16px;
 }
 
 html[data-ui-test="refined"] .bn-topbar-group + .bn-topbar-group {
   margin-left: 14px;
   border-left: 1px solid var(--ui-test-separator);
-}
-
-html[data-ui-test="refined"] .bn-topbar-group-label {
-  position: absolute;
-  top: 1px;
-  left: 14px;
-  display: block;
-  color: var(--tx3);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: .08em;
-  line-height: 1;
-  text-transform: uppercase;
 }
 
 html[data-ui-test="refined"] .bn-top-button,
@@ -7431,7 +7485,6 @@ html[data-ui-test="refined"] .bn-ros-advanced {
 /* ── Blacknode node-language experiment ──────────
    These additions remain behind UI Test so the production node language can
    be compared against the current editor without changing saved workflows. */
-.bn-node-density-controls,
 .bn-node-glyph,
 .bn-node-runtime-state,
 .bn-node-hover-preview,
@@ -7439,33 +7492,6 @@ html[data-ui-test="refined"] .bn-ros-advanced {
 .bn-port-section-label,
 .bn-node-category-strip {
   display: none;
-}
-
-html[data-ui-test="refined"] .bn-node-density-controls {
-  display: inline-flex;
-  overflow: hidden;
-  margin-left: 4px;
-  padding: 2px;
-  border-radius: 9px;
-  background: var(--ui-test-surface-secondary);
-  box-shadow: inset 0 0 0 1px var(--ui-test-separator);
-}
-
-html[data-ui-test="refined"] .bn-node-density-button {
-  min-height: 25px;
-  padding: 3px 8px;
-  border: 0;
-  border-radius: 7px !important;
-  background: transparent;
-  color: var(--tx3);
-  font: 570 11px var(--font-ui);
-  cursor: pointer;
-}
-
-html[data-ui-test="refined"] .bn-node-density-button.is-active {
-  background: var(--ui-test-card);
-  color: var(--tx1);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .14);
 }
 
 /* Palette categories carry a persistent, restrained identity color. */
@@ -7880,80 +7906,6 @@ html[data-ui-test="refined"] .react-flow__edge.bn-edge-executing .react-flow__ed
       0 0 34px color-mix(in srgb, var(--bn-node-accent) 33%, transparent),
       0 12px 28px rgba(0, 0, 0, .22);
   }
-}
-
-/* Compact mode is visual-only: React Flow remeasures the CSS-sized cards and
-   workflow JSON keeps its detailed dimensions untouched. */
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode {
-  width: 178px !important;
-  height: auto !important;
-  min-width: 178px !important;
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-frame {
-  width: 178px !important;
-  height: auto !important;
-  min-width: 178px !important;
-  min-height: 0 !important;
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-frame > div:not(.bn-node-header):not(.bn-node-ports) {
-  display: none !important;
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-header {
-  min-height: 38px;
-  padding: 7px 8px !important;
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-header-glyph {
-  width: 23px;
-  height: 23px;
-  flex-basis: 23px;
-  border-radius: 6px;
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-title {
-  font-size: 13px !important;
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-type,
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-runtime-state span,
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-cook-button,
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-port-section-label,
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-port-row > span {
-  display: none !important;
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-runtime-state {
-  padding: 3px;
-  border: 0;
-  background: transparent;
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-ports {
-  display: grid !important;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  min-height: 28px;
-  padding: 6px 10px !important;
-  border-top-color: var(--ui-test-separator);
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-port-row {
-  min-width: 0;
-  min-height: 16px;
-  padding: 1px 0 !important;
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-port-row .react-flow__handle {
-  position: relative !important;
-  top: auto !important;
-  right: auto !important;
-  left: auto !important;
-  width: 10px !important;
-  height: 10px !important;
-  margin: auto;
-  transform: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -9046,17 +8998,6 @@ html[data-ui-test="refined"] .bn-node-header-glyph + div input,
 html[data-ui-test="refined"] .bn-node-header-glyph + div .bn-node-title,
 html[data-ui-test="refined"] .bn-node-header-glyph + div .bn-node-type {
   max-width: 100%;
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-header {
-  --bn-node-header-gap: 6px;
-  --bn-node-icon-title-gap: 9px;
-}
-
-html[data-ui-test="refined"][data-node-density="compact"] .react-flow__node-blacknode .bn-node-header-glyph {
-  width: 23px;
-  height: 23px;
-  flex-basis: 23px;
 }
 
 /* ── Refined preview: compact template category rhythm ─── */
@@ -11212,6 +11153,14 @@ html[data-ui-test="refined"] .bn-package-action-menu summary {
   padding-inline: 7px !important;
 }
 
+.bn-file-menu-trigger {
+  display: inline-flex;
+  min-width: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
 .bn-simulation-viewer-menu-items {
   position: absolute;
   top: calc(100% + 7px);
@@ -11252,6 +11201,42 @@ html[data-ui-test="refined"] .bn-package-action-menu summary {
 .bn-simulation-viewer-menu-items button:disabled {
   color: var(--tx3) !important;
   cursor: default;
+}
+
+.bn-file-menu-items {
+  width: 250px;
+}
+
+.bn-file-menu-items button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.bn-file-menu-items button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bn-file-menu-items button small {
+  color: var(--tx3);
+  font: 10px var(--font-mono);
+}
+
+.bn-file-menu-divider {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--line2);
+}
+
+.bn-file-menu-label {
+  padding: 4px 9px 3px;
+  color: var(--tx3);
+  font: 650 10px var(--font-ui);
+  letter-spacing: .08em;
+  text-transform: uppercase;
 }
 
 /* Local file browser ------------------------------------------------------ */
@@ -11915,8 +11900,8 @@ html[data-ui-test="refined"] .bn-package-action-menu summary {
   white-space: nowrap;
 }
 
-/* Hosted editor: keep the account action in layout and move secondary view
-   actions into a menu so the 52px toolbar never collides or shows a scrollbar. */
+/* Hosted editor: keep the account action in layout and let the compact toolbar
+   controls scroll invisibly when the viewport is narrow. */
 .bn-topbar.is-hosted-preview {
   overflow: hidden;
 }
@@ -11950,10 +11935,6 @@ html[data-ui-test="refined"] .bn-topbar.is-hosted-preview .bn-topbar-group {
   padding: 0 10px;
 }
 
-html[data-ui-test="refined"] .bn-topbar.is-hosted-preview .bn-topbar-group-label {
-  display: none;
-}
-
 .bn-topbar.is-hosted-preview > .bn-cloud-account-trigger {
   position: static;
   z-index: auto;
@@ -11963,27 +11944,6 @@ html[data-ui-test="refined"] .bn-topbar.is-hosted-preview .bn-topbar-group-label
 
 .bn-topbar.is-hosted-preview .bn-backend-label {
   display: none;
-}
-
-.bn-hosted-view-menu-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.bn-hosted-view-menu-divider {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--line2);
-}
-
-.bn-hosted-view-menu-items button.is-danger {
-  color: var(--err);
-}
-
-.bn-hosted-view-menu-items button.is-danger:hover {
-  background: var(--err-soft);
-  color: var(--err);
 }
 
 @media (max-width: 1180px) {

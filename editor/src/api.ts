@@ -422,6 +422,39 @@ export interface SshRuntimeInspection {
   suggested_port: number
   suggested_instance_id: string
   device?: ComputeDevice
+  robots?: Array<{
+    id: string
+    name: string
+    remote_device_id?: string
+    paused?: boolean
+  }>
+  deployments?: Array<{
+    id: string
+    name: string
+    state: string
+    target_device_id?: string
+    project_id?: string
+    workflow_slug?: string
+    motion_armed?: boolean
+    motion_control_count?: number
+    mapping_control_count?: number
+    mapping_topic?: string
+    last_map_artifact?: Record<string, unknown>
+    updated_at?: string
+  }>
+  streams?: Array<{
+    kind: 'blacknode.deployed-stream'
+    schema_version: number
+    source: 'ros2_graph' | 'deployment' | string
+    capability: string
+    device_id: string
+    robot_id?: string
+    deployment_id?: string
+    state: string
+    available: boolean
+    topic: string
+    message_type: string
+  }>
 }
 
 export interface DeviceRuntimeStatus {
@@ -494,6 +527,9 @@ export interface HardwareDeviceStatus {
     state: string
     motion_armed?: boolean
     motion_control_count?: number
+    mapping_control_count?: number
+    mapping_topic?: string
+    last_map_artifact?: Record<string, unknown>
   }
   running_deployment?: {
     id: string
@@ -501,16 +537,29 @@ export interface HardwareDeviceStatus {
     state: string
     motion_armed?: boolean
     motion_control_count?: number
+    mapping_control_count?: number
+    mapping_topic?: string
+    last_map_artifact?: Record<string, unknown>
   }
   stored_deployment?: {
     id: string
     name: string
     state: string
+    motion_armed?: boolean
+    motion_control_count?: number
+    mapping_control_count?: number
+    mapping_topic?: string
+    last_map_artifact?: Record<string, unknown>
   }
   inactive_deployment?: {
     id: string
     name: string
     state: string
+    motion_armed?: boolean
+    motion_control_count?: number
+    mapping_control_count?: number
+    mapping_topic?: string
+    last_map_artifact?: Record<string, unknown>
   }
   capabilities: string[]
   joint_names?: string[]

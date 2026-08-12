@@ -102,8 +102,14 @@ For workflow use, install or pair the Runtime and open **Inspect a Compute
 Device**. Select the computer on `ComputeDevice`; immediately before each editor
 cook, Blacknode reads current ROS state through the authenticated Runtime and
 `DeviceInspect` exposes the graph inventory, capability candidates, and
-unclassified interfaces. Saved workflows contain the stable device ID and
-display identity, never live machine state, an SSH password, or a pairing token.
+unclassified interfaces. Build an operational stream as `ComputeDevice` →
+`PhysicalRobot` → `RobotDeployment` → `RobotStream`. Each node owns one choice,
+so the graph can branch from a stable robot or deployment into separate map,
+camera, LiDAR, IMU, and future stream paths. Connect the selected stream topic
+and message type to a generic ROS 2 node, then connect its message output to the
+matching visualization or processing node. Saved workflows contain stable
+device, robot, deployment, and topic identity, never live machine state, an SSH
+password, or a pairing token.
 
 Installation remains a separate explicit action after the inspection report.
 **Install Runtime only** is the default for a new compute device. Before the
@@ -254,6 +260,10 @@ Connection can be connected, disconnected, checking, unknown, or unreachable;
 deployment can be active, inactive, completed, failed, or absent. The latest
 inactive deployment remains available on the Runtime and can restart after the
 robot passes the same connected, disarmed, calibration, and ownership checks.
+Managed capabilities remain visible on the robot card after deployment. Mapping
+shows its live occupancy stream while running and keeps restart and saved-map
+state available when stopped. Start, save, and stop actions report lifecycle
+progress in both the robot card and Deployments.
 
 Update the graph, check setup again, and send a new revision to iterate. Project
 artifacts retain evidence from datasets, training runs, policies, evaluations,

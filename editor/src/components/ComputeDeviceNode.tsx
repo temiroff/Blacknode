@@ -14,7 +14,13 @@ import NodeFrame from './NodeFrame'
 import NodeGlyph from './NodeGlyph'
 
 
-const OUTPUTS = ['configured', 'inspection_available', 'device', 'inspection', 'report'] as const
+const OUTPUTS = [
+  'configured',
+  'inspection_available',
+  'device',
+  'inspection',
+  'report',
+] as const
 
 const OUTPUT_TYPE_FALLBACKS: Record<(typeof OUTPUTS)[number], string> = {
   configured: 'Bool',
@@ -96,7 +102,6 @@ export default function ComputeDeviceNode({
   const deviceName = String(data.params?.device_name || '').trim()
   const selectedDevice = devices.find(device => device.id === deviceId)
   const graph = liveInspection?.ros2_graph
-  const capabilityCount = graph?.capabilities?.length || 0
 
   const loadDevices = async () => {
     try {
@@ -137,26 +142,23 @@ export default function ComputeDeviceNode({
     void refreshLive(deviceId)
   }, [deviceId])
 
-  const saveSelection = async (device: ComputeDevice | undefined) => {
+  const chooseDevice = async (nextId: string) => {
+    const device = devices.find(item => item.id === nextId)
     await updateParam(id, 'device_id', device?.id || '')
     await updateParam(id, 'device_name', device?.name || '')
-    // Keep credentials and captured machine state out of saved workflows.
-    // The editor injects current state immediately before every cook.
+    // Current machine state is injected immediately before cooking and is
+    // never persisted into the workflow.
     await updateParam(id, 'inspection', {})
-  }
-
-  const chooseDevice = async (nextId: string) => {
-    await saveSelection(devices.find(device => device.id === nextId))
   }
 
   const refreshDevice = async () => {
     const current = await loadDevices()
-    const selected = current.find(device => device.id === deviceId)
-    if (!selected) {
+    const currentDevice = current.find(device => device.id === deviceId)
+    if (!currentDevice) {
       setLiveInspection(null)
       return
     }
-    await refreshLive(selected.id)
+    await refreshLive(currentDevice.id)
   }
 
   return (
@@ -243,10 +245,10 @@ export default function ComputeDeviceNode({
             ROS 2 <strong>{graph?.available ? graph.distribution || 'available' : 'unavailable'}</strong>
           </span>
           <span>
-            Topics <strong>{graph?.inventory?.topics?.length || graph?.topics?.length || 0}</strong>
+            Robots <strong>{liveInspection?.robots?.length || selectedDevice?.robots.length || 0}</strong>
           </span>
           <span>
-            Capabilities <strong>{capabilityCount}</strong>
+            Topics <strong>{graph?.inventory?.topics?.length || graph?.topics?.length || 0}</strong>
           </span>
           <span>
             Access <strong>read only</strong>
@@ -260,8 +262,8 @@ export default function ComputeDeviceNode({
           <small>
             {error
               || (liveInspection?.checked_at
-                ? `Live ROS state checked ${new Date(liveInspection.checked_at).toLocaleTimeString()}`
-                : 'Run once reads current state from the paired Runtime; no SSH password is needed.')}
+                ? `Live device state checked ${new Date(liveInspection.checked_at).toLocaleTimeString()}`
+                : 'Connect this node to Physical Robot, then Robot Deployment and Robot Stream.')}
           </small>
         </div>
       </div>

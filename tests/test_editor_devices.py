@@ -7768,6 +7768,7 @@ class EditorDeviceApiTests(unittest.TestCase):
                 "token": hardware.token,
             }).json()["device"]["id"]
             hardware.runtime_deployments[deployment_id]["target_device_id"] = device_id
+            status = self.client.get(f"/devices/{device_id}/status")
             snapshot = self.client.get(
                 f"/devices/{device_id}/deployments/{deployment_id}/mapping/snapshot",
             )
@@ -7779,6 +7780,14 @@ class EditorDeviceApiTests(unittest.TestCase):
             )
 
         self.assertEqual(snapshot.status_code, 200)
+        self.assertEqual(
+            status.json()["running_deployment"]["mapping_control_count"],
+            1,
+        )
+        self.assertEqual(
+            status.json()["running_deployment"]["mapping_topic"],
+            "/map",
+        )
         self.assertEqual(snapshot.json()["message"]["info"]["width"], 2)
         self.assertEqual(snapshot.json()["message"]["data"], [-1, 0, 75, 100])
         self.assertEqual(saved.status_code, 200)
