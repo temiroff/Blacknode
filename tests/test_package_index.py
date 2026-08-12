@@ -246,6 +246,9 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["ROS2GraphExplorer"]["package"] == "blacknode-ros2"
     assert "ROS2DemoPublisher" not in payload["nodes"]
     assert payload["nodes"]["RobotDiscovery"]["package"] == "blacknode-robot"
+    assert payload["nodes"]["PhysicalRobot"]["package"] == "blacknode-robot"
+    assert payload["nodes"]["RobotDeployment"]["package"] == "blacknode-robot"
+    assert payload["nodes"]["RobotStream"]["package"] == "blacknode-robot"
     assert payload["nodes"]["RobotMonitor"]["package"] == "blacknode-robot"
     assert payload["nodes"]["RobotCapabilityInspect"]["package"] == "blacknode-robot"
     assert payload["nodes"]["RobotCalibrationControl"]["package"] == "blacknode-robot"

@@ -163,6 +163,18 @@ class ComputeDeviceInspectionTests(unittest.TestCase):
                     "warnings": [],
                 }
 
+            def list_deployments(self):
+                return {
+                    "deployments": [{
+                        "id": "room-map",
+                        "name": "Room map",
+                        "state": "running",
+                        "target_device_id": "",
+                        "mapping_control_count": 1,
+                        "mapping_topic": "/map",
+                    }]
+                }
+
         with patch.object(registry, "host_client", return_value=Runtime()):
             response = self.client.get(
                 f"/device-hosts/{device['id']}/live-inspection"
@@ -189,6 +201,13 @@ class ComputeDeviceInspectionTests(unittest.TestCase):
                 "blacknode-robot capabilities component",
                 inspection["ros2_graph"]["report"],
             )
+        self.assertEqual(inspection["deployments"][0]["id"], "room-map")
+        map_stream = next(
+            stream for stream in inspection["streams"]
+            if stream["capability"] == "map"
+        )
+        self.assertEqual(map_stream["topic"], "/map")
+        self.assertEqual(map_stream["message_type"], "nav_msgs/msg/OccupancyGrid")
         self.assertNotIn("password", json.dumps(inspection).lower())
 
     def test_editor_cook_injects_live_state_without_saving_it(self):

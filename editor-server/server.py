@@ -5346,6 +5346,36 @@ def _device_host_live_inspection(host_id: str) -> dict[str, Any]:
         if str(value or "").strip()
     ]
     diagnostics_ok = bool(diagnostics.get("ok"))
+    try:
+        deployment_payload = client.list_deployments()
+    except (DeviceRegistryError, AttributeError, TypeError):
+        deployment_payload = {}
+    robot_targets = [
+        {
+            "id": str(robot.get("id") or ""),
+            "name": str(robot.get("name") or robot.get("id") or "Robot"),
+            "remote_device_id": str(robot.get("remote_device_id") or ""),
+            "paused": bool(robot.get("paused")),
+        }
+        for robot in (host.get("robots") or [])
+        if isinstance(robot, dict) and str(robot.get("id") or "")
+    ]
+    robot_ids = {robot["id"] for robot in robot_targets}
+    deployments = []
+    for value in deployment_payload.get("deployments", []):
+        if not isinstance(value, dict):
+            continue
+        target_id = str(value.get("target_device_id") or "")
+        if target_id and target_id not in robot_ids:
+            continue
+        deployment = _robot_deployment_summary(value)
+        deployment.update({
+            "target_device_id": target_id,
+            "project_id": str(value.get("project_id") or ""),
+            "workflow_slug": str(value.get("workflow_slug") or ""),
+            "updated_at": str(value.get("updated_at") or ""),
+        })
+        deployments.append(deployment)
     inspection = {
         "ok": diagnostics_ok,
         "live": diagnostics_ok,
@@ -5395,6 +5425,8 @@ def _device_host_live_inspection(host_id: str) -> dict[str, Any]:
         "instances": [],
         "suggested_port": 0,
         "suggested_instance_id": "",
+        "robots": robot_targets,
+        "deployments": deployments,
         "ros2_graph": {
             "available": bool(diagnostics.get("available")),
             "state": "available" if diagnostics_ok else "unavailable",
@@ -5409,7 +5441,65 @@ def _device_host_live_inspection(host_id: str) -> dict[str, Any]:
             "diagnostics_summary": str(diagnostics.get("summary") or ""),
         },
     }
-    return _classify_inspected_ros2_graph(inspection)
+    inspection = _classify_inspected_ros2_graph(inspection)
+    streams: list[dict[str, Any]] = []
+    seen_streams: set[tuple[str, str, str]] = set()
+    graph = inspection.get("ros2_graph")
+    capabilities = (
+        graph.get("capabilities")
+        if isinstance(graph, dict)
+        and isinstance(graph.get("capabilities"), list)
+        else []
+    )
+    for candidate in capabilities:
+        if not isinstance(candidate, dict):
+            continue
+        capability = str(candidate.get("capability") or "").strip()
+        for evidence in candidate.get("evidence") or []:
+            if not isinstance(evidence, dict) or evidence.get("kind") != "topic":
+                continue
+            topic = str(evidence.get("name") or "").strip()
+            message_type = str(evidence.get("message_type") or "").strip()
+            key = (capability, topic, message_type)
+            if not capability or not topic or key in seen_streams:
+                continue
+            seen_streams.add(key)
+            streams.append({
+                "kind": "blacknode.deployed-stream",
+                "schema_version": 1,
+                "source": "ros2_graph",
+                "capability": capability,
+                "device_id": host_id,
+                "robot_id": "",
+                "deployment_id": "",
+                "state": "available",
+                "available": True,
+                "topic": topic,
+                "message_type": message_type,
+            })
+    for deployment in deployments:
+        if int(deployment.get("mapping_control_count") or 0) != 1:
+            continue
+        topic = str(deployment.get("mapping_topic") or "/map")
+        key = ("map", topic, "nav_msgs/msg/OccupancyGrid")
+        if key in seen_streams:
+            continue
+        seen_streams.add(key)
+        streams.append({
+            "kind": "blacknode.deployed-stream",
+            "schema_version": 1,
+            "source": "deployment",
+            "capability": "map",
+            "device_id": host_id,
+            "robot_id": str(deployment.get("target_device_id") or ""),
+            "deployment_id": str(deployment.get("id") or ""),
+            "state": str(deployment.get("state") or "stopped"),
+            "available": str(deployment.get("state") or "") == "running",
+            "topic": topic,
+            "message_type": "nav_msgs/msg/OccupancyGrid",
+        })
+    inspection["streams"] = streams
+    return inspection
 
 
 def _refresh_live_compute_device_params() -> None:
@@ -10071,6 +10161,37 @@ def _set_device_deployment_lease(device_id: str, *, leased: bool) -> None:
         )
 
 
+def _robot_deployment_summary(
+    deployment: dict[str, Any],
+    *,
+    include_motion: bool = True,
+) -> dict[str, Any]:
+    """Keep robot-card lifecycle fields portable and credential free."""
+    summary: dict[str, Any] = {
+        "id": str(deployment.get("id") or ""),
+        "name": str(
+            deployment.get("name")
+            or deployment.get("id")
+            or "Deployment"
+        ),
+        "state": str(deployment.get("state") or "stopped"),
+    }
+    motion_count = int(deployment.get("motion_control_count") or 0)
+    if include_motion or motion_count or deployment.get("motion_armed"):
+        summary["motion_armed"] = bool(deployment.get("motion_armed"))
+        summary["motion_control_count"] = motion_count
+    mapping_count = int(deployment.get("mapping_control_count") or 0)
+    if mapping_count:
+        summary["mapping_control_count"] = mapping_count
+        summary["mapping_topic"] = str(
+            deployment.get("mapping_topic") or "/map"
+        )
+        artifact = deployment.get("last_map_artifact")
+        if isinstance(artifact, dict):
+            summary["last_map_artifact"] = dict(artifact)
+    return summary
+
+
 def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
     """Report running deployments separately from physical motion ownership."""
     client = _paired_device_client(device_id)
@@ -10137,13 +10258,7 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
             }
             for item in active
         ]
-        deployment = {
-            "id": str(owner.get("id") or ""),
-            "name": str(owner.get("name") or owner.get("id") or "Deployment"),
-            "state": str(owner.get("state") or "running"),
-            "motion_armed": bool(owner.get("motion_armed")),
-            "motion_control_count": int(owner.get("motion_control_count") or 0),
-        }
+        deployment = _robot_deployment_summary(owner)
         if hardware_is_leased:
             result["deployment_lease"] = deployment
             result["armed"] = bool(deployment.get("motion_armed"))
@@ -10248,15 +10363,10 @@ def _deployment_aware_device_status(device_id: str) -> dict[str, Any]:
     if stored:
         deployment = stored[0]
         result = dict(status)
-        inactive_deployment = {
-            "id": str(deployment.get("id") or ""),
-            "name": str(
-                deployment.get("name")
-                or deployment.get("id")
-                or "Deployment"
-            ),
-            "state": str(deployment.get("state") or "stopped"),
-        }
+        inactive_deployment = _robot_deployment_summary(
+            deployment,
+            include_motion=False,
+        )
         # Keep the old field as a compatibility alias for existing clients.
         result["inactive_deployment"] = inactive_deployment
         result["stored_deployment"] = inactive_deployment
