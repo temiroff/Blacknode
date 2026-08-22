@@ -6435,7 +6435,7 @@ button.bn-device-fact {
 .bn-operator-view {
   --bn-operator-accent: var(--accent);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-columns: 196px minmax(0, 1fr);
   align-items: stretch;
   width: 100%;
   height: 100%;
@@ -6452,15 +6452,15 @@ button.bn-device-fact {
   position: relative;
   z-index: 4;
   display: flex;
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 1;
   height: 100%;
   min-height: 0;
   align-self: stretch;
   flex-direction: column;
-  gap: 18px;
-  padding: 18px 14px;
-  border-left: 1px solid var(--line);
+  gap: 14px;
+  padding: 14px 12px;
+  border-right: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   backdrop-filter: blur(18px);
   box-sizing: border-box;
@@ -6532,22 +6532,22 @@ button.bn-device-fact {
 }
 
 .bn-operator-sections {
-  grid-column: 1;
+  grid-column: 2;
   grid-row: 1;
   width: min(1540px, 100%);
   height: 100%;
   margin: 0 auto;
-  padding: 16px clamp(16px, 2.4vw, 32px) 32px;
+  padding: 8px 8px 16px;
   box-sizing: border-box;
   overflow: auto;
 }
 
 .bn-operator-section + .bn-operator-section {
-  margin-top: 18px;
+  margin-top: 10px;
 }
 
 .bn-operator-section > header {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .bn-operator-section > header h2 {
@@ -6565,7 +6565,7 @@ button.bn-device-fact {
 .bn-operator-section > div {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  gap: 8px;
+  gap: 5px;
 }
 
 .bn-operator-section.is-stack > div {
@@ -6970,7 +6970,7 @@ button.bn-device-fact {
     gap: 10px;
     padding: 12px 16px;
     border-bottom: 1px solid var(--line);
-    border-left: 0;
+    border-right: 0;
   }
 
   .bn-operator-sections {
