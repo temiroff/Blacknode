@@ -19,6 +19,27 @@ An operator view is declared inside workflow metadata:
     "id": "collect-episodes",
     "title": "Collect episodes",
     "description": "Capture synchronized robot demonstrations.",
+    "icon": "record",
+    "settings": {
+      "title": "Collect episodes settings",
+      "groups": [
+        {
+          "id": "connection",
+          "title": "Robot connection",
+          "items": [
+            {
+              "label": "ROS bridge host",
+              "node_id": "rosbridge",
+              "param": "host",
+              "input": "text",
+              "apply_to": [
+                { "node_id": "teleoperation", "param": "host" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
     "run_target": {
       "node_id": "recorder",
       "port": "dashboard",
@@ -73,6 +94,16 @@ screens.
 
 Node IDs, ports, parameters, and controls must exist in the workflow and its
 live node schemas. Operator metadata does not create a second runtime contract.
+
+The optional `icon` selects the glyph shown in a deployed App bar. Supported
+values are `record`, `camera`, `robot`, `workflow`, and `play`.
+
+Use optional `settings.groups` for connection, robot, camera, storage, and
+other setup values that operators need when graph editing is unavailable. Each
+setting grants access to its exact `node_id` and `param`. An optional `apply_to`
+list mirrors one shared value to additional declared node parameters, which is
+useful when several runtime nodes consume the same host or port. Changes apply
+to the active App session immediately.
 
 ## Keyboard shortcuts and pedals
 

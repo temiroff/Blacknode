@@ -1135,6 +1135,7 @@ export interface AppDeploymentSummary {
     name: string
     description: string
     accent: string
+    icon: string
     required_packages: string[]
   }>
 }

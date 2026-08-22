@@ -33,6 +33,20 @@ export interface OperatorFieldItem {
   min?: number
   max?: number
   step?: number
+  apply_to?: Array<{ node_id: string; param: string }>
+}
+
+export interface OperatorSettingsGroup {
+  id: string
+  title: string
+  description?: string
+  items: OperatorFieldItem[]
+}
+
+export interface OperatorSettings {
+  title?: string
+  description?: string
+  groups: OperatorSettingsGroup[]
 }
 
 export interface OperatorActionItem {
@@ -74,6 +88,8 @@ export interface WorkflowOperatorView {
   title: string
   description?: string
   accent?: string
+  icon?: 'record' | 'camera' | 'robot' | 'workflow' | 'play'
+  settings?: OperatorSettings
   run_target?: OperatorRunTarget
   sections: OperatorViewSection[]
 }
@@ -85,11 +101,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function isWorkflowOperatorView(value: unknown): value is WorkflowOperatorView {
   if (!isRecord(value) || value.schema_version !== 1 || typeof value.title !== 'string') return false
   if (!Array.isArray(value.sections) || value.sections.length === 0) return false
-  return value.sections.every(section => (
+  const sectionsValid = value.sections.every(section => (
     isRecord(section)
     && typeof section.id === 'string'
     && (section.region === undefined || section.region === 'main' || section.region === 'parameters')
     && Array.isArray(section.widgets)
     && section.widgets.every(widget => isRecord(widget) && typeof widget.type === 'string' && typeof widget.id === 'string')
+  ))
+  if (!sectionsValid || value.settings === undefined) return sectionsValid
+  if (!isRecord(value.settings) || !Array.isArray(value.settings.groups)) return false
+  return value.settings.groups.every(group => (
+    isRecord(group)
+    && typeof group.id === 'string'
+    && typeof group.title === 'string'
+    && Array.isArray(group.items)
+    && group.items.every(item => (
+      isRecord(item)
+      && typeof item.node_id === 'string'
+      && typeof item.param === 'string'
+      && typeof item.label === 'string'
+      && (item.apply_to === undefined || (
+        Array.isArray(item.apply_to)
+        && item.apply_to.every(target => isRecord(target) && typeof target.node_id === 'string' && typeof target.param === 'string')
+      ))
+    ))
   ))
 }

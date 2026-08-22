@@ -24,6 +24,8 @@ interface WorkflowOperatorViewProps {
   config: WorkflowOperatorView
   onEditWorkflow?: () => void
   onOpenLauncher?: () => void
+  settingsOpen?: boolean
+  onCloseSettings?: () => void
 }
 
 type OperatorActionBinding =
@@ -208,7 +210,11 @@ function OperatorField({ item }: { item: OperatorFieldItem }) {
     const value = item.input === 'number' ? Number(draft) : draft
     if (item.input === 'number' && !Number.isFinite(value)) return
     try {
-      await updateParam(item.node_id, item.param, value)
+      const targets = [{ node_id: item.node_id, param: item.param }, ...(item.apply_to ?? [])]
+      const uniqueTargets = new Map(targets.map(target => [`${target.node_id}:${target.param}`, target]))
+      for (const target of uniqueTargets.values()) {
+        await updateParam(target.node_id, target.param, value)
+      }
     } catch (error) {
       notice('error', `Could not update ${item.label}`, error instanceof Error ? error.message : String(error))
     }
@@ -245,6 +251,51 @@ function OperatorFields({ widget }: { widget: Extract<OperatorWidget, { type: 'f
         {widget.items.map(item => <OperatorField item={item} key={`${item.node_id}:${item.param}`} />)}
       </div>
     </article>
+  )
+}
+
+function OperatorSettingsDialog({ config, onClose }: {
+  config: WorkflowOperatorView
+  onClose: () => void
+}) {
+  const settings = config.settings
+  if (!settings) return null
+  return (
+    <div className="bn-operator-settings-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="bn-operator-settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bn-operator-settings-title"
+        onMouseDown={event => event.stopPropagation()}
+      >
+        <header>
+          <div>
+            <span>App configuration</span>
+            <h2 id="bn-operator-settings-title">{settings.title ?? 'Settings'}</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close settings">×</button>
+        </header>
+        {settings.description && <p>{settings.description}</p>}
+        <div className="bn-operator-settings-groups">
+          {settings.groups.map(group => (
+            <section key={group.id}>
+              <header>
+                <h3>{group.title}</h3>
+                {group.description && <p>{group.description}</p>}
+              </header>
+              <div className="bn-operator-fields-grid">
+                {group.items.map(item => <OperatorField item={item} key={`${item.node_id}:${item.param}`} />)}
+              </div>
+            </section>
+          ))}
+        </div>
+        <footer>
+          <span>Changes apply to the active App immediately.</span>
+          <button className="is-primary" type="button" onClick={onClose}>Done</button>
+        </footer>
+      </section>
+    </div>
   )
 }
 
@@ -366,7 +417,13 @@ function OperatorBindingsDialog({ actions, bindings, capture, onCapture, onRemov
   )
 }
 
-export default function WorkflowOperatorView({ config, onEditWorkflow, onOpenLauncher }: WorkflowOperatorViewProps) {
+export default function WorkflowOperatorView({
+  config,
+  onEditWorkflow,
+  onOpenLauncher,
+  settingsOpen = false,
+  onCloseSettings,
+}: WorkflowOperatorViewProps) {
   const { nodes, updateParam, controlNode, cookNode, stopRuntimeServices, cookActive } = useStore()
   const [starting, setStarting] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -600,6 +657,10 @@ export default function WorkflowOperatorView({ config, onEditWorkflow, onOpenLau
           onClear={() => { setBindings({}); setCapture(null) }}
           onClose={() => { setBindingsOpen(false); setCapture(null) }}
         />
+      )}
+
+      {settingsOpen && onCloseSettings && (
+        <OperatorSettingsDialog config={config} onClose={onCloseSettings} />
       )}
     </main>
   )

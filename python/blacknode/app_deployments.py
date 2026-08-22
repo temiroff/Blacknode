@@ -100,6 +100,7 @@ def build_app_deployment(
             "name": str(view["title"]).strip(),
             "description": str(view.get("description") or "").strip(),
             "accent": str(view.get("accent") or "").strip(),
+            "icon": str(view.get("icon") or "workflow").strip(),
             "required_packages": required_packages,
             "workflow": workflow,
         })
@@ -194,7 +195,7 @@ def public_app_deployment(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "apps": [
             {
                 key: copy.deepcopy(app[key])
-                for key in ("id", "name", "description", "accent", "required_packages")
+                for key in ("id", "name", "description", "accent", "icon", "required_packages")
                 if key in app
             }
             for app in manifest.get("apps", [])
@@ -225,6 +226,12 @@ def operator_permissions(app: Mapping[str, Any]) -> dict[str, set[tuple[str, ...
     controls: set[tuple[str, str, str]] = set()
     cooks: set[tuple[str, str, str]] = set()
 
+    def add_field_permissions(item: Mapping[str, Any]) -> None:
+        params.add((str(item.get("node_id") or ""), str(item.get("param") or "")))
+        for target in item.get("apply_to", []):
+            if isinstance(target, Mapping):
+                params.add((str(target.get("node_id") or ""), str(target.get("param") or "")))
+
     run_target = view.get("run_target")
     if isinstance(run_target, Mapping):
         cooks.add((
@@ -243,7 +250,7 @@ def operator_permissions(app: Mapping[str, Any]) -> dict[str, set[tuple[str, ...
                 if not isinstance(item, Mapping):
                     continue
                 if widget_type == "fields":
-                    params.add((str(item.get("node_id") or ""), str(item.get("param") or "")))
+                    add_field_permissions(item)
                 if widget_type != "actions":
                     continue
                 for update in item.get("updates", []):
@@ -267,6 +274,14 @@ def operator_permissions(app: Mapping[str, Any]) -> dict[str, set[tuple[str, ...
                         str(target.get("port") or ""),
                         str(target.get("mode") or "once"),
                     ))
+    settings = view.get("settings")
+    if isinstance(settings, Mapping):
+        for group in settings.get("groups", []):
+            if not isinstance(group, Mapping):
+                continue
+            for item in group.get("items", []):
+                if isinstance(item, Mapping):
+                    add_field_permissions(item)
     return {
         "params": {item for item in params if all(item)},
         "updates": {item for item in updates if all(item)},

@@ -28,6 +28,19 @@ def _workflow(*, secret: str = "") -> dict:
                 "schema_version": 1,
                 "id": "customer-task",
                 "title": "Customer task",
+                "icon": "record",
+                "settings": {
+                    "groups": [{
+                        "id": "connection",
+                        "title": "Connection",
+                        "items": [{
+                            "node_id": "text",
+                            "param": "value",
+                            "label": "Value",
+                            "apply_to": [{"node_id": "mirror", "param": "value"}],
+                        }],
+                    }],
+                },
                 "run_target": {"node_id": "out", "port": "value"},
                 "sections": [{
                     "id": "controls",
@@ -75,6 +88,17 @@ def _workflow(*, secret: str = "") -> dict:
                 "output_types": {"value": "Any"},
                 "input_defaults": {},
             },
+            "mirror": {
+                "id": "mirror",
+                "type": "Text",
+                "params": {"value": "hello"},
+                "pos": [0, 100],
+                "inputs": ["value"],
+                "outputs": ["value"],
+                "input_types": {"value": "Text"},
+                "output_types": {"value": "Text"},
+                "input_defaults": {"value": ""},
+            },
         },
         "edges": [{"from": "text", "from_port": "value", "to": "out", "to_port": "value"}],
     }
@@ -90,9 +114,11 @@ class AppDeploymentTests(unittest.TestCase):
         self.assertEqual(manifest["kind"], APP_DEPLOYMENT_KIND)
         self.assertEqual(manifest["start_app"], "customer-task")
         self.assertEqual(manifest["required_packages"], ["blacknode-example"])
-        self.assertNotIn("workflow", public_app_deployment(manifest)["apps"][0])
+        public_app = public_app_deployment(manifest)["apps"][0]
+        self.assertNotIn("workflow", public_app)
+        self.assertEqual(public_app["icon"], "record")
         permissions = operator_permissions(manifest["apps"][0])
-        self.assertEqual(permissions["params"], {("text", "value")})
+        self.assertEqual(permissions["params"], {("text", "value"), ("mirror", "value")})
         self.assertEqual(permissions["updates"], {("text", "value", '"ready"')})
         self.assertEqual(permissions["controls"], {("out", "refresh", "{}")})
         self.assertEqual(permissions["cooks"], {("out", "value", "once")})

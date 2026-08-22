@@ -1,9 +1,9 @@
 # App deployments
 
 Blacknode App deployments package one or more Workflow Apps into a focused
-operator surface. A deployment with one App opens it directly. A deployment
-with several Apps opens a compact launcher and lets the operator return with
-**All apps**.
+operator surface. The customer shell retains a compact Blacknode top bar with
+the deployed App icons and a Settings control. It opens the configured start
+App directly and switches between bundled Apps from the icon bar.
 
 The bundle retains the workflow graph as the execution model while granting
 the customer surface access only to fields, actions, controls, and cook targets
@@ -26,9 +26,10 @@ blacknode export-app `
   --output .local-notes\deployments\customer-recording.blacknode-app.json
 ```
 
-Pass multiple workflow paths to create an App launcher. Use `--start-app ID` to
-record the preferred App in the manifest for deployment tooling and direct
-links.
+Pass multiple workflow paths to create a multi-App deployment. Use
+`--start-app ID` to choose the App that opens first. Each workflow can declare
+an `operator_view.icon`; the top bar keeps every bundled App visible and uses
+its name as the icon tooltip.
 
 The command produces a `blacknode.app-deployment` schema-version 1 manifest.
 It validates every workflow, records the union of `metadata.required_packages`,
@@ -76,10 +77,16 @@ accepts `http://localhost:3000` and `http://127.0.0.1:3000` by default.
 Opening Blacknode now enters the customer App shell automatically. A direct App
 link uses `/app/<app-id>`, such as `/app/collect-episodes`.
 
+Open the top-bar **Settings** control to configure the robot connection and
+other inputs declared by the active workflow's `operator_view.settings`.
+Settings update only their declared node parameters. Graph editing remains an
+authoring capability outside the customer shell.
+
 ## Verify the deployment
 
-Open `http://localhost:3000/app/collect-episodes`. A single-App deployment opens
-directly; a multi-App deployment opens its launcher.
+Open `http://localhost:3000/app/collect-episodes`. A single-App deployment shows
+one App icon. A multi-App deployment opens `start_app` and shows every bundled
+App icon for direct switching.
 
 Check the server mode and public manifest from a second terminal:
 
@@ -113,6 +120,8 @@ defaults need to change.
 The server derives its permission set from the active App:
 
 - `fields` grant updates to their exact node parameter.
+- `settings` grant updates to their exact node parameter and any exact
+  `apply_to` targets.
 - action `updates` grant their exact node parameter changes.
 - action `control` entries grant their exact node control action.
 - `run_target` and action `cook_target` entries grant their exact node output.

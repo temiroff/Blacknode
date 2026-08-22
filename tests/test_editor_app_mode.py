@@ -30,6 +30,18 @@ def _app_workflow() -> dict:
                 "schema_version": 1,
                 "id": "customer-app",
                 "title": "Customer App",
+                "settings": {
+                    "groups": [{
+                        "id": "connection",
+                        "title": "Connection",
+                        "items": [{
+                            "node_id": "text",
+                            "param": "value",
+                            "label": "Value",
+                            "apply_to": [{"node_id": "mirror", "param": "value"}],
+                        }],
+                    }],
+                },
                 "run_target": {"node_id": "out", "port": "value"},
                 "sections": [{
                     "id": "setup",
@@ -53,6 +65,12 @@ def _app_workflow() -> dict:
                 "inputs": ["value"], "outputs": ["value"],
                 "input_types": {"value": "Any"}, "output_types": {"value": "Any"},
                 "input_defaults": {},
+            },
+            "mirror": {
+                "id": "mirror", "type": "Text", "params": {"value": "hello"}, "pos": [0, 100],
+                "inputs": ["value"], "outputs": ["value"],
+                "input_types": {"value": "Text"}, "output_types": {"value": "Text"},
+                "input_defaults": {"value": ""},
             },
         },
         "edges": [{"from": "text", "from_port": "value", "to": "out", "to_port": "value"}],
@@ -113,6 +131,9 @@ class EditorAppModeTests(unittest.TestCase):
 
             allowed = client.patch("/nodes/text/params", json={"key": "value", "value": "operator"})
             self.assertEqual(allowed.status_code, 200, allowed.text)
+
+            mirrored_setting = client.patch("/nodes/mirror/params", json={"key": "value", "value": "operator"})
+            self.assertEqual(mirrored_setting.status_code, 200, mirrored_setting.text)
 
             denied = client.patch("/nodes/text/params", json={"key": "undeclared", "value": "blocked"})
             self.assertEqual(denied.status_code, 403)

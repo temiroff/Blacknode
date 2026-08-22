@@ -10,6 +10,9 @@ def test_operator_view_contract_is_declarative_and_versioned():
     assert "export interface WorkflowOperatorView" in contract
     assert "schema_version: 1" in contract
     assert "id?: string" in contract
+    assert "icon?: 'record' | 'camera' | 'robot' | 'workflow' | 'play'" in contract
+    assert "settings?: OperatorSettings" in contract
+    assert "apply_to?: Array<{ node_id: string; param: string }>" in contract
     assert "region?: 'main' | 'parameters'" in contract
     assert "export type OperatorWidget" in contract
     assert "type: 'image'" in contract
@@ -113,9 +116,15 @@ def test_customer_app_shell_direct_launches_and_keeps_editor_controls_outside_op
     assert "function AppDeploymentGate()" in app
     assert "api.appDeployment()" in app
     assert "<CustomerAppShell deployment={deployment}" in app
-    assert "deployment.apps.length === 1" in shell
+    assert "appsById.has(deployment.start_app)" in shell
     assert "api.activateDeploymentApp(appId)" in shell
-    assert "onOpenLauncher={deployment.apps.length > 1" in shell
+    assert 'className="bn-customer-app-bar"' in shell
+    assert 'aria-label="Deployed Apps"' in shell
+    assert "<AppGlyph icon={app.icon || 'workflow'}" in shell
+    assert 'aria-label="App settings"' in shell
+    assert "settingsOpen={settingsOpen}" in shell
     assert "onEditWorkflow?: () => void" in view
     assert "{onEditWorkflow && <button" in view
-    assert ".bn-customer-launcher" in styles
+    assert "item.apply_to ?? []" in view
+    assert ".bn-customer-app-bar" in styles
+    assert ".bn-operator-settings-dialog" in styles
