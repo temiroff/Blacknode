@@ -7,13 +7,25 @@ export interface WorkflowShortcut {
   id: string
   label: string
   templateSlug: string
+  icon: WorkflowShortcutIcon
 }
+
+type WorkflowShortcutIcon = 'record' | 'camera' | 'robot' | 'workflow' | 'play'
 
 interface ShortcutDraft {
   id: string | null
   label: string
   templateSlug: string
+  icon: WorkflowShortcutIcon
 }
+
+const WORKFLOW_SHORTCUT_ICON_OPTIONS: Array<{ id: WorkflowShortcutIcon; label: string }> = [
+  { id: 'record', label: 'Record' },
+  { id: 'camera', label: 'Camera' },
+  { id: 'robot', label: 'Robot' },
+  { id: 'workflow', label: 'Workflow' },
+  { id: 'play', label: 'Run' },
+]
 
 export const WORKFLOW_SHORTCUTS_STORAGE_KEY = 'blacknode-workflow-shortcuts'
 export const DEFAULT_WORKFLOW_SHORTCUTS: WorkflowShortcut[] = [
@@ -21,8 +33,54 @@ export const DEFAULT_WORKFLOW_SHORTCUTS: WorkflowShortcut[] = [
     id: 'collect-episodes',
     label: 'Collect episodes',
     templateSlug: 'teleoperation-episode-recording',
+    icon: 'record',
   },
 ]
+
+function normalizedShortcutIcon(value: unknown, templateSlug: string): WorkflowShortcutIcon {
+  const icon = String(value || '') as WorkflowShortcutIcon
+  if (WORKFLOW_SHORTCUT_ICON_OPTIONS.some(option => option.id === icon)) return icon
+  return /episode|record|dataset/i.test(templateSlug) ? 'record' : 'workflow'
+}
+
+function ShortcutGlyph({ icon }: { icon: WorkflowShortcutIcon }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+      {icon === 'record' && (
+        <>
+          <rect x="3.5" y="4" width="17" height="16" rx="3" />
+          <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none" />
+          <path d="M7 7.5h2" />
+        </>
+      )}
+      {icon === 'camera' && (
+        <>
+          <path d="M4 8.5h3l1.5-2h7l1.5 2h3v10H4z" />
+          <circle cx="12" cy="13.5" r="3.3" />
+        </>
+      )}
+      {icon === 'robot' && (
+        <>
+          <rect x="5" y="7" width="14" height="11" rx="3" />
+          <path d="M12 4v3M8.5 12h.01M15.5 12h.01M9 15h6" />
+        </>
+      )}
+      {icon === 'workflow' && (
+        <>
+          <rect x="3" y="5" width="6" height="5" rx="1.5" />
+          <rect x="15" y="14" width="6" height="5" rx="1.5" />
+          <path d="M9 7.5h4a3 3 0 0 1 3 3V14M13.5 12l2.5 2 2.5-2" />
+        </>
+      )}
+      {icon === 'play' && (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="m10 8 6 4-6 4z" fill="currentColor" stroke="none" />
+        </>
+      )}
+    </svg>
+  )
+}
 
 function readWorkflowShortcuts(): WorkflowShortcut[] {
   try {
@@ -32,11 +90,15 @@ function readWorkflowShortcuts(): WorkflowShortcut[] {
     if (!Array.isArray(parsed)) throw new Error('Workflow shortcuts must be an array')
     return parsed
       .filter(value => value && typeof value === 'object')
-      .map((value, index) => ({
-        id: String(value.id || `shortcut-${index + 1}`),
-        label: String(value.label || '').trim(),
-        templateSlug: String(value.templateSlug || '').trim(),
-      }))
+      .map((value, index) => {
+        const templateSlug = String(value.templateSlug || '').trim()
+        return {
+          id: String(value.id || `shortcut-${index + 1}`),
+          label: String(value.label || '').trim(),
+          templateSlug,
+          icon: normalizedShortcutIcon(value.icon, templateSlug),
+        }
+      })
       .filter(shortcut => shortcut.label && shortcut.templateSlug)
   } catch {
     return DEFAULT_WORKFLOW_SHORTCUTS.map(shortcut => ({ ...shortcut }))
@@ -80,6 +142,7 @@ export default function WorkflowShortcuts() {
       id: null,
       label: '',
       templateSlug: sortedTemplates[0]?.slug ?? '',
+      icon: 'workflow',
     })
   }
 
@@ -94,10 +157,10 @@ export default function WorkflowShortcuts() {
     if (!label || !templateSlug) return
     if (draft.id) {
       setShortcuts(current => current.map(shortcut => (
-        shortcut.id === draft.id ? { ...shortcut, label, templateSlug } : shortcut
+        shortcut.id === draft.id ? { ...shortcut, label, templateSlug, icon: draft.icon } : shortcut
       )))
     } else {
-      setShortcuts(current => [...current, { id: shortcutId(), label, templateSlug }])
+      setShortcuts(current => [...current, { id: shortcutId(), label, templateSlug, icon: draft.icon }])
     }
     setDraft(null)
   }
@@ -111,7 +174,7 @@ export default function WorkflowShortcuts() {
       await api.loadTemplate(shortcut.templateSlug)
       const templateGraph = await api.getGraph()
       const template = templates.find(candidate => candidate.slug === shortcut.templateSlug)
-      const tabName = shortcut.label || template?.name || 'Robot workflow'
+      const tabName = shortcut.label || template?.name || 'Workflow template'
       if (previousGraph) {
         await api.setGraph(
           previousGraph.nodes,
@@ -158,8 +221,7 @@ export default function WorkflowShortcuts() {
   }
 
   return (
-    <section className="bn-workflow-shortcuts" aria-label="Robot workflow shortcuts">
-      <span className="bn-workflow-shortcuts-label">Robot workflows</span>
+    <section className="bn-workflow-shortcuts" aria-label="Workflow shortcuts">
       <div className="bn-workflow-shortcuts-list">
         {shortcuts.map(shortcut => (
           <div className="bn-workflow-shortcut-item" key={shortcut.id}>
@@ -168,10 +230,12 @@ export default function WorkflowShortcuts() {
               className="bn-workflow-shortcut"
               disabled={Boolean(loadingId)}
               onClick={() => void loadShortcut(shortcut)}
-              title={`Open template: ${shortcut.templateSlug}`}
+              title={shortcut.label}
+              aria-label={shortcut.label}
             >
-              <span className="bn-workflow-shortcut-dot" aria-hidden="true" />
-              {loadingId === shortcut.id ? 'Opening…' : shortcut.label}
+              <span className={loadingId === shortcut.id ? 'is-loading' : ''}>
+                <ShortcutGlyph icon={shortcut.icon} />
+              </span>
             </button>
             {customizing && (
               <span className="bn-workflow-shortcut-actions">
@@ -195,12 +259,15 @@ export default function WorkflowShortcuts() {
             )}
           </div>
         ))}
-        {shortcuts.length === 0 && (
-          <span className="bn-workflow-shortcuts-empty">Add a robot workflow shortcut</span>
-        )}
         {customizing && (
-          <button type="button" className="bn-workflow-shortcut-add" onClick={beginAdd}>
-            + Add shortcut
+          <button
+            type="button"
+            className="bn-workflow-shortcut-add"
+            onClick={beginAdd}
+            aria-label="Add shortcut"
+            title="Add shortcut"
+          >
+            +
           </button>
         )}
       </div>
@@ -209,8 +276,10 @@ export default function WorkflowShortcuts() {
           type="button"
           className="bn-workflow-shortcuts-reset"
           onClick={() => setShortcuts(DEFAULT_WORKFLOW_SHORTCUTS.map(shortcut => ({ ...shortcut })))}
+          aria-label="Reset shortcuts"
+          title="Reset shortcuts"
         >
-          Reset
+          ↺
         </button>
       )}
       <button
@@ -218,8 +287,10 @@ export default function WorkflowShortcuts() {
         className={`bn-workflow-shortcuts-customize${customizing ? ' is-active' : ''}`}
         onClick={() => { setCustomizing(value => !value); setDraft(null) }}
         aria-pressed={customizing}
+        aria-label={customizing ? 'Finish customizing shortcuts' : 'Customize shortcuts'}
+        title={customizing ? 'Finish customizing shortcuts' : 'Customize shortcuts'}
       >
-        {customizing ? 'Done' : 'Customize'}
+        {customizing ? '✓' : '⚙'}
       </button>
 
       {draft && (
@@ -259,6 +330,19 @@ export default function WorkflowShortcuts() {
                 <option key={template.slug} value={template.slug}>{template.name}</option>
               ))}
             </datalist>
+            <label htmlFor="bn-workflow-shortcut-icon">Icon</label>
+            <select
+              id="bn-workflow-shortcut-icon"
+              value={draft.icon}
+              onChange={event => setDraft(current => current ? {
+                ...current,
+                icon: event.target.value as WorkflowShortcutIcon,
+              } : current)}
+            >
+              {WORKFLOW_SHORTCUT_ICON_OPTIONS.map(option => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
             <small>Choose any template available in the Templates panel.</small>
             <footer>
               <button type="button" onClick={() => setDraft(null)}>Cancel</button>

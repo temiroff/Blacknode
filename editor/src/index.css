@@ -6144,7 +6144,7 @@ button.bn-device-fact {
   border-radius: 6px;
 }
 
-/* Robot workflow shortcuts ----------------------------------------------- */
+/* Workflow shortcuts ----------------------------------------------------- */
 .bn-workflow-shortcuts {
   display: flex;
   width: 100%;
@@ -6158,15 +6158,6 @@ button.bn-device-fact {
   box-sizing: border-box;
   color: var(--tx2);
   font-family: var(--font-ui);
-}
-
-.bn-workflow-shortcuts-label {
-  flex: 0 0 auto;
-  color: var(--tx3);
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: .055em;
-  text-transform: uppercase;
 }
 
 .bn-workflow-shortcuts-list {
@@ -6193,21 +6184,41 @@ button.bn-device-fact {
 .bn-workflow-shortcut-add,
 .bn-workflow-shortcuts-customize,
 .bn-workflow-shortcuts-reset {
-  min-height: 30px;
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  min-height: 42px;
+  flex: 0 0 42px;
+  padding: 0;
   border: 1px solid var(--line2);
-  border-radius: 8px;
+  border-radius: 9px;
   background: var(--lift);
   color: var(--tx2);
   cursor: pointer;
-  font: 600 12px var(--font-ui);
-  white-space: nowrap;
+  font: 600 19px var(--font-ui);
+  place-items: center;
 }
 
 .bn-workflow-shortcut {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 11px;
+  color: var(--accent);
+}
+
+.bn-workflow-shortcut > span {
+  display: grid;
+  place-items: center;
+}
+
+.bn-workflow-shortcut svg {
+  width: 23px;
+  height: 23px;
+}
+
+.bn-workflow-shortcut > span.is-loading {
+  animation: bn-workflow-shortcut-spin .8s linear infinite;
+}
+
+@keyframes bn-workflow-shortcut-spin {
+  to { transform: rotate(360deg); }
 }
 
 .bn-workflow-shortcut:hover:not(:disabled),
@@ -6224,16 +6235,11 @@ button.bn-device-fact {
   opacity: .64;
 }
 
-.bn-workflow-shortcut-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
 .bn-workflow-shortcut-actions {
   display: inline-flex;
+  width: 22px;
+  height: 42px;
+  flex-direction: column;
   margin-left: 2px;
   overflow: hidden;
   border: 1px solid var(--line2);
@@ -6241,7 +6247,10 @@ button.bn-device-fact {
 }
 
 .bn-workflow-shortcut-actions button {
-  width: 28px;
+  width: 22px;
+  min-height: 20px;
+  flex: 1;
+  padding: 0;
   border: 0;
   border-radius: 0;
   background: var(--lift);
@@ -6251,7 +6260,7 @@ button.bn-device-fact {
 }
 
 .bn-workflow-shortcut-actions button + button {
-  border-left: 1px solid var(--line);
+  border-top: 1px solid var(--line);
 }
 
 .bn-workflow-shortcut-actions button:hover {
@@ -6264,15 +6273,12 @@ button.bn-device-fact {
 }
 
 .bn-workflow-shortcut-add {
-  padding: 5px 10px;
   border-style: dashed;
   background: transparent;
 }
 
 .bn-workflow-shortcuts-customize,
 .bn-workflow-shortcuts-reset {
-  flex: 0 0 auto;
-  padding: 5px 10px;
   background: transparent;
 }
 
@@ -6280,12 +6286,6 @@ button.bn-device-fact {
   border-color: color-mix(in srgb, var(--accent) 46%, var(--line2));
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
-}
-
-.bn-workflow-shortcuts-empty {
-  color: var(--tx3);
-  font-size: 12px;
-  white-space: nowrap;
 }
 
 .bn-workflow-shortcut-backdrop {
@@ -6338,7 +6338,8 @@ button.bn-device-fact {
   font-weight: 650;
 }
 
-.bn-workflow-shortcut-dialog input {
+.bn-workflow-shortcut-dialog input,
+.bn-workflow-shortcut-dialog select {
   min-height: 36px;
   padding: 7px 9px;
   border: 1px solid var(--line2);
@@ -6349,7 +6350,8 @@ button.bn-device-fact {
   font: 13px var(--font-ui);
 }
 
-.bn-workflow-shortcut-dialog input:focus {
+.bn-workflow-shortcut-dialog input:focus,
+.bn-workflow-shortcut-dialog select:focus {
   border-color: var(--accent);
 }
 

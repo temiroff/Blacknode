@@ -169,13 +169,13 @@ http://localhost:3000
 
 ## 6. Load and Run a Template in the Editor
 
-The **Robot workflows** row above the workflow tabs keeps frequent operator
-tasks one click away. Its first shortcut, **Collect episodes**, opens the
+The icon shortcut row above the workflow tabs keeps frequent operator tasks one
+click away. Its first button opens the
 **SO-ARM101 Teleoperation Episode Recording** template in a new workflow tab.
 Opening the template is passive: recording starts in status mode and robot
-motion remains disarmed. Use **Customize** to add, edit, or delete shortcuts;
-the editor saves that arrangement in the current browser. **Reset** restores
-the shipped shortcuts.
+motion remains disarmed. Hover over an icon to see its label. Use the gear icon
+to add, edit, or delete shortcuts; the editor saves that arrangement in the
+current browser. The reset icon restores the shipped shortcuts.
 
 In the browser:
 
