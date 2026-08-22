@@ -69,7 +69,7 @@ def test_operator_panels_use_consistent_compact_spacing_and_cyan_highlights():
     assert "margin-top: var(--bn-operator-panel-gap)" in styles
     assert "gap: var(--bn-operator-panel-gap)" in styles
     assert "var(--bn-operator-panel-highlight) 28%" in styles
-    assert ".bn-operator-card::before" in styles
+    assert ".bn-operator-card::before" not in styles
 
 
 def test_operator_actions_reuse_graph_params_cooks_and_direct_controls():
