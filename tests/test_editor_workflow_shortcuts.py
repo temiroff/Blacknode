@@ -34,7 +34,7 @@ def test_shortcuts_open_templates_safely_and_support_full_customization():
     ).read_text(encoding="utf-8")
 
     assert "await api.loadTemplate(shortcut.templateSlug)" in shortcuts
-    assert "await openGraphAsTab(tabName, templateGraph)" in shortcuts
+    assert "await openGraphAsTab(tabName, templateGraph, launchAsApp ? 'app' : 'graph')" in shortcuts
     assert "await api.setGraph(" in shortcuts
     assert 'title={shortcut.label}' in shortcuts
     assert 'aria-label={shortcut.label}' in shortcuts

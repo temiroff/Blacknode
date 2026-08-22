@@ -28,6 +28,7 @@ import SubgraphOutputNode from './components/SubgraphOutputNode'
 import NodePalette from './components/NodePalette'
 import Inspector from './components/Inspector'
 import WorkflowShortcuts from './components/WorkflowShortcuts'
+import WorkflowOperatorView from './components/WorkflowOperatorView'
 import NodeSearch from './components/NodeSearch'
 import { portColor, portVisualColor, portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
@@ -35,6 +36,7 @@ import type { BnNodeDef, ConnectionDraft } from './types'
 import { api, type CloudJob, type CloudStatus, type FrameworkExportTarget, type NewtonWorkspaceStatus, type WorkflowMetadata } from './api'
 import { inferGraphRunTargets } from './graphRun'
 import { copyTextToClipboard } from './clipboard'
+import { isWorkflowOperatorView } from './operatorView'
 
 const NODE_TYPES = {
   blacknode: BlackNode,
@@ -237,13 +239,13 @@ export default function App() {
 function WorkspaceApp() {
   const {
     nodes, edges, nodeTypes, nodeDefs, selectedId, serverOk, serverError, cookLog, cookActive, cookStatusHidden,
-    tabs, activeTabId, activeProject, workflowEntrypoint,
+    tabs, activeTabId, activeProject, workflowMetadata, workflowEntrypoint,
     onNodesChange, onEdgesChange, onConnect: storeOnConnect, disconnectEdge, reconnectEdge,
     addNode, selectNode, loadNodeTypes, loadGraph, loadApiKeys, loadApiKeyStatus, loadCustomModels, loadLearnedNodes, loadDriverStatus, loadRuntimeNodeOutputs, loadSpatialViewerNodeOutputs, loadDrivers,
     addNodeFromConnection, copySelection, pasteClipboard,
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
-    openGraphAsTab, openWorkflowAsTab, renameTab, saveActiveWorkflow,
+    openGraphAsTab, openWorkflowAsTab, setActiveTabSurface, renameTab, saveActiveWorkflow,
     diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, stopCook, stopRuntimeServices, dismissCookStatus, applyRunReplay,
     handleLearnedNodeEvent, updateParam,
   } = useStore()
@@ -341,6 +343,10 @@ function WorkspaceApp() {
   const suppressPaneClick = useRef(false)
   const lastBackendNotice = useRef<string | null>(null)
   const activeTab = tabs.find(tab => tab.id === activeTabId)
+  const operatorView = isWorkflowOperatorView(workflowMetadata.operator_view)
+    ? workflowMetadata.operator_view
+    : null
+  const activeOperatorView = activeTab?.surface === 'app' ? operatorView : null
   const menuTab = tabMenu ? tabs.find(tab => tab.id === tabMenu.tabId) : null
   const pendingCloseTab = pendingClose ? tabs.find(tab => tab.id === pendingClose.tabId) : null
   const simulationViewer = useMemo(() => {
@@ -1942,14 +1948,14 @@ function WorkspaceApp() {
     ),
   )?.label ?? 'Auto'
   return (
-    <div className="bn-editor-shell" style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
-      <NodePalette />
+    <div className={`bn-editor-shell${activeOperatorView ? ' is-operator-view' : ''}`} style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
+      {!activeOperatorView && <NodePalette />}
 
       <div className="bn-editor-main" style={{ flex: 1, position: 'relative' }} onDrop={onDrop} onDragOver={onDragOver} onMouseMove={trackMouseFlowPos}>
 
         {/* ── top bar ── */}
         <div className={`bn-topbar${hostedPreview ? ' is-hosted-preview' : ''}`} style={{
-          position: 'fixed', top: 0, left: leftRailW, right: 0, zIndex: 50,
+          position: 'fixed', top: 0, left: activeOperatorView ? 0 : leftRailW, right: 0, zIndex: 50,
           background: 'var(--panel)',
           borderBottom: '1px solid var(--line)',
           display: 'flex', alignItems: 'center',
@@ -2518,13 +2524,25 @@ function WorkspaceApp() {
             +
           </button>
 
+          {operatorView && (
+            <button
+              type="button"
+              className={`bn-workflow-surface-toggle${activeOperatorView ? ' is-app' : ''}`}
+              onClick={() => setActiveTabSurface(activeOperatorView ? 'graph' : 'app')}
+              title={activeOperatorView ? 'Show workflow nodes' : 'Show workflow app'}
+            >
+              <span aria-hidden="true">{activeOperatorView ? '⌘' : '▦'}</span>
+              {activeOperatorView ? 'Nodes' : 'App'}
+            </button>
+          )}
+
           <button
             className="bn-tab-save-button"
             onClick={() => void handleSaveWorkflow()}
             disabled={!activeTab || savingWorkflow}
             title="Save active workflow"
             style={{
-              marginLeft: 'auto',
+              marginLeft: operatorView ? 0 : 'auto',
               position: 'sticky',
               right: 6,
               background: 'var(--action)',
@@ -2575,7 +2593,7 @@ function WorkspaceApp() {
           </div>
         )}
 
-        {nodeMenu && (() => {
+        {!activeOperatorView && nodeMenu && (() => {
           const menuNode = nodes.find(n => n.id === nodeMenu.nodeId)
           if (!menuNode) return null
           const data = menuNode.data
@@ -2824,7 +2842,7 @@ function WorkspaceApp() {
           </div>
         )}
 
-        <SubnetBreadcrumb />
+        {!activeOperatorView && <SubnetBreadcrumb />}
 
         <CookStatusPanel
           entries={cookLog}
@@ -2903,7 +2921,7 @@ function WorkspaceApp() {
         )}
 
         {/* ── Collapse-to-subnet floating button ── */}
-        {(() => {
+        {!activeOperatorView && (() => {
           const selected = nodes.filter(n => n.selected)
           if (selected.length < 2) return null
           return (
@@ -2944,6 +2962,12 @@ function WorkspaceApp() {
         })()}
 
         <div className="bn-workspace-split" style={{ top: canvasPad }}>
+          {activeOperatorView ? (
+            <WorkflowOperatorView
+              config={activeOperatorView}
+              onEditWorkflow={() => setActiveTabSurface('graph')}
+            />
+          ) : <>
           {activeSimulationViewer && (
             <SimulationViewerPane
               url={activeSimulationViewer.url}
@@ -3070,6 +3094,7 @@ function WorkspaceApp() {
           )}
           </ReactFlow>
           </div>
+          </>}
         </div>
 
         <div className="bn-execution-status-strip" role="status" aria-label="Blacknode execution status">
@@ -3122,9 +3147,9 @@ function WorkspaceApp() {
         </div>
       </div>
 
-      <Inspector />
+      {!activeOperatorView && <Inspector />}
 
-      {search && (
+      {!activeOperatorView && search && (
         <NodeSearch
           screenPos={search.screenPos}
           nodeTypes={nodeTypes}

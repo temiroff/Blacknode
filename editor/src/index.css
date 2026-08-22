@@ -6408,6 +6408,370 @@ button.bn-device-fact {
   opacity: .5;
 }
 
+/* Workflow operator apps ------------------------------------------------- */
+.bn-workflow-surface-toggle {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--tx2);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: 650 12px var(--font-ui);
+}
+
+.bn-workflow-surface-toggle:hover,
+.bn-workflow-surface-toggle.is-app {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--line2));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--tx1);
+}
+
+.bn-operator-view {
+  --bn-operator-accent: var(--accent);
+  width: 100%;
+  min-height: 100%;
+  overflow: auto;
+  background:
+    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--bn-operator-accent) 10%, transparent), transparent 34%),
+    var(--bg);
+  color: var(--tx1);
+  font-family: var(--font-ui);
+}
+
+.bn-operator-header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  min-height: 92px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px clamp(20px, 3vw, 44px);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.bn-operator-header > div:first-child {
+  min-width: 0;
+}
+
+.bn-operator-header > div:first-child > span {
+  color: var(--bn-operator-accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.bn-operator-header h1 {
+  margin: 3px 0 0;
+  font-size: clamp(22px, 2.4vw, 32px);
+  letter-spacing: -.025em;
+}
+
+.bn-operator-header p {
+  max-width: 760px;
+  margin: 6px 0 0;
+  color: var(--tx2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.bn-operator-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.bn-operator-header-actions button,
+.bn-operator-actions-card button {
+  min-height: 34px;
+  padding: 6px 13px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--lift);
+  color: var(--tx2);
+  cursor: pointer;
+  font: 650 12px var(--font-ui);
+}
+
+.bn-operator-header-actions button:hover:not(:disabled),
+.bn-operator-actions-card button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--bn-operator-accent) 56%, var(--line2));
+  background: var(--hover);
+  color: var(--tx1);
+}
+
+.bn-operator-header-actions button:disabled,
+.bn-operator-actions-card button:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
+.bn-operator-header-actions button.is-primary,
+.bn-operator-actions-card button.is-primary {
+  border-color: var(--bn-operator-accent);
+  background: var(--bn-operator-accent);
+  color: #081018;
+}
+
+.bn-operator-sections {
+  width: min(1540px, 100%);
+  margin: 0 auto;
+  padding: 28px clamp(20px, 3vw, 44px) 54px;
+  box-sizing: border-box;
+}
+
+.bn-operator-section + .bn-operator-section {
+  margin-top: 30px;
+}
+
+.bn-operator-section > header {
+  margin-bottom: 12px;
+}
+
+.bn-operator-section > header h2 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: -.01em;
+}
+
+.bn-operator-section > header p {
+  margin: 4px 0 0;
+  color: var(--tx3);
+  font-size: 12px;
+}
+
+.bn-operator-section > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 14px;
+}
+
+.bn-operator-section.is-stack > div {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.bn-operator-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line2);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--panel) 94%, var(--lift));
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .14);
+}
+
+.bn-operator-card h3 {
+  margin: 0;
+  padding: 14px 16px 0;
+  color: var(--tx2);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+}
+
+.bn-operator-image-card > header {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bn-operator-image-card > header strong {
+  font-size: 13px;
+}
+
+.bn-operator-image-card > header span {
+  color: var(--tx3);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .1em;
+}
+
+.bn-operator-image-card > header span.is-live {
+  color: var(--ok);
+}
+
+.bn-operator-image-frame {
+  display: grid;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: #05080d;
+  place-items: center;
+}
+
+.bn-operator-image-card.is-dashboard .bn-operator-image-frame {
+  aspect-ratio: 16 / 8;
+}
+
+.bn-operator-image-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.bn-operator-image-empty {
+  display: flex;
+  max-width: 280px;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--tx3);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.bn-operator-image-empty i {
+  width: 34px;
+  height: 26px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 5px color-mix(in srgb, var(--lift) 65%, transparent);
+}
+
+.bn-operator-status-list {
+  display: grid;
+  gap: 9px;
+  padding: 14px 16px 16px;
+}
+
+.bn-operator-status-list > div {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  color: var(--tx2);
+  font-size: 12px;
+}
+
+.bn-operator-status-list i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tx3);
+}
+
+.bn-operator-status-list .is-on i { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.bn-operator-status-list .is-on.is-danger i { background: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+.bn-operator-status-list .is-off.is-danger i { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.bn-operator-status-list strong { color: var(--tx1); font-size: 11px; }
+
+.bn-operator-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 10px;
+  background: var(--line);
+}
+
+.bn-operator-metrics-grid > div {
+  display: flex;
+  min-height: 72px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 10px 16px;
+  background: var(--panel);
+}
+
+.bn-operator-metrics-grid span {
+  color: var(--tx3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.bn-operator-metrics-grid strong {
+  margin-top: 4px;
+  color: var(--tx1);
+  font: 700 22px var(--font-mono);
+}
+
+.bn-operator-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+
+.bn-operator-fields-grid label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bn-operator-fields-grid label:has(textarea) {
+  grid-column: 1 / -1;
+}
+
+.bn-operator-fields-grid label > span {
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.bn-operator-fields-grid input,
+.bn-operator-fields-grid textarea {
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid var(--line2);
+  border-radius: 7px;
+  outline: none;
+  background: var(--lift);
+  box-sizing: border-box;
+  color: var(--tx1);
+  font: 12px var(--font-ui);
+  resize: vertical;
+}
+
+.bn-operator-fields-grid input:focus,
+.bn-operator-fields-grid textarea:focus {
+  border-color: var(--bn-operator-accent);
+}
+
+.bn-operator-actions-card > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 16px 16px;
+}
+
+.bn-operator-actions-card button.is-success { border-color: var(--ok); color: var(--ok); }
+.bn-operator-actions-card button.is-warning { border-color: var(--warn); color: var(--warn); }
+.bn-operator-actions-card button.is-danger { border-color: var(--err); color: var(--err); }
+
+@media (max-width: 820px) {
+  .bn-operator-header {
+    position: relative;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .bn-operator-header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .bn-operator-fields-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* ── Refined UI comparison mode ──────────────────
    Opt-in only. The standard Blacknode interface remains the default and
    every override below is scoped to data-ui-test="refined". */

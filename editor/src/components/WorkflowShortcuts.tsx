@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { api, type TemplateMeta } from '../api'
+import { isWorkflowOperatorView } from '../operatorView'
 import { useStore } from '../store'
 
 export interface WorkflowShortcut {
@@ -139,7 +140,7 @@ function shortcutId(): string {
 }
 
 export default function WorkflowShortcuts() {
-  const { loadGraph, loadNodeTypes, openGraphAsTab, organizeNodes } = useStore()
+  const { loadGraph, loadNodeTypes, openGraphAsTab, organizeNodes, setActiveTabSurface } = useStore()
   const [shortcuts, setShortcuts] = useState<WorkflowShortcut[]>(readWorkflowShortcuts)
   const [templates, setTemplates] = useState<TemplateMeta[]>([])
   const [customizing, setCustomizing] = useState(false)
@@ -213,6 +214,7 @@ export default function WorkflowShortcuts() {
       const templateGraph = await api.getGraph()
       const template = templates.find(candidate => candidate.slug === shortcut.templateSlug)
       const tabName = shortcut.label || template?.name || 'Workflow template'
+      const launchAsApp = isWorkflowOperatorView(templateGraph.metadata?.operator_view)
       if (previousGraph) {
         await api.setGraph(
           previousGraph.nodes,
@@ -221,10 +223,11 @@ export default function WorkflowShortcuts() {
           previousGraph.entrypoint,
         )
         await loadGraph()
-        await openGraphAsTab(tabName, templateGraph)
+        await openGraphAsTab(tabName, templateGraph, launchAsApp ? 'app' : 'graph')
         openedNewTab = true
       } else {
         await loadGraph(tabName)
+        setActiveTabSurface(launchAsApp ? 'app' : 'graph')
       }
       await loadNodeTypes()
       await organizeNodes()
@@ -233,7 +236,9 @@ export default function WorkflowShortcuts() {
         detail: {
           kind: 'info',
           title: `${tabName} opened`,
-          message: 'Review the workflow configuration, then use its controls when you are ready.',
+          message: launchAsApp
+            ? 'The operator app is ready. Start its live services when the workspace is safe.'
+            : 'Review the workflow configuration, then use its controls when you are ready.',
         },
       }))
     } catch (error) {

@@ -41,6 +41,7 @@ export interface WorkflowTab {
   slug: string | null  // null = unsaved
   dirty: boolean
   graph: GraphSnapshot | null
+  surface?: 'graph' | 'app'
   cookLog?: CookLogEntry[]
   cookActive?: boolean
   cookStatusHidden?: boolean
@@ -278,7 +279,8 @@ interface Store {
   closeTab: (tabId: string) => Promise<void>
   duplicateTab: (tabId: string) => Promise<void>
   openWorkflowAsTab: (slug: string, name: string) => Promise<void>
-  openGraphAsTab: (name: string, graph: GraphSnapshot) => Promise<void>
+  openGraphAsTab: (name: string, graph: GraphSnapshot, surface?: 'graph' | 'app') => Promise<void>
+  setActiveTabSurface: (surface: 'graph' | 'app') => void
   setActiveProject: (project: ActiveProject | null) => void
   renameTab: (tabId: string, name: string) => void
   saveActiveWorkflow: (name?: string) => Promise<{ name: string; slug: string }>
@@ -1550,7 +1552,7 @@ export const useStore = create<Store>((set, get) => ({
   customModels: [],
   learnedNodes: [],
   learnedNodeHighlight: null,
-  tabs: [{ id: 'default', name: 'Untitled', slug: null, dirty: false, graph: null, cookLog: [], cookActive: false, cookStatusHidden: false }],
+  tabs: [{ id: 'default', name: 'Untitled', slug: null, dirty: false, graph: null, surface: 'graph', cookLog: [], cookActive: false, cookStatusHidden: false }],
   activeTabId: 'default',
   activeProject: null,
   workflowRevision: 0,
@@ -2056,7 +2058,7 @@ export const useStore = create<Store>((set, get) => ({
     const id = makeTabId()
     const tabName = cleanWorkflowName(name)
     set(s => ({
-      tabs: [...s.tabs, { id, name: tabName, slug: null, dirty: false, graph: blankGraph(), cookLog: [], cookActive: false, cookStatusHidden: false }],
+      tabs: [...s.tabs, { id, name: tabName, slug: null, dirty: false, graph: blankGraph(), surface: 'graph', cookLog: [], cookActive: false, cookStatusHidden: false }],
       activeTabId: id,
       undoHistory: [],
       cookLog: [],
@@ -2074,7 +2076,7 @@ export const useStore = create<Store>((set, get) => ({
     const idx = tabs.findIndex(t => t.id === tabId)
     const insertAt = idx < 0 ? tabs.length : idx + 1
     const nextTabs = [...tabs]
-    nextTabs.splice(insertAt, 0, { id, name: 'Untitled', slug: null, dirty: false, graph: blankGraph(), cookLog: [], cookActive: false, cookStatusHidden: false })
+    nextTabs.splice(insertAt, 0, { id, name: 'Untitled', slug: null, dirty: false, graph: blankGraph(), surface: 'graph', cookLog: [], cookActive: false, cookStatusHidden: false })
     set({
       tabs: nextTabs,
       activeTabId: id,
@@ -2121,7 +2123,7 @@ export const useStore = create<Store>((set, get) => ({
       const tab = tabs[idx]
       await api.reset()
       set({
-        tabs: [{ ...tab, name: 'Untitled', slug: null, dirty: false, graph: blankGraph(), cookLog: [], cookActive: false, cookStatusHidden: false }],
+        tabs: [{ ...tab, name: 'Untitled', slug: null, dirty: false, graph: blankGraph(), surface: 'graph', cookLog: [], cookActive: false, cookStatusHidden: false }],
         activeTabId: tab.id,
         nodes: [],
         edges: [],
@@ -2179,6 +2181,7 @@ export const useStore = create<Store>((set, get) => ({
       slug: null,
       dirty: true,
       graph: cloneGraph(graph),
+      surface: tab.surface ?? 'graph',
       cookLog: [],
       cookActive: false,
       cookStatusHidden: false,
@@ -2207,7 +2210,7 @@ export const useStore = create<Store>((set, get) => ({
     const id = makeTabId()
     const graph = await api.loadWorkflow(slug)
     set(s => ({
-      tabs: [...s.tabs, { id, name, slug, dirty: false, graph: cloneGraph(graph), cookLog: [], cookActive: false, cookStatusHidden: false }],
+      tabs: [...s.tabs, { id, name, slug, dirty: false, graph: cloneGraph(graph), surface: 'graph', cookLog: [], cookActive: false, cookStatusHidden: false }],
       activeTabId: id,
       selectedId: null,
       undoHistory: [],
@@ -2218,12 +2221,12 @@ export const useStore = create<Store>((set, get) => ({
     await get().loadGraph()
   },
 
-  openGraphAsTab: async (name, graph) => {
+  openGraphAsTab: async (name, graph, surface = 'graph') => {
     await get().saveActiveTabSnapshot()
     const id = makeTabId()
     const nextGraph = cloneGraph(graph)
     set(s => ({
-      tabs: [...s.tabs, { id, name: cleanWorkflowName(name), slug: null, dirty: true, graph: nextGraph, cookLog: [], cookActive: false, cookStatusHidden: false }],
+      tabs: [...s.tabs, { id, name: cleanWorkflowName(name), slug: null, dirty: true, graph: nextGraph, surface, cookLog: [], cookActive: false, cookStatusHidden: false }],
       activeTabId: id,
       selectedId: null,
       undoHistory: [],
@@ -2233,6 +2236,13 @@ export const useStore = create<Store>((set, get) => ({
     }))
     await api.setGraph(nextGraph.nodes, nextGraph.edges, nextGraph.metadata, nextGraph.entrypoint)
     await get().loadGraph()
+  },
+
+  setActiveTabSurface: (surface) => {
+    set(s => ({
+      tabs: s.tabs.map(tab => tab.id === s.activeTabId ? { ...tab, surface } : tab),
+      selectedId: surface === 'app' ? null : s.selectedId,
+    }))
   },
 
   setActiveProject: (project) => set({ activeProject: project }),

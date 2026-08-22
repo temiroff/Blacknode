@@ -170,13 +170,15 @@ http://localhost:3000
 ## 6. Load and Run a Template in the Editor
 
 The icon shortcut row above the workflow tabs keeps frequent operator tasks one
-click away. Its first button opens the
-**SO-ARM101 Teleoperation Episode Recording** template in a new workflow tab.
-Opening the template is passive: recording starts in status mode and robot
-motion remains disarmed. Hover over an icon to see its label. Use the gear icon
-to add, edit, or delete shortcuts and choose each button's icon and outline
-color; the editor saves that arrangement in the current browser. The reset icon
-restores the shipped shortcuts.
+click away. Its first button opens the **Collect episodes** App surface backed
+by the **SO-ARM101 Teleoperation Episode Recording** workflow. The app presents
+camera, motion, recording, and dataset controls while the nodes remain available
+through **Edit workflow**. Opening the app is passive: recording starts in
+status mode and robot motion remains disarmed. Hover over a shortcut icon to see
+its label. Use the gear icon to add, edit, or delete shortcuts and choose each
+button's icon and outline color; the editor saves that arrangement in the
+current browser. The reset icon restores the shipped shortcuts. See
+[Workflow Apps](operator-apps.md) for the reusable view contract.
 
 In the browser:
 

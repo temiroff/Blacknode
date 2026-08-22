@@ -1,5 +1,6 @@
 import type { BnNodeDef, BnNodeMeta, BnPackage, BnPackageIndex } from './types'
 import type { GraphRunTarget } from './graphRun'
+import type { WorkflowOperatorView } from './operatorView'
 
 const BASE = (import.meta.env.VITE_BLACKNODE_API_BASE ?? '/api').replace(/\/$/, '')
 
@@ -828,6 +829,7 @@ export interface WorkflowMetadata extends Record<string, unknown> {
     profile_id: string
     hardware_id: string
   }
+  operator_view?: WorkflowOperatorView
 }
 
 export interface ProjectWorkflow {

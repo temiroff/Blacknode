@@ -544,7 +544,7 @@ export default function NodePalette() {
   )
 
   return (
-    <div style={{ display: 'flex', flexShrink: 0, height: '100%' }}>
+    <div className="bn-node-palette-shell" style={{ display: 'flex', flexShrink: 0, height: '100%' }}>
 
       {showPackageWelcome && (
         <div

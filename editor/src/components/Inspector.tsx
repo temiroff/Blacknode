@@ -878,7 +878,7 @@ export default function Inspector() {
   })()
 
   return (
-    <div style={{ display: 'flex', flexShrink: 0, height: '100%' }}>
+    <div className="bn-inspector-shell" style={{ display: 'flex', flexShrink: 0, height: '100%' }}>
 
       {/* ── Content panel ── */}
       {open && (
