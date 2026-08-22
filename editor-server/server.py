@@ -146,11 +146,13 @@ _HOSTED_ACCOUNT_CORS_METHODS = {
     "/cloud/newsletter/subscribe": frozenset({"POST"}),
 }
 _APP_DEPLOYMENT_PATH = os.environ.get("BLACKNODE_APP_DEPLOYMENT", "").strip()
+_APP_STATIC_DIR_VALUE = os.environ.get("BLACKNODE_APP_STATIC_DIR", "").strip()
+_APP_STATIC_DIR = Path(_APP_STATIC_DIR_VALUE).expanduser().resolve() if _APP_STATIC_DIR_VALUE else None
 _APP_PUBLIC_ORIGINS = frozenset(
     origin.strip().rstrip("/")
     for origin in os.environ.get(
         "BLACKNODE_APP_PUBLIC_ORIGINS",
-        "http://localhost:3000,http://127.0.0.1:3000",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:7777,http://127.0.0.1:7777",
     ).split(",")
     if origin.strip().startswith(("http://", "https://"))
 )
@@ -160,6 +162,11 @@ except AppDeploymentError as exc:
     raise RuntimeError(f"Invalid BLACKNODE_APP_DEPLOYMENT: {exc}") from exc
 if _HOSTED_MODE and _APP_DEPLOYMENT is not None:
     raise RuntimeError("BLACKNODE_HOSTED_MODE and BLACKNODE_APP_DEPLOYMENT cannot be enabled together.")
+if _APP_STATIC_DIR is not None:
+    if _APP_DEPLOYMENT is None:
+        raise RuntimeError("BLACKNODE_APP_STATIC_DIR requires BLACKNODE_APP_DEPLOYMENT.")
+    if not (_APP_STATIC_DIR / "index.html").is_file():
+        raise RuntimeError(f"BLACKNODE_APP_STATIC_DIR has no index.html: {_APP_STATIC_DIR}")
 _active_deployment_app_id: str | None = None
 _active_deployment_permissions: dict[str, set[tuple[str, ...]]] = {
     "params": set(),
@@ -398,6 +405,20 @@ def _set_hosted_account_cors(response: Response, origin: str) -> None:
         response.headers["Vary"] = f"{vary}, Origin".strip(", ")
 
 
+def _app_static_target(path: str) -> Path | None:
+    if _APP_STATIC_DIR is None:
+        return None
+    if path == "/" or re.fullmatch(r"/app/[a-z][a-z0-9_-]{0,63}/?", path):
+        return _APP_STATIC_DIR / "index.html"
+    relative = path.lstrip("/")
+    if not relative:
+        return None
+    target = (_APP_STATIC_DIR / relative).resolve()
+    if _APP_STATIC_DIR not in target.parents or not target.is_file():
+        return None
+    return target
+
+
 @app.middleware("http")
 async def hosted_preview_boundary(request: Request, call_next):
     if not _HOSTED_MODE:
@@ -491,7 +512,8 @@ async def app_deployment_boundary(request: Request, call_next):
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         response.headers["Access-Control-Max-Age"] = "600"
         return response
-    if not app_mode_route_allowed(method, path):
+    static_request = method == "GET" and _app_static_target(path) is not None
+    if not static_request and not app_mode_route_allowed(method, path):
         return _app_mode_error(
             "APP_CAPABILITY_UNAVAILABLE",
             "This deployment grants access to its declared Workflow App controls only.",
@@ -508,6 +530,17 @@ async def app_deployment_boundary(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     return response
+
+
+@app.middleware("http")
+async def bundled_app_api_prefix(request: Request, call_next):
+    """Make the Vite /api client work when the App UI and API share one host."""
+    path = request.scope.get("path", "")
+    if _APP_STATIC_DIR is not None and (path == "/api" or path.startswith("/api/")):
+        normalized = path[4:] or "/"
+        request.scope["path"] = normalized
+        request.scope["raw_path"] = normalized.encode("utf-8")
+    return await call_next(request)
 
 
 def _require_app_permission(kind: str, node_id: str, value: str, payload: object = None) -> None:
@@ -14762,6 +14795,14 @@ def delete_workflow(slug: str):
         raise HTTPException(404, f"Workflow '{slug}' not found")
     os.remove(path)
     return {"ok": True}
+
+
+@app.get("/{app_path:path}", include_in_schema=False)
+def bundled_app_static(app_path: str):
+    target = _app_static_target("/" + app_path)
+    if target is None:
+        raise HTTPException(404, "App asset was not found.")
+    return FileResponse(target)
 
 
 if __name__ == "__main__":

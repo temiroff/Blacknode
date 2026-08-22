@@ -1130,6 +1130,8 @@ export interface AppDeploymentSummary {
   start_app: string
   access: { role: 'operator'; graph_editing: false }
   required_packages: string[]
+  required_components: string[]
+  required_adapters: string[]
   apps: Array<{
     id: string
     name: string
@@ -1137,6 +1139,8 @@ export interface AppDeploymentSummary {
     accent: string
     icon: string
     required_packages: string[]
+    required_components: string[]
+    required_adapters: string[]
   }>
 }
 

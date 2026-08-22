@@ -123,12 +123,9 @@ export default function CustomerAppShell({ deployment }: CustomerAppShellProps) 
   return (
     <main className="bn-customer-app-shell">
       <header className="bn-customer-app-bar">
-        <div className="bn-customer-app-brand">
-          <img src="/blacknode-logo.png" alt="" />
-          <div>
-            <strong>Blacknode</strong>
-            <span>{deployment.name}</span>
-          </div>
+        <div className="bn-brand bn-customer-app-brand" aria-label="Blacknode">
+          <img className="bn-brand-logo" src="/blacknode-logo.png" alt="" />
+          <span>BLACKNODE</span>
         </div>
         <nav aria-label="Deployed Apps">
           {deployment.apps.map(app => (

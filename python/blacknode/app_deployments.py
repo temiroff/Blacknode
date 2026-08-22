@@ -56,9 +56,9 @@ def _secret_paths(value: object, path: str = "$") -> list[str]:
     return found
 
 
-def _required_packages(workflow: Mapping[str, Any]) -> list[str]:
+def _metadata_list(workflow: Mapping[str, Any], key: str) -> list[str]:
     metadata = workflow.get("metadata")
-    values = metadata.get("required_packages") if isinstance(metadata, Mapping) else None
+    values = metadata.get(key) if isinstance(metadata, Mapping) else None
     if not isinstance(values, list):
         return []
     return sorted({str(value).strip() for value in values if str(value).strip()})
@@ -75,6 +75,8 @@ def build_app_deployment(
     apps: list[dict[str, Any]] = []
     seen: set[str] = set()
     package_names: set[str] = set()
+    component_names: set[str] = set()
+    adapter_names: set[str] = set()
 
     for source, raw_workflow in workflows:
         workflow = copy.deepcopy(dict(raw_workflow))
@@ -93,8 +95,12 @@ def build_app_deployment(
                 "Configure credentials on the deployment host instead."
             )
         seen.add(app_id)
-        required_packages = _required_packages(workflow)
+        required_packages = _metadata_list(workflow, "required_packages")
+        required_components = _metadata_list(workflow, "required_components")
+        required_adapters = _metadata_list(workflow, "required_adapters")
         package_names.update(required_packages)
+        component_names.update(required_components)
+        adapter_names.update(required_adapters)
         apps.append({
             "id": app_id,
             "name": str(view["title"]).strip(),
@@ -102,6 +108,8 @@ def build_app_deployment(
             "accent": str(view.get("accent") or "").strip(),
             "icon": str(view.get("icon") or "workflow").strip(),
             "required_packages": required_packages,
+            "required_components": required_components,
+            "required_adapters": required_adapters,
             "workflow": workflow,
         })
 
@@ -119,6 +127,8 @@ def build_app_deployment(
         "start_app": selected_start,
         "access": {"role": "operator", "graph_editing": False},
         "required_packages": sorted(package_names),
+        "required_components": sorted(component_names),
+        "required_adapters": sorted(adapter_names),
         "apps": apps,
     }
 
@@ -189,13 +199,19 @@ def export_app_deployment(
 def public_app_deployment(manifest: Mapping[str, Any]) -> dict[str, Any]:
     return {
         key: copy.deepcopy(manifest[key])
-        for key in ("kind", "schema_version", "id", "name", "start_app", "access", "required_packages")
+        for key in (
+            "kind", "schema_version", "id", "name", "start_app", "access",
+            "required_packages", "required_components", "required_adapters",
+        )
         if key in manifest
     } | {
         "apps": [
             {
                 key: copy.deepcopy(app[key])
-                for key in ("id", "name", "description", "accent", "icon", "required_packages")
+                for key in (
+                    "id", "name", "description", "accent", "icon",
+                    "required_packages", "required_components", "required_adapters",
+                )
                 if key in app
             }
             for app in manifest.get("apps", [])

@@ -22,7 +22,6 @@ New-Item -ItemType Directory -Force .\.local-notes\deployments | Out-Null
 blacknode export-app `
   packages\blacknode-dataset\templates\teleoperation-episode-recording.json `
   --id customer-recording `
-  --name "Robot Data Collection" `
   --output .local-notes\deployments\customer-recording.blacknode-app.json
 ```
 
@@ -33,21 +32,58 @@ its name as the icon tooltip.
 
 The command produces a `blacknode.app-deployment` schema-version 1 manifest.
 It validates every workflow, records the union of `metadata.required_packages`,
-and rejects persisted API keys, tokens, passwords, credentials, and secrets.
-Configure credentials in the deployment host environment or its managed secret
-store.
+`metadata.required_components`, and `metadata.required_adapters`, and rejects
+persisted API keys, tokens, passwords, credentials, and secrets. Configure
+credentials in the deployment host environment or its managed secret store.
 
-The exported manifest is the deployable artifact. Keep each released manifest
-under a versioned artifact name or release record so the previous known-good
-bundle remains available for rollback.
+## Package an App for another computer
+
+Build the production customer UI, then package the deployment:
+
+```powershell
+Push-Location editor
+npm run build
+Pop-Location
+
+blacknode package-app `
+  .local-notes\deployments\customer-recording.blacknode-app.json `
+  --output .local-notes\deployments\customer-recording.blacknode-app.zip
+```
+
+`package-app` creates one portable ZIP containing the App manifest, production
+UI, Blacknode core and server sources, and every extension package declared by
+the included workflows. Only Git-tracked core, server, and extension-package
+files enter the archive; repository state, caches, run data, editor state, and
+local credentials stay out. The archive also records the exact Git commit for
+core and every bundled extension package.
+
+The recipient extracts the ZIP and runs:
+
+```powershell
+.\install.ps1
+.\start.ps1
+```
+
+On Linux, use `bash ./install.sh` once and `bash ./start.sh` to launch. The
+installer creates a private Python environment, installs the bundled Blacknode
+release and server dependencies, enables the declared package components and
+adapters, and installs their prerequisites. The launcher serves the customer UI
+and operator API together at `http://127.0.0.1:7777`, then opens the configured
+start App. The recipient does not need Node.js, npm, Git, or an editor checkout.
+
+Python 3.11 or newer and internet access for Python dependencies are required at
+install time. Robot drivers, ROS services, credentials, and network access used
+by the workflow must be available in the recipient's deployment environment.
+Keep each released ZIP under a versioned artifact name or release record so the
+previous known-good package remains available for rollback.
 
 ## Prepare the deployment host
 
-Install the released Blacknode core and every package listed in the manifest's
-`required_packages`. For **Collect episodes**, open **Devices**, select the
-robot, press **Software**, then press **Check updates** and **Update all**. This
-updates the robot Runtime and its installed extension packages through the
-operator surface.
+The portable ZIP installs its customer host and required packages on the
+recipient's computer. For a managed robot, open **Devices**, select the robot,
+press **Software**, then press **Check updates** and **Update all**. This updates
+the robot Runtime and its installed extension packages through the operator
+surface.
 
 Place the exported `.blacknode-app.json` bundle on the computer serving the App.
 That computer needs network access to the robot transports and services used by
@@ -77,6 +113,11 @@ accepts `http://localhost:3000` and `http://127.0.0.1:3000` by default.
 Opening Blacknode now enters the customer App shell automatically. A direct App
 link uses `/app/<app-id>`, such as `/app/collect-episodes`.
 
+When `BLACKNODE_APP_STATIC_DIR` points to a built editor `dist` folder, the
+server hosts both the UI and API on port 7777. This is how portable App packages
+run with one process. The Vite development server on port 3000 remains available
+for App authoring and local UI development.
+
 Open the top-bar **Settings** control to configure the robot connection and
 other inputs declared by the active workflow's `operator_view.settings`.
 Settings update only their declared node parameters. Graph editing remains an
@@ -84,9 +125,10 @@ authoring capability outside the customer shell.
 
 ## Verify the deployment
 
-Open `http://localhost:3000/app/collect-episodes`. A single-App deployment shows
-one App icon. A multi-App deployment opens `start_app` and shows every bundled
-App icon for direct switching.
+Open `http://127.0.0.1:7777/app/collect-episodes` for a packaged App, or
+`http://localhost:3000/app/collect-episodes` during editor development. A
+single-App deployment shows one App icon. A multi-App deployment opens
+`start_app` and shows every bundled App icon for direct switching.
 
 Check the server mode and public manifest from a second terminal:
 

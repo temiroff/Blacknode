@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .app_deployments import AppDeploymentError, export_app_deployment
+from .app_packages import package_app_deployment
 from .exporters import export_workflow as export_framework_workflow
 from .exporters import list_export_targets
 from .learned import registry as learned_registry
@@ -41,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
         return _export_training(args)
     if args.command == "export-app":
         return _export_app(args)
+    if args.command == "package-app":
+        return _package_app(args)
     if args.command == "drivers":
         return _drivers(args)
     if args.command == "slack":
@@ -127,6 +130,23 @@ def _parser() -> argparse.ArgumentParser:
     export_app.add_argument("--id", dest="deployment_id", help="stable deployment id")
     export_app.add_argument("--name", help="customer-facing deployment name")
     export_app.add_argument("--start-app", help="app id to open first when several apps are bundled")
+
+    package_app = subcommands.add_parser(
+        "package-app",
+        help="create an installable App archive from an exported App deployment",
+    )
+    package_app.add_argument("deployment", type=Path, help="exported .blacknode-app.json manifest")
+    package_app.add_argument("--output", "-o", type=Path, help="output .blacknode-app.zip archive")
+    package_app.add_argument(
+        "--editor-dist",
+        type=Path,
+        help="built editor assets (default: editor/dist in the Blacknode checkout)",
+    )
+    package_app.add_argument(
+        "--packages-root",
+        type=Path,
+        help="folder containing required Blacknode extension-package repositories",
+    )
 
     drivers = subcommands.add_parser(
         "drivers",
@@ -605,6 +625,21 @@ def _export_app(args: argparse.Namespace) -> int:
             deployment_id=deployment_id,
             name=args.name,
             start_app=args.start_app,
+        )
+    except AppDeploymentError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(result)
+    return 0
+
+
+def _package_app(args: argparse.Namespace) -> int:
+    try:
+        result = package_app_deployment(
+            args.deployment,
+            args.output,
+            editor_dist=args.editor_dist,
+            packages_root=args.packages_root,
         )
     except AppDeploymentError as exc:
         print(str(exc), file=sys.stderr)

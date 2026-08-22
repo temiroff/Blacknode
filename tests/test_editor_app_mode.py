@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -137,6 +138,40 @@ class EditorAppModeTests(unittest.TestCase):
 
             denied = client.patch("/nodes/text/params", json={"key": "undeclared", "value": "blocked"})
             self.assertEqual(denied.status_code, 403)
+
+    def test_packaged_app_serves_spa_and_same_origin_api(self):
+        manifest = build_app_deployment(
+            [("customer.json", _app_workflow())],
+            deployment_id="customer-deployment",
+        )
+        with tempfile.TemporaryDirectory() as td:
+            static_dir = Path(td)
+            (static_dir / "assets").mkdir()
+            (static_dir / "index.html").write_text("<main>Blacknode App</main>", encoding="utf-8")
+            (static_dir / "assets" / "app.js").write_text("export {}", encoding="utf-8")
+            with (
+                patch.object(server, "_APP_DEPLOYMENT", manifest),
+                patch.object(server, "_APP_STATIC_DIR", static_dir),
+                patch.object(
+                    server,
+                    "_APP_PUBLIC_ORIGINS",
+                    frozenset({"http://localhost:7777", "http://127.0.0.1:7777"}),
+                ),
+            ):
+                client = TestClient(server.app)
+
+                home = client.get("/")
+                self.assertEqual(home.status_code, 200, home.text)
+                self.assertIn("Blacknode App", home.text)
+                deep_link = client.get("/app/customer-app")
+                self.assertEqual(deep_link.status_code, 200, deep_link.text)
+                asset = client.get("/assets/app.js")
+                self.assertEqual(asset.status_code, 200, asset.text)
+                api_manifest = client.get("/api/app-deployment")
+                self.assertEqual(api_manifest.status_code, 200, api_manifest.text)
+                self.assertEqual(api_manifest.json()["id"], "customer-deployment")
+                blocked = client.post("/api/nodes", json={"type_name": "Text"})
+                self.assertEqual(blocked.status_code, 403)
 
 
 if __name__ == "__main__":

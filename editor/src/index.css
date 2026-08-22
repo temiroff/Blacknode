@@ -6431,7 +6431,7 @@ button.bn-device-fact {
 
 .bn-customer-app-shell {
   display: grid;
-  grid-template-rows: 48px minmax(0, 1fr);
+  grid-template-rows: 52px minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
   overflow: hidden;
@@ -6445,47 +6445,18 @@ button.bn-device-fact {
   z-index: 20;
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(150px, auto) minmax(0, 1fr) 36px;
+  grid-template-columns: minmax(150px, 240px) minmax(0, 1fr) 36px;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
-  background: color-mix(in srgb, var(--panel) 96%, transparent);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, .12);
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
   box-sizing: border-box;
-  backdrop-filter: blur(18px);
 }
 
 .bn-customer-app-brand {
-  display: flex;
   min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.bn-customer-app-brand img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-}
-
-.bn-customer-app-brand div {
-  display: grid;
-  min-width: 0;
-  line-height: 1.05;
-}
-
-.bn-customer-app-brand strong {
-  font-size: 12px;
-  letter-spacing: .025em;
-}
-
-.bn-customer-app-brand span {
-  overflow: hidden;
-  color: var(--tx3);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 0 10px;
 }
 
 .bn-customer-app-bar nav {
