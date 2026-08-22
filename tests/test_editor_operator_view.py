@@ -86,3 +86,24 @@ def test_operator_actions_support_persistent_keyboard_and_pedal_bindings():
     assert "isEditableBindingTarget(event.target)" in view
     assert "void runAction(action)" in view
     assert ".bn-operator-bindings-dialog" in styles
+
+
+def test_customer_app_shell_direct_launches_and_keeps_editor_controls_outside_operator_mode():
+    app = (ROOT / "editor" / "src" / "App.tsx").read_text(encoding="utf-8")
+    shell = (
+        ROOT / "editor" / "src" / "components" / "CustomerAppShell.tsx"
+    ).read_text(encoding="utf-8")
+    view = (
+        ROOT / "editor" / "src" / "components" / "WorkflowOperatorView.tsx"
+    ).read_text(encoding="utf-8")
+    styles = (ROOT / "editor" / "src" / "index.css").read_text(encoding="utf-8")
+
+    assert "function AppDeploymentGate()" in app
+    assert "api.appDeployment()" in app
+    assert "<CustomerAppShell deployment={deployment}" in app
+    assert "deployment.apps.length === 1" in shell
+    assert "api.activateDeploymentApp(appId)" in shell
+    assert "onOpenLauncher={deployment.apps.length > 1" in shell
+    assert "onEditWorkflow?: () => void" in view
+    assert "{onEditWorkflow && <button" in view
+    assert ".bn-customer-launcher" in styles

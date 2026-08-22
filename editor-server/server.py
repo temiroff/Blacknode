@@ -19,6 +19,14 @@ import blacknode.integrations  # noqa: F401  registers chat drivers (slack/teleg
 # The server executes nodes itself rather than going through Graph, so the
 # frame-stream contract has to be filled here too.
 from blacknode import console as command_console
+from blacknode.app_deployments import (
+    AppDeploymentError,
+    app_by_id as deployment_app_by_id,
+    load_app_deployment,
+    operator_permissions,
+    permission_value,
+    public_app_deployment,
+)
 from blacknode.node import fill_frame_stream as bn_fill_frame_stream
 from blacknode.deployments import DeploymentError, DeploymentStore, resolve_entrypoint
 from blacknode.discovery import discover_node_modules, load_node_file
@@ -88,6 +96,7 @@ from run_store import RunStore
 import cloud_client
 import cloud_sessions
 from hosted_mode import HostedWorkspaceStore, route_allowed as hosted_route_allowed
+from app_mode import route_allowed as app_mode_route_allowed
 
 
 def package_index_payload(*args, **kwargs):
@@ -135,6 +144,28 @@ _HOSTED_ACCOUNT_CORS_METHODS = {
     "/cloud/auth/login": frozenset({"POST"}),
     "/cloud/auth/logout": frozenset({"POST"}),
     "/cloud/newsletter/subscribe": frozenset({"POST"}),
+}
+_APP_DEPLOYMENT_PATH = os.environ.get("BLACKNODE_APP_DEPLOYMENT", "").strip()
+_APP_PUBLIC_ORIGINS = frozenset(
+    origin.strip().rstrip("/")
+    for origin in os.environ.get(
+        "BLACKNODE_APP_PUBLIC_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip().startswith(("http://", "https://"))
+)
+try:
+    _APP_DEPLOYMENT = load_app_deployment(_APP_DEPLOYMENT_PATH) if _APP_DEPLOYMENT_PATH else None
+except AppDeploymentError as exc:
+    raise RuntimeError(f"Invalid BLACKNODE_APP_DEPLOYMENT: {exc}") from exc
+if _HOSTED_MODE and _APP_DEPLOYMENT is not None:
+    raise RuntimeError("BLACKNODE_HOSTED_MODE and BLACKNODE_APP_DEPLOYMENT cannot be enabled together.")
+_active_deployment_app_id: str | None = None
+_active_deployment_permissions: dict[str, set[tuple[str, ...]]] = {
+    "params": set(),
+    "updates": set(),
+    "controls": set(),
+    "cooks": set(),
 }
 
 app = FastAPI(title="Blacknode Editor Server")
@@ -251,7 +282,7 @@ def _save_now() -> None:
 
 def _save(debounce: float = 0.0) -> None:
     """Write graph to disk. Pass debounce > 0 to coalesce rapid calls (e.g. node drag)."""
-    if _HOSTED_MODE:
+    if _HOSTED_MODE or _APP_DEPLOYMENT is not None:
         return
     global _save_timer
     if _save_timer:
@@ -425,6 +456,82 @@ async def hosted_preview_boundary(request: Request, call_next):
     if cross_origin_account_request:
         _set_hosted_account_cors(response, origin)
     return response
+
+
+def _app_mode_error(code: str, message: str, *, status: int = 403) -> Response:
+    response = Response(
+        content=json.dumps({"detail": {"code": code, "message": message}}),
+        status_code=status,
+        media_type="application/json",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@app.middleware("http")
+async def app_deployment_boundary(request: Request, call_next):
+    if _APP_DEPLOYMENT is None:
+        return await call_next(request)
+    method = request.method.upper()
+    path = request.url.path
+    origin = request.headers.get("origin", "").rstrip("/")
+    if method == "OPTIONS":
+        requested_method = request.headers.get("access-control-request-method", "").upper()
+        if origin not in _APP_PUBLIC_ORIGINS or not app_mode_route_allowed(requested_method, path):
+            return _app_mode_error(
+                "INVALID_ORIGIN",
+                "This origin is not allowed to operate the App deployment.",
+            )
+        response = Response(status_code=204)
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = requested_method
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Max-Age"] = "600"
+        return response
+    if not app_mode_route_allowed(method, path):
+        return _app_mode_error(
+            "APP_CAPABILITY_UNAVAILABLE",
+            "This deployment grants access to its declared Workflow App controls only.",
+        )
+    if method in {"POST", "PUT", "PATCH", "DELETE"}:
+        if origin and origin not in _APP_PUBLIC_ORIGINS:
+            return _app_mode_error(
+                "INVALID_ORIGIN",
+                "This origin is not allowed to operate the App deployment.",
+            )
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+def _require_app_permission(kind: str, node_id: str, value: str, payload: object = None) -> None:
+    if _APP_DEPLOYMENT is None:
+        return
+    if _active_deployment_app_id is None:
+        raise HTTPException(409, "Activate a deployed App before using operator controls.")
+    if kind == "params":
+        allowed = (
+            (node_id, value) in _active_deployment_permissions.get("params", set())
+            or (node_id, value, permission_value(payload)) in _active_deployment_permissions.get("updates", set())
+        )
+    elif kind == "controls":
+        allowed = (
+            node_id,
+            value,
+            permission_value(payload if isinstance(payload, dict) else {}),
+        ) in _active_deployment_permissions.get("controls", set())
+    elif kind == "cooks":
+        allowed = (node_id, value, str(payload or "once")) in _active_deployment_permissions.get("cooks", set())
+    else:
+        allowed = False
+    if not allowed:
+        raise HTTPException(403, f"The active App does not grant access to {node_id}.{value}.")
 
 
 # ── Schema models ─────────────────────────────────────────────────────────────
@@ -2204,26 +2311,84 @@ def _broadcast_learned_node_event(event_type: str, name: str) -> dict[str, Any]:
     return event
 
 
-if not _HOSTED_MODE:
+if not _HOSTED_MODE and _APP_DEPLOYMENT is None:
     _load()   # restore the trusted local session on startup
 
 
 @app.get("/healthz")
 def editor_health():
-    return {"status": "ok", "mode": "hosted" if _HOSTED_MODE else "local"}
+    mode = "hosted" if _HOSTED_MODE else "app" if _APP_DEPLOYMENT is not None else "local"
+    return {"status": "ok", "mode": mode}
 
 
 @app.get("/readyz")
 def editor_readiness():
-    return {"status": "ready", "mode": "hosted" if _HOSTED_MODE else "local"}
+    mode = "hosted" if _HOSTED_MODE else "app" if _APP_DEPLOYMENT is not None else "local"
+    return {"status": "ready", "mode": mode}
 
 
 @app.get("/hosted/status")
 def hosted_status():
     return {
         "hosted": _HOSTED_MODE,
-        "workspace_persistence": "session" if _HOSTED_MODE else "local",
-        "execution": "cloud-only" if _HOSTED_MODE else "local-and-cloud",
+        "app_deployment": _APP_DEPLOYMENT is not None,
+        "workspace_persistence": "session" if _HOSTED_MODE else "deployment" if _APP_DEPLOYMENT is not None else "local",
+        "execution": "cloud-only" if _HOSTED_MODE else "local" if _APP_DEPLOYMENT is not None else "local-and-cloud",
+    }
+
+
+@app.get("/app-deployment")
+def app_deployment_manifest():
+    if _APP_DEPLOYMENT is None:
+        raise HTTPException(404, "No App deployment is configured.")
+    return public_app_deployment(_APP_DEPLOYMENT)
+
+
+@app.post("/app-deployment/apps/{app_id}/activate")
+def activate_deployment_app(app_id: str):
+    global _active_deployment_app_id, _active_deployment_permissions
+    if _APP_DEPLOYMENT is None:
+        raise HTTPException(404, "No App deployment is configured.")
+    selected = deployment_app_by_id(_APP_DEPLOYMENT, app_id)
+    if selected is None:
+        raise HTTPException(404, f"Deployed App '{app_id}' was not found.")
+    workflow = selected.get("workflow")
+    if not isinstance(workflow, dict):
+        raise HTTPException(500, f"Deployed App '{app_id}' has no workflow.")
+    node_meta = workflow.get("node_meta")
+    if not isinstance(node_meta, dict):
+        raise HTTPException(500, f"Deployed App '{app_id}' has invalid node metadata.")
+    missing_types = sorted({
+        str(meta.get("type") or "")
+        for meta in node_meta.values()
+        if isinstance(meta, dict)
+        and meta.get("type") not in _NODE_REGISTRY
+        and meta.get("type") not in _SUBGRAPH_NODE_TYPES
+    })
+    if missing_types:
+        required = ", ".join(selected.get("required_packages") or []) or "the required extension packages"
+        raise HTTPException(
+            409,
+            f"App '{app_id}' needs unavailable node types: {', '.join(missing_types)}. Install {required} on the deployment host.",
+        )
+    if _active_deployment_app_id != app_id:
+        _stop_active_cook()
+        _stop_runtime_services()
+    _restore_session(
+        node_meta,
+        workflow.get("edges", []),
+        metadata=workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {},
+        entrypoint=workflow.get("entrypoint") if isinstance(workflow.get("entrypoint"), dict) else None,
+    )
+    _active_deployment_app_id = app_id
+    _active_deployment_permissions = operator_permissions(selected)
+    return {
+        "app": {
+            key: selected[key]
+            for key in ("id", "name", "description", "accent", "required_packages")
+            if key in selected
+        },
+        "graph": get_graph(),
     }
 
 
@@ -2603,6 +2768,7 @@ def remove_node(node_id: str):
 
 @app.patch("/nodes/{node_id}/params")
 def update_param(node_id: str, req: UpdateParamReq):
+    _require_app_permission("params", node_id, req.key, req.value)
     if node_id not in _session.node_meta:
         raise HTTPException(404, "Node not found")
     meta = _session.node_meta[node_id]
@@ -2688,6 +2854,7 @@ def depth_frame(node_id: str):
 
 @app.post("/nodes/{node_id}/control")
 def control_node(node_id: str, req: NodeControlReq):
+    _require_app_permission("controls", node_id, req.action, req.payload)
     meta = _session.node_meta.get(node_id)
     if meta is None:
         raise HTTPException(404, "Node not found")
@@ -3423,6 +3590,7 @@ def collapse_to_subnet(req: CollapseSubnetReq):
 @app.post("/cook")
 def cook(req: CookReq):
     import traceback
+    _require_app_permission("cooks", req.node_id, req.port, req.run_mode)
     if req.node_id not in _session.node_meta:
         raise HTTPException(404, "Node not found")
     if req.node_id not in _session.graph._nodes:
@@ -4161,6 +4329,7 @@ def _stream_in_worker(lines_factory, stop_event: threading.Event, port: str):
 
 @app.post("/cook-stream")
 def cook_stream(req: CookReq):
+    _require_app_permission("cooks", req.node_id, req.port, req.run_mode)
     node_type = _session.node_meta.get(req.node_id, {}).get("type", "")
     workflow = _run_workflow_snapshot(req.node_id, req.port)
     run_id = _run_store.begin(node_id=req.node_id, port=req.port, node_type=node_type, workflow=workflow)

@@ -97,3 +97,6 @@ shutdown can release actuator torque.
 
 The first shipped app is **Collect episodes**, provided by the
 `teleoperation-episode-recording` template from `blacknode-dataset`.
+
+Workflow Apps can be delivered through the focused customer surface described
+in [App deployments](app-deployments.md).

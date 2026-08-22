@@ -1117,8 +1117,26 @@ export interface CloudProviderCatalog {
 
 export interface HostedEditorStatus {
   hosted: boolean
-  workspace_persistence: 'session' | 'local'
-  execution: 'cloud-only' | 'local-and-cloud'
+  app_deployment?: boolean
+  workspace_persistence: 'session' | 'local' | 'deployment'
+  execution: 'cloud-only' | 'local-and-cloud' | 'local'
+}
+
+export interface AppDeploymentSummary {
+  kind: 'blacknode.app-deployment'
+  schema_version: 1
+  id: string
+  name: string
+  start_app: string
+  access: { role: 'operator'; graph_editing: false }
+  required_packages: string[]
+  apps: Array<{
+    id: string
+    name: string
+    description: string
+    accent: string
+    required_packages: string[]
+  }>
 }
 
 export interface CloudAccount {
@@ -1777,6 +1795,11 @@ async function streamDeviceAction<T>(
 
 export const api = {
   hostedStatus: ()                           => req<HostedEditorStatus>('GET', '/hosted/status'),
+  appDeployment: ()                          => req<AppDeploymentSummary>('GET', '/app-deployment'),
+  activateDeploymentApp: (appId: string)     => req<{ app: AppDeploymentSummary['apps'][number]; graph: GraphSnapshot }>(
+    'POST',
+    `/app-deployment/apps/${encodeURIComponent(appId)}/activate`,
+  ),
   nodeTypes: ()                              => req<string[]>('GET', '/node-types'),
   nodeDefs:  ()                              => req<Record<string, BnNodeDef>>('GET', '/node-defs'),
   depthFrame: (nodeId: string, signal?: AbortSignal) =>

@@ -163,6 +163,7 @@ release engineering, and continued development of the open-source project.
 - [Extension packages](docs/packages.md)
 - [Create custom nodes](docs/custom-nodes.md)
 - [Workflow schema](docs/workflow-schema.md)
+- [Workflow Apps and customer deployments](docs/app-deployments.md)
 - [MCP quickstart](docs/quickstart-mcp.md)
 - [Contributing](CONTRIBUTING.md)
 

@@ -29,11 +29,12 @@ import NodePalette from './components/NodePalette'
 import Inspector from './components/Inspector'
 import WorkflowShortcuts from './components/WorkflowShortcuts'
 import WorkflowOperatorView from './components/WorkflowOperatorView'
+import CustomerAppShell from './components/CustomerAppShell'
 import NodeSearch from './components/NodeSearch'
 import { portColor, portVisualColor, portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
 import type { BnNodeDef, ConnectionDraft } from './types'
-import { api, type CloudJob, type CloudStatus, type FrameworkExportTarget, type NewtonWorkspaceStatus, type WorkflowMetadata } from './api'
+import { api, type AppDeploymentSummary, type CloudJob, type CloudStatus, type FrameworkExportTarget, type NewtonWorkspaceStatus, type WorkflowMetadata } from './api'
 import { inferGraphRunTargets } from './graphRun'
 import { copyTextToClipboard } from './clipboard'
 import { isWorkflowOperatorView } from './operatorView'
@@ -233,7 +234,26 @@ export default function App() {
   if (window.location.pathname.replace(/\/+$/, '') === '/verify-email') {
     return <EmailVerificationPage />
   }
-  return <WorkspaceApp />
+  return <AppDeploymentGate />
+}
+
+function AppDeploymentGate() {
+  const [deployment, setDeployment] = useState<AppDeploymentSummary | null | undefined>(undefined)
+
+  useEffect(() => {
+    void api.appDeployment()
+      .then(setDeployment)
+      .catch(() => setDeployment(null))
+  }, [])
+
+  if (deployment === undefined) {
+    return (
+      <main className="bn-app-mode-loading" aria-label="Loading Blacknode">
+        <img src="/blacknode-logo.png" alt="" />
+      </main>
+    )
+  }
+  return deployment ? <CustomerAppShell deployment={deployment} /> : <WorkspaceApp />
 }
 
 function WorkspaceApp() {

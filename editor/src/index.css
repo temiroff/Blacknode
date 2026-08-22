@@ -6409,6 +6409,144 @@ button.bn-device-fact {
 }
 
 /* Workflow operator apps ------------------------------------------------- */
+.bn-app-mode-loading {
+  display: grid;
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg);
+  place-items: center;
+}
+
+.bn-app-mode-loading img {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  animation: bn-customer-app-loading 1.1s ease-in-out infinite alternate;
+}
+
+@keyframes bn-customer-app-loading {
+  from { opacity: .35; transform: scale(.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.bn-customer-app-shell {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.bn-customer-launcher {
+  box-sizing: border-box;
+  width: 100vw;
+  min-height: 100vh;
+  padding: clamp(24px, 5vw, 72px);
+  overflow: auto;
+  background:
+    radial-gradient(circle at 15% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34%),
+    var(--bg);
+  color: var(--tx1);
+  font-family: var(--font-ui);
+}
+
+.bn-customer-launcher > header {
+  display: flex;
+  max-width: 1120px;
+  align-items: center;
+  gap: 14px;
+  margin: 0 auto 28px;
+}
+
+.bn-customer-launcher > header img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.bn-customer-launcher > header span {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.bn-customer-launcher > header h1 {
+  margin: 2px 0 0;
+  font-size: clamp(24px, 3vw, 36px);
+  letter-spacing: -.025em;
+}
+
+.bn-customer-launcher > section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  max-width: 1120px;
+  gap: 10px;
+  margin: 0 auto;
+}
+
+.bn-customer-launcher > section > button {
+  display: grid;
+  min-height: 172px;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 7px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--bn-customer-app-accent) 42%, var(--line2));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 94%, var(--lift));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .13);
+  color: var(--tx1);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  text-align: left;
+}
+
+.bn-customer-launcher > section > button:hover:not(:disabled) {
+  border-color: var(--bn-customer-app-accent);
+  background: var(--hover);
+  transform: translateY(-1px);
+}
+
+.bn-customer-launcher > section > button:disabled {
+  cursor: default;
+  opacity: .62;
+}
+
+.bn-customer-launcher > section i {
+  width: 26px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--bn-customer-app-accent);
+}
+
+.bn-customer-launcher > section strong {
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.bn-customer-launcher > section span {
+  color: var(--tx2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bn-customer-launcher > section small {
+  color: var(--bn-customer-app-accent);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.bn-customer-launcher-error {
+  max-width: 1120px;
+  margin: 0 auto 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--err);
+  border-radius: 8px;
+  background: var(--err-soft);
+  color: var(--err);
+  font-size: 12px;
+}
+
 .bn-workflow-surface-toggle {
   display: inline-flex;
   min-height: 28px;
@@ -6477,7 +6615,7 @@ button.bn-device-fact {
 
 .bn-operator-sidebar > div:first-child > span {
   color: var(--bn-operator-accent);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: .12em;
   text-transform: uppercase;
@@ -6627,7 +6765,7 @@ button.bn-device-fact {
 
 .bn-operator-image-card > header span {
   color: var(--tx3);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: .1em;
 }
@@ -6720,7 +6858,7 @@ button.bn-device-fact {
 
 .bn-operator-metrics-grid span {
   color: var(--tx3);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: .045em;
   text-transform: uppercase;
@@ -6793,7 +6931,7 @@ button.bn-device-fact {
 
 .bn-operator-actions-card button small {
   color: currentColor;
-  font: 600 9px var(--font-mono);
+  font: 600 11px var(--font-mono);
   opacity: .68;
 }
 
@@ -6833,7 +6971,7 @@ button.bn-device-fact {
 
 .bn-operator-bindings-dialog > header span {
   color: var(--bn-operator-accent);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: .11em;
   text-transform: uppercase;
@@ -6941,7 +7079,7 @@ button.bn-device-fact {
   background: color-mix(in srgb, var(--bn-operator-accent) 8%, transparent);
   color: var(--tx1);
   cursor: pointer;
-  font: 650 10px var(--font-mono);
+  font: 650 11px var(--font-mono);
 }
 
 .bn-operator-binding-chips button span {

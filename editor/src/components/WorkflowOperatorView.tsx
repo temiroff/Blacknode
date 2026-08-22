@@ -22,7 +22,8 @@ import type {
 
 interface WorkflowOperatorViewProps {
   config: WorkflowOperatorView
-  onEditWorkflow: () => void
+  onEditWorkflow?: () => void
+  onOpenLauncher?: () => void
 }
 
 type OperatorActionBinding =
@@ -365,7 +366,7 @@ function OperatorBindingsDialog({ actions, bindings, capture, onCapture, onRemov
   )
 }
 
-export default function WorkflowOperatorView({ config, onEditWorkflow }: WorkflowOperatorViewProps) {
+export default function WorkflowOperatorView({ config, onEditWorkflow, onOpenLauncher }: WorkflowOperatorViewProps) {
   const { nodes, updateParam, controlNode, cookNode, stopRuntimeServices, cookActive } = useStore()
   const [starting, setStarting] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -574,7 +575,8 @@ export default function WorkflowOperatorView({ config, onEditWorkflow }: Workflo
           )}
           <button type="button" disabled={stopping} onClick={() => void stop()}>{stopping ? 'Stopping…' : 'Stop all'}</button>
           <button type="button" onClick={() => setBindingsOpen(true)}>Shortcuts & pedals</button>
-          <button type="button" onClick={onEditWorkflow}>Edit workflow</button>
+          {onOpenLauncher && <button type="button" onClick={onOpenLauncher}>All apps</button>}
+          {onEditWorkflow && <button type="button" onClick={onEditWorkflow}>Edit workflow</button>}
         </div>
       </aside>
 

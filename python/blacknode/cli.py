@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .app_deployments import AppDeploymentError, export_app_deployment
 from .exporters import export_workflow as export_framework_workflow
 from .exporters import list_export_targets
 from .learned import registry as learned_registry
@@ -37,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
         return _export_framework(args.workflow, args.target, args.output)
     if args.command == "export-training":
         return _export_training(args)
+    if args.command == "export-app":
+        return _export_app(args)
     if args.command == "drivers":
         return _drivers(args)
     if args.command == "slack":
@@ -113,6 +117,16 @@ def _parser() -> argparse.ArgumentParser:
     export_training.add_argument(
         "--rated-only", action="store_true", dest="rated_only", help="drop trajectories with no rating"
     )
+
+    export_app = subcommands.add_parser(
+        "export-app",
+        help="bundle one or more Workflow Apps for the customer App shell",
+    )
+    export_app.add_argument("workflows", nargs="+", type=Path, help="workflow JSON files with operator_view metadata")
+    export_app.add_argument("--output", "-o", type=Path, help="output .blacknode-app.json manifest")
+    export_app.add_argument("--id", dest="deployment_id", help="stable deployment id")
+    export_app.add_argument("--name", help="customer-facing deployment name")
+    export_app.add_argument("--start-app", help="app id to open first when several apps are bundled")
 
     drivers = subcommands.add_parser(
         "drivers",
@@ -577,6 +591,25 @@ def _export_python(path: Path, output: Path | None, style: str = "flat") -> int:
         return 0
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(script, encoding="utf-8")
+    return 0
+
+
+def _export_app(args: argparse.Namespace) -> int:
+    base = re.sub(r"[^a-z0-9_-]+", "-", args.workflows[0].stem.lower()).strip("-") or "app"
+    deployment_id = args.deployment_id or base
+    output = args.output or Path(f"{deployment_id}.blacknode-app.json")
+    try:
+        result = export_app_deployment(
+            args.workflows,
+            output,
+            deployment_id=deployment_id,
+            name=args.name,
+            start_app=args.start_app,
+        )
+    except AppDeploymentError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(result)
     return 0
 
 
