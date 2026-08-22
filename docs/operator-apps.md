@@ -36,6 +36,25 @@ An operator view is declared inside workflow metadata:
             "source": { "node_id": "camera", "port": "preview" }
           }
         ]
+      },
+      {
+        "id": "setup",
+        "region": "parameters",
+        "widgets": [
+          {
+            "type": "fields",
+            "id": "settings",
+            "title": "Dataset",
+            "items": [
+              {
+                "label": "Dataset ID",
+                "node_id": "dataset",
+                "param": "dataset_id",
+                "input": "text"
+              }
+            ]
+          }
+        ]
       }
     ]
   }
@@ -46,6 +65,11 @@ Supported widgets are `image`, `status`, `metrics`, `fields`, and `actions`.
 Image, status, and metric widgets read live node output ports. Field widgets
 update declared node parameters. Actions can update parameters, cook a declared
 node output, or call a node's existing direct-control endpoint.
+
+Sections render in the central workspace by default. Set a section's optional
+`region` to `parameters` to place its fields and actions in the right-side
+parameters rail. The rail becomes part of the normal vertical layout on narrow
+screens.
 
 Node IDs, ports, parameters, and controls must exist in the workflow and its
 live node schemas. Operator metadata does not create a second runtime contract.

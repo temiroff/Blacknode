@@ -530,8 +530,36 @@ export default function WorkflowOperatorView({ config, onEditWorkflow }: Workflo
     }
   }
 
+  const mainSections = config.sections.filter(section => section.region !== 'parameters')
+  const parameterSections = config.sections.filter(section => section.region === 'parameters')
+  const renderSection = (section: (typeof config.sections)[number]) => (
+    <section className={`bn-operator-section is-${section.layout ?? 'grid'}`} key={section.id}>
+      {(section.title || section.description) && (
+        <header>
+          {section.title && <h2>{section.title}</h2>}
+          {section.description && <p>{section.description}</p>}
+        </header>
+      )}
+      <div>
+        {section.widgets.map(widget => (
+          <OperatorWidgetView
+            widget={widget}
+            nodes={nodes}
+            busyId={busyId}
+            bindings={bindings}
+            onRun={item => void runAction(item)}
+            key={widget.id}
+          />
+        ))}
+      </div>
+    </section>
+  )
+
   return (
-    <main className="bn-operator-view" style={{ '--bn-operator-accent': config.accent ?? 'var(--accent)' } as CSSProperties}>
+    <main
+      className={`bn-operator-view${parameterSections.length > 0 ? ' has-parameters' : ''}`}
+      style={{ '--bn-operator-accent': config.accent ?? 'var(--accent)' } as CSSProperties}
+    >
       <aside className="bn-operator-sidebar">
         <div>
           <span>Workflow app</span>
@@ -551,29 +579,14 @@ export default function WorkflowOperatorView({ config, onEditWorkflow }: Workflo
       </aside>
 
       <div className="bn-operator-sections">
-        {config.sections.map(section => (
-          <section className={`bn-operator-section is-${section.layout ?? 'grid'}`} key={section.id}>
-            {(section.title || section.description) && (
-              <header>
-                {section.title && <h2>{section.title}</h2>}
-                {section.description && <p>{section.description}</p>}
-              </header>
-            )}
-            <div>
-              {section.widgets.map(widget => (
-                <OperatorWidgetView
-                  widget={widget}
-                  nodes={nodes}
-                  busyId={busyId}
-                  bindings={bindings}
-                  onRun={item => void runAction(item)}
-                  key={widget.id}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
+        {mainSections.map(renderSection)}
       </div>
+
+      {parameterSections.length > 0 && (
+        <aside className="bn-operator-parameters">
+          {parameterSections.map(renderSection)}
+        </aside>
+      )}
 
       {bindingsOpen && (
         <OperatorBindingsDialog

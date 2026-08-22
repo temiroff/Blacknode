@@ -63,6 +63,7 @@ export interface OperatorViewSection {
   id: string
   title?: string
   description?: string
+  region?: 'main' | 'parameters'
   layout?: 'grid' | 'stack'
   widgets: OperatorWidget[]
 }
@@ -87,6 +88,7 @@ export function isWorkflowOperatorView(value: unknown): value is WorkflowOperato
   return value.sections.every(section => (
     isRecord(section)
     && typeof section.id === 'string'
+    && (section.region === undefined || section.region === 'main' || section.region === 'parameters')
     && Array.isArray(section.widgets)
     && section.widgets.every(widget => isRecord(widget) && typeof widget.type === 'string' && typeof widget.id === 'string')
   ))

@@ -10,6 +10,7 @@ def test_operator_view_contract_is_declarative_and_versioned():
     assert "export interface WorkflowOperatorView" in contract
     assert "schema_version: 1" in contract
     assert "id?: string" in contract
+    assert "region?: 'main' | 'parameters'" in contract
     assert "export type OperatorWidget" in contract
     assert "type: 'image'" in contract
     assert "type: 'fields'" in contract
@@ -51,7 +52,9 @@ def test_editor_hides_builder_chrome_but_keeps_edit_workflow_escape_hatch():
     assert "onEditWorkflow={() => setActiveTabSurface('graph')}" in app
     assert "Edit workflow" in view
     assert '<aside className="bn-operator-sidebar">' in view
-    assert "grid-template-columns: 196px minmax(0, 1fr)" in styles
+    assert '<aside className="bn-operator-parameters">' in view
+    assert "section.region === 'parameters'" in view
+    assert "grid-template-columns: 196px minmax(0, 1fr) 300px" in styles
     assert "Support the robot" in view
     assert ".bn-operator-view {" in styles
     assert ".bn-operator-image-frame" in styles
