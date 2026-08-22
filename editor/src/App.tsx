@@ -27,6 +27,7 @@ import SubgraphInputNode from './components/SubgraphInputNode'
 import SubgraphOutputNode from './components/SubgraphOutputNode'
 import NodePalette from './components/NodePalette'
 import Inspector from './components/Inspector'
+import WorkflowShortcuts from './components/WorkflowShortcuts'
 import NodeSearch from './components/NodeSearch'
 import { portColor, portVisualColor, portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
@@ -50,6 +51,7 @@ const NODE_TYPES = {
 }
 
 const TAB_H = 52  // workflow tab bar height
+const WORKFLOW_SHORTCUT_H = 52
 const THEME_STORAGE_KEY = 'blacknode-theme'
 const UI_TEST_STORAGE_KEY = 'blacknode-ui-test'
 const SIMULATION_VIEWER_HEIGHT_STORAGE_KEY = 'blacknode-simulation-viewer-height'
@@ -1807,7 +1809,8 @@ function WorkspaceApp() {
 
   const topbarH = 52
   const leftRailW = 78
-  const canvasPad = topbarH + TAB_H
+  const workflowTabsTop = topbarH + WORKFLOW_SHORTCUT_H
+  const canvasPad = workflowTabsTop + TAB_H
   const liveStreamCount = nodes.filter(n => (
     LIVE_STREAM_NODE_TYPES.has(n.data.type) &&
     n.data.portResults?.streaming === true
@@ -2352,9 +2355,16 @@ function WorkspaceApp() {
           </button>
         </div>
 
+        <div style={{
+          position: 'absolute', top: topbarH, left: 0, right: 0, zIndex: 11,
+          height: WORKFLOW_SHORTCUT_H,
+        }}>
+          <WorkflowShortcuts />
+        </div>
+
         {/* ── workflow tab bar ── */}
         <div className="bn-workflow-tabs" style={{
-          position: 'absolute', top: topbarH, left: 0, right: 0, zIndex: 10,
+          position: 'absolute', top: workflowTabsTop, left: 0, right: 0, zIndex: 10,
           height: TAB_H,
           background: 'var(--tabbar)',
           borderBottom: '1px solid var(--line)',
