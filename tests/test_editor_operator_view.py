@@ -60,6 +60,18 @@ def test_editor_hides_builder_chrome_but_keeps_edit_workflow_escape_hatch():
     assert ".bn-operator-image-frame" in styles
 
 
+def test_operator_panels_use_consistent_compact_spacing_and_cyan_highlights():
+    styles = (ROOT / "editor" / "src" / "index.css").read_text(encoding="utf-8")
+
+    assert "--bn-operator-panel-gap: 6px" in styles
+    assert "--bn-operator-panel-highlight: var(--accent)" in styles
+    assert "padding: var(--bn-operator-panel-gap)" in styles
+    assert "margin-top: var(--bn-operator-panel-gap)" in styles
+    assert "gap: var(--bn-operator-panel-gap)" in styles
+    assert "var(--bn-operator-panel-highlight) 28%" in styles
+    assert ".bn-operator-card::before" in styles
+
+
 def test_operator_actions_reuse_graph_params_cooks_and_direct_controls():
     view = (
         ROOT / "editor" / "src" / "components" / "WorkflowOperatorView.tsx"
