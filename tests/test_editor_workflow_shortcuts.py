@@ -23,6 +23,7 @@ def test_collect_episodes_is_the_first_persistent_default_shortcut():
     assert shortcuts.index("label: 'Collect episodes'") > first_default
     assert shortcuts.index("templateSlug: 'teleoperation-episode-recording'") > first_default
     assert shortcuts.index("icon: 'record'") > first_default
+    assert shortcuts.index("color: 'rose'") > first_default
     assert "blacknode-workflow-shortcuts" in shortcuts
     assert "window.localStorage.setItem" in shortcuts
 
@@ -45,6 +46,9 @@ def test_shortcuts_open_templates_safely_and_support_full_customization():
     assert 'aria-label="Reset shortcuts"' in shortcuts
     assert 'aria-label={customizing ? \'Finish customizing shortcuts\' : \'Customize shortcuts\'}' in shortcuts
     assert 'id="bn-workflow-shortcut-icon"' in shortcuts
+    assert 'id="bn-workflow-shortcut-color"' in shortcuts
+    assert 'data-color={shortcut.color}' in shortcuts
+    assert "normalizedShortcutColor(value.color, icon)" in shortcuts
     assert "bn-workflow-shortcuts-label" not in shortcuts
 
 
@@ -58,3 +62,5 @@ def test_workflow_shortcut_styles_include_the_editor_and_dialog():
     assert "height: 42px;" in styles
     assert ".bn-workflow-shortcut svg {" in styles
     assert "animation: bn-workflow-shortcut-spin" in styles
+    assert '.bn-workflow-shortcut[data-color="rose"]' in styles
+    assert "border-color: var(--bn-shortcut-color);" in styles

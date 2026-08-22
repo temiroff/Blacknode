@@ -8,15 +8,18 @@ export interface WorkflowShortcut {
   label: string
   templateSlug: string
   icon: WorkflowShortcutIcon
+  color: WorkflowShortcutColor
 }
 
 type WorkflowShortcutIcon = 'record' | 'camera' | 'robot' | 'workflow' | 'play'
+type WorkflowShortcutColor = 'accent' | 'cyan' | 'green' | 'amber' | 'violet' | 'rose' | 'blue'
 
 interface ShortcutDraft {
   id: string | null
   label: string
   templateSlug: string
   icon: WorkflowShortcutIcon
+  color: WorkflowShortcutColor
 }
 
 const WORKFLOW_SHORTCUT_ICON_OPTIONS: Array<{ id: WorkflowShortcutIcon; label: string }> = [
@@ -27,6 +30,16 @@ const WORKFLOW_SHORTCUT_ICON_OPTIONS: Array<{ id: WorkflowShortcutIcon; label: s
   { id: 'play', label: 'Run' },
 ]
 
+const WORKFLOW_SHORTCUT_COLOR_OPTIONS: Array<{ id: WorkflowShortcutColor; label: string }> = [
+  { id: 'accent', label: 'Theme accent' },
+  { id: 'cyan', label: 'Cyan' },
+  { id: 'green', label: 'Green' },
+  { id: 'amber', label: 'Amber' },
+  { id: 'violet', label: 'Violet' },
+  { id: 'rose', label: 'Rose' },
+  { id: 'blue', label: 'Blue' },
+]
+
 export const WORKFLOW_SHORTCUTS_STORAGE_KEY = 'blacknode-workflow-shortcuts'
 export const DEFAULT_WORKFLOW_SHORTCUTS: WorkflowShortcut[] = [
   {
@@ -34,6 +47,7 @@ export const DEFAULT_WORKFLOW_SHORTCUTS: WorkflowShortcut[] = [
     label: 'Collect episodes',
     templateSlug: 'teleoperation-episode-recording',
     icon: 'record',
+    color: 'rose',
   },
 ]
 
@@ -41,6 +55,19 @@ function normalizedShortcutIcon(value: unknown, templateSlug: string): WorkflowS
   const icon = String(value || '') as WorkflowShortcutIcon
   if (WORKFLOW_SHORTCUT_ICON_OPTIONS.some(option => option.id === icon)) return icon
   return /episode|record|dataset/i.test(templateSlug) ? 'record' : 'workflow'
+}
+
+function normalizedShortcutColor(value: unknown, icon: WorkflowShortcutIcon): WorkflowShortcutColor {
+  const color = String(value || '') as WorkflowShortcutColor
+  if (WORKFLOW_SHORTCUT_COLOR_OPTIONS.some(option => option.id === color)) return color
+  const inferredColors: Record<WorkflowShortcutIcon, WorkflowShortcutColor> = {
+    record: 'rose',
+    camera: 'cyan',
+    robot: 'amber',
+    workflow: 'violet',
+    play: 'green',
+  }
+  return inferredColors[icon]
 }
 
 function ShortcutGlyph({ icon }: { icon: WorkflowShortcutIcon }) {
@@ -92,11 +119,13 @@ function readWorkflowShortcuts(): WorkflowShortcut[] {
       .filter(value => value && typeof value === 'object')
       .map((value, index) => {
         const templateSlug = String(value.templateSlug || '').trim()
+        const icon = normalizedShortcutIcon(value.icon, templateSlug)
         return {
           id: String(value.id || `shortcut-${index + 1}`),
           label: String(value.label || '').trim(),
           templateSlug,
-          icon: normalizedShortcutIcon(value.icon, templateSlug),
+          icon,
+          color: normalizedShortcutColor(value.color, icon),
         }
       })
       .filter(shortcut => shortcut.label && shortcut.templateSlug)
@@ -143,6 +172,7 @@ export default function WorkflowShortcuts() {
       label: '',
       templateSlug: sortedTemplates[0]?.slug ?? '',
       icon: 'workflow',
+      color: 'violet',
     })
   }
 
@@ -157,10 +187,18 @@ export default function WorkflowShortcuts() {
     if (!label || !templateSlug) return
     if (draft.id) {
       setShortcuts(current => current.map(shortcut => (
-        shortcut.id === draft.id ? { ...shortcut, label, templateSlug, icon: draft.icon } : shortcut
+        shortcut.id === draft.id
+          ? { ...shortcut, label, templateSlug, icon: draft.icon, color: draft.color }
+          : shortcut
       )))
     } else {
-      setShortcuts(current => [...current, { id: shortcutId(), label, templateSlug, icon: draft.icon }])
+      setShortcuts(current => [...current, {
+        id: shortcutId(),
+        label,
+        templateSlug,
+        icon: draft.icon,
+        color: draft.color,
+      }])
     }
     setDraft(null)
   }
@@ -228,6 +266,7 @@ export default function WorkflowShortcuts() {
             <button
               type="button"
               className="bn-workflow-shortcut"
+              data-color={shortcut.color}
               disabled={Boolean(loadingId)}
               onClick={() => void loadShortcut(shortcut)}
               title={shortcut.label}
@@ -340,6 +379,19 @@ export default function WorkflowShortcuts() {
               } : current)}
             >
               {WORKFLOW_SHORTCUT_ICON_OPTIONS.map(option => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+            <label htmlFor="bn-workflow-shortcut-color">Outline color</label>
+            <select
+              id="bn-workflow-shortcut-color"
+              value={draft.color}
+              onChange={event => setDraft(current => current ? {
+                ...current,
+                color: event.target.value as WorkflowShortcutColor,
+              } : current)}
+            >
+              {WORKFLOW_SHORTCUT_COLOR_OPTIONS.map(option => (
                 <option key={option.id} value={option.id}>{option.label}</option>
               ))}
             </select>

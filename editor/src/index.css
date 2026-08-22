@@ -6200,8 +6200,18 @@ button.bn-device-fact {
 }
 
 .bn-workflow-shortcut {
-  color: var(--accent);
+  --bn-shortcut-color: var(--accent);
+  border-color: color-mix(in srgb, var(--bn-shortcut-color) 68%, var(--line2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bn-shortcut-color) 12%, transparent);
+  color: var(--bn-shortcut-color);
 }
+
+.bn-workflow-shortcut[data-color="cyan"] { --bn-shortcut-color: #22d3ee; }
+.bn-workflow-shortcut[data-color="green"] { --bn-shortcut-color: #4ade80; }
+.bn-workflow-shortcut[data-color="amber"] { --bn-shortcut-color: #fbbf24; }
+.bn-workflow-shortcut[data-color="violet"] { --bn-shortcut-color: #a78bfa; }
+.bn-workflow-shortcut[data-color="rose"] { --bn-shortcut-color: #fb7185; }
+.bn-workflow-shortcut[data-color="blue"] { --bn-shortcut-color: #60a5fa; }
 
 .bn-workflow-shortcut > span {
   display: grid;
@@ -6221,13 +6231,23 @@ button.bn-device-fact {
   to { transform: rotate(360deg); }
 }
 
-.bn-workflow-shortcut:hover:not(:disabled),
+.bn-workflow-shortcut:hover:not(:disabled) {
+  border-color: var(--bn-shortcut-color);
+  background: color-mix(in srgb, var(--bn-shortcut-color) 12%, var(--hover));
+  color: var(--bn-shortcut-color);
+}
+
 .bn-workflow-shortcut-add:hover,
 .bn-workflow-shortcuts-customize:hover,
 .bn-workflow-shortcuts-reset:hover {
   border-color: color-mix(in srgb, var(--accent) 46%, var(--line2));
   background: var(--hover);
   color: var(--tx1);
+}
+
+.bn-workflow-shortcut:focus-visible {
+  outline: 2px solid var(--bn-shortcut-color);
+  outline-offset: 2px;
 }
 
 .bn-workflow-shortcut:disabled {

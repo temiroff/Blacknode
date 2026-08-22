@@ -174,8 +174,9 @@ click away. Its first button opens the
 **SO-ARM101 Teleoperation Episode Recording** template in a new workflow tab.
 Opening the template is passive: recording starts in status mode and robot
 motion remains disarmed. Hover over an icon to see its label. Use the gear icon
-to add, edit, or delete shortcuts; the editor saves that arrangement in the
-current browser. The reset icon restores the shipped shortcuts.
+to add, edit, or delete shortcuts and choose each button's icon and outline
+color; the editor saves that arrangement in the current browser. The reset icon
+restores the shipped shortcuts.
 
 In the browser:
 
