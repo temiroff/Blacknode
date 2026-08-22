@@ -2964,6 +2964,7 @@ function WorkspaceApp() {
         <div className="bn-workspace-split" style={{ top: canvasPad }}>
           {activeOperatorView ? (
             <WorkflowOperatorView
+              key={activeTabId}
               config={activeOperatorView}
               onEditWorkflow={() => setActiveTabSurface('graph')}
             />

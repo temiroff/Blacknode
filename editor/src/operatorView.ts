@@ -69,6 +69,7 @@ export interface OperatorViewSection {
 
 export interface WorkflowOperatorView {
   schema_version: 1
+  id?: string
   title: string
   description?: string
   accent?: string
@@ -90,4 +91,3 @@ export function isWorkflowOperatorView(value: unknown): value is WorkflowOperato
     && section.widgets.every(widget => isRecord(widget) && typeof widget.type === 'string' && typeof widget.id === 'string')
   ))
 }
-

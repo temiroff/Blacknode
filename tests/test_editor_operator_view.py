@@ -9,6 +9,7 @@ def test_operator_view_contract_is_declarative_and_versioned():
 
     assert "export interface WorkflowOperatorView" in contract
     assert "schema_version: 1" in contract
+    assert "id?: string" in contract
     assert "export type OperatorWidget" in contract
     assert "type: 'image'" in contract
     assert "type: 'fields'" in contract
@@ -63,3 +64,20 @@ def test_operator_actions_reuse_graph_params_cooks_and_direct_controls():
     assert "await controlNode(item.control.node_id, item.control.action" in view
     assert "await cookNode(" in view
     assert "window.confirm(item.confirm)" in view
+
+
+def test_operator_actions_support_persistent_keyboard_and_pedal_bindings():
+    view = (
+        ROOT / "editor" / "src" / "components" / "WorkflowOperatorView.tsx"
+    ).read_text(encoding="utf-8")
+    styles = (ROOT / "editor" / "src" / "index.css").read_text(encoding="utf-8")
+
+    assert "blacknode-operator-action-bindings:" in view
+    assert "Shortcuts & pedals" in view
+    assert "Assign key" in view
+    assert "Assign pedal" in view
+    assert "navigator.getGamepads()" in view
+    assert "window.addEventListener('keydown', onKeyDown, true)" in view
+    assert "isEditableBindingTarget(event.target)" in view
+    assert "void runAction(action)" in view
+    assert ".bn-operator-bindings-dialog" in styles

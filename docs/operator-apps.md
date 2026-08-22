@@ -16,6 +16,7 @@ An operator view is declared inside workflow metadata:
 {
   "operator_view": {
     "schema_version": 1,
+    "id": "collect-episodes",
     "title": "Collect episodes",
     "description": "Capture synchronized robot demonstrations.",
     "run_target": {
@@ -49,6 +50,19 @@ node output, or call a node's existing direct-control endpoint.
 Node IDs, ports, parameters, and controls must exist in the workflow and its
 live node schemas. Operator metadata does not create a second runtime contract.
 
+## Keyboard shortcuts and pedals
+
+Open **Shortcuts & pedals** in a Workflow App to bind any declared action to a
+keyboard key or game-controller button. USB pedals that identify as keyboards
+are assigned with **Assign key**; pedals that identify as game controllers use
+**Assign pedal**. An action can keep one binding of each kind, and assignments
+are saved in the current browser under the operator view's stable `id`.
+
+Bindings call the same action path as the on-screen button. They do not bypass
+confirmations, recorder preconditions, calibration checks, stale-data checks,
+joint limits, or motion authorization. Keyboard bindings are ignored while the
+operator is editing an input, textarea, or select control.
+
 ## Safety
 
 Opening an App surface does not automatically authorize motion. Physical-motion
@@ -59,4 +73,3 @@ shutdown can release actuator torque.
 
 The first shipped app is **Collect episodes**, provided by the
 `teleoperation-episode-recording` template from `blacknode-dataset`.
-
