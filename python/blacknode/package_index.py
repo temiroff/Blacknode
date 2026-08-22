@@ -198,6 +198,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                             "default": False,
                             "node_types": [
                                 "BaseSafetyGate",
+                                "ExploreEnvironment",
                                 "NavigateTo",
                                 "NavigationSession",
                                 "ROS2BaseMove",
@@ -276,6 +277,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
             "description": "Arm and base planning, trajectory generation, execution, policy, arbitration, and motion safety.",
             "node_types": [
                 "BaseSafetyGate",
+                "ExploreEnvironment",
                 "JointMotionProfile",
                 "NavigateTo",
                 "NavigationSession",

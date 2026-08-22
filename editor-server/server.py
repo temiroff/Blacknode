@@ -2634,6 +2634,20 @@ def update_param(node_id: str, req: UpdateParamReq):
             if edge.get("from") == current and target and target not in invalidated:
                 invalidated.add(target)
                 pending.append(target)
+    live_armed_targets = {
+        str(edge.get("to") or "")
+        for edge in _session.graph._edges
+        if (
+            meta.get("type") == "Bool"
+            and req.key == "value"
+            and isinstance(req.value, bool)
+            and edge.get("from") == node_id
+            and edge.get("from_port") == "value"
+            and edge.get("to_port") == "armed"
+            and str((_session.node_meta.get(str(edge.get("to") or "")) or {}).get("type") or "")
+            in {"ROS2LeaderFollower", "ROS2JointController"}
+        )
+    }
     for invalidated_id in invalidated:
         invalidated_meta = _session.node_meta.get(invalidated_id)
         if invalidated_meta is not None:
@@ -2645,10 +2659,12 @@ def update_param(node_id: str, req: UpdateParamReq):
                 disarm_fn = _runtime_callable("ros2_live", _RUNTIME_MODULES["ros2_live"], "update_leader_follower_config")
                 if disarm_fn is not None:
                     run_id = str(invalidated_meta.get("params", {}).get("run_id") or "leader_follower").strip() or "leader_follower"
+                    armed = req.value if invalidated_id in live_armed_targets else False
                     try:
-                        disarm_fn(run_id, {"armed": False})
+                        disarm_fn(run_id, {"armed": armed})
                     except Exception as exc:  # noqa: BLE001
-                        print(f"[blacknode] could not disarm invalidated leader-follower '{run_id}': {type(exc).__name__}: {exc}")
+                        action = "update" if invalidated_id in live_armed_targets else "disarm"
+                        print(f"[blacknode] could not {action} invalidated leader-follower '{run_id}': {type(exc).__name__}: {exc}")
     _push_live_node_param_update(meta, req.key, req.value, old_params)
     _save()
     return meta

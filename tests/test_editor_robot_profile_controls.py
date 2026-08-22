@@ -25,15 +25,26 @@ def test_robot_node_adopts_the_exact_calibration_applied_from_usb_identity():
 
     assert "data.portResults?.calibration" in node
     assert "appliedRobotCalibrationCandidate" in node
-    assert "profile_id: appliedRobotCalibrationCandidate.profile_id" in node
-    assert "hardware_id: appliedRobotCalibrationCandidate.hardware_id" in node
+    assert "'calibration_hardware_id'" in node
+    assert "appliedRobotCalibrationCandidate.hardware_id" in node
+
+
+def test_calibration_picker_updates_only_its_robot_instance():
+    node = (ROOT / "editor" / "src" / "components" / "BlackNode.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    assert "data.params?.calibration_hardware_id" in node
+    assert "updateParam(id, 'calibration_hardware_id', calibration?.hardware_id ?? '')" in node
+    assert "nodes.filter(node => node.data.type === 'Robot').length === 1" in node
+    assert "hasInstanceCalibrationSelection" in node
 
 
 def test_calibration_picker_does_not_disable_itself_when_opened():
     node = (ROOT / "editor" / "src" / "components" / "BlackNode.tsx").read_text(
         encoding="utf-8"
     )
-    picker = node.split('aria-label="Calibration used for deployment"', 1)[1]
+    picker = node.split('aria-label="Calibration for this Robot instance"', 1)[1]
     picker = picker.split("</select>", 1)[0]
 
     assert "onFocus" not in picker

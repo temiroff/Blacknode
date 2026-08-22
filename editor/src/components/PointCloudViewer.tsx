@@ -39,6 +39,7 @@ interface ViewerScene {
   occupied_point_count?: number
   occupied_display_count?: number
   map_render_mode?: string
+  show_robot?: boolean
   occupancy?: {
     backend?: string
     device?: string
@@ -56,6 +57,7 @@ interface ViewerScene {
     resolution_m?: number
     world_min_x?: number
     world_min_y?: number
+    origin_yaw_rad?: number
     fixed_origin?: boolean
     encoding?: string
     data?: string
@@ -642,7 +644,6 @@ export default function PointCloudViewer({
   const [camera, setCamera] = useState<CameraState>(DEFAULT_CAMERA)
   const [gridFrame, setGridFrame] = useState<GridFrame>({ x: 0, y: 0, yaw: 0 })
   const mapFeatures = viewerRole === 'map' || viewerRole === 'legacy'
-  const showRobot = mapFeatures
   const [showAxes, setShowAxes] = useState(viewerRole !== 'map' && viewerRole !== 'legacy')
   const [showFreeSpace, setShowFreeSpace] = useState(true)
   const [showLocalization, setShowLocalization] = useState(true)
@@ -657,6 +658,7 @@ export default function PointCloudViewer({
   const liveParsed = (scene && typeof scene === 'object' ? scene : {}) as ViewerScene
   const viewFrozen = viewerRole === 'depth-cloud' && frozenDepthScene !== null
   const parsed = viewFrozen ? frozenDepthScene : liveParsed
+  const showRobot = mapFeatures && parsed.show_robot !== false
   useEffect(() => {
     if (viewerRole !== 'depth-cloud' || !scene) setFrozenDepthScene(null)
   }, [scene, viewerRole])
@@ -743,17 +745,28 @@ export default function PointCloudViewer({
     const minimumX = Number(parsed.occupancy.world_min_x)
     const minimumY = Number(parsed.occupancy.world_min_y)
     if (!width || !height || !resolution || !Number.isFinite(minimumX) || !Number.isFinite(minimumY)) return []
-    const maximumX = minimumX + width * resolution
-    const maximumY = minimumY + height * resolution
+    const yaw = finite(parsed.occupancy.origin_yaw_rad)
+    const cosine = Math.cos(yaw)
+    const sine = Math.sin(yaw)
+    const corner = (x: number, y: number): number[] => [
+      minimumX + cosine * x - sine * y,
+      minimumY + sine * x + cosine * y,
+      -0.03,
+    ]
+    const lowerLeft = corner(0, 0)
+    const lowerRight = corner(width * resolution, 0)
+    const upperRight = corner(width * resolution, height * resolution)
+    const upperLeft = corner(0, height * resolution)
     return [
-      [minimumX, minimumY, -0.03], [maximumX, minimumY, -0.03], [maximumX, maximumY, -0.03],
-      [minimumX, minimumY, -0.03], [maximumX, maximumY, -0.03], [minimumX, maximumY, -0.03],
+      lowerLeft, lowerRight, upperRight,
+      lowerLeft, upperRight, upperLeft,
     ]
   }, [
     mapFeatures,
     parsed.occupancy?.fixed_origin,
     parsed.occupancy?.grid_height,
     parsed.occupancy?.grid_width,
+    parsed.occupancy?.origin_yaw_rad,
     parsed.occupancy?.resolution_m,
     parsed.occupancy?.world_min_x,
     parsed.occupancy?.world_min_y,

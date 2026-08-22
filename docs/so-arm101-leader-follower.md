@@ -33,5 +33,12 @@ Matching joint names map automatically. Otherwise set `joint_map` as
 `{ "leader_joint": "follower_joint" }`. `scale` and `offset_deg` are keyed by
 leader joint; a scale of `-1` mirrors direction.
 
+Put range-style controls such as grippers in `normalized_joints`. The controller
+uses each robot's calibrated safe minimum and maximum to map the leader's travel
+fraction onto the follower. Encoder homes and direction are already applied by
+the two Robot drivers, so open, intermediate, and closed positions align even
+when the physical gripper spans differ. Revolute arm joints remain direct-angle
+mapped and are not normalized.
+
 The initial controller uses rosbridge for persistent dual-arm streams. Both
 profiles share the rosbridge host and port but must keep distinct topic prefixes.

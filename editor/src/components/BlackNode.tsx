@@ -540,7 +540,6 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   const stopDriver  = useStore(s => s.stopDriver)
   const loadDriverStatus = useStore(s => s.loadDriverStatus)
   const workflowMetadata = useStore(s => s.workflowMetadata)
-  const setWorkflowRequirements = useStore(s => s.setWorkflowRequirements)
   const openGraphAsTab = useStore(s => s.openGraphAsTab)
   const qualifiedType = useQualifiedTypeLabel(data.type)
   const driverName  = TRIGGER_DRIVER[data.type]
@@ -637,14 +636,26 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
   )
   const isRobot = data.type === 'Robot'
   const robotProfileId = String(data.params?.profile_id ?? 'auto').trim() || 'auto'
-  const requiredCapabilities = Array.isArray(workflowMetadata.required_capabilities)
-    ? workflowMetadata.required_capabilities.map(String)
-    : []
-  const selectedRobotCalibration = (
-    workflowMetadata.device_calibration
-    && typeof workflowMetadata.device_calibration === 'object'
+  const hasInstanceCalibrationSelection = Object.prototype.hasOwnProperty.call(
+    data.params ?? {},
+    'calibration_hardware_id',
   )
-    ? workflowMetadata.device_calibration
+  const legacyRobotCalibration = (
+    nodes.filter(node => node.data.type === 'Robot').length === 1
+    && workflowMetadata.device_calibration
+    && typeof workflowMetadata.device_calibration === 'object'
+    && String(workflowMetadata.device_calibration.profile_id ?? '') === robotProfileId
+  ) ? workflowMetadata.device_calibration : null
+  const selectedRobotCalibrationHardwareId = String(
+    hasInstanceCalibrationSelection
+      ? data.params?.calibration_hardware_id ?? ''
+      : legacyRobotCalibration?.hardware_id ?? '',
+  ).trim()
+  const selectedRobotCalibration = selectedRobotCalibrationHardwareId
+    ? {
+        profile_id: robotProfileId,
+        hardware_id: selectedRobotCalibrationHardwareId,
+      }
     : null
   const [robotProfiles, setRobotProfiles] = useState<DeviceRobotProfile[]>([])
   const [robotCalibrations, setRobotCalibrations] = useState<DeviceCalibrationCandidate[]>([])
@@ -745,10 +756,11 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     let cancelled = false
     setRobotCalibrationPending(true)
     setRobotCalibrationError('')
-    void setWorkflowRequirements(requiredCapabilities, {
-      profile_id: appliedRobotCalibrationCandidate.profile_id,
-      hardware_id: appliedRobotCalibrationCandidate.hardware_id,
-    }).catch(err => {
+    void updateParam(
+      id,
+      'calibration_hardware_id',
+      appliedRobotCalibrationCandidate.hardware_id,
+    ).catch(err => {
       if (!cancelled) {
         setRobotCalibrationError(err instanceof Error ? err.message : String(err))
       }
@@ -772,7 +784,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
         selectedRobotCalibration
         && selectedRobotCalibration.profile_id !== profileId
       ) {
-        await setWorkflowRequirements(requiredCapabilities, null)
+        await updateParam(id, 'calibration_hardware_id', '')
       }
       await loadRobotSetup()
     } catch (err) {
@@ -812,12 +824,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
     setRobotCalibrationPending(true)
     setRobotCalibrationError('')
     try {
-      await setWorkflowRequirements(
-        requiredCapabilities,
-        calibration
-          ? { profile_id: calibration.profile_id, hardware_id: calibration.hardware_id }
-          : null,
-      )
+      await updateParam(id, 'calibration_hardware_id', calibration?.hardware_id ?? '')
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       setRobotCalibrationError(message)
@@ -2101,7 +2108,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
               Calibration
             </label>
             <select
-              aria-label="Calibration used for deployment"
+              aria-label="Calibration for this Robot instance"
               value={selectedRobotCalibrationKey}
               disabled={robotCalibrationPending || robotCalibrationsLoading}
               onChange={e => { void selectRobotCalibration(e.target.value) }}
@@ -2158,7 +2165,7 @@ function BlackNode({ id, data, selected }: NodeProps<NodeData>) {
                   : robotCalibrationsLoading
                     ? 'Loading saved calibration details…'
                   : selectedRobotCalibrationCandidate
-                    ? `Using “${selectedRobotCalibrationCandidate.name}” on ${selectedRobotCalibrationCandidate.hardware_id}. Deployment Step 2 uses this same selection.`
+                    ? `Using “${selectedRobotCalibrationCandidate.name}” on ${selectedRobotCalibrationCandidate.hardware_id}. This Robot instance selects that matching connected device and rejects any other physical hardware identity.`
                     : selectedRobotCalibration
                       ? `Selected hardware ${selectedRobotCalibration.hardware_id} is not available for profile ${robotProfileId || selectedRobotCalibration.profile_id}.`
                       : 'No calibration selected. Pick the named physical robot before deployment.'}

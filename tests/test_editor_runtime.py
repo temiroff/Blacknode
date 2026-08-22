@@ -149,6 +149,120 @@ class EditorRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(stopped["stopped"]["managed_runs"], 1)
 
+    def test_connected_bool_updates_live_leader_follower_armed_state(self):
+        source_id = "armed-source-test"
+        controller_id = "leader-follower-armed-test"
+        source_meta = {
+            "id": source_id,
+            "type": "Bool",
+            "params": {"value": False},
+        }
+        controller_meta = {
+            "id": controller_id,
+            "type": "ROS2LeaderFollower",
+            "params": {"run_id": "leader-follower-live", "armed": False},
+        }
+        edge = {
+            "from": source_id,
+            "from_port": "value",
+            "to": controller_id,
+            "to_port": "armed",
+        }
+        calls = []
+
+        def update(run_id, values):
+            calls.append((run_id, values))
+            return {"ok": True, "report": "updated"}
+
+        server._session.node_meta[source_id] = source_meta
+        server._session.node_meta[controller_id] = controller_meta
+        server._session.graph._nodes[source_id] = {
+            "type": "Bool",
+            "params": {"value": False},
+        }
+        server._session.graph._nodes[controller_id] = {
+            "type": "ROS2LeaderFollower",
+            "params": {"run_id": "leader-follower-live", "armed": False},
+        }
+        server._session.graph._edges.append(edge)
+        try:
+            with (
+                patch.object(server, "_runtime_callable", return_value=update),
+                patch.object(server, "_save"),
+            ):
+                response = TestClient(server.app).patch(
+                    f"/nodes/{source_id}/params",
+                    json={"key": "value", "value": True},
+                )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(calls, [("leader-follower-live", {"armed": True})])
+        finally:
+            server._session.node_meta.pop(source_id, None)
+            server._session.node_meta.pop(controller_id, None)
+            server._session.graph._nodes.pop(source_id, None)
+            server._session.graph._nodes.pop(controller_id, None)
+            server._session.graph._dirty.discard(source_id)
+            server._session.graph._dirty.discard(controller_id)
+            if edge in server._session.graph._edges:
+                server._session.graph._edges.remove(edge)
+
+    def test_unrelated_upstream_edit_disarms_live_leader_follower(self):
+        source_id = "rate-source-test"
+        controller_id = "leader-follower-rate-test"
+        source_meta = {
+            "id": source_id,
+            "type": "Float",
+            "params": {"value": 30.0},
+        }
+        controller_meta = {
+            "id": controller_id,
+            "type": "ROS2LeaderFollower",
+            "params": {"run_id": "leader-follower-live", "armed": False},
+        }
+        edge = {
+            "from": source_id,
+            "from_port": "value",
+            "to": controller_id,
+            "to_port": "loop_hz",
+        }
+        calls = []
+
+        def update(run_id, values):
+            calls.append((run_id, values))
+            return {"ok": True, "report": "updated"}
+
+        server._session.node_meta[source_id] = source_meta
+        server._session.node_meta[controller_id] = controller_meta
+        server._session.graph._nodes[source_id] = {
+            "type": "Float",
+            "params": {"value": 30.0},
+        }
+        server._session.graph._nodes[controller_id] = {
+            "type": "ROS2LeaderFollower",
+            "params": {"run_id": "leader-follower-live", "armed": False},
+        }
+        server._session.graph._edges.append(edge)
+        try:
+            with (
+                patch.object(server, "_runtime_callable", return_value=update),
+                patch.object(server, "_save"),
+            ):
+                response = TestClient(server.app).patch(
+                    f"/nodes/{source_id}/params",
+                    json={"key": "value", "value": 60.0},
+                )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(calls, [("leader-follower-live", {"armed": False})])
+        finally:
+            server._session.node_meta.pop(source_id, None)
+            server._session.node_meta.pop(controller_id, None)
+            server._session.graph._nodes.pop(source_id, None)
+            server._session.graph._nodes.pop(controller_id, None)
+            server._session.graph._dirty.discard(source_id)
+            server._session.graph._dirty.discard(controller_id)
+            if edge in server._session.graph._edges:
+                server._session.graph._edges.remove(edge)
+
     def test_robot_runtime_helpers_follow_registered_launcher_state(self):
         status_fn = lambda: {"ok": True, "active": True, "managed_runs": [{"run_id": "robot"}]}
         stop_fn = lambda: {"ok": True, "stopped": {"managed_runs": 1}}

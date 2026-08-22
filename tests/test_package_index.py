@@ -279,6 +279,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
         assert legacy_name not in payload["nodes"]
     assert payload["nodes"]["PolicyRuntime"]["package"] == "blacknode-motion"
     assert payload["nodes"]["BaseSafetyGate"]["package"] == "blacknode-motion"
+    assert payload["nodes"]["ExploreEnvironment"]["package"] == "blacknode-motion"
     assert payload["nodes"]["Camera"]["package"] == "blacknode-perception"
     assert payload["nodes"]["CameraStream"]["package"] == "blacknode-perception"
     assert payload["nodes"]["CameraImageProcessor"]["package"] == "blacknode-perception"
