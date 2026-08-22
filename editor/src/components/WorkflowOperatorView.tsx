@@ -532,13 +532,13 @@ export default function WorkflowOperatorView({ config, onEditWorkflow }: Workflo
 
   return (
     <main className="bn-operator-view" style={{ '--bn-operator-accent': config.accent ?? 'var(--accent)' } as CSSProperties}>
-      <header className="bn-operator-header">
+      <aside className="bn-operator-sidebar">
         <div>
           <span>Workflow app</span>
           <h1>{config.title}</h1>
           {config.description && <p>{config.description}</p>}
         </div>
-        <div className="bn-operator-header-actions">
+        <div className="bn-operator-sidebar-actions">
           {config.run_target && (
             <button className="is-primary" type="button" disabled={starting || cookActive} onClick={() => void start()}>
               {starting || cookActive ? 'Starting…' : config.run_target.label ?? 'Start live'}
@@ -548,7 +548,7 @@ export default function WorkflowOperatorView({ config, onEditWorkflow }: Workflo
           <button type="button" onClick={() => setBindingsOpen(true)}>Shortcuts & pedals</button>
           <button type="button" onClick={onEditWorkflow}>Edit workflow</button>
         </div>
-      </header>
+      </aside>
 
       <div className="bn-operator-sections">
         {config.sections.map(section => (

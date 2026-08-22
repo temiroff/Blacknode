@@ -50,6 +50,8 @@ def test_editor_hides_builder_chrome_but_keeps_edit_workflow_escape_hatch():
     assert "<WorkflowOperatorView" in app
     assert "onEditWorkflow={() => setActiveTabSurface('graph')}" in app
     assert "Edit workflow" in view
+    assert '<aside className="bn-operator-sidebar">' in view
+    assert "grid-template-columns: minmax(0, 1fr) 220px" in styles
     assert "Support the robot" in view
     assert ".bn-operator-view {" in styles
     assert ".bn-operator-image-frame" in styles

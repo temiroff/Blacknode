@@ -6434,9 +6434,13 @@ button.bn-device-fact {
 
 .bn-operator-view {
   --bn-operator-accent: var(--accent);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: stretch;
   width: 100%;
-  min-height: 100%;
-  overflow: auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   background:
     radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--bn-operator-accent) 10%, transparent), transparent 34%),
     var(--bg);
@@ -6444,26 +6448,30 @@ button.bn-device-fact {
   font-family: var(--font-ui);
 }
 
-.bn-operator-header {
-  position: sticky;
-  top: 0;
+.bn-operator-sidebar {
+  position: relative;
   z-index: 4;
   display: flex;
-  min-height: 76px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px clamp(16px, 2.4vw, 32px);
-  border-bottom: 1px solid var(--line);
+  grid-column: 2;
+  grid-row: 1;
+  height: 100%;
+  min-height: 0;
+  align-self: stretch;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px 14px;
+  border-left: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   backdrop-filter: blur(18px);
+  box-sizing: border-box;
+  overflow: auto;
 }
 
-.bn-operator-header > div:first-child {
+.bn-operator-sidebar > div:first-child {
   min-width: 0;
 }
 
-.bn-operator-header > div:first-child > span {
+.bn-operator-sidebar > div:first-child > span {
   color: var(--bn-operator-accent);
   font-size: 10px;
   font-weight: 800;
@@ -6471,28 +6479,27 @@ button.bn-device-fact {
   text-transform: uppercase;
 }
 
-.bn-operator-header h1 {
+.bn-operator-sidebar h1 {
   margin: 3px 0 0;
-  font-size: clamp(22px, 2.4vw, 32px);
+  font-size: 20px;
+  line-height: 1.15;
   letter-spacing: -.025em;
 }
 
-.bn-operator-header p {
-  max-width: 760px;
-  margin: 4px 0 0;
+.bn-operator-sidebar p {
+  margin: 7px 0 0;
   color: var(--tx2);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
-.bn-operator-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
+.bn-operator-sidebar-actions {
+  display: grid;
+  gap: 6px;
+  width: 100%;
 }
 
-.bn-operator-header-actions button,
+.bn-operator-sidebar-actions button,
 .bn-operator-actions-card button {
   min-height: 34px;
   padding: 6px 13px;
@@ -6504,20 +6511,20 @@ button.bn-device-fact {
   font: 650 12px var(--font-ui);
 }
 
-.bn-operator-header-actions button:hover:not(:disabled),
+.bn-operator-sidebar-actions button:hover:not(:disabled),
 .bn-operator-actions-card button:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--bn-operator-accent) 56%, var(--line2));
   background: var(--hover);
   color: var(--tx1);
 }
 
-.bn-operator-header-actions button:disabled,
+.bn-operator-sidebar-actions button:disabled,
 .bn-operator-actions-card button:disabled {
   cursor: default;
   opacity: .55;
 }
 
-.bn-operator-header-actions button.is-primary,
+.bn-operator-sidebar-actions button.is-primary,
 .bn-operator-actions-card button.is-primary {
   border-color: var(--bn-operator-accent);
   background: var(--bn-operator-accent);
@@ -6525,10 +6532,14 @@ button.bn-device-fact {
 }
 
 .bn-operator-sections {
+  grid-column: 1;
+  grid-row: 1;
   width: min(1540px, 100%);
+  height: 100%;
   margin: 0 auto;
   padding: 16px clamp(16px, 2.4vw, 32px) 32px;
   box-sizing: border-box;
+  overflow: auto;
 }
 
 .bn-operator-section + .bn-operator-section {
@@ -6946,14 +6957,29 @@ button.bn-device-fact {
   opacity: .45;
 }
 
-@media (max-width: 820px) {
-  .bn-operator-header {
-    position: relative;
-    align-items: flex-start;
-    flex-direction: column;
+@media (max-width: 900px) {
+  .bn-operator-view {
+    display: block;
+    overflow: auto;
   }
 
-  .bn-operator-header-actions {
+  .bn-operator-sidebar {
+    position: relative;
+    height: auto;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .bn-operator-sections {
+    height: auto;
+    overflow: visible;
+  }
+
+  .bn-operator-sidebar-actions {
+    display: flex;
     width: 100%;
     flex-wrap: wrap;
   }
