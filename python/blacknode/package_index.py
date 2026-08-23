@@ -1114,7 +1114,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "NewtonJointCommand",
                         "NewtonSimulation",
                         "NewtonUSDScene",
-                        "NewtonViewerConfig"
+                        "NewtonViewerConfig",
+                        "SO101ReachTask"
                     ]
                 },
                 "viewer-viser": {
@@ -1172,7 +1173,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "NewtonROSBridge",
                 "NewtonSimulation",
                 "NewtonUSDScene",
-                "NewtonViewerConfig"
+                "NewtonViewerConfig",
+                "SO101ReachTask"
             ]
         }
     }
