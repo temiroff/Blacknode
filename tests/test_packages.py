@@ -650,6 +650,8 @@ def test_component_setup_can_skip_python_for_pre_resolved_app_dependencies(tmp_p
     )
     _write_component_node(pkg, "core", "_PkgAppComponentSetupCore")
     (pkg / "requirements.txt").write_text("shared-runtime>=1\n", encoding="utf-8")
+    (pkg / "scripts").mkdir()
+    (pkg / "scripts" / "setup.sh").write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
     commands = []
 
     def fake_run(command, **_kwargs):
@@ -661,6 +663,7 @@ def test_component_setup_can_skip_python_for_pre_resolved_app_dependencies(tmp_p
         pkg,
         progress=lambda _line: None,
         install_python=False,
+        install_package_script=False,
     )
 
     assert warnings == []

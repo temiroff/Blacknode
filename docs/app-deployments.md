@@ -92,8 +92,12 @@ On Linux, use `bash ./install.sh` once and `bash ./start.sh` to launch. The
 installer creates a private Python environment, installs the bundled Blacknode
 release and server dependencies, enables the declared package components and
 adapters, and installs their prerequisites. The launcher serves the customer UI
-and operator API together at `http://127.0.0.1:7777`, then opens the configured
-start App. The recipient does not need Node.js, npm, Git, or an editor checkout.
+and operator API together, then opens the configured start App. It prefers
+`http://127.0.0.1:7777`; when that port is already occupied, it selects the next
+available port and prints the exact App URL. Readiness checks verify App mode
+before opening the browser, so another Blacknode service cannot be mistaken for
+the packaged App. The recipient does not need Node.js, npm, Git, or an editor
+checkout.
 
 Python 3.11 or newer and internet access for Python dependencies are required at
 install time. Robot drivers, ROS services, credentials, and network access used

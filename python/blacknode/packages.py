@@ -2294,11 +2294,14 @@ def install_prerequisites(
     progress: Callable[[str], None] = print,
     *,
     install_python: bool = True,
+    install_package_script: bool = True,
 ) -> list[str]:
-    """Install a package's pip requirements and pull its declared Docker
-    images. Portable App installers can set ``install_python=False`` after
-    installing their pre-resolved App requirement set. Returns warning strings;
-    never raises."""
+    """Install a package's pip requirements and declared setup prerequisites.
+
+    Portable App installers can skip Python after installing their pre-resolved
+    requirement set, and skip an aggregate package setup script while retaining
+    enabled component hooks and Docker images. Returns warnings; never raises.
+    """
     pkg_path = Path(pkg_dir).expanduser().resolve()
     warnings: list[str] = []
     info = load_package(pkg_path)
@@ -2319,7 +2322,7 @@ def install_prerequisites(
             warnings.append("pip install failed; the package may not load until deps are installed")
 
     setup_script = pkg_path / "scripts" / "setup.sh"
-    if setup_script.exists():
+    if install_package_script and setup_script.exists():
         progress(f"Running package setup script {setup_script}")
         setup = subprocess.run(["bash", str(setup_script)], cwd=str(pkg_path))
         if setup.returncode != 0:

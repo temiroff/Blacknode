@@ -443,6 +443,7 @@ def main() -> int:
         ensure_adapter_enabled,
         ensure_component_enabled,
         install_prerequisites,
+        load_package,
     )
 
     report = discover_packages([PACKAGES])
@@ -457,7 +458,12 @@ def main() -> int:
 
     warnings: list[str] = []
     for package_dir in package_dirs:
-        warnings.extend(install_prerequisites(package_dir, install_python=False))
+        package_info = load_package(package_dir)
+        warnings.extend(install_prerequisites(
+            package_dir,
+            install_python=False,
+            install_package_script=not package_info.component_mode,
+        ))
     if warnings:
         print("App prerequisites need attention:", file=sys.stderr)
         for warning in warnings:
@@ -485,6 +491,7 @@ def _run_app_script() -> str:
 import argparse
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -496,11 +503,35 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 
+def port_available(host: str, port: int) -> bool:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind((host, port))
+        return True
+    except OSError:
+        return False
+
+
+def choose_available_port(host: str, requested: int, attempts: int = 100) -> int:
+    if not 1 <= requested <= 65535:
+        raise ValueError("App port must be between 1 and 65535.")
+    for port in range(requested, min(65536, requested + attempts)):
+        if port_available(host, port):
+            return port
+    raise OSError(
+        f"No available App port was found from {requested} through "
+        f"{min(65535, requested + attempts - 1)}."
+    )
+
+
 def open_when_ready(url: str) -> None:
     health = url.rstrip("/").split("/app/", 1)[0] + "/healthz"
-    for _attempt in range(120):
+    for _attempt in range(240):
         try:
-            with urllib.request.urlopen(health, timeout=1):
+            with urllib.request.urlopen(health, timeout=1) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                if payload.get("status") != "ok" or payload.get("mode") != "app":
+                    raise RuntimeError("The responding service is not this Blacknode App.")
                 webbrowser.open(url)
                 return
         except Exception:
@@ -510,9 +541,13 @@ def open_when_ready(url: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run this Blacknode App package")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=7777)
+    parser.add_argument("--port", type=int, default=7777, help="Preferred port; the next free port is selected automatically")
     parser.add_argument("--no-open", action="store_true")
     args = parser.parse_args()
+    requested_port = args.port
+    args.port = choose_available_port(args.host, requested_port)
+    if args.port != requested_port:
+        print(f"Port {requested_port} is already in use; using {args.port} for this App.")
 
     deployment_path = ROOT / "deployment.blacknode-app.json"
     manifest = json.loads(deployment_path.read_text(encoding="utf-8"))
@@ -528,6 +563,7 @@ def main() -> int:
     os.chdir(server_dir)
     sys.path.insert(0, str(server_dir))
     url = f"http://127.0.0.1:{args.port}/app/{manifest['start_app']}"
+    print(f"Blacknode App: {url}")
     if not args.no_open:
         threading.Thread(target=open_when_ready, args=(url,), daemon=True).start()
 
@@ -614,6 +650,9 @@ This package contains the Blacknode customer shell and these Apps: {app_names}.
 1. Install Python 3.11 or newer.
 2. Open PowerShell in this folder and run `./install.ps1` once.
 3. Run `./start.ps1`. Blacknode opens the first App automatically.
+
+The launcher prefers port 7777. When another Blacknode process already uses
+that port, it selects the next available local port and prints the App URL.
 
 If PowerShell blocks local scripts, run `Set-ExecutionPolicy -Scope Process Bypass`
 in that PowerShell window, then retry the scripts.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import subprocess
 import tempfile
 import unittest
@@ -287,7 +288,22 @@ class AppDeploymentTests(unittest.TestCase):
                     },
                 )
                 compile(archive.read("bundle_setup.py"), "bundle_setup.py", "exec")
-                compile(archive.read("run_app.py"), "run_app.py", "exec")
+                run_app_source = archive.read("run_app.py").decode("utf-8")
+                compile(run_app_source, "run_app.py", "exec")
+                run_app_namespace = {
+                    "__file__": str(root / "run_app.py"),
+                    "__name__": "blacknode_app_package_test",
+                }
+                exec(run_app_source, run_app_namespace)
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+                    occupied.bind(("127.0.0.1", 0))
+                    occupied.listen()
+                    occupied_port = occupied.getsockname()[1]
+                    selected_port = run_app_namespace["choose_available_port"](
+                        "127.0.0.1", occupied_port,
+                    )
+                self.assertGreater(selected_port, occupied_port)
+                self.assertIn('payload.get("mode") != "app"', run_app_source)
                 self.assertIn("--no-deps", archive.read("install.ps1").decode("utf-8"))
                 self.assertIn("requirements.app.txt", archive.read("install.sh").decode("utf-8"))
                 self.assertNotIn("server/requirements.txt", archive.read("install.sh").decode("utf-8"))
