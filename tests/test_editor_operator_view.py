@@ -73,6 +73,10 @@ def test_operator_panels_use_consistent_compact_spacing_and_cyan_highlights():
     assert "gap: var(--bn-operator-panel-gap)" in styles
     assert "var(--bn-operator-panel-highlight) 28%" in styles
     assert ".bn-operator-card::before" not in styles
+    assert "max-height: min(42vh, 340px)" in styles
+    assert "overflow-y: auto" in styles
+    assert ".bn-operator-image-card.is-dashboard .bn-operator-image-frame img" in styles
+    assert "height: auto" in styles
 
 
 def test_operator_actions_reuse_graph_params_cooks_and_direct_controls():

@@ -7009,13 +7009,29 @@ button.bn-device-fact {
 }
 
 .bn-operator-image-card.is-dashboard .bn-operator-image-frame {
-  aspect-ratio: 16 / 8;
+  min-height: 220px;
+  max-height: min(42vh, 340px);
+  aspect-ratio: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  place-items: start stretch;
 }
 
 .bn-operator-image-frame img {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.bn-operator-image-card.is-dashboard .bn-operator-image-frame img {
+  display: block;
+  height: auto;
+  object-fit: initial;
+}
+
+.bn-operator-image-card.is-dashboard .bn-operator-image-empty {
+  align-self: center;
+  justify-self: center;
 }
 
 .bn-operator-image-empty {
