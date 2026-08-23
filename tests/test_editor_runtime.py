@@ -621,6 +621,43 @@ class EditorRuntimeTests(unittest.TestCase):
         finally:
             server._session.node_meta.pop("recorder-control-test", None)
 
+    def test_leader_follower_arm_control_updates_the_live_service_without_cooking(self):
+        node_id = "leader-follower-control-test"
+        server._session.node_meta[node_id] = {
+            "id": node_id,
+            "type": "ROS2LeaderFollower",
+            "params": {"run_id": "live-follow"},
+        }
+        calls = []
+
+        def control(run_id, action):
+            calls.append((run_id, action))
+            return {
+                "ok": True,
+                "running": True,
+                "live": True,
+                "armed": action == "arm",
+                "report": f"{action} accepted",
+            }
+
+        try:
+            with (
+                patch.object(server, "_runtime_callable", return_value=control),
+                patch.object(server, "_prepare_cook") as prepare_cook,
+            ):
+                response = TestClient(server.app).post(
+                    f"/nodes/{node_id}/control", json={"action": "arm"},
+                )
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json()["outputs"]["armed"])
+            self.assertEqual(calls, [("live-follow", "arm")])
+            self.assertTrue(server._session.graph._cache[(node_id, "armed")])
+            prepare_cook.assert_not_called()
+        finally:
+            server._session.node_meta.pop(node_id, None)
+            for key in [key for key in server._session.graph._cache if key[0] == node_id]:
+                server._session.graph._cache.pop(key, None)
+
     def test_connected_servo_command_routes_only_through_live_motion_control(self):
         servo_id = "servo-control-test"
         motion_id = "motion-control-test"

@@ -3051,6 +3051,32 @@ def control_node(node_id: str, req: NodeControlReq):
         for port, value in outputs.items():
             _session.graph._cache[(node_id, port)] = value
         return {"ok": True, "node_id": node_id, "outputs": outputs}
+    if meta.get("type") in {"ROS2LeaderFollower", "ROS2JointController"}:
+        action = str(req.action or "").strip().lower()
+        if action not in {"arm", "disarm", "status"}:
+            raise HTTPException(
+                400,
+                "Leader-follower controls support arm, disarm, or status",
+            )
+        control_fn = _runtime_callable(
+            "ros2_live",
+            _RUNTIME_MODULES["ros2_live"],
+            "control_leader_follower",
+        )
+        if control_fn is None:
+            raise HTTPException(503, "blacknode-skills leader-follower control is not loaded")
+        run_id = str(meta.get("params", {}).get("run_id") or "leader_follower").strip() or "leader_follower"
+        try:
+            result = dict(control_fn(run_id, action))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if not result.get("ok", False):
+            raise HTTPException(409, str(result.get("report") or "Follower motion control was blocked"))
+        outputs = {key: value for key, value in result.items() if key != "ok"}
+        for port, value in outputs.items():
+            _session.graph._cache[(node_id, port)] = value
+        _session.graph._dirty.discard(node_id)
+        return {"ok": True, "node_id": node_id, "outputs": outputs}
     if meta.get("type") == "TrajectorySmoother":
         if req.action != "apply":
             raise HTTPException(400, "TrajectorySmoother supports the apply control")

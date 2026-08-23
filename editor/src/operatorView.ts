@@ -9,6 +9,7 @@ export interface OperatorRunTarget {
   mode?: 'once' | 'live'
   label?: string
   confirm?: string
+  live_source?: OperatorValueSource
 }
 
 export interface OperatorStatusItem extends OperatorValueSource {
@@ -28,12 +29,19 @@ export interface OperatorFieldItem {
   node_id: string
   param: string
   label: string
-  input?: 'text' | 'number' | 'textarea' | 'calibration_file'
+  input?: 'text' | 'number' | 'textarea' | 'calibration_file' | 'swap'
   placeholder?: string
+  button_label?: string
+  confirm?: string
   min?: number
   max?: number
   step?: number
   apply_to?: Array<{ node_id: string; param: string }>
+  swap_pairs?: Array<{
+    left: { node_id: string; param: string }
+    right: { node_id: string; param: string }
+  }>
+  disabled_when?: OperatorValueSource
 }
 
 export interface OperatorSettingsGroup {
@@ -57,6 +65,11 @@ export interface OperatorActionItem {
   updates?: Array<{ node_id: string; param: string; value: unknown }>
   control?: { node_id: string; action: string; payload?: Record<string, unknown> }
   cook_target?: OperatorRunTarget
+  state?: OperatorValueSource
+  active_label?: string
+  active_tone?: 'neutral' | 'primary' | 'success' | 'warning' | 'danger'
+  active_confirm?: string
+  deactivate_control?: { node_id: string; action: string; payload?: Record<string, unknown> }
 }
 
 export type OperatorWidget =
@@ -120,10 +133,22 @@ export function isWorkflowOperatorView(value: unknown): value is WorkflowOperato
       && typeof item.node_id === 'string'
       && typeof item.param === 'string'
       && typeof item.label === 'string'
-      && (item.input === undefined || ['text', 'number', 'textarea', 'calibration_file'].includes(String(item.input)))
+      && (item.input === undefined || ['text', 'number', 'textarea', 'calibration_file', 'swap'].includes(String(item.input)))
       && (item.apply_to === undefined || (
         Array.isArray(item.apply_to)
         && item.apply_to.every(target => isRecord(target) && typeof target.node_id === 'string' && typeof target.param === 'string')
+      ))
+      && (item.swap_pairs === undefined || (
+        Array.isArray(item.swap_pairs)
+        && item.swap_pairs.every(pair => (
+          isRecord(pair)
+          && isRecord(pair.left)
+          && typeof pair.left.node_id === 'string'
+          && typeof pair.left.param === 'string'
+          && isRecord(pair.right)
+          && typeof pair.right.node_id === 'string'
+          && typeof pair.right.param === 'string'
+        ))
       ))
     ))
   ))

@@ -247,6 +247,12 @@ def operator_permissions(app: Mapping[str, Any]) -> dict[str, set[tuple[str, ...
         for target in item.get("apply_to", []):
             if isinstance(target, Mapping):
                 params.add((str(target.get("node_id") or ""), str(target.get("param") or "")))
+        for pair in item.get("swap_pairs", []):
+            if not isinstance(pair, Mapping):
+                continue
+            for target in (pair.get("left"), pair.get("right")):
+                if isinstance(target, Mapping):
+                    params.add((str(target.get("node_id") or ""), str(target.get("param") or "")))
 
     run_target = view.get("run_target")
     if isinstance(run_target, Mapping):
@@ -276,13 +282,14 @@ def operator_permissions(app: Mapping[str, Any]) -> dict[str, set[tuple[str, ...
                             str(update.get("param") or ""),
                             permission_value(update.get("value")),
                         ))
-                control = item.get("control")
-                if isinstance(control, Mapping):
-                    controls.add((
-                        str(control.get("node_id") or ""),
-                        str(control.get("action") or ""),
-                        permission_value(control.get("payload") if isinstance(control.get("payload"), Mapping) else {}),
-                    ))
+                for control_key in ("control", "deactivate_control"):
+                    control = item.get(control_key)
+                    if isinstance(control, Mapping):
+                        controls.add((
+                            str(control.get("node_id") or ""),
+                            str(control.get("action") or ""),
+                            permission_value(control.get("payload") if isinstance(control.get("payload"), Mapping) else {}),
+                        ))
                 target = item.get("cook_target")
                 if isinstance(target, Mapping):
                     cooks.add((

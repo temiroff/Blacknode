@@ -13,6 +13,9 @@ def test_operator_view_contract_is_declarative_and_versioned():
     assert "icon?: 'record' | 'camera' | 'robot' | 'workflow' | 'play'" in contract
     assert "settings?: OperatorSettings" in contract
     assert "apply_to?: Array<{ node_id: string; param: string }>" in contract
+    assert "live_source?: OperatorValueSource" in contract
+    assert "swap_pairs?: Array" in contract
+    assert "deactivate_control?:" in contract
     assert "region?: 'main' | 'parameters'" in contract
     assert "export type OperatorWidget" in contract
     assert "type: 'image'" in contract
@@ -85,9 +88,27 @@ def test_operator_actions_reuse_graph_params_cooks_and_direct_controls():
     ).read_text(encoding="utf-8")
 
     assert "await updateParam(update.node_id, update.param, update.value)" in view
-    assert "await controlNode(item.control.node_id, item.control.action" in view
+    assert "await controlNode(control.node_id, control.action" in view
     assert "await cookNode(" in view
-    assert "window.confirm(item.confirm)" in view
+    assert "window.confirm(confirmation)" in view
+
+
+def test_operator_live_controls_and_role_assignment_are_stateful():
+    contract = (ROOT / "editor" / "src" / "operatorView.ts").read_text(encoding="utf-8")
+    view = (
+        ROOT / "editor" / "src" / "components" / "WorkflowOperatorView.tsx"
+    ).read_text(encoding="utf-8")
+    styles = (ROOT / "editor" / "src" / "index.css").read_text(encoding="utf-8")
+
+    assert "active_label?: string" in contract
+    assert "disabled_when?: OperatorValueSource" in contract
+    assert "role={item.state ? 'switch' : undefined}" in view
+    assert "const control = active ? item.deactivate_control : item.control" in view
+    assert "item.swap_pairs ?? []" in view
+    assert "Press Stop all before changing physical robot roles" in view
+    assert "{live ? 'Live'" in view
+    assert 'className="is-danger"' in view
+    assert '.bn-operator-actions-card button[role="switch"].is-active' in styles
 
 
 def test_operator_settings_import_calibration_json_in_the_browser():

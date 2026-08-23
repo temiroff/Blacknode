@@ -144,6 +144,42 @@ class AppDeploymentTests(unittest.TestCase):
         self.assertEqual(permissions["controls"], {("out", "refresh", "{}")})
         self.assertEqual(permissions["cooks"], {("out", "value", "once")})
 
+    def test_operator_permissions_include_role_swaps_and_toggle_off_controls(self):
+        workflow = _workflow()
+        view = workflow["metadata"]["operator_view"]
+        view["settings"] = {
+            "groups": [{
+                "id": "robots",
+                "title": "Robots",
+                "items": [{
+                    "node_id": "text",
+                    "param": "value",
+                    "label": "Physical roles",
+                    "input": "swap",
+                    "swap_pairs": [{
+                        "left": {"node_id": "text", "param": "value"},
+                        "right": {"node_id": "mirror", "param": "value"},
+                    }],
+                }],
+            }],
+        }
+        actions = next(
+            widget["items"]
+            for section in view["sections"]
+            for widget in section["widgets"]
+            if widget["type"] == "actions"
+        )
+        actions[0]["deactivate_control"] = {
+            "node_id": "out",
+            "action": "stop-refresh",
+        }
+
+        permissions = operator_permissions({"id": "customer-task", "workflow": workflow})
+
+        self.assertIn(("text", "value"), permissions["params"])
+        self.assertIn(("mirror", "value"), permissions["params"])
+        self.assertIn(("out", "stop-refresh", "{}"), permissions["controls"])
+
     def test_bundle_rejects_persisted_secrets(self):
         with self.assertRaisesRegex(AppDeploymentError, "persisted secret"):
             build_app_deployment(

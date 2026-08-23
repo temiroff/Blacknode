@@ -199,7 +199,8 @@ function OperatorMetrics({ widget, nodes }: {
 }
 
 function OperatorField({ item }: { item: OperatorFieldItem }) {
-  const node = useStore(state => state.nodes.find(candidate => candidate.id === item.node_id))
+  const nodes = useStore(state => state.nodes)
+  const node = nodes.find(candidate => candidate.id === item.node_id)
   const updateParam = useStore(state => state.updateParam)
   const storedValue = node?.data.params?.[item.param]
   const [draft, setDraft] = useState(String(storedValue ?? ''))
@@ -250,6 +251,40 @@ function OperatorField({ item }: { item: OperatorFieldItem }) {
     } finally {
       input.value = ''
     }
+  }
+
+  const swapValues = async () => {
+    if (item.confirm && !window.confirm(item.confirm)) return
+    const pairs = item.swap_pairs ?? []
+    const changes = pairs.flatMap(pair => {
+      const leftNode = nodes.find(candidate => candidate.id === pair.left.node_id)
+      const rightNode = nodes.find(candidate => candidate.id === pair.right.node_id)
+      return [
+        { ...pair.left, value: rightNode?.data.params?.[pair.right.param] },
+        { ...pair.right, value: leftNode?.data.params?.[pair.left.param] },
+      ]
+    })
+    try {
+      for (const change of changes) {
+        await updateParam(change.node_id, change.param, change.value)
+      }
+      notice('info', 'Robot roles swapped', 'The physical device, profile, and calibration assignments are now reversed. Start live when both arms are supported.')
+    } catch (error) {
+      notice('error', `Could not ${item.label.toLowerCase()}`, error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  if (item.input === 'swap') {
+    const disabled = item.disabled_when ? valueFor(item.disabled_when, nodes) === true : false
+    return (
+      <div className="bn-operator-swap-field">
+        <span>{item.label}</span>
+        <button type="button" disabled={disabled} onClick={() => void swapValues()}>
+          {item.button_label ?? 'Swap roles'}
+        </button>
+        <small>{disabled ? 'Press Stop all before changing physical robot roles.' : (item.placeholder ?? 'Swaps the complete leader and follower device assignments.')}</small>
+      </div>
+    )
   }
 
   if (item.input === 'calibration_file') {
@@ -345,8 +380,9 @@ function OperatorSettingsDialog({ config, onClose }: {
   )
 }
 
-function OperatorActions({ widget, busyId, bindings, onRun }: {
+function OperatorActions({ widget, nodes, busyId, bindings, onRun }: {
   widget: Extract<OperatorWidget, { type: 'actions' }>
+  nodes: ReturnType<typeof useStore.getState>['nodes']
   busyId: string | null
   bindings: OperatorActionBindings
   onRun: (item: OperatorActionItem) => void
@@ -355,20 +391,27 @@ function OperatorActions({ widget, busyId, bindings, onRun }: {
     <article className="bn-operator-card bn-operator-actions-card">
       {widget.title && <h3>{widget.title}</h3>}
       <div>
-        {widget.items.map(item => (
-          <button
-            type="button"
-            className={`is-${item.tone ?? 'neutral'}`}
-            disabled={Boolean(busyId)}
-            onClick={() => onRun(item)}
-            key={item.id}
-          >
-            <span>{busyId === item.id ? 'Working…' : item.label}</span>
-            {(bindings[item.id] ?? []).length > 0 && (
-              <small>{bindings[item.id].map(binding => binding.label).join(' · ')}</small>
-            )}
-          </button>
-        ))}
+        {widget.items.map(item => {
+          const active = item.state ? valueFor(item.state, nodes) === true : false
+          const label = active ? item.active_label ?? item.label : item.label
+          const tone = active ? item.active_tone ?? item.tone : item.tone
+          return (
+            <button
+              type="button"
+              className={`is-${tone ?? 'neutral'}${active ? ' is-active' : ''}`}
+              disabled={Boolean(busyId)}
+              onClick={() => onRun(item)}
+              role={item.state ? 'switch' : undefined}
+              aria-checked={item.state ? active : undefined}
+              key={item.id}
+            >
+              <span>{busyId === item.id ? 'Working…' : label}</span>
+              {(bindings[item.id] ?? []).length > 0 && (
+                <small>{bindings[item.id].map(binding => binding.label).join(' · ')}</small>
+              )}
+            </button>
+          )
+        })}
       </div>
     </article>
   )
@@ -385,7 +428,7 @@ function OperatorWidgetView({ widget, nodes, busyId, bindings, onRun }: {
   if (widget.type === 'status') return <OperatorStatus widget={widget} nodes={nodes} />
   if (widget.type === 'metrics') return <OperatorMetrics widget={widget} nodes={nodes} />
   if (widget.type === 'fields') return <OperatorFields widget={widget} />
-  return <OperatorActions widget={widget} busyId={busyId} bindings={bindings} onRun={onRun} />
+  return <OperatorActions widget={widget} nodes={nodes} busyId={busyId} bindings={bindings} onRun={onRun} />
 }
 
 function OperatorBindingsDialog({ actions, bindings, capture, onCapture, onRemove, onClear, onClose }: {
@@ -520,17 +563,20 @@ export default function WorkflowOperatorView({
   }, [])
 
   const runAction = useCallback(async (item: OperatorActionItem) => {
-    if (busyActionRef.current || (item.confirm && !window.confirm(item.confirm))) return
+    const active = item.state ? valueFor(item.state, nodes) === true : false
+    const confirmation = active ? item.active_confirm : item.confirm
+    if (busyActionRef.current || (confirmation && !window.confirm(confirmation))) return
     busyActionRef.current = item.id
     setBusyId(item.id)
     try {
       for (const update of item.updates ?? []) {
         await updateParam(update.node_id, update.param, update.value)
       }
-      if (item.control) {
-        await controlNode(item.control.node_id, item.control.action, item.control.payload)
+      const control = active ? item.deactivate_control : item.control
+      if (control) {
+        await controlNode(control.node_id, control.action, control.payload)
       }
-      if (item.cook_target) {
+      if (!active && item.cook_target) {
         await cookNode(
           item.cook_target.node_id,
           item.cook_target.port,
@@ -544,7 +590,7 @@ export default function WorkflowOperatorView({
       busyActionRef.current = null
       setBusyId(null)
     }
-  }, [controlNode, cookNode, updateParam])
+  }, [controlNode, cookNode, nodes, updateParam])
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -641,6 +687,9 @@ export default function WorkflowOperatorView({
     () => [...cookLog].reverse().find(entry => entry.kind === 'error'),
     [cookLog],
   )
+  const live = config.run_target?.live_source
+    ? valueFor(config.run_target.live_source, nodes) === true
+    : false
   const renderSection = (section: (typeof config.sections)[number]) => (
     <section className={`bn-operator-section is-${section.layout ?? 'grid'}`} key={section.id}>
       {(section.title || section.description) && (
@@ -677,11 +726,11 @@ export default function WorkflowOperatorView({
         </div>
         <div className="bn-operator-sidebar-actions">
           {config.run_target && (
-            <button className="is-primary" type="button" disabled={starting || cookActive} onClick={() => void start()}>
-              {starting || cookActive ? 'Starting…' : config.run_target.label ?? 'Start live'}
+            <button className={`is-primary${live ? ' is-live' : ''}`} type="button" disabled={starting || cookActive || live} onClick={() => void start()}>
+              {live ? 'Live' : starting || cookActive ? 'Starting…' : config.run_target.label ?? 'Start live'}
             </button>
           )}
-          <button type="button" disabled={stopping} onClick={() => void stop()}>{stopping ? 'Stopping…' : 'Stop all'}</button>
+          <button className="is-danger" type="button" disabled={stopping} onClick={() => void stop()}>{stopping ? 'Stopping…' : 'Stop all'}</button>
           <button type="button" onClick={() => setBindingsOpen(true)}>Shortcuts & pedals</button>
           {onOpenLauncher && <button type="button" onClick={onOpenLauncher}>All apps</button>}
           {onEditWorkflow && <button type="button" onClick={onEditWorkflow}>Edit workflow</button>}

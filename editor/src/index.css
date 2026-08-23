@@ -6791,6 +6791,19 @@ button.bn-device-fact {
   color: #081018;
 }
 
+.bn-operator-sidebar-actions button.is-primary.is-live {
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 18%, var(--lift));
+  color: var(--ok);
+  opacity: 1;
+}
+
+.bn-operator-sidebar-actions button.is-danger {
+  border-color: var(--err);
+  background: color-mix(in srgb, var(--err) 14%, var(--lift));
+  color: var(--err);
+}
+
 .bn-operator-activity {
   display: grid;
   gap: 8px;
@@ -7126,6 +7139,41 @@ button.bn-device-fact {
   gap: 4px;
 }
 
+.bn-operator-swap-field {
+  display: flex;
+  min-width: 0;
+  grid-column: 1 / -1;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.bn-operator-swap-field > span {
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.bn-operator-swap-field button {
+  min-height: 36px;
+  border: 1px solid var(--bn-operator-accent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bn-operator-accent) 10%, var(--lift));
+  color: var(--tx1);
+  cursor: pointer;
+  font: 700 12px var(--font-ui);
+}
+
+.bn-operator-swap-field button:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+.bn-operator-swap-field small {
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .bn-operator-fields-grid label:has(textarea) {
   grid-column: 1 / -1;
 }
@@ -7180,6 +7228,10 @@ button.bn-device-fact {
 .bn-operator-actions-card button.is-success { border-color: var(--ok); color: var(--ok); }
 .bn-operator-actions-card button.is-warning { border-color: var(--warn); color: var(--warn); }
 .bn-operator-actions-card button.is-danger { border-color: var(--err); color: var(--err); }
+.bn-operator-actions-card button[role="switch"].is-active {
+  background: color-mix(in srgb, currentColor 14%, var(--lift));
+  box-shadow: inset 0 0 0 1px currentColor;
+}
 
 .bn-operator-bindings-backdrop {
   position: fixed;
