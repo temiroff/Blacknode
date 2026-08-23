@@ -6791,6 +6791,114 @@ button.bn-device-fact {
   color: #081018;
 }
 
+.bn-operator-activity {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.bn-operator-activity > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bn-operator-activity > header > span {
+  color: var(--tx2);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.bn-operator-activity > header > strong {
+  color: var(--tx3);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bn-operator-activity > header > strong.is-live {
+  color: var(--ok);
+}
+
+.bn-operator-latest-issue {
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--err) 48%, var(--line2));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--err) 8%, var(--panel));
+}
+
+.bn-operator-latest-issue > span {
+  color: var(--err);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.bn-operator-latest-issue > p {
+  display: -webkit-box;
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--tx1);
+  font-size: 11px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+
+.bn-operator-activity ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bn-operator-activity li {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 5px;
+  min-width: 0;
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.bn-operator-activity li.is-error {
+  color: var(--err);
+}
+
+.bn-operator-activity li.is-success,
+.bn-operator-activity li.is-done {
+  color: var(--tx2);
+}
+
+.bn-operator-activity li time {
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+  opacity: .72;
+}
+
+.bn-operator-activity li span {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.bn-operator-activity p.bn-operator-activity-empty {
+  margin: 0;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
 .bn-operator-sections {
   grid-column: 2;
   grid-row: 1;

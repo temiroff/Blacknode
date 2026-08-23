@@ -86,6 +86,32 @@ def test_operator_actions_reuse_graph_params_cooks_and_direct_controls():
     assert "window.confirm(item.confirm)" in view
 
 
+def test_operator_view_surfaces_live_activity_and_structured_failures():
+    view = (
+        ROOT / "editor" / "src" / "components" / "WorkflowOperatorView.tsx"
+    ).read_text(encoding="utf-8")
+    store = (ROOT / "editor" / "src" / "store.ts").read_text(encoding="utf-8")
+    styles = (ROOT / "editor" / "src" / "index.css").read_text(encoding="utf-8")
+
+    assert "cookActive, cookLog" in view
+    assert 'className="bn-operator-activity"' in view
+    assert "Needs attention" in view
+    assert "entry.kind === 'error'" in view
+    assert "BLOCKED|FAILED|MISSING" in store
+    assert "kind: reportedProblem ? 'error' : 'success'" in store
+    assert ".bn-operator-latest-issue" in styles
+
+
+def test_runtime_poll_preserves_managed_camera_stream_preview():
+    store = (ROOT / "editor" / "src" / "store.ts").read_text(encoding="utf-8")
+
+    assert "...(Array.isArray(status.cv2_streams) ? status.cv2_streams : [])" in store
+    assert "const managedStream = managedStreams.find" in store
+    assert "owner === node.id" in store
+    assert "streaming: true" in store
+    assert "...liveOutputs, ...streamOutputs, ...managedOutputs" in store
+
+
 def test_operator_actions_support_persistent_keyboard_and_pedal_bindings():
     view = (
         ROOT / "editor" / "src" / "components" / "WorkflowOperatorView.tsx"

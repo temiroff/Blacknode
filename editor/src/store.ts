@@ -976,16 +976,20 @@ function cookEventLogEntry(event: CookEvent, nodes: Node<NodeData>[]): CookLogEn
     }
   }
   if (event.type === 'success') {
+    const outputs = event.outputs as Record<string, unknown> | undefined
+    const report = typeof outputs?.report === 'string' ? outputs.report.trim() : ''
+    const reportedProblem = /\b(?:BLOCKED|FAILED|MISSING)\b/i.test(report)
     return {
       id: `${ts}-${event.node_id}-${event.port}-success`,
-      kind: 'success',
+      // A node can complete its Python call while reporting that the requested
+      // operation could not start (for example a missing transport package).
+      // Keep that structured result visible as an operator-facing error.
+      kind: reportedProblem ? 'error' : 'success',
       label,
       // Nodes explain themselves in `report` ("LIVE: publishing to /camera/…"),
       // which is what belongs in the log; the cooked port is usually a URL that
       // says nothing. Fall back to the value when a node writes no report.
       message: (() => {
-        const outputs = event.outputs as Record<string, unknown> | undefined
-        const report = typeof outputs?.report === 'string' ? outputs.report.trim() : ''
         const summary = report
           ? shortText(report, 180)
           : (event.value !== undefined ? shortText(event.value) : '')
@@ -1774,6 +1778,11 @@ export const useStore = create<Store>((set, get) => ({
       const items = Object.values(status.modules ?? {}).flatMap(moduleStatus =>
         Array.isArray(moduleStatus?.node_outputs) ? moduleStatus.node_outputs : []
       )
+      const managedStreams = [
+        ...(Array.isArray(status.streams) ? status.streams : []),
+        ...(Array.isArray(status.cv2_streams) ? status.cv2_streams : []),
+        ...(Array.isArray(status.reasoning_streams) ? status.reasoning_streams : []),
+      ]
       const managedRuns = Array.isArray(status.managed_runs) ? status.managed_runs : []
       set(s => ({
         nodes: propagateLiveTerminalValues(s.nodes.map(node => {
@@ -1784,6 +1793,7 @@ export const useStore = create<Store>((set, get) => ({
           const runId = node.data.type === 'ROS2TopicSubscriber' || node.data.type === 'ROS2'
             ? `topic-subscriber:${String(node.data.params?.topic ?? node.data.input_defaults?.topic ?? '/chatter')}`
             : String(node.data.params?.run_id ?? node.data.input_defaults?.run_id ?? 'robot_teach')
+          const streamId = String(node.data.params?.stream_id ?? node.data.input_defaults?.stream_id ?? '')
           const item = items.find(raw => {
             if (!raw || typeof raw !== 'object') return false
             const record = raw as Record<string, unknown>
@@ -1796,6 +1806,13 @@ export const useStore = create<Store>((set, get) => ({
             const record = raw as Record<string, unknown>
             return String(record.run_id ?? '') === runId
               && (node.data.type === 'NewtonSimulation' ? record.runtime === 'newton' : true)
+          }) as Record<string, unknown> | undefined
+          const managedStream = managedStreams.find(raw => {
+            if (!raw || typeof raw !== 'object') return false
+            const record = raw as Record<string, unknown>
+            const owner = String(record.node_id ?? '')
+            if (owner) return owner === node.id
+            return Boolean(streamId) && String(record.stream_id ?? '') === streamId
           }) as Record<string, unknown> | undefined
           const outputs = item && typeof item === 'object'
             ? (item as Record<string, unknown>).outputs
@@ -1825,7 +1842,18 @@ export const useStore = create<Store>((set, get) => ({
               replay_episodes: Number(managedRun.replay_episodes ?? 0),
             } : {}),
           } : {}
-          if (Object.keys(liveOutputs).length === 0 && Object.keys(managedOutputs).length === 0) {
+          const streamOutputs = managedStream ? {
+            streaming: true,
+            stream_id: String(managedStream.stream_id ?? streamId),
+            stream_url: String(managedStream.stream_url ?? ''),
+            snapshot_url: String(managedStream.snapshot_url ?? ''),
+            health_url: String(managedStream.health_url ?? ''),
+            // The runtime status is authoritative while the process is alive.
+            // Polling must preserve its MJPEG preview instead of clearing the
+            // successful cook result one second after startup.
+            preview: String(managedStream.stream_url ?? managedStream.snapshot_url ?? ''),
+          } : {}
+          if (Object.keys(liveOutputs).length === 0 && Object.keys(streamOutputs).length === 0 && Object.keys(managedOutputs).length === 0) {
             const runtimeWasActive = Boolean(
               node.data.portResults?.running === true
               || node.data.portResults?.viewer_running === true
@@ -1865,7 +1893,7 @@ export const useStore = create<Store>((set, get) => ({
             ...node,
             data: {
               ...node.data,
-              portResults: { ...(node.data.portResults ?? {}), ...liveOutputs, ...managedOutputs },
+              portResults: { ...(node.data.portResults ?? {}), ...liveOutputs, ...streamOutputs, ...managedOutputs },
             },
           }
         }), s.edges),

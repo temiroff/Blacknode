@@ -424,7 +424,7 @@ export default function WorkflowOperatorView({
   settingsOpen = false,
   onCloseSettings,
 }: WorkflowOperatorViewProps) {
-  const { nodes, updateParam, controlNode, cookNode, stopRuntimeServices, cookActive } = useStore()
+  const { nodes, updateParam, controlNode, cookNode, stopRuntimeServices, cookActive, cookLog } = useStore()
   const [starting, setStarting] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -590,6 +590,11 @@ export default function WorkflowOperatorView({
 
   const mainSections = config.sections.filter(section => section.region !== 'parameters')
   const parameterSections = config.sections.filter(section => section.region === 'parameters')
+  const activityEntries = useMemo(() => cookLog.slice(-6).reverse(), [cookLog])
+  const latestIssue = useMemo(
+    () => [...cookLog].reverse().find(entry => entry.kind === 'error'),
+    [cookLog],
+  )
   const renderSection = (section: (typeof config.sections)[number]) => (
     <section className={`bn-operator-section is-${section.layout ?? 'grid'}`} key={section.id}>
       {(section.title || section.description) && (
@@ -635,6 +640,32 @@ export default function WorkflowOperatorView({
           {onOpenLauncher && <button type="button" onClick={onOpenLauncher}>All apps</button>}
           {onEditWorkflow && <button type="button" onClick={onEditWorkflow}>Edit workflow</button>}
         </div>
+        <section className="bn-operator-activity" aria-label="Workflow activity">
+          <header>
+            <span>Activity</span>
+            <strong className={cookActive ? 'is-live' : ''}>{cookActive ? 'Running' : 'Idle'}</strong>
+          </header>
+          {latestIssue && (
+            <div className="bn-operator-latest-issue" role="alert">
+              <span>Needs attention</span>
+              <p>{latestIssue.message}</p>
+            </div>
+          )}
+          {activityEntries.length > 0 ? (
+            <ol>
+              {activityEntries.map(entry => (
+                <li className={`is-${entry.kind}`} key={entry.id}>
+                  <time dateTime={new Date(entry.ts).toISOString()}>
+                    {new Date(entry.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </time>
+                  <span>{entry.message}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="bn-operator-activity-empty">Start the app to see live activity and errors.</p>
+          )}
+        </section>
       </aside>
 
       <div className="bn-operator-sections">
