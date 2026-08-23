@@ -1893,7 +1893,12 @@ export const useStore = create<Store>((set, get) => ({
             ...node,
             data: {
               ...node.data,
-              portResults: { ...(node.data.portResults ?? {}), ...liveOutputs, ...streamOutputs, ...managedOutputs },
+              // A managed-run entry proves that a service exists, but many
+              // runtimes intentionally omit fields such as `running`. Keep it
+              // as fallback state and let the node's exact, current outputs
+              // win. Otherwise an omitted managed field is normalized to
+              // false above and makes a live operator button look stopped.
+              portResults: { ...(node.data.portResults ?? {}), ...managedOutputs, ...liveOutputs, ...streamOutputs },
             },
           }
         }), s.edges),

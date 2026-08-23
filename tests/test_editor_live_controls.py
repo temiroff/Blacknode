@@ -63,6 +63,14 @@ def test_spatial_viewer_frames_use_the_fast_cached_runtime_path():
     assert "'IMUViewer'," in store_source
 
 
+def test_exact_node_outputs_override_sparse_managed_run_fallbacks():
+    source = STORE.read_text(encoding="utf-8")
+
+    # Managed-run records often omit `running`; the corresponding exact node
+    # output remains authoritative for operator-view live indicators.
+    assert "...managedOutputs, ...liveOutputs, ...streamOutputs" in source
+
+
 def test_stop_live_clears_all_ros2_and_viewer_live_fields_and_stale_frames():
     source = STORE.read_text(encoding="utf-8")
 
