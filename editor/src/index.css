@@ -6417,10 +6417,11 @@ button.bn-device-fact {
   place-items: center;
 }
 
-.bn-app-mode-loading img {
+.bn-app-mode-loading-logo {
+  border: 1px solid #00deff;
+  border-radius: 10px;
   width: 52px;
   height: 52px;
-  object-fit: contain;
   animation: bn-customer-app-loading 1.1s ease-in-out infinite alternate;
 }
 
@@ -6528,7 +6529,9 @@ button.bn-device-fact {
   gap: 10px;
 }
 
-.bn-customer-app-opening img {
+.bn-customer-app-loading-logo {
+  border: 1px solid #00deff;
+  border-radius: 9px;
   width: 42px;
   height: 42px;
   animation: bn-customer-app-loading 1.1s ease-in-out infinite alternate;

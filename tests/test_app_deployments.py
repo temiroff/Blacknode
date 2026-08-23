@@ -304,6 +304,7 @@ class AppDeploymentTests(unittest.TestCase):
                     )
                 self.assertGreater(selected_port, occupied_port)
                 self.assertIn('payload.get("mode") != "app"', run_app_source)
+                self.assertIn("access_log=False", run_app_source)
                 self.assertIn("--no-deps", archive.read("install.ps1").decode("utf-8"))
                 self.assertIn("requirements.app.txt", archive.read("install.sh").decode("utf-8"))
                 self.assertNotIn("server/requirements.txt", archive.read("install.sh").decode("utf-8"))

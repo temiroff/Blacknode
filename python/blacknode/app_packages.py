@@ -568,7 +568,13 @@ def main() -> int:
         threading.Thread(target=open_when_ready, args=(url,), daemon=True).start()
 
     import uvicorn
-    uvicorn.run("server:app", host=args.host, port=args.port, reload=False)
+    uvicorn.run(
+        "server:app",
+        host=args.host,
+        port=args.port,
+        reload=False,
+        access_log=False,
+    )
     return 0
 
 

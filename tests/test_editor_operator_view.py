@@ -115,10 +115,15 @@ def test_customer_app_shell_direct_launches_and_keeps_editor_controls_outside_op
 
     assert "function AppDeploymentGate()" in app
     assert "api.appDeployment()" in app
+    assert "import BlacknodeLogo from './components/BlacknodeLogo'" in app
+    assert '<BlacknodeLogo className="bn-app-mode-loading-logo"' in app
     assert "<CustomerAppShell deployment={deployment}" in app
     assert "appsById.has(deployment.start_app)" in shell
     assert "api.activateDeploymentApp(appId)" in shell
     assert 'className="bn-customer-app-bar"' in shell
+    assert "import BlacknodeLogo from './BlacknodeLogo'" in shell
+    assert '<BlacknodeLogo className="bn-rail-logo"' in shell
+    assert '<BlacknodeLogo className="bn-customer-app-loading-logo"' in shell
     assert 'aria-label="Deployed Apps"' in shell
     assert "<AppGlyph icon={app.icon || 'workflow'}" in shell
     assert 'aria-label="App settings"' in shell

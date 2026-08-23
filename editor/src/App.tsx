@@ -26,6 +26,7 @@ import SubnetBreadcrumb from './components/SubnetBreadcrumb'
 import SubgraphInputNode from './components/SubgraphInputNode'
 import SubgraphOutputNode from './components/SubgraphOutputNode'
 import NodePalette from './components/NodePalette'
+import BlacknodeLogo from './components/BlacknodeLogo'
 import Inspector from './components/Inspector'
 import WorkflowShortcuts from './components/WorkflowShortcuts'
 import WorkflowOperatorView from './components/WorkflowOperatorView'
@@ -250,7 +251,7 @@ function AppDeploymentGate() {
   if (deployment === undefined) {
     return (
       <main className="bn-app-mode-loading" aria-label="Loading Blacknode">
-        <img src="/blacknode-logo.png" alt="" />
+        <BlacknodeLogo className="bn-app-mode-loading-logo" />
       </main>
     )
   }
@@ -2010,11 +2011,7 @@ function WorkspaceApp() {
             aria-label="Blacknode"
             style={{ width: 'var(--bn-palette-panel-width, 240px)', padding: '0 18px' }}
           >
-            <img
-              className="bn-brand-logo"
-              src="/blacknode-logo.png"
-              alt=""
-            />
+            <BlacknodeLogo className="bn-rail-logo" />
             <span>BLACKNODE</span>
           </div>
 

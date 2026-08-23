@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { api, type AppDeploymentSummary } from '../api'
 import { isWorkflowOperatorView } from '../operatorView'
 import { useStore } from '../store'
+import BlacknodeLogo from './BlacknodeLogo'
 import WorkflowOperatorView from './WorkflowOperatorView'
 
 
@@ -124,7 +125,7 @@ export default function CustomerAppShell({ deployment }: CustomerAppShellProps) 
     <main className="bn-customer-app-shell">
       <header className="bn-customer-app-bar">
         <div className="bn-brand bn-customer-app-brand" aria-label="Blacknode">
-          <img className="bn-brand-logo" src="/blacknode-logo.png" alt="" />
+          <BlacknodeLogo className="bn-rail-logo" />
           <span>BLACKNODE</span>
         </div>
         <nav aria-label="Deployed Apps">
@@ -167,7 +168,7 @@ export default function CustomerAppShell({ deployment }: CustomerAppShellProps) 
             )
           : (
               <div className="bn-customer-app-opening" role="status">
-                <img src="/blacknode-logo.png" alt="" />
+                <BlacknodeLogo className="bn-customer-app-loading-logo" />
                 <span>{loadingAppId ? 'Opening App…' : 'Preparing Apps…'}</span>
               </div>
             )}

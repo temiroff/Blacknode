@@ -96,8 +96,10 @@ and operator API together, then opens the configured start App. It prefers
 `http://127.0.0.1:7777`; when that port is already occupied, it selects the next
 available port and prints the exact App URL. Readiness checks verify App mode
 before opening the browser, so another Blacknode service cannot be mistaken for
-the packaged App. The recipient does not need Node.js, npm, Git, or an editor
-checkout.
+the packaged App. The packaged shell uses the editor's Blacknode mark and keeps
+routine HTTP polling out of the launcher console while retaining startup,
+warning, and error messages. The recipient does not need Node.js, npm, Git, or
+an editor checkout.
 
 Python 3.11 or newer and internet access for Python dependencies are required at
 install time. Robot drivers, ROS services, credentials, and network access used
