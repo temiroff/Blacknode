@@ -80,6 +80,11 @@ def test_operator_panels_use_consistent_compact_spacing_and_cyan_highlights():
     assert "overflow-y: auto" in styles
     assert ".bn-operator-image-card.is-dashboard .bn-operator-image-frame img" in styles
     assert "height: auto" in styles
+    dashboard_frame = styles.split(
+        ".bn-operator-image-card.is-dashboard .bn-operator-image-frame {", 1
+    )[1].split("}", 1)[0]
+    assert "min-height" not in dashboard_frame
+    assert "min-height: 140px" in styles
 
 
 def test_operator_actions_reuse_graph_params_cooks_and_direct_controls():
@@ -147,7 +152,7 @@ def test_runtime_poll_preserves_managed_camera_stream_preview():
     assert "const managedStream = managedStreams.find" in store
     assert "owner === node.id" in store
     assert "streaming: true" in store
-    assert "...liveOutputs, ...streamOutputs, ...managedOutputs" in store
+    assert "...managedOutputs, ...liveOutputs, ...streamOutputs" in store
 
 
 def test_operator_actions_support_persistent_keyboard_and_pedal_bindings():

@@ -7022,7 +7022,6 @@ button.bn-device-fact {
 }
 
 .bn-operator-image-card.is-dashboard .bn-operator-image-frame {
-  min-height: 220px;
   max-height: min(42vh, 340px);
   aspect-ratio: auto;
   overflow-x: hidden;
@@ -7043,6 +7042,7 @@ button.bn-device-fact {
 }
 
 .bn-operator-image-card.is-dashboard .bn-operator-image-empty {
+  min-height: 140px;
   align-self: center;
   justify-self: center;
 }
