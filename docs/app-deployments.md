@@ -201,5 +201,8 @@ The server derives its permission set from the active App:
   safety path.
 
 Switching Apps stops active runtime services before loading the next workflow.
+Closing a packaged App also stops managed command producers, robot drivers,
+and transports in safety order. Robot drivers retain their owner watchdog so
+an abrupt App-process exit still runs the driver's torque-release finalizer.
 Physical-motion Apps remain responsible for disarmed defaults, confirmations,
 calibration checks, freshness checks, limits, and shutdown safeguards.

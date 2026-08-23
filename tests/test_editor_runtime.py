@@ -544,6 +544,38 @@ class EditorRuntimeTests(unittest.TestCase):
         self.assertEqual(result["stopped"]["streams"], 3)
         self.assertEqual(len(set(worker_threads)), 3)
 
+    def test_stop_runtime_services_keeps_transport_alive_until_robot_stops(self):
+        order = []
+
+        def fake_stop(label, _module_name):
+            order.append(label)
+            return {"ok": True, "stopped": {"managed_runs": 1}}
+
+        no_remote = lambda: order.append("remote_ros2") or {
+            "ok": True,
+            "stopped": {"managed_runs": 0},
+        }
+        no_remote_images = lambda: order.append("remote_ros2_images") or {
+            "ok": True,
+            "stopped": {"streams": 0},
+        }
+        with (
+            patch.object(server, "_RUNTIME_MODULES", {
+                "joint_control": "joint_runtime",
+                "robot": "robot_runtime",
+                "ros2": "ros_runtime",
+            }),
+            patch.object(server, "_stop_runtime_module", side_effect=fake_stop),
+            patch.object(server, "_stop_remote_ros2_services", side_effect=no_remote),
+            patch.object(server, "_stop_remote_ros2_image_services", side_effect=no_remote_images),
+        ):
+            result = server._stop_runtime_services()
+
+        self.assertTrue(result["ok"])
+        self.assertLess(order.index("joint_control"), order.index("robot"))
+        self.assertLess(order.index("robot"), order.index("ros2"))
+        self.assertLess(order.index("robot"), order.index("remote_ros2"))
+
     def test_stop_runtime_services_returns_when_a_package_stop_hangs(self):
         release = threading.Event()
 

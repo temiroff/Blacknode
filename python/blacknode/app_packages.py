@@ -568,13 +568,20 @@ def main() -> int:
         threading.Thread(target=open_when_ready, args=(url,), daemon=True).start()
 
     import uvicorn
-    uvicorn.run(
-        "server:app",
-        host=args.host,
-        port=args.port,
-        reload=False,
-        access_log=False,
-    )
+    import server as server_module
+    try:
+        uvicorn.run(
+            server_module.app,
+            host=args.host,
+            port=args.port,
+            reload=False,
+            access_log=False,
+        )
+    finally:
+        # Uvicorn normally runs application shutdown hooks, but an explicit
+        # finalizer keeps packaged Apps safe when startup fails midway or the
+        # server returns through a platform-specific console-close path.
+        server_module._stop_runtime_services()
     return 0
 
 

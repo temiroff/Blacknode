@@ -1668,6 +1668,46 @@ def _stop_runtime_module(label: str, module_name: str) -> dict[str, Any]:
 _RUNTIME_STOP_TIMEOUT_SECONDS = 12.0
 
 
+def _stop_runtime_phase(
+    stop_tasks: dict[str, Callable[[], dict[str, Any]]],
+    *,
+    timeout: float,
+) -> dict[str, dict[str, Any]]:
+    """Stop one independent runtime phase within a bounded interval."""
+    if not stop_tasks:
+        return {}
+    executor = ThreadPoolExecutor(max_workers=max(1, min(16, len(stop_tasks))))
+    future_labels = {
+        executor.submit(stop_task): label
+        for label, stop_task in stop_tasks.items()
+    }
+    completed, pending = wait(future_labels, timeout=max(0.0, timeout))
+    results: dict[str, dict[str, Any]] = {}
+    for future in completed:
+        label = future_labels[future]
+        try:
+            results[label] = dict(future.result())
+        except Exception as exc:
+            results[label] = {
+                "ok": False,
+                "stopped": {},
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+    for future in pending:
+        label = future_labels[future]
+        future.cancel()
+        results[label] = {
+            "ok": False,
+            "stopped": {},
+            "error": (
+                f"{label} stop is still completing in the background after "
+                f"{timeout:g} seconds"
+            ),
+        }
+    executor.shutdown(wait=False, cancel_futures=True)
+    return results
+
+
 def _stop_runtime_services() -> dict[str, Any]:
     stop_tasks: dict[str, Callable[[], dict[str, Any]]] = {
         label: (lambda label=label, module_name=module_name: _stop_runtime_module(label, module_name))
@@ -1676,42 +1716,31 @@ def _stop_runtime_services() -> dict[str, Any]:
     stop_tasks["remote_ros2"] = _stop_remote_ros2_services
     stop_tasks["remote_ros2_images"] = _stop_remote_ros2_image_services
 
-    # Package and remote services are independent managed runtimes. Stop them
-    # concurrently and bound the HTTP response so one faulty package cannot
-    # strand the editor in "Stopping live" forever. A timed-out handler keeps
-    # finishing in its worker while the editor receives an actionable result.
-    executor = ThreadPoolExecutor(max_workers=max(1, min(16, len(stop_tasks))))
-    future_labels = {
-        executor.submit(stop_task): label
-        for label, stop_task in stop_tasks.items()
-    }
-    completed, pending = wait(
-        future_labels,
-        timeout=_RUNTIME_STOP_TIMEOUT_SECONDS,
+    # Stop command producers first, physical robot drivers second, and ROS
+    # transports last. A robot stop may need its live transport to send and
+    # verify torque-off; stopping every module concurrently races that safety
+    # message against rosbridge shutdown. Independent services within a phase
+    # still stop concurrently, and each phase is bounded so a faulty package
+    # cannot strand the operator in "Stopping live" forever.
+    transport_labels = {"ros2", "remote_ros2", "remote_ros2_images"}
+    robot_labels = {"robot", "robot_calibration_control"}
+    # The robot package can spend up to roughly seven seconds publishing and
+    # verifying torque-off, then waiting for the driver's own finalizer. Give
+    # that phase eight of the bounded twelve seconds so transport shutdown
+    # cannot overtake a valid worst-case release path.
+    phase_timeouts = (
+        _RUNTIME_STOP_TIMEOUT_SECONDS / 6.0,
+        _RUNTIME_STOP_TIMEOUT_SECONDS * 2.0 / 3.0,
+        _RUNTIME_STOP_TIMEOUT_SECONDS / 6.0,
+    )
+    phases = (
+        {label: task for label, task in stop_tasks.items() if label not in robot_labels | transport_labels},
+        {label: task for label, task in stop_tasks.items() if label in robot_labels},
+        {label: task for label, task in stop_tasks.items() if label in transport_labels},
     )
     completed_results: dict[str, dict[str, Any]] = {}
-    for future in completed:
-        label = future_labels[future]
-        try:
-            completed_results[label] = dict(future.result())
-        except Exception as exc:
-            completed_results[label] = {
-                "ok": False,
-                "stopped": {},
-                "error": f"{type(exc).__name__}: {exc}",
-            }
-    for future in pending:
-        label = future_labels[future]
-        future.cancel()
-        completed_results[label] = {
-            "ok": False,
-            "stopped": {},
-            "error": (
-                f"{label} stop is still completing in the background after "
-                f"{_RUNTIME_STOP_TIMEOUT_SECONDS:g} seconds"
-            ),
-        }
-    executor.shutdown(wait=False, cancel_futures=True)
+    for phase, timeout in zip(phases, phase_timeouts):
+        completed_results.update(_stop_runtime_phase(phase, timeout=timeout))
     modules = {
         label: completed_results[label]
         for label in stop_tasks
