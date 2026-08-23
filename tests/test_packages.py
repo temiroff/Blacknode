@@ -636,6 +636,37 @@ def test_component_setup_installs_only_enabled_manifest_dependencies(tmp_path, m
     assert "optional-driver>=2" not in command
 
 
+def test_component_setup_can_skip_python_for_pre_resolved_app_dependencies(tmp_path, monkeypatch):
+    pkg = _write_package(
+        tmp_path,
+        name="bn-app-component-setup",
+        node_name="_PkgAppComponentSetupRoot",
+        component_metadata='''
+        [components.core]
+        default = true
+        nodes = ["components/core/nodes"]
+        pip = ["core-driver>=1"]
+        ''',
+    )
+    _write_component_node(pkg, "core", "_PkgAppComponentSetupCore")
+    (pkg / "requirements.txt").write_text("shared-runtime>=1\n", encoding="utf-8")
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    warnings = install_prerequisites(
+        pkg,
+        progress=lambda _line: None,
+        install_python=False,
+    )
+
+    assert warnings == []
+    assert commands == []
+
+
 def test_component_dependency_plan_enables_installed_dependencies_in_order(tmp_path):
     dependency = _write_package(
         tmp_path,

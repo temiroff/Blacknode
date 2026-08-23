@@ -16,7 +16,7 @@ from blacknode.app_deployments import (
     operator_permissions,
     public_app_deployment,
 )
-from blacknode.app_packages import APP_PACKAGE_KIND, package_app_deployment
+from blacknode.app_packages import APP_PACKAGE_KIND, _app_python_requirements, package_app_deployment
 from blacknode.cli import main
 
 
@@ -111,6 +111,18 @@ def _workflow(*, secret: str = "") -> dict:
 
 
 class AppDeploymentTests(unittest.TestCase):
+    def test_app_requirements_add_provider_clients_only_for_ai_nodes(self):
+        plain = {"apps": [{"workflow": {"node_meta": {"text": {"type": "Text"}}}}]}
+        ai = {"apps": [{"workflow": {"node_meta": {"agent": {"type": "AgentLoop"}}}}]}
+
+        plain_requirements = _app_python_requirements(plain, {})
+        ai_requirements = _app_python_requirements(ai, {})
+
+        self.assertNotIn("anthropic>=0.25", plain_requirements)
+        self.assertNotIn("openai>=1.0", plain_requirements)
+        self.assertIn("anthropic>=0.25", ai_requirements)
+        self.assertIn("openai>=1.0", ai_requirements)
+
     def test_bundle_exposes_summary_and_operator_permissions(self):
         manifest = build_app_deployment(
             [("customer.json", _workflow())],
@@ -161,10 +173,12 @@ class AppDeploymentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "blacknode"
             package = root / "packages" / "blacknode-example"
+            support_package = root / "packages" / "blacknode-support"
             (root / "python" / "blacknode").mkdir(parents=True)
             (root / "editor-server").mkdir()
             (root / "editor" / "dist" / "assets").mkdir(parents=True)
             package.mkdir(parents=True)
+            support_package.mkdir(parents=True)
             (root / "pyproject.toml").write_text("[project]\nname='blacknode'\nversion='1.0.0'\n", encoding="utf-8")
             (root / "README.md").write_text("Blacknode\n", encoding="utf-8")
             (root / "LICENSE").write_text("test\n", encoding="utf-8")
@@ -175,14 +189,36 @@ class AppDeploymentTests(unittest.TestCase):
             (root / "editor" / "dist" / "assets" / "app.js").write_text("export {}", encoding="utf-8")
             (package / "blacknode-package.toml").write_text(
                 "[package]\nname='blacknode-example'\nversion='1.0.0'\ncomponent-mode=true\n"
+                "[dependencies]\npip=['shared-runtime>=1']\n"
                 "[components.operator]\ndefault=true\n"
+                "[components.operator.dependencies]\npip=['operator-runtime>=2']\n"
+                "requires=[{package='blacknode-support',component='base'}]\n"
                 "[components.operator.adapters.mock]\ndefault=true\n"
-                "[components.auto]\ndefault=false\nnode-types=['Output']\n",
+                "[components.operator.adapters.mock.dependencies]\npip=['mock-runtime>=3']\n"
+                "[components.auto]\ndefault=false\nnode-types=['Output']\n"
+                "[components.auto.dependencies]\npip=['output-runtime>=4']\n"
+                "[components.unused]\ndefault=false\n"
+                "[components.unused.dependencies]\npip=['unused-runtime>=5']\n",
                 encoding="utf-8",
             )
-            (package / "requirements.txt").write_text("example-runtime\n", encoding="utf-8")
+            (package / "requirements.txt").write_text(
+                "shared-runtime>=1\noperator-runtime>=2\nmock-runtime>=3\n"
+                "output-runtime>=4\nunused-runtime>=5\n",
+                encoding="utf-8",
+            )
+            (support_package / "blacknode-package.toml").write_text(
+                "[package]\nname='blacknode-support'\nversion='1.0.0'\ncomponent-mode=true\n"
+                "[components.base]\ndefault=false\n"
+                "[components.base.dependencies]\npip=['support-runtime>=6']\n",
+                encoding="utf-8",
+            )
+            (support_package / "requirements.txt").write_text(
+                "support-runtime>=6\nunrelated-support-runtime>=7\n",
+                encoding="utf-8",
+            )
             self._commit_repo(root)
             self._commit_repo(package)
+            self._commit_repo(support_package)
 
             deployment = root / "customer.blacknode-app.json"
             deployment.write_text(
@@ -201,18 +237,39 @@ class AppDeploymentTests(unittest.TestCase):
                 self.assertIn("core/python/blacknode/__init__.py", names)
                 self.assertIn("server/server.py", names)
                 self.assertIn("packages/blacknode-example/blacknode-package.toml", names)
+                self.assertIn("packages/blacknode-support/blacknode-package.toml", names)
                 self.assertIn("install.ps1", names)
                 self.assertIn("install.sh", names)
                 self.assertIn("start.ps1", names)
                 self.assertIn("start.sh", names)
+                self.assertIn("requirements.app.txt", names)
                 packaged_deployment = json.loads(archive.read("deployment.blacknode-app.json"))
                 self.assertEqual(
                     packaged_deployment["required_components"],
-                    ["blacknode-example/auto", "blacknode-example/operator"],
+                    [
+                        "blacknode-example/auto",
+                        "blacknode-example/operator",
+                        "blacknode-support/base",
+                    ],
                 )
                 metadata = json.loads(archive.read("blacknode-app-package.json"))
                 self.assertEqual(metadata["kind"], APP_PACKAGE_KIND)
-                self.assertEqual(set(metadata["revisions"]), {"blacknode", "blacknode-example"})
+                self.assertEqual(
+                    set(metadata["revisions"]),
+                    {"blacknode", "blacknode-example", "blacknode-support"},
+                )
+                requirements = archive.read("requirements.app.txt").decode("utf-8").splitlines()
+                self.assertEqual(metadata["python_requirements"], requirements)
+                self.assertIn("fastapi>=0.110", requirements)
+                self.assertIn("shared-runtime>=1", requirements)
+                self.assertIn("operator-runtime>=2", requirements)
+                self.assertIn("mock-runtime>=3", requirements)
+                self.assertIn("output-runtime>=4", requirements)
+                self.assertIn("support-runtime>=6", requirements)
+                self.assertNotIn("unused-runtime>=5", requirements)
+                self.assertNotIn("unrelated-support-runtime>=7", requirements)
+                self.assertNotIn("anthropic>=0.25", requirements)
+                self.assertNotIn("openai>=1.0", requirements)
                 component_state = json.loads(archive.read("packages/.blacknode-components.json"))
                 self.assertEqual(
                     component_state,
@@ -223,12 +280,17 @@ class AppDeploymentTests(unittest.TestCase):
                                 "operator": False,
                                 "operator@mock": False,
                                 "auto": False,
+                                "unused": False,
                             },
+                            "blacknode-support": {"base": False},
                         },
                     },
                 )
                 compile(archive.read("bundle_setup.py"), "bundle_setup.py", "exec")
                 compile(archive.read("run_app.py"), "run_app.py", "exec")
+                self.assertIn("--no-deps", archive.read("install.ps1").decode("utf-8"))
+                self.assertIn("requirements.app.txt", archive.read("install.sh").decode("utf-8"))
+                self.assertNotIn("server/requirements.txt", archive.read("install.sh").decode("utf-8"))
                 self.assertNotIn(".git", "\n".join(names))
 
     def test_package_app_cli_routes_manifest_and_output(self):

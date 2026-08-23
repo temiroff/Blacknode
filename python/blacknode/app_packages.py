@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .app_deployments import AppDeploymentError, load_app_deployment
+from .node import _NODE_REGISTRY
 
 
 APP_PACKAGE_KIND = "blacknode.app-package"
@@ -20,6 +21,17 @@ _SERVER_FILES = {
     "editor-server/requirements.txt",
 }
 _SERVER_SUFFIXES = (".py",)
+_APP_HOST_REQUIREMENTS = (
+    "fastapi>=0.110",
+    "starlette>=0.37",
+    "uvicorn[standard]>=0.29",
+)
+_CORE_NODE_REQUIREMENTS = {
+    "blacknode.nodes.ai": ("anthropic>=0.25", "openai>=1.0"),
+    "blacknode.nodes.nvidia": ("openai>=1.0",),
+    "blacknode.nodes.nvidia_rag": ("openai>=1.0",),
+    "blacknode.learned": ("docker>=7.1",),
+}
 
 
 def _repo_root() -> Path:
@@ -73,7 +85,7 @@ def _safe_files(root: Path, paths: Iterable[Path]) -> list[Path]:
     return sorted(safe, key=lambda value: value.as_posix())
 
 
-def _package_sources(packages_root: Path, required: Iterable[str]) -> dict[str, Path]:
+def _discover_package_sources(packages_root: Path) -> dict[str, Path]:
     discovered: dict[str, Path] = {}
     if packages_root.is_dir():
         for candidate in packages_root.iterdir():
@@ -87,6 +99,11 @@ def _package_sources(packages_root: Path, required: Iterable[str]) -> dict[str, 
             name = str(package.get("name") or "").strip()
             if name:
                 discovered[name] = candidate
+    return discovered
+
+
+def _package_sources(packages_root: Path, required: Iterable[str]) -> dict[str, Path]:
+    discovered = _discover_package_sources(packages_root)
     missing = sorted(set(required) - set(discovered))
     if missing:
         raise AppDeploymentError(
@@ -94,6 +111,211 @@ def _package_sources(packages_root: Path, required: Iterable[str]) -> dict[str, 
             f"{packages_root}: {', '.join(missing)}"
         )
     return {name: discovered[name] for name in sorted(set(required))}
+
+
+def _package_manifest(package_dir: Path) -> dict[str, Any]:
+    try:
+        value = tomllib.loads((package_dir / "blacknode-package.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise AppDeploymentError(f"Could not read package manifest in {package_dir}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise AppDeploymentError(f"Package manifest in {package_dir} must be a TOML table.")
+    return value
+
+
+def _string_values(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _surface_parts(value: object, *, adapter: bool = False) -> tuple[str, ...]:
+    package, separator, rest = str(value or "").strip().partition("/")
+    if not separator or not package or not rest:
+        raise AppDeploymentError(f"Invalid App package requirement: {value}")
+    if not adapter:
+        return package, rest
+    component, separator, adapter_name = rest.partition("@")
+    if not separator or not component or not adapter_name:
+        raise AppDeploymentError(f"Invalid App adapter requirement: {value}")
+    return package, component, adapter_name
+
+
+def _component_dependencies(config: object) -> Mapping[str, Any]:
+    if not isinstance(config, Mapping):
+        return {}
+    dependencies = config.get("dependencies", {})
+    return dependencies if isinstance(dependencies, Mapping) else {}
+
+
+def _expand_component_requirements(
+    manifest: dict[str, Any],
+    packages_root: Path,
+    package_sources: dict[str, Path],
+) -> dict[str, Path]:
+    """Bundle and activate the complete local component dependency closure."""
+    available = _discover_package_sources(packages_root)
+    components = {
+        _surface_parts(value)
+        for value in manifest.get("required_components", [])
+    }
+    adapters = {
+        _surface_parts(value, adapter=True)
+        for value in manifest.get("required_adapters", [])
+    }
+    components.update((package, component) for package, component, _adapter in adapters)
+    pending = list(components)
+    inspected: set[tuple[str, str]] = set()
+
+    def require_package(name: str) -> Path:
+        source = package_sources.get(name) or available.get(name)
+        if source is None:
+            raise AppDeploymentError(
+                f"Required component package source is missing from {packages_root}: {name}"
+            )
+        package_sources[name] = source
+        return source
+
+    def add_requirements(owner: str, values: object) -> None:
+        if not isinstance(values, list):
+            return
+        for value in values:
+            if not isinstance(value, Mapping):
+                continue
+            dependency_package = str(value.get("package") or owner).strip()
+            dependency_component = str(value.get("component") or "").strip()
+            require_package(dependency_package)
+            if dependency_component:
+                key = (dependency_package, dependency_component)
+                if key not in components:
+                    components.add(key)
+                    pending.append(key)
+
+    for package, component, adapter_name in adapters:
+        source = require_package(package)
+        package_manifest = _package_manifest(source)
+        component_values = package_manifest.get("components", {})
+        component_config = (
+            component_values.get(component)
+            if isinstance(component_values, Mapping) else None
+        )
+        if not isinstance(component_config, Mapping):
+            raise AppDeploymentError(f"Package '{package}' has no component '{component}'.")
+        adapter_values = component_config.get("adapters", {})
+        adapter_config = (
+            adapter_values.get(adapter_name)
+            if isinstance(adapter_values, Mapping) else None
+        )
+        if not isinstance(adapter_config, Mapping):
+            raise AppDeploymentError(
+                f"Package '{package}' has no adapter '{component}@{adapter_name}'."
+            )
+        add_requirements(package, _component_dependencies(adapter_config).get("requires", []))
+
+    while pending:
+        package, component = pending.pop(0)
+        if (package, component) in inspected:
+            continue
+        inspected.add((package, component))
+        source = require_package(package)
+        package_manifest = _package_manifest(source)
+        component_values = package_manifest.get("components", {})
+        component_config = (
+            component_values.get(component)
+            if isinstance(component_values, Mapping) else None
+        )
+        if not isinstance(component_config, Mapping):
+            raise AppDeploymentError(f"Package '{package}' has no component '{component}'.")
+        add_requirements(package, _component_dependencies(component_config).get("requires", []))
+
+    manifest["required_packages"] = sorted(package_sources)
+    manifest["required_components"] = sorted(
+        f"{package}/{component}" for package, component in components
+    )
+    return {name: package_sources[name] for name in sorted(package_sources)}
+
+
+def _requirement_file_values(path: Path) -> list[str]:
+    values: list[str] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        value = raw.strip()
+        if not value or value.startswith("#"):
+            continue
+        if value.startswith("-"):
+            raise AppDeploymentError(
+                f"Portable App requirements do not support requirement-file directives in {path}: {value}"
+            )
+        values.append(value)
+    return values
+
+
+def _app_python_requirements(
+    manifest: Mapping[str, Any],
+    package_sources: Mapping[str, Path],
+) -> list[str]:
+    """Resolve Python dependencies for only the Apps and package surfaces in the bundle."""
+    requirements = list(_APP_HOST_REQUIREMENTS)
+    node_types = {
+        str(node.get("type") or "")
+        for app in manifest.get("apps", [])
+        if isinstance(app, Mapping)
+        for node in (
+            app.get("workflow", {}).get("node_meta", {}).values()
+            if isinstance(app.get("workflow"), Mapping)
+            and isinstance(app.get("workflow", {}).get("node_meta"), Mapping)
+            else []
+        )
+        if isinstance(node, Mapping)
+    }
+    for node_type in sorted(node_types):
+        function = _NODE_REGISTRY.get(node_type)
+        module = str(getattr(function, "__module__", ""))
+        for prefix, values in _CORE_NODE_REQUIREMENTS.items():
+            if module == prefix or module.startswith(prefix + "."):
+                requirements.extend(values)
+
+    selected_components = {
+        _surface_parts(value)
+        for value in manifest.get("required_components", [])
+    }
+    selected_adapters = {
+        _surface_parts(value, adapter=True)
+        for value in manifest.get("required_adapters", [])
+    }
+    for package_name, package_dir in package_sources.items():
+        package_manifest = _package_manifest(package_dir)
+        package_meta = package_manifest.get("package", {})
+        dependencies = package_manifest.get("dependencies", {})
+        if isinstance(dependencies, Mapping):
+            requirements.extend(_string_values(dependencies.get("pip", [])))
+        component_values = package_manifest.get("components", {})
+        component_mode = (
+            bool(package_meta.get("component-mode", False))
+            if isinstance(package_meta, Mapping) else False
+        )
+        if isinstance(component_values, Mapping) and any(
+            isinstance(value, Mapping) and value.get("nodes") for value in component_values.values()
+        ):
+            component_mode = True
+        if not component_mode:
+            requirements_path = package_dir / "requirements.txt"
+            if requirements_path.is_file():
+                requirements.extend(_requirement_file_values(requirements_path))
+        if not isinstance(component_values, Mapping):
+            continue
+        for owner, component_name in sorted(selected_components):
+            if owner != package_name:
+                continue
+            component = component_values.get(component_name, {})
+            requirements.extend(_string_values(_component_dependencies(component).get("pip", [])))
+        for owner, component_name, adapter_name in sorted(selected_adapters):
+            if owner != package_name:
+                continue
+            component = component_values.get(component_name, {})
+            adapters = component.get("adapters", {}) if isinstance(component, Mapping) else {}
+            adapter_config = adapters.get(adapter_name, {}) if isinstance(adapters, Mapping) else {}
+            requirements.extend(_string_values(_component_dependencies(adapter_config).get("pip", [])))
+    return list(dict.fromkeys(requirements))
 
 
 def _initial_component_state(package_sources: Mapping[str, Path]) -> dict[str, Any]:
@@ -187,7 +409,6 @@ def _bundle_setup_script() -> str:
 
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -215,13 +436,6 @@ def main() -> int:
         return 1
     manifest = json.loads(DEPLOYMENT.read_text(encoding="utf-8"))
     package_dirs = sorted(path.parent for path in PACKAGES.glob("*/blacknode-package.toml"))
-    for package_dir in package_dirs:
-        requirements = package_dir / "requirements.txt"
-        if requirements.is_file():
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-r", str(requirements)],
-                check=True,
-            )
 
     os.environ["BLACKNODE_PACKAGE_PATH"] = str(PACKAGES)
     from blacknode.packages import (
@@ -243,7 +457,7 @@ def main() -> int:
 
     warnings: list[str] = []
     for package_dir in package_dirs:
-        warnings.extend(install_prerequisites(package_dir))
+        warnings.extend(install_prerequisites(package_dir, install_python=False))
     if warnings:
         print("App prerequisites need attention:", file=sys.stderr)
         for warning in warnings:
@@ -343,8 +557,8 @@ if (-not (Test-Path -LiteralPath $VenvPython)) {
 }
 
 & $VenvPython -m pip install --upgrade pip
-& $VenvPython -m pip install (Join-Path $BundleRoot "core")
-& $VenvPython -m pip install -r (Join-Path $BundleRoot "server\\requirements.txt")
+& $VenvPython -m pip install --no-deps (Join-Path $BundleRoot "core")
+& $VenvPython -m pip install -r (Join-Path $BundleRoot "requirements.app.txt")
 & $VenvPython (Join-Path $BundleRoot "bundle_setup.py")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "Installed. Run .\\start.ps1 to open the Blacknode App."
@@ -370,8 +584,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 command -v python3 >/dev/null 2>&1 || { echo "Python 3.11 or newer is required." >&2; exit 1; }
 python3 -m venv "$ROOT/.venv"
 "$ROOT/.venv/bin/python" -m pip install --upgrade pip
-"$ROOT/.venv/bin/python" -m pip install "$ROOT/core"
-"$ROOT/.venv/bin/python" -m pip install -r "$ROOT/server/requirements.txt"
+"$ROOT/.venv/bin/python" -m pip install --no-deps "$ROOT/core"
+"$ROOT/.venv/bin/python" -m pip install -r "$ROOT/requirements.app.txt"
 "$ROOT/.venv/bin/python" "$ROOT/bundle_setup.py"
 echo "Installed. Run ./start.sh to open the Blacknode App."
 '''
@@ -461,6 +675,8 @@ def package_app_deployment(
 
     package_sources = _package_sources(package_root, manifest.get("required_packages", []))
     _infer_node_component_requirements(manifest, package_sources)
+    package_sources = _expand_component_requirements(manifest, package_root, package_sources)
+    python_requirements = _app_python_requirements(manifest, package_sources)
     output_path = Path(output).expanduser() if output else Path(f"{manifest['id']}.blacknode-app.zip")
     output_path = output_path.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -477,12 +693,14 @@ def package_app_deployment(
         "id": manifest["id"],
         "start_app": manifest["start_app"],
         "python": ">=3.11",
+        "python_requirements": python_requirements,
         "revisions": revisions,
     }
 
     with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         _write_text(archive, "deployment.blacknode-app.json", json.dumps(manifest, indent=2) + "\n")
         _write_text(archive, "blacknode-app-package.json", json.dumps(package_metadata, indent=2) + "\n")
+        _write_text(archive, "requirements.app.txt", "\n".join(python_requirements) + "\n")
         _write_text(
             archive,
             "packages/.blacknode-components.json",

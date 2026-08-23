@@ -2289,9 +2289,16 @@ def install_from_git(
     return {"ok": False, "package": info.to_dict(), "error": info.error}
 
 
-def install_prerequisites(pkg_dir: str | Path, progress: Callable[[str], None] = print) -> list[str]:
+def install_prerequisites(
+    pkg_dir: str | Path,
+    progress: Callable[[str], None] = print,
+    *,
+    install_python: bool = True,
+) -> list[str]:
     """Install a package's pip requirements and pull its declared Docker
-    images. Returns warning strings; never raises."""
+    images. Portable App installers can set ``install_python=False`` after
+    installing their pre-resolved App requirement set. Returns warning strings;
+    never raises."""
     pkg_path = Path(pkg_dir).expanduser().resolve()
     warnings: list[str] = []
     info = load_package(pkg_path)
@@ -2305,7 +2312,7 @@ def install_prerequisites(pkg_dir: str | Path, progress: Callable[[str], None] =
     if info.pip_dependencies:
         install_args.extend(info.pip_dependencies)
         sources.append("enabled manifest dependencies")
-    if install_args:
+    if install_python and install_args:
         progress(f"Installing pip dependencies from {' and '.join(sources)}")
         pip = subprocess.run([sys.executable, "-m", "pip", "install", *install_args])
         if pip.returncode != 0:

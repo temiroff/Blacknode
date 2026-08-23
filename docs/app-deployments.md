@@ -72,6 +72,15 @@ files enter the archive; repository state, caches, run data, editor state, and
 local credentials stay out. The archive also records the exact Git commit for
 core and every bundled extension package.
 
+Each archive contains `requirements.app.txt` and records the same list under
+`python_requirements` in `blacknode-app-package.json`. Blacknode resolves this
+list from the App host, core node types, package-level shared requirements, and
+the selected components, adapters, and their transitive component dependencies.
+Component-mode package aggregate `requirements.txt` files do not expand the App
+installation. Flat packages retain their declared root requirements. Package
+authors place optional dependencies in their component or adapter tables so an
+App installs only the capabilities it exposes.
+
 The recipient extracts the ZIP and runs:
 
 ```powershell
