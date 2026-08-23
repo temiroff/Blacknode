@@ -1,6 +1,6 @@
 """Blacknode editor backend — FastAPI server the React editor talks to."""
 from __future__ import annotations
-import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib, math, copy, base64, tempfile
+import asyncio, uuid, os, sys, json, threading, re, queue, io, contextlib, time, subprocess, importlib, signal, shlex, hashlib, math, copy, base64, tempfile, shutil
 from array import array
 import urllib.error, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -22,11 +22,13 @@ from blacknode import console as command_console
 from blacknode.app_deployments import (
     AppDeploymentError,
     app_by_id as deployment_app_by_id,
+    export_app_deployment,
     load_app_deployment,
     operator_permissions,
     permission_value,
     public_app_deployment,
 )
+from blacknode.app_packages import package_app_deployment
 from blacknode.node import fill_frame_stream as bn_fill_frame_stream
 from blacknode.deployments import DeploymentError, DeploymentStore, resolve_entrypoint
 from blacknode.discovery import discover_node_modules, load_node_file
@@ -782,6 +784,12 @@ class FrameworkExportReq(BaseModel):
 class ExportWorkflowReq(BaseModel):
     workflow: dict[str, Any] | None = None
 
+class PackageAppsReq(BaseModel):
+    workflow_slugs: list[str] = Field(min_length=1, max_length=32)
+    deployment_id: str
+    name: str = ""
+    start_app: str = ""
+
 class ImportPythonReq(BaseModel):
     code: str
     name: str = "Imported Python Workflow"
@@ -950,6 +958,7 @@ _editor_action_lock = threading.Lock()
 _learned_node_event_subscribers: list[queue.Queue] = []
 _learned_node_event_lock = threading.Lock()
 _active_cook_lock = threading.Lock()
+_app_package_lock = threading.Lock()
 _active_cook_stop: threading.Event | None = None
 
 
@@ -14541,6 +14550,118 @@ def list_workflows():
         except Exception:
             pass
     return result
+
+
+def _packageable_workflow_summary(slug: str, data: object) -> dict[str, Any] | None:
+    if not isinstance(data, dict):
+        return None
+    metadata = data.get("metadata")
+    view = metadata.get("operator_view") if isinstance(metadata, dict) else None
+    if not isinstance(view, dict) or view.get("schema_version") != 1:
+        return None
+    app_id = str(view.get("id") or "").strip()
+    title = str(view.get("title") or "").strip()
+    sections = view.get("sections")
+    if not app_id or not title or not isinstance(sections, list) or not sections:
+        return None
+    return {
+        "slug": slug,
+        "name": str(data.get("name") or slug),
+        "saved_at": str(data.get("saved_at") or ""),
+        "app_id": app_id,
+        "title": title,
+        "description": str(view.get("description") or ""),
+        "icon": str(view.get("icon") or "workflow"),
+        "accent": str(view.get("accent") or ""),
+    }
+
+
+@app.get("/app-packages/workflows")
+def list_packageable_workflows():
+    os.makedirs(_WORKFLOWS_DIR, exist_ok=True)
+    result: list[dict[str, Any]] = []
+    for fname in sorted(os.listdir(_WORKFLOWS_DIR)):
+        if not fname.endswith(".json"):
+            continue
+        path = os.path.join(_WORKFLOWS_DIR, fname)
+        try:
+            with open(path, encoding="utf-8") as file:
+                summary = _packageable_workflow_summary(fname[:-5], json.load(file))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if summary is not None:
+            result.append(summary)
+    return result
+
+
+def _build_app_editor_assets() -> Path:
+    root = Path(__file__).resolve().parents[1]
+    editor_dir = root / "editor"
+    npm = shutil.which("npm.cmd" if os.name == "nt" else "npm") or shutil.which("npm")
+    if npm is None:
+        raise AppDeploymentError("npm is required to build the customer App UI.")
+    try:
+        result = subprocess.run(
+            [npm, "run", "build"],
+            cwd=editor_dir,
+            capture_output=True,
+            text=True,
+            timeout=240,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AppDeploymentError(f"Could not build the customer App UI: {exc}") from exc
+    if result.returncode != 0:
+        output = "\n".join((result.stdout + "\n" + result.stderr).splitlines()[-16:]).strip()
+        raise AppDeploymentError(f"Customer App UI build failed:\n{output}")
+    dist = editor_dir / "dist"
+    if not (dist / "index.html").is_file():
+        raise AppDeploymentError(f"Customer App UI build produced no index.html in {dist}.")
+    return dist
+
+
+@app.post("/app-packages")
+def package_saved_workflow_apps(req: PackageAppsReq):
+    slugs = list(dict.fromkeys(value.strip() for value in req.workflow_slugs if value.strip()))
+    if not slugs:
+        raise HTTPException(400, "Select at least one saved Workflow App.")
+    workflow_paths: list[Path] = []
+    for slug in slugs:
+        path = Path(_workflow_path(slug))
+        if not path.is_file():
+            raise HTTPException(404, f"Workflow '{slug}' was not found. Save it before packaging.")
+        workflow_paths.append(path)
+    try:
+        with _app_package_lock:
+            with tempfile.TemporaryDirectory(prefix="blacknode-app-package-") as temporary:
+                temporary_root = Path(temporary)
+                manifest_path = temporary_root / "deployment.blacknode-app.json"
+                export_app_deployment(
+                    workflow_paths,
+                    manifest_path,
+                    deployment_id=req.deployment_id,
+                    name=req.name.strip() or None,
+                    start_app=req.start_app.strip() or None,
+                )
+                deployment = load_app_deployment(manifest_path)
+                deployment_id = str(deployment["id"])
+                editor_dist = _build_app_editor_assets()
+                archive_path = package_app_deployment(
+                    manifest_path,
+                    temporary_root / f"{deployment_id}.blacknode-app.zip",
+                    editor_dist=editor_dist,
+                )
+                content = archive_path.read_bytes()
+    except (AppDeploymentError, RuntimeError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    filename = f"{deployment_id}.blacknode-app.zip"
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Blacknode-App-Count": str(len(slugs)),
+        },
+    )
 
 
 @app.get("/templates")

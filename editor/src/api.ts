@@ -1144,6 +1144,22 @@ export interface AppDeploymentSummary {
   }>
 }
 
+export interface PackageableAppWorkflow {
+  slug: string
+  name: string
+  saved_at: string
+  app_id: string
+  title: string
+  description: string
+  icon: string
+  accent: string
+}
+
+export interface AppPackageDownload {
+  filename: string
+  blob: Blob
+}
+
 export interface CloudAccount {
   id: string
   organization_id: string
@@ -1622,6 +1638,21 @@ async function responseJson<T>(res: Response, path: string): Promise<T> {
       `Backend returned invalid JSON for ${path}. This usually means the backend errored or sent binary data instead of an API response. Response preview: ${bodyPreview(text) || '(binary data)'}`,
     )
   }
+}
+
+async function downloadBinary(path: string, body: unknown): Promise<AppPackageDownload> {
+  const res = await fetchBackend(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    await responseJson<never>(res, path)
+    throw new Error(`Download failed for ${path}.`)
+  }
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? 'blacknode-app.zip'
+  return { filename, blob: await res.blob() }
 }
 
 function parseCookEventLine(line: string, label: string): CookEvent {
@@ -2615,6 +2646,14 @@ export const api = {
 
   listWorkflows: () =>
     req<{ slug: string; name: string; saved_at: string }[]>('GET', '/workflows'),
+  listPackageableAppWorkflows: () =>
+    req<PackageableAppWorkflow[]>('GET', '/app-packages/workflows'),
+  packageApps: (payload: {
+    workflow_slugs: string[]
+    deployment_id: string
+    name?: string
+    start_app?: string
+  }) => downloadBinary('/app-packages', payload),
   saveWorkflow: (name: string, previousSlug?: string | null) =>
     req<{ ok: boolean; slug: string }>('POST', '/workflows', { name, previous_slug: previousSlug ?? null }),
   loadWorkflow: (slug: string) =>

@@ -16,6 +16,21 @@ and arbitrary node execution remain outside the operator boundary.
 Every included workflow must validate and declare a versioned
 `metadata.operator_view` with a stable `id`.
 
+### Package from the editor
+
+Open an App workflow and choose **File → Package App…**. The editor saves the
+active App when needed, then lists every saved Workflow App available for the
+package. Select one or more Apps, set the package ID and optional package name,
+and choose which App opens first in a multi-App package. Press **Package ZIP**
+to build and download the installable archive.
+
+The editor builds the current production customer UI and uses the same export
+and packaging validation as the command line. The downloaded ZIP includes the
+Windows and Linux installers, pinned Blacknode sources, and the extension
+packages required by the selected Apps.
+
+Use the commands below for automation and release pipelines.
+
 ```powershell
 New-Item -ItemType Directory -Force .\.local-notes\deployments | Out-Null
 

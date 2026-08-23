@@ -30,6 +30,7 @@ import Inspector from './components/Inspector'
 import WorkflowShortcuts from './components/WorkflowShortcuts'
 import WorkflowOperatorView from './components/WorkflowOperatorView'
 import CustomerAppShell from './components/CustomerAppShell'
+import AppPackageDialog from './components/AppPackageDialog'
 import NodeSearch from './components/NodeSearch'
 import { portColor, portVisualColor, portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
@@ -313,6 +314,8 @@ function WorkspaceApp() {
   const [simulationViewerDetached, setSimulationViewerDetached] = useState(false)
   const [simulationViewerHeight, setSimulationViewerHeight] = useState(loadSimulationViewerHeight)
   const [fileMenuOpen, setFileMenuOpen] = useState(false)
+  const [appPackageDialogOpen, setAppPackageDialogOpen] = useState(false)
+  const [openingAppPackageDialog, setOpeningAppPackageDialog] = useState(false)
   const [fileMenuPosition, setFileMenuPosition] = useState({ top: 0, left: 0 })
   const [simulationViewerMenuOpen, setSimulationViewerMenuOpen] = useState(false)
   const [simulationViewerMenuPosition, setSimulationViewerMenuPosition] = useState({ top: 0, left: 0 })
@@ -1491,6 +1494,27 @@ function WorkspaceApp() {
     }
   }, [activeTab, activeTabId, editingTabId, renameTab, saveActiveWorkflow, tabDraft])
 
+  const openAppPackageDialog = useCallback(async () => {
+    if (openingAppPackageDialog) return
+    setOpeningAppPackageDialog(true)
+    try {
+      if (operatorView && activeTab && (activeTab.dirty || !activeTab.slug)) {
+        await handleSaveWorkflow()
+      }
+      setAppPackageDialogOpen(true)
+    } catch (cause) {
+      window.dispatchEvent(new CustomEvent('blacknode:notice', {
+        detail: {
+          kind: 'error',
+          title: 'Could not prepare App package',
+          message: cause instanceof Error ? cause.message : String(cause),
+        },
+      }))
+    } finally {
+      setOpeningAppPackageDialog(false)
+    }
+  }, [activeTab, handleSaveWorkflow, openingAppPackageDialog, operatorView])
+
   const closeTabNow = useCallback(async (tabId: string) => {
     if (editingTabId === tabId) {
       setEditingTabId(null)
@@ -2012,12 +2036,12 @@ function WorkspaceApp() {
                   setSimulationViewerMenuOpen(false)
                   setFileMenuOpen(open => !open)
                 }}
-                disabled={!serverOk || importingFile || Boolean(exportingTarget)}
+                disabled={!serverOk || importingFile || Boolean(exportingTarget) || openingAppPackageDialog}
                 title="Import or export a workflow"
                 aria-haspopup="menu"
                 aria-expanded={fileMenuOpen}
               >
-                {importingFile ? 'Importing…' : exportingTarget ? 'Exporting…' : 'File'}
+                {importingFile ? 'Importing…' : exportingTarget ? 'Exporting…' : openingAppPackageDialog ? 'Saving…' : 'File'}
                 <span aria-hidden="true">▾</span>
               </button>
 
@@ -2039,6 +2063,19 @@ function WorkspaceApp() {
                     <span>Import workflow…</span>
                     <small>JSON or Python</small>
                   </button>
+                  {!hostedPreview && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setFileMenuOpen(false)
+                        void openAppPackageDialog()
+                      }}
+                    >
+                      <span>Package App…</span>
+                      <small>Installable ZIP</small>
+                    </button>
+                  )}
                   <div className="bn-file-menu-divider" role="separator" />
                   <span className="bn-file-menu-label">Export as</span>
                   {frameworkExportTargets.map(target => (
@@ -2685,6 +2722,12 @@ function WorkspaceApp() {
             onCancel={() => setUsdPickerInitialPath(null)}
           />
         )}
+
+        <AppPackageDialog
+          open={appPackageDialogOpen}
+          currentAppId={operatorView?.id}
+          onClose={() => setAppPackageDialogOpen(false)}
+        />
 
         {pendingXacroEnvironment && (
           <div

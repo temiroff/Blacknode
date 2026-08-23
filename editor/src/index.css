@@ -12709,6 +12709,220 @@ html[data-ui-test="refined"] .bn-package-action-menu summary {
   font-weight: 700;
 }
 
+.bn-app-package-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgb(3 8 14 / 72%);
+  backdrop-filter: blur(10px);
+}
+
+.bn-app-package-dialog {
+  width: min(680px, calc(100vw - 36px));
+  max-height: min(760px, calc(100vh - 36px));
+  overflow: auto;
+  padding: 16px;
+  color: var(--tx1);
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line2));
+  border-radius: 10px;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 48%), 0 0 0 1px rgb(0 216 255 / 5%);
+}
+
+.bn-app-package-dialog > header,
+.bn-app-package-dialog > footer,
+.bn-app-package-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bn-app-package-dialog > header > div > span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--accent);
+  font: 700 11px/1 var(--font-mono);
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.bn-app-package-dialog h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.bn-app-package-dialog > header > button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--tx2);
+  background: transparent;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.bn-app-package-dialog > p {
+  margin: 10px 0 14px;
+  color: var(--tx2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.bn-app-package-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.bn-app-package-fields > label,
+.bn-app-package-start {
+  display: grid;
+  gap: 5px;
+  color: var(--tx2);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.bn-app-package-fields input,
+.bn-app-package-start select {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 9px;
+  color: var(--tx1);
+  background: var(--lift);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  outline: none;
+}
+
+.bn-app-package-fields input:focus,
+.bn-app-package-start select:focus {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--line2));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+.bn-app-package-workflows {
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line2);
+  border-radius: 7px;
+}
+
+.bn-app-package-section-title {
+  padding: 8px 10px;
+  color: var(--tx2);
+  background: var(--lift);
+  border-bottom: 1px solid var(--line2);
+  font-size: 11px;
+}
+
+.bn-app-package-section-title > span {
+  color: var(--tx3);
+  font: 11px var(--font-mono);
+}
+
+.bn-app-package-workflows > label {
+  display: grid;
+  grid-template-columns: auto 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line1);
+}
+
+.bn-app-package-workflows > label:last-child { border-bottom: 0; }
+.bn-app-package-workflows > label:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.bn-app-package-workflows > label.is-selected { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.bn-app-package-workflows input[type='checkbox'] { accent-color: var(--accent); }
+
+.bn-app-package-workflows i {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: var(--bn-app-package-accent);
+  background: color-mix(in srgb, var(--bn-app-package-accent) 9%, var(--lift));
+  border: 1px solid color-mix(in srgb, var(--bn-app-package-accent) 48%, var(--line2));
+  border-radius: 7px;
+  font-style: normal;
+}
+
+.bn-app-package-workflows svg { width: 18px; height: 18px; }
+.bn-app-package-workflows label > span { min-width: 0; }
+.bn-app-package-workflows label strong,
+.bn-app-package-workflows label small { display: block; }
+.bn-app-package-workflows label strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.bn-app-package-workflows label small { margin-top: 2px; color: var(--tx3); font-size: 11px; }
+
+.bn-app-package-empty {
+  padding: 20px 12px;
+  color: var(--tx3);
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.bn-app-package-start { margin-top: 10px; }
+
+.bn-app-package-dialog > p.bn-app-package-error {
+  margin: 10px 0 0;
+  padding: 8px 9px;
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--err) 32%, var(--line2));
+  border-radius: 6px;
+}
+
+.bn-app-package-dialog > footer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line2);
+}
+
+.bn-app-package-dialog > footer > span {
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.bn-app-package-dialog > footer > div { display: flex; gap: 7px; }
+
+.bn-app-package-dialog > footer button {
+  min-height: 32px;
+  padding: 6px 12px;
+  color: var(--tx2);
+  background: var(--lift);
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.bn-app-package-dialog > footer button.is-primary {
+  color: #031014;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.bn-app-package-dialog button:not(:disabled) { cursor: pointer; }
+.bn-app-package-dialog button:disabled,
+.bn-app-package-dialog input:disabled,
+.bn-app-package-dialog select:disabled { cursor: default; opacity: .55; }
+
+@media (max-width: 560px) {
+  .bn-app-package-fields { grid-template-columns: 1fr; }
+  .bn-app-package-dialog > footer { align-items: flex-end; }
+  .bn-app-package-dialog > footer > span { max-width: 130px; }
+}
+
 .bn-xacro-environment-backdrop {
   position: fixed;
   inset: 0;
