@@ -86,6 +86,19 @@ def test_operator_actions_reuse_graph_params_cooks_and_direct_controls():
     assert "window.confirm(item.confirm)" in view
 
 
+def test_operator_settings_import_calibration_json_in_the_browser():
+    contract = (ROOT / "editor" / "src" / "operatorView.ts").read_text(encoding="utf-8")
+    view = (
+        ROOT / "editor" / "src" / "components" / "WorkflowOperatorView.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert "'calibration_file'" in contract
+    assert 'accept=".json,application/json"' in view
+    assert "await file.text()" in view
+    assert "kind: 'blacknode.calibration-import'" in view
+    assert "bound to the connected arm" in view
+
+
 def test_operator_view_surfaces_live_activity_and_structured_failures():
     view = (
         ROOT / "editor" / "src" / "components" / "WorkflowOperatorView.tsx"

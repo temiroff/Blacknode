@@ -206,18 +206,64 @@ function OperatorField({ item }: { item: OperatorFieldItem }) {
 
   useEffect(() => setDraft(String(storedValue ?? '')), [storedValue])
 
+  const updateTargets = async (value: unknown) => {
+    const targets = [{ node_id: item.node_id, param: item.param }, ...(item.apply_to ?? [])]
+    const uniqueTargets = new Map(targets.map(target => [`${target.node_id}:${target.param}`, target]))
+    for (const target of uniqueTargets.values()) {
+      await updateParam(target.node_id, target.param, value)
+    }
+  }
+
   const commit = async () => {
     const value = item.input === 'number' ? Number(draft) : draft
     if (item.input === 'number' && !Number.isFinite(value)) return
     try {
-      const targets = [{ node_id: item.node_id, param: item.param }, ...(item.apply_to ?? [])]
-      const uniqueTargets = new Map(targets.map(target => [`${target.node_id}:${target.param}`, target]))
-      for (const target of uniqueTargets.values()) {
-        await updateParam(target.node_id, target.param, value)
-      }
+      await updateTargets(value)
     } catch (error) {
       notice('error', `Could not update ${item.label}`, error instanceof Error ? error.message : String(error))
     }
+  }
+
+  const importCalibration = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget
+    const file = input.files?.[0]
+    if (!file) return
+    if (file.size > 1024 * 1024) {
+      notice('error', `Could not import ${item.label}`, 'Calibration JSON must be smaller than 1 MB.')
+      input.value = ''
+      return
+    }
+    try {
+      const calibration = JSON.parse(await file.text()) as unknown
+      if (!calibration || typeof calibration !== 'object' || Array.isArray(calibration)) {
+        throw new Error('Calibration file must contain one JSON object.')
+      }
+      await updateTargets({
+        kind: 'blacknode.calibration-import',
+        schema_version: 1,
+        source_name: file.name,
+        calibration,
+      })
+      notice('info', `${item.label} selected`, `${file.name} will be validated, bound to the connected arm, and copied into Blacknode storage when Start live runs.`)
+    } catch (error) {
+      notice('error', `Could not import ${item.label}`, error instanceof Error ? error.message : String(error))
+    } finally {
+      input.value = ''
+    }
+  }
+
+  if (item.input === 'calibration_file') {
+    const record = storedValue && typeof storedValue === 'object' && !Array.isArray(storedValue)
+      ? storedValue as Record<string, unknown>
+      : undefined
+    const selected = String(record?.source_name ?? '').trim()
+    return (
+      <label>
+        <span>{item.label}</span>
+        <input type="file" accept=".json,application/json" onChange={event => void importCalibration(event)} />
+        <small>{selected ? `Selected: ${selected}` : (item.placeholder ?? 'Choose an existing calibration JSON file.')}</small>
+      </label>
+    )
   }
 
   const common = {

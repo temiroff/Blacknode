@@ -28,7 +28,7 @@ export interface OperatorFieldItem {
   node_id: string
   param: string
   label: string
-  input?: 'text' | 'number' | 'textarea'
+  input?: 'text' | 'number' | 'textarea' | 'calibration_file'
   placeholder?: string
   min?: number
   max?: number
@@ -120,6 +120,7 @@ export function isWorkflowOperatorView(value: unknown): value is WorkflowOperato
       && typeof item.node_id === 'string'
       && typeof item.param === 'string'
       && typeof item.label === 'string'
+      && (item.input === undefined || ['text', 'number', 'textarea', 'calibration_file'].includes(String(item.input)))
       && (item.apply_to === undefined || (
         Array.isArray(item.apply_to)
         && item.apply_to.every(target => isRecord(target) && typeof target.node_id === 'string' && typeof target.param === 'string')
