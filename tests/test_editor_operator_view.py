@@ -105,6 +105,12 @@ def test_operator_live_controls_and_role_assignment_are_stateful():
     ).read_text(encoding="utf-8")
     styles = (ROOT / "editor" / "src" / "index.css").read_text(encoding="utf-8")
 
+    live_button = styles.split(
+        ".bn-operator-sidebar-actions button.is-primary.is-live {", 1
+    )[1].split("}", 1)[0]
+    assert "cursor: not-allowed" in live_button
+    assert "opacity: .76" in live_button
+
     assert "active_label?: string" in contract
     assert "disabled_when?: OperatorValueSource" in contract
     assert "role={item.state ? 'switch' : undefined}" in view

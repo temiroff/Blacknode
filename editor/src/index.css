@@ -6792,10 +6792,11 @@ button.bn-device-fact {
 }
 
 .bn-operator-sidebar-actions button.is-primary.is-live {
-  border-color: var(--ok);
-  background: color-mix(in srgb, var(--ok) 18%, var(--lift));
-  color: var(--ok);
-  opacity: 1;
+  border-color: color-mix(in srgb, var(--ok) 44%, var(--line2));
+  background: color-mix(in srgb, var(--ok) 7%, var(--lift));
+  color: color-mix(in srgb, var(--ok) 62%, var(--tx3));
+  cursor: not-allowed;
+  opacity: .76;
 }
 
 .bn-operator-sidebar-actions button.is-danger {
