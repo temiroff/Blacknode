@@ -296,6 +296,7 @@ def test_core_index_maps_official_node_types_to_git_packages():
     assert payload["nodes"]["ACTPolicyReplay"]["package"] == "blacknode-training"
     assert payload["nodes"]["PPOTraining"]["package"] == "blacknode-training"
     assert payload["nodes"]["PPOPolicyImport"]["package"] == "blacknode-training"
+    assert payload["nodes"]["PPOPolicyQualify"]["package"] == "blacknode-training"
     assert payload["nodes"]["OpenPIFineTune"]["package"] == "blacknode-training"
     assert payload["packages"]["blacknode-training"]["components"]["vla-openpi"]["dependencies"] == {
         "requires": [
@@ -306,15 +307,10 @@ def test_core_index_maps_official_node_types_to_git_packages():
             }
         ]
     }
-    assert payload["packages"]["blacknode-training"]["components"]["reinforcement-learning"]["dependencies"] == {
-        "requires": [
-            {
-                "package": "blacknode-newton",
-                "component": "runtime",
-                "version": ">=0.1.3,<1",
-            }
-        ]
-    }
+    reinforcement_learning = payload["packages"]["blacknode-training"]["components"][
+        "reinforcement-learning"
+    ]
+    assert "dependencies" not in reinforcement_learning
     assert payload["nodes"]["PolicyArtifactLoad"]["package"] == "blacknode-training"
     assert not any(
         component["default"]
