@@ -991,17 +991,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "PPOCheckpointInspect",
                         "PPOPolicyEvaluate",
                         "PPOPolicyExport",
-                        "PPOPolicyImport"
-                    ],
-                    "dependencies": {
-                        "requires": [
-                            {
-                                "package": "blacknode-newton",
-                                "component": "runtime",
-                                "version": ">=0.1.3,<1"
-                            }
-                        ]
-                    }
+                        "PPOPolicyImport",
+                        "PPOPolicyQualify"
+                    ]
                 },
                 "vla-openpi": {
                     "name": "vla-openpi",
@@ -1032,6 +1024,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "PPOPolicyEvaluate",
                 "PPOPolicyExport",
                 "PPOPolicyImport",
+                "PPOPolicyQualify",
                 "PPOTraining",
                 "OpenPIFineTune",
                 "PolicyArtifactLoad",
