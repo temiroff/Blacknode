@@ -57,7 +57,7 @@ impl Graph {
             .get(&to)
             .ok_or_else(|| BlacknodeError::NodeNotFound(to.to_string()))?;
 
-        self.dag.add_edge(
+        let edge_index = self.dag.add_edge(
             fi,
             ti,
             Edge {
@@ -67,10 +67,7 @@ impl Graph {
         );
 
         if is_cyclic_directed(&self.dag) {
-            // roll back the edge we just added
-            if let Some(ei) = self.dag.find_edge(fi, ti) {
-                self.dag.remove_edge(ei);
-            }
+            self.dag.remove_edge(edge_index);
             return Err(BlacknodeError::CycleDetected);
         }
 
@@ -177,5 +174,83 @@ impl Graph {
 impl Default for Graph {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{NodeMeta, Port};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    struct AddNode {
+        meta: NodeMeta,
+        cooks: Arc<AtomicUsize>,
+    }
+
+    impl AddNode {
+        fn new(value: i64, cooks: Arc<AtomicUsize>) -> Self {
+            Self {
+                meta: NodeMeta::new("Add")
+                    .with_port(Port::input("value", "Int"))
+                    .with_port(Port::output("result", "Int"))
+                    .with_param("value", value),
+                cooks,
+            }
+        }
+    }
+
+    impl Node for AddNode {
+        fn meta(&self) -> &NodeMeta {
+            &self.meta
+        }
+
+        fn meta_mut(&mut self) -> &mut NodeMeta {
+            &mut self.meta
+        }
+
+        fn cook(&self, inputs: HashMap<String, Value>) -> anyhow::Result<HashMap<String, Value>> {
+            self.cooks.fetch_add(1, Ordering::SeqCst);
+            let value = inputs.get("value").and_then(Value::as_f64).unwrap_or_default() as i64;
+            Ok(HashMap::from([("result".to_string(), Value::Int(value + 1))]))
+        }
+    }
+
+    #[test]
+    fn caches_results_and_invalidates_downstream_after_parameter_update() {
+        let first_cooks = Arc::new(AtomicUsize::new(0));
+        let second_cooks = Arc::new(AtomicUsize::new(0));
+        let mut graph = Graph::new();
+        let first = graph.add_node(Box::new(AddNode::new(1, first_cooks.clone())));
+        let second = graph.add_node(Box::new(AddNode::new(0, second_cooks.clone())));
+        graph.connect(first, "result", second, "value").unwrap();
+
+        assert_eq!(graph.cook(second, "result").unwrap(), Value::Int(3));
+        assert_eq!(graph.cook(second, "result").unwrap(), Value::Int(3));
+        assert_eq!(first_cooks.load(Ordering::SeqCst), 1);
+        assert_eq!(second_cooks.load(Ordering::SeqCst), 1);
+
+        graph.set_param(first, "value", Value::Int(5)).unwrap();
+        assert_eq!(graph.cook(second, "result").unwrap(), Value::Int(7));
+        assert_eq!(first_cooks.load(Ordering::SeqCst), 2);
+        assert_eq!(second_cooks.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn rejects_cycles_without_removing_an_existing_parallel_edge() {
+        let mut graph = Graph::new();
+        let cooks = Arc::new(AtomicUsize::new(0));
+        let first = graph.add_node(Box::new(AddNode::new(1, cooks.clone())));
+        let second = graph.add_node(Box::new(AddNode::new(2, cooks)));
+        graph.connect(first, "result", second, "value").unwrap();
+
+        assert!(matches!(
+            graph.connect(second, "result", first, "value"),
+            Err(BlacknodeError::CycleDetected)
+        ));
+        assert_eq!(graph.cook(second, "result").unwrap(), Value::Int(3));
     }
 }

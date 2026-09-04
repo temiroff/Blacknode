@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .workflow import load_workflow, validate_workflow
+from .operator_views import OperatorViewValidationError, validate_operator_view
 
 
 APP_DEPLOYMENT_KIND = "blacknode.app-deployment"
@@ -33,13 +34,10 @@ def _operator_view(workflow: Mapping[str, Any], *, source: str) -> Mapping[str, 
     view = metadata.get("operator_view") if isinstance(metadata, Mapping) else None
     if not isinstance(view, Mapping):
         raise AppDeploymentError(f"{source} does not declare metadata.operator_view.")
-    if view.get("schema_version") != 1:
-        raise AppDeploymentError(f"{source} operator_view.schema_version must be 1.")
-    if not str(view.get("title") or "").strip():
-        raise AppDeploymentError(f"{source} operator_view.title is required.")
-    if not isinstance(view.get("sections"), list) or not view["sections"]:
-        raise AppDeploymentError(f"{source} operator_view.sections must contain at least one section.")
-    return view
+    try:
+        return validate_operator_view(view)
+    except OperatorViewValidationError as exc:
+        raise AppDeploymentError(f"{source} has an invalid operator view: {exc}") from exc
 
 
 def _secret_paths(value: object, path: str = "$") -> list[str]:
@@ -241,6 +239,7 @@ def operator_permissions(app: Mapping[str, Any]) -> dict[str, set[tuple[str, ...
     updates: set[tuple[str, str, str]] = set()
     controls: set[tuple[str, str, str]] = set()
     cooks: set[tuple[str, str, str]] = set()
+    files: set[tuple[str]] = set()
 
     def add_field_permissions(item: Mapping[str, Any]) -> None:
         params.add((str(item.get("node_id") or ""), str(item.get("param") or "")))
@@ -253,6 +252,12 @@ def operator_permissions(app: Mapping[str, Any]) -> dict[str, set[tuple[str, ...
             for target in (pair.get("left"), pair.get("right")):
                 if isinstance(target, Mapping):
                     params.add((str(target.get("node_id") or ""), str(target.get("param") or "")))
+        if item.get("input") in {"file_path", "calibration_file"}:
+            extensions = item.get("extensions") or ([".json"] if item.get("input") == "calibration_file" else [])
+            for extension in extensions:
+                clean = str(extension or "").strip().lower()
+                if clean:
+                    files.add((clean if clean.startswith(".") else f".{clean}",))
 
     run_target = view.get("run_target")
     if isinstance(run_target, Mapping):
@@ -310,4 +315,5 @@ def operator_permissions(app: Mapping[str, Any]) -> dict[str, set[tuple[str, ...
         "updates": {item for item in updates if all(item)},
         "controls": {item for item in controls if all(item)},
         "cooks": {item for item in cooks if all(item)},
+        "files": files,
     }

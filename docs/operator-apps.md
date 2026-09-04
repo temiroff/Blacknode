@@ -84,15 +84,21 @@ An operator view is declared inside workflow metadata:
 
 Supported widgets are `image`, `viewer`, `status`, `metrics`, `fields`, and
 `actions`. Image, viewer, status, and metric widgets read live node output
-ports. A `viewer` embeds an HTTP(S) URL produced by a trusted workflow node and
-is intended for managed simulation, robot-scene, and other interactive browser
-surfaces. Field widgets update declared node parameters. Actions can update
+ports. A `viewer` embeds a sandboxed HTTP(S) URL produced by a trusted workflow
+node and is intended for managed simulation, robot-scene, and other interactive
+browser surfaces. Relative URLs, loopback hosts, private-network addresses, and
+`.local` hosts are accepted automatically. Declare `trusted_origins` on the
+viewer widget when it must load a public origin, using exact origins such as
+`["https://viewer.example.com"]`. Viewer frames use a least-privilege capability
+set with scripting, forms, pointer-lock, and fullscreen. Field widgets update
+declared node parameters. Actions can update
 parameters, cook a declared node output, or call a node's existing
 direct-control endpoint.
 
 Use `input: "file_path"` for a path that must exist on the App host. It keeps
 the path editable and adds a **Browse…** button backed by Blacknode's filesystem
-browser. Declare `extensions` to filter selectable files, and optionally set
+browser. Declare a non-empty `extensions` allowlist to grant selectable file
+types, and optionally set
 `picker_title` and `button_label`. This is appropriate for robot descriptions,
 scenes, datasets, checkpoints, and other host-side artifacts.
 

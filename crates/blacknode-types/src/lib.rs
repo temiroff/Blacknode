@@ -86,3 +86,22 @@ impl From<HashMap<String, Value>> for Value {
         Value::Map(m)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn values_round_trip_through_the_tagged_json_contract() {
+        let value = Value::Map(HashMap::from([
+            ("enabled".to_string(), Value::Bool(true)),
+            ("samples".to_string(), Value::List(vec![Value::Int(3), Value::Float(4.5)])),
+        ]));
+
+        let encoded = serde_json::to_string(&value).unwrap();
+        let decoded: Value = serde_json::from_str(&encoded).unwrap();
+
+        assert_eq!(decoded, value);
+        assert_eq!(decoded.type_name(), "Map");
+    }
+}

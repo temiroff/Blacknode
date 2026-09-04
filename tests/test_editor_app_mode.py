@@ -85,6 +85,7 @@ class EditorAppModeTests(unittest.TestCase):
         self.assertTrue(route_allowed("PATCH", "/nodes/text/params"))
         self.assertTrue(route_allowed("POST", "/nodes/recorder/control"))
         self.assertTrue(route_allowed("POST", "/cook-stream"))
+        self.assertTrue(route_allowed("POST", "/filesystem/browse"))
         self.assertFalse(route_allowed("POST", "/nodes"))
         self.assertFalse(route_allowed("POST", "/graph"))
         self.assertFalse(route_allowed("GET", "/workflows"))
@@ -99,7 +100,7 @@ class EditorAppModeTests(unittest.TestCase):
         with (
             patch.object(server, "_APP_DEPLOYMENT", manifest),
             patch.object(server, "_active_deployment_app_id", None),
-            patch.object(server, "_active_deployment_permissions", {"params": set(), "updates": set(), "controls": set(), "cooks": set()}),
+            patch.object(server, "_active_deployment_permissions", {"params": set(), "updates": set(), "controls": set(), "cooks": set(), "files": set()}),
             patch.object(server, "_stop_active_cook"),
             patch.object(server, "_stop_runtime_services", return_value={}),
         ):
@@ -138,6 +139,43 @@ class EditorAppModeTests(unittest.TestCase):
 
             denied = client.patch("/nodes/text/params", json={"key": "undeclared", "value": "blocked"})
             self.assertEqual(denied.status_code, 403)
+
+    def test_active_app_file_browser_is_scoped_to_granted_types_and_roots(self):
+        workflow = _app_workflow()
+        fields = workflow["metadata"]["operator_view"]["sections"][0]["widgets"][0]["items"]
+        fields.append({
+            "node_id": "text",
+            "param": "value",
+            "label": "Scene",
+            "input": "file_path",
+            "extensions": [".usd"],
+        })
+        manifest = build_app_deployment([("customer.json", workflow)], deployment_id="customer-deployment")
+        with tempfile.TemporaryDirectory() as root_dir, tempfile.TemporaryDirectory() as outside_dir:
+            root = Path(root_dir)
+            outside = Path(outside_dir)
+            (root / "scene.usd").write_text("scene", encoding="utf-8")
+            (root / "secret.txt").write_text("secret", encoding="utf-8")
+            with (
+                patch.object(server, "_APP_DEPLOYMENT", manifest),
+                patch.object(server, "_APP_FILE_ROOTS", (root.resolve(),)),
+                patch.object(server, "_active_deployment_app_id", None),
+                patch.object(server, "_active_deployment_permissions", {"params": set(), "updates": set(), "controls": set(), "cooks": set(), "files": set()}),
+                patch.object(server, "_stop_active_cook"),
+                patch.object(server, "_stop_runtime_services", return_value={}),
+            ):
+                client = TestClient(server.app)
+                self.assertEqual(client.post("/app-deployment/apps/customer-app/activate").status_code, 200)
+
+                listing = client.post("/filesystem/browse", json={"path": str(root), "extensions": ["usd"]})
+                self.assertEqual(listing.status_code, 200, listing.text)
+                self.assertEqual([item["name"] for item in listing.json()["entries"]], ["scene.usd"])
+                self.assertEqual(listing.json()["roots"], [str(root.resolve())])
+
+                denied_type = client.post("/filesystem/browse", json={"path": str(root), "extensions": ["txt"]})
+                self.assertEqual(denied_type.status_code, 403)
+                denied_path = client.post("/filesystem/browse", json={"path": str(outside), "extensions": ["usd"]})
+                self.assertEqual(denied_path.status_code, 403)
 
     def test_packaged_app_serves_spa_and_same_origin_api(self):
         manifest = build_app_deployment(

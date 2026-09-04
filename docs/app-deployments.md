@@ -140,6 +140,23 @@ For a customer domain, also set `BLACKNODE_APP_PUBLIC_ORIGINS` to the exact
 comma-separated HTTPS origins allowed to send operator commands. Local startup
 accepts `http://localhost:3000` and `http://127.0.0.1:3000` by default.
 
+App file fields can browse only the extensions declared by their operator-view
+field. The browser is rooted at the deployment user's home directory by
+default. Set `BLACKNODE_APP_FILE_ROOTS` to an OS-path-separator-delimited list
+of existing directories to expose narrower or additional artifact roots:
+
+```powershell
+$env:BLACKNODE_APP_FILE_ROOTS = "D:\RobotModels;D:\Datasets"
+```
+
+```bash
+export BLACKNODE_APP_FILE_ROOTS="/srv/robot-models:/srv/datasets"
+```
+
+Paths outside those roots and file types absent from the active App contract
+are rejected by the server. Keep credentials and other sensitive host data
+outside the configured roots.
+
 Opening Blacknode now enters the customer App shell automatically. A direct App
 link uses `/app/<app-id>`, such as `/app/collect-episodes`.
 

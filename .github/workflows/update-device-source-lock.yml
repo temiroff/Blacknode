@@ -1,0 +1,64 @@
+name: Update device source lock
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtime_commit:
+        description: Full merged blacknode-runtime commit SHA
+        required: true
+        type: string
+      core_commit:
+        description: Full merged Blacknode core commit SHA
+        required: true
+        type: string
+      hardware_commit:
+        description: Full merged blacknode-robot commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  source-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Update and verify merged source pins
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUNTIME_COMMIT: ${{ inputs.runtime_commit }}
+          CORE_COMMIT: ${{ inputs.core_commit }}
+          HARDWARE_COMMIT: ${{ inputs.hardware_commit }}
+        run: >-
+          python scripts/update_device_source_lock.py
+          --runtime-commit "$RUNTIME_COMMIT"
+          --core-commit "$CORE_COMMIT"
+          --hardware-commit "$HARDWARE_COMMIT"
+          --verify-merged
+          --write
+
+      - name: Run source-lock tests
+        run: python -m unittest tests.test_device_source_lock_script
+
+      - name: Open source-lock pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUNTIME_COMMIT: ${{ inputs.runtime_commit }}
+        run: |
+          branch="release/device-source-lock-${RUNTIME_COMMIT:0:12}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add editor-server/device-runtime-sources.lock.json
+          git commit -m "release: update managed-device source lock"
+          git push origin "$branch"
+          gh pr create --base master --head "$branch" --title "release: update managed-device source lock" --body "Pins merged Runtime, core, and hardware commits after validating default-branch ancestry."
