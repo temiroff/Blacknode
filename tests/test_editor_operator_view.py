@@ -78,8 +78,9 @@ def test_operator_view_embeds_declared_interactive_viewer_urls():
 
     assert "function OperatorViewer" in view
     assert "if (widget.type === 'viewer')" in view
-    assert "if (/^(https?:\\/\\/|\\/(?!\\/))/i.test(trimmed))" in view
-    assert 'allow="clipboard-read; clipboard-write; fullscreen"' in view
+    assert "normalizeViewerUrl" in view
+    assert 'sandbox="allow-forms allow-pointer-lock allow-same-origin allow-scripts"' in view
+    assert 'allow="fullscreen"' in view
     assert 'referrerPolicy="no-referrer"' in view
     assert ".bn-operator-viewer-frame iframe" in styles
 

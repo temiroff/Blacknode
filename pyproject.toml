@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "anyio>=4.10,<4.15",
     "fastapi>=0.110",
     "httpx>=0.27",
     "httpx2>=2.12",
