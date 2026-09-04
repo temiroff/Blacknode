@@ -293,3 +293,15 @@ export function normalizeViewerUrl(value: unknown, trustedOrigins: string[] = []
   }
   return ''
 }
+
+export function viewerSandbox(url: string, baseOrigin: string = window.location.origin): string {
+  const capabilities = ['allow-forms', 'allow-pointer-lock', 'allow-scripts']
+  try {
+    if (new URL(url, baseOrigin).origin !== new URL(baseOrigin).origin) {
+      capabilities.push('allow-same-origin')
+    }
+  } catch {
+    // Invalid URLs never reach the iframe; retain the strict same-origin set.
+  }
+  return capabilities.join(' ')
+}

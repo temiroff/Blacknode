@@ -11,7 +11,7 @@ import {
 
 import { useStore } from '../store'
 import LocalFilePicker from './LocalFilePicker'
-import { normalizeViewerUrl } from '../operatorView'
+import { normalizeViewerUrl, viewerSandbox } from '../operatorView'
 import type {
   OperatorActionItem,
   OperatorFieldItem,
@@ -150,7 +150,7 @@ function OperatorViewer({ widget, nodes }: {
               src={url}
               title={widget.title}
               allow="fullscreen"
-              sandbox="allow-forms allow-pointer-lock allow-same-origin allow-scripts"
+              sandbox={viewerSandbox(url)}
               referrerPolicy="no-referrer"
               loading="lazy"
             />

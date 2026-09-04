@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isWorkflowOperatorView, normalizeViewerUrl } from './operatorView'
+import { isWorkflowOperatorView, normalizeViewerUrl, viewerSandbox } from './operatorView'
 
 function operatorView(): Record<string, unknown> {
   return {
@@ -87,5 +87,17 @@ describe('normalizeViewerUrl', () => {
   it('allows an explicitly trusted public origin', () => {
     expect(normalizeViewerUrl('https://viewer.example.com/view', ['https://viewer.example.com']))
       .toBe('https://viewer.example.com/view')
+  })
+})
+
+describe('viewerSandbox', () => {
+  it('keeps same-origin viewers in an opaque sandbox', () => {
+    expect(viewerSandbox('/viewer/session', 'https://app.example.com'))
+      .toBe('allow-forms allow-pointer-lock allow-scripts')
+  })
+
+  it('preserves a cross-origin viewer identity for its own assets and sockets', () => {
+    expect(viewerSandbox('http://127.0.0.1:8090', 'http://127.0.0.1:7777'))
+      .toBe('allow-forms allow-pointer-lock allow-scripts allow-same-origin')
   })
 })
