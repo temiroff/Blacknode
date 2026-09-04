@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "vite",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
     "build": "tsc && vite build",
     "build:slam-viewer": "tsc && vite build --config vite.standalone-slam.config.ts",
     "preview": "vite preview"
@@ -22,10 +24,15 @@
     "zustand": "^4.5.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^27.0.1",
     "typescript": "^5.4.5",
-    "vite": "^8.1.4"
+    "vite": "^8.1.4",
+    "vitest": "^3.2.7"
   }
 }

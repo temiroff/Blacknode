@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import ReactFlow, {
   Background, Controls, MiniMap,
@@ -15,10 +15,6 @@ import ModelNode from './components/ModelNode'
 import OutputNode from './components/OutputNode'
 import ComputeDeviceNode from './components/ComputeDeviceNode'
 import ROS2GraphExplorerNode from './components/ROS2GraphExplorerNode'
-import SimulationViewerPane from './components/SimulationViewerPane'
-import CloudRunPanel from './components/CloudRunPanel'
-import EmailVerificationPage from './components/EmailVerificationPage'
-import LocalFilePicker from './components/LocalFilePicker'
 import RobotMonitorNode from './components/RobotMonitorNode'
 import RobotServoNode from './components/RobotServoNode'
 import SubnetNode from './components/SubnetNode'
@@ -29,9 +25,6 @@ import NodePalette from './components/NodePalette'
 import BlacknodeLogo from './components/BlacknodeLogo'
 import Inspector from './components/Inspector'
 import WorkflowShortcuts from './components/WorkflowShortcuts'
-import WorkflowOperatorView from './components/WorkflowOperatorView'
-import CustomerAppShell from './components/CustomerAppShell'
-import AppPackageDialog from './components/AppPackageDialog'
 import NodeSearch from './components/NodeSearch'
 import { portColor, portVisualColor, portsCompatible } from './portColors'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from './pythonToolPresets'
@@ -40,6 +33,14 @@ import { api, type AppDeploymentSummary, type CloudJob, type CloudStatus, type F
 import { inferGraphRunTargets } from './graphRun'
 import { copyTextToClipboard } from './clipboard'
 import { isWorkflowOperatorView } from './operatorView'
+
+const SimulationViewerPane = lazy(() => import('./components/SimulationViewerPane'))
+const CloudRunPanel = lazy(() => import('./components/CloudRunPanel'))
+const EmailVerificationPage = lazy(() => import('./components/EmailVerificationPage'))
+const LocalFilePicker = lazy(() => import('./components/LocalFilePicker'))
+const WorkflowOperatorView = lazy(() => import('./components/WorkflowOperatorView'))
+const CustomerAppShell = lazy(() => import('./components/CustomerAppShell'))
+const AppPackageDialog = lazy(() => import('./components/AppPackageDialog'))
 
 const NODE_TYPES = {
   blacknode: BlackNode,
@@ -234,9 +235,17 @@ function nodeIdAtScreenPoint(point: { x: number; y: number }): string | null {
 
 export default function App() {
   if (window.location.pathname.replace(/\/+$/, '') === '/verify-email') {
-    return <EmailVerificationPage />
+    return <Suspense fallback={<AppLoading />}><EmailVerificationPage /></Suspense>
   }
-  return <AppDeploymentGate />
+  return <Suspense fallback={<AppLoading />}><AppDeploymentGate /></Suspense>
+}
+
+function AppLoading() {
+  return (
+    <main className="bn-app-mode-loading" aria-label="Loading Blacknode">
+      <BlacknodeLogo className="bn-app-mode-loading-logo" />
+    </main>
+  )
 }
 
 function AppDeploymentGate() {
@@ -249,11 +258,7 @@ function AppDeploymentGate() {
   }, [])
 
   if (deployment === undefined) {
-    return (
-      <main className="bn-app-mode-loading" aria-label="Loading Blacknode">
-        <BlacknodeLogo className="bn-app-mode-loading-logo" />
-      </main>
-    )
+    return <AppLoading />
   }
   return deployment ? <CustomerAppShell deployment={deployment} /> : <WorkspaceApp />
 }

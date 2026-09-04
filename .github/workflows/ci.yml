@@ -35,6 +35,11 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
+      - name: Validate managed-device source pins
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/update_device_source_lock.py --verify-merged
+
   editor:
     name: Editor build
     runs-on: ubuntu-latest
@@ -53,6 +58,18 @@ jobs:
       - name: Install editor dependencies
         working-directory: editor
         run: npm ci
+
+      - name: Test editor
+        working-directory: editor
+        run: npm test
+
+      - name: Install Chromium
+        working-directory: editor
+        run: npx playwright install --with-deps chromium
+
+      - name: Test packaged App flow
+        working-directory: editor
+        run: npm run test:e2e
 
       - name: Build editor
         working-directory: editor
@@ -92,7 +109,7 @@ jobs:
         run: .\.venv\Scripts\blacknode.exe demo
 
   rust:
-    name: Rust check
+    name: Rust tests
     runs-on: ubuntu-latest
     env:
       PYO3_PYTHON: python
@@ -109,5 +126,5 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Check Rust workspace
-        run: cargo check
+      - name: Test Rust workspace
+        run: cargo test --workspace --all-targets

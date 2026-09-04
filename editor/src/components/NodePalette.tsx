@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../api'
 import { useStore } from '../store'
 import BlacknodeLogo from './BlacknodeLogo'
@@ -6,19 +6,20 @@ import { CATEGORIES, familyColor } from '../categories'
 import { CORE_GROUP, componentDisplayName, groupForPackage, packageGroupIndex } from '../packageGroups'
 import { freeCanvasSpot } from '../placement'
 import { PYTHON_TOOL_TYPES, resolvePythonToolPreset } from '../pythonToolPresets'
-import McpPanel from './McpPanel'
-import LearnedNodesPanel from './LearnedNodesPanel'
-import PackagesPanel from './PackagesPanel'
-import RunsPanel from './RunsPanel'
-import DeploymentsPanel from './DeploymentsPanel'
-import DevicesPanel from './DevicesPanel'
-import RuntimePanel from './RuntimePanel'
-import ConsolePanel from './ConsolePanel'
-import ScriptEditor from './ScriptEditor'
-import TemplateGallery from './TemplateGallery'
-import WorkflowManager from './WorkflowManager'
-import ProjectPanel from './ProjectPanel'
 import NodeGlyph from './NodeGlyph'
+
+const McpPanel = lazy(() => import('./McpPanel'))
+const LearnedNodesPanel = lazy(() => import('./LearnedNodesPanel'))
+const PackagesPanel = lazy(() => import('./PackagesPanel'))
+const RunsPanel = lazy(() => import('./RunsPanel'))
+const DeploymentsPanel = lazy(() => import('./DeploymentsPanel'))
+const DevicesPanel = lazy(() => import('./DevicesPanel'))
+const RuntimePanel = lazy(() => import('./RuntimePanel'))
+const ConsolePanel = lazy(() => import('./ConsolePanel'))
+const ScriptEditor = lazy(() => import('./ScriptEditor'))
+const TemplateGallery = lazy(() => import('./TemplateGallery'))
+const WorkflowManager = lazy(() => import('./WorkflowManager'))
+const ProjectPanel = lazy(() => import('./ProjectPanel'))
 
 // Curated ordering for the built-in categories; anything else sorts by name.
 const CATEGORY_ORDER = Object.keys(CATEGORIES)
@@ -748,6 +749,7 @@ export default function NodePalette() {
           </div>
 
           <div className="bn-palette-panel-content" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <Suspense fallback={<div className="bn-palette-loading" role="status">Opening panel…</div>}>
 
             {/* ── NODES ── */}
             {activeTab === 'nodes' && (
@@ -835,6 +837,8 @@ export default function NodePalette() {
 
             {/* ── MCP ── */}
             {activeTab === 'mcp' && <McpPanel />}
+
+            </Suspense>
 
           </div>
         </div>

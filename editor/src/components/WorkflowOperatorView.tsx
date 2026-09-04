@@ -11,6 +11,7 @@ import {
 
 import { useStore } from '../store'
 import LocalFilePicker from './LocalFilePicker'
+import { normalizeViewerUrl, viewerSandbox } from '../operatorView'
 import type {
   OperatorActionItem,
   OperatorFieldItem,
@@ -135,31 +136,24 @@ function OperatorImage({ widget, nodes }: {
   )
 }
 
-function viewerUrl(value: unknown): string {
-  const candidates: unknown[] = [value]
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    candidates.push(record.viewer_url, record.url)
-  }
-  for (const candidate of candidates) {
-    if (typeof candidate !== 'string') continue
-    const trimmed = candidate.trim()
-    if (/^(https?:\/\/|\/(?!\/))/i.test(trimmed)) return trimmed
-  }
-  return ''
-}
-
 function OperatorViewer({ widget, nodes }: {
   widget: Extract<OperatorWidget, { type: 'viewer' }>
   nodes: ReturnType<typeof useStore.getState>['nodes']
 }) {
-  const url = viewerUrl(valueFor(widget.source, nodes))
+  const url = normalizeViewerUrl(valueFor(widget.source, nodes), widget.trusted_origins)
   return (
     <article className="bn-operator-card bn-operator-viewer-card">
       <header><strong>{widget.title}</strong><span className={url ? 'is-live' : ''}>{url ? 'LIVE' : 'WAITING'}</span></header>
       <div className="bn-operator-viewer-frame">
         {url
-          ? <iframe src={url} title={widget.title} allow="clipboard-read; clipboard-write; fullscreen" referrerPolicy="no-referrer" />
+          ? <iframe
+              src={url}
+              title={widget.title}
+              allow="fullscreen"
+              sandbox={viewerSandbox(url)}
+              referrerPolicy="no-referrer"
+              loading="lazy"
+            />
           : <div className="bn-operator-image-empty"><i aria-hidden="true" />{widget.empty ?? 'Start the workflow to open this viewer.'}</div>}
       </div>
     </article>

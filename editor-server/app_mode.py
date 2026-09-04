@@ -33,6 +33,7 @@ def route_allowed(method: str, path: str) -> bool:
         "/cook",
         "/cook-stream",
         "/cook/stop",
+        "/filesystem/browse",
         "/runtime/stop",
     }:
         return True

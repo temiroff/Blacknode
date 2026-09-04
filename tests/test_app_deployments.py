@@ -143,6 +143,55 @@ class AppDeploymentTests(unittest.TestCase):
         self.assertEqual(permissions["updates"], {("text", "value", '"ready"')})
         self.assertEqual(permissions["controls"], {("out", "refresh", "{}")})
         self.assertEqual(permissions["cooks"], {("out", "value", "once")})
+        self.assertEqual(permissions["files"], set())
+
+    def test_operator_permissions_grant_only_declared_file_extensions(self):
+        workflow = _workflow()
+        fields = workflow["metadata"]["operator_view"]["sections"][0]["widgets"][0]["items"]
+        fields.append({
+            "node_id": "text",
+            "param": "value",
+            "label": "Scene",
+            "input": "file_path",
+            "extensions": ["usd", ".USDA"],
+        })
+
+        permissions = operator_permissions({"id": "customer-task", "workflow": workflow})
+
+        self.assertEqual(permissions["files"], {(".usd",), (".usda",)})
+
+    def test_bundle_rejects_malformed_operator_widget(self):
+        workflow = _workflow()
+        workflow["metadata"]["operator_view"]["sections"][0]["widgets"][0]["items"][0].pop("param")
+
+        with self.assertRaisesRegex(AppDeploymentError, r"items\[0\]\.param"):
+            build_app_deployment([("customer.json", workflow)], deployment_id="customer-demo")
+
+    def test_bundle_requires_extensions_for_generic_file_picker(self):
+        workflow = _workflow()
+        field = workflow["metadata"]["operator_view"]["sections"][0]["widgets"][0]["items"][0]
+        field["input"] = "file_path"
+
+        with self.assertRaisesRegex(AppDeploymentError, r"extensions is required"):
+            build_app_deployment([("customer.json", workflow)], deployment_id="customer-demo")
+
+    def test_bundle_rejects_unsafe_extensions_and_non_origin_viewer_hosts(self):
+        workflow = _workflow()
+        field = workflow["metadata"]["operator_view"]["sections"][0]["widgets"][0]["items"][0]
+        field.update({"input": "file_path", "extensions": ["../json"]})
+        with self.assertRaisesRegex(AppDeploymentError, "invalid file extension"):
+            build_app_deployment([("customer.json", workflow)], deployment_id="customer-demo")
+
+        workflow = _workflow()
+        workflow["metadata"]["operator_view"]["sections"][0]["widgets"].append({
+            "type": "viewer",
+            "id": "viewer",
+            "title": "Viewer",
+            "source": {"node_id": "out", "port": "value"},
+            "trusted_origins": ["https://viewer.example.com/path"],
+        })
+        with self.assertRaisesRegex(AppDeploymentError, r"trusted_origins"):
+            build_app_deployment([("customer.json", workflow)], deployment_id="customer-demo")
 
     def test_operator_permissions_include_role_swaps_and_toggle_off_controls(self):
         workflow = _workflow()

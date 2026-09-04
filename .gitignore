@@ -21,6 +21,8 @@ venv/
 .idea/
 *.swp
 node_modules/
+editor/test-results/
+editor/playwright-report/
 
 # Claude Code — local only, not for repo
 CLAUDE.md

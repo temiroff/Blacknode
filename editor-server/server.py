@@ -99,6 +99,7 @@ import cloud_client
 import cloud_sessions
 from hosted_mode import HostedWorkspaceStore, route_allowed as hosted_route_allowed
 from app_mode import route_allowed as app_mode_route_allowed
+from filesystem_access import browse_listing, configured_app_roots, normalize_extensions
 
 
 def package_index_payload(*args, **kwargs):
@@ -175,7 +176,12 @@ _active_deployment_permissions: dict[str, set[tuple[str, ...]]] = {
     "updates": set(),
     "controls": set(),
     "cooks": set(),
+    "files": set(),
 }
+try:
+    _APP_FILE_ROOTS = configured_app_roots(os.environ.get("BLACKNODE_APP_FILE_ROOTS"))
+except ValueError as exc:
+    raise RuntimeError(f"Invalid BLACKNODE_APP_FILE_ROOTS: {exc}") from exc
 
 app = FastAPI(title="Blacknode Editor Server")
 app.add_middleware(
@@ -3362,54 +3368,27 @@ def pick_file(req: PickFileReq):
     return {"selected": selected, "cancelled": not bool(selected)}
 
 
-def _filesystem_roots() -> list[str]:
-    if os.name == "nt":
-        return [f"{letter}:\\" for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ" if Path(f"{letter}:\\").is_dir()]
-    return ["/"]
-
-
 @app.post("/filesystem/browse")
 def browse_files(req: BrowseFilesReq):
-    raw_path = str(req.path or "").strip()
-    requested = Path(raw_path).expanduser() if raw_path and not raw_path.startswith("package://") else Path.home()
-    selected = ""
-    if requested.is_file():
-        selected = str(requested.resolve())
-        requested = requested.parent
-    if not requested.is_dir():
-        requested = Path.home()
     try:
-        current = requested.resolve()
-        allowed = {
-            (extension if str(extension).startswith(".") else f".{extension}").lower()
-            for extension in req.extensions
-            if str(extension or "").strip()
-        }
-        entries = []
-        for child in current.iterdir():
-            try:
-                is_directory = child.is_dir()
-                if not is_directory and allowed and child.suffix.lower() not in allowed:
-                    continue
-                entries.append({
-                    "name": child.name,
-                    "path": str(child.resolve()),
-                    "is_directory": is_directory,
-                    "size": None if is_directory else child.stat().st_size,
-                })
-            except (OSError, RuntimeError):
-                continue
-    except (OSError, RuntimeError) as exc:
-        raise HTTPException(400, f"Could not browse {current}: {exc}") from exc
-    entries.sort(key=lambda item: (not item["is_directory"], item["name"].casefold()))
-    parent = current.parent
-    return {
-        "path": str(current),
-        "parent": str(parent) if parent != current else "",
-        "roots": _filesystem_roots(),
-        "selected": selected,
-        "entries": entries[:5000],
-    }
+        roots = None
+        if _APP_DEPLOYMENT is not None:
+            if _active_deployment_app_id is None:
+                raise HTTPException(409, "Activate a deployed App before browsing files.")
+            requested_extensions = normalize_extensions(req.extensions)
+            granted_extensions = {
+                item[0]
+                for item in _active_deployment_permissions.get("files", set())
+                if item
+            }
+            if not requested_extensions or not requested_extensions.issubset(granted_extensions):
+                raise HTTPException(403, "The active App does not grant access to these file types.")
+            roots = _APP_FILE_ROOTS
+        return browse_listing(req.path, req.extensions, roots=roots)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @app.patch("/nodes/{node_id}/ports")
