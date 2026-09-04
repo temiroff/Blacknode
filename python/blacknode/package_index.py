@@ -1107,6 +1107,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                     "default": True,
                     "node_types": [
                         "NewtonJointCommand",
+                        "NewtonScene",
                         "NewtonSimulation",
                         "NewtonUSDScene",
                         "NewtonViewerConfig",
@@ -1166,6 +1167,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "NewtonJointCommand",
                 "NewtonReplayBridge",
                 "NewtonROSBridge",
+                "NewtonScene",
                 "NewtonSimulation",
                 "NewtonUSDScene",
                 "NewtonViewerConfig",

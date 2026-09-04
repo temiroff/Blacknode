@@ -76,7 +76,7 @@ export default function LocalFilePicker({
         <header>
           <div>
             <strong id="bn-local-file-picker-title">{title}</strong>
-            <span>Select a local {extensions.join(', ')} scene</span>
+            <span>Select a local {extensions.join(', ')} file</span>
           </div>
           <button type="button" onClick={onCancel} aria-label="Close file browser">×</button>
         </header>
@@ -118,7 +118,7 @@ export default function LocalFilePicker({
           {loading && <div className="bn-local-file-picker-message">Opening folder…</div>}
           {!loading && error && <div className="bn-local-file-picker-message is-error">{error}</div>}
           {!loading && !error && listing?.entries.length === 0 && (
-            <div className="bn-local-file-picker-message">No matching scene files or folders here.</div>
+            <div className="bn-local-file-picker-message">No matching files or folders here.</div>
           )}
           {!loading && !error && listing?.entries.map(entry => (
             <button
