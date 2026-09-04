@@ -316,7 +316,7 @@ blacknode-ros2/
         __init__.py
         publish.py
   templates/               # optional workflow JSONs for the Templates tab
-  tests/                   # optional pytest suite, run with the core suite
+  tests/                   # optional package-specific test suite
   requirements.txt         # optional pip dependencies
   README.md
 ```
@@ -604,10 +604,11 @@ Category colors come from a module-level `BLACKNODE_CATEGORIES = {"ROS 2":
 
 ## Tests
 
-Running `pytest` from the Blacknode repo root collects `tests/` **and**
-`packages/*/tests/` — every installed package is tested together with the
-core. Keep package test filenames unique across packages (prefix them with
-the package name, e.g. `test_ros2_topics.py`) so module names don't collide.
+Running `pytest` from the Blacknode repo root collects the core `tests/` suite.
+Extension packages are independently versioned repositories and may require
+their own optional dependencies, environment setup, hardware, or managed
+services. Run a package's test command from that package worktree as documented
+in its `AGENTS.md`.
 
 Package tests can import the core (`blacknode.node`, test helpers) and the
 package's own modules via the stable alias:
