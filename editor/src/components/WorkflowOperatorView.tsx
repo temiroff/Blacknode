@@ -10,6 +10,7 @@ import {
 } from 'react'
 
 import { useStore } from '../store'
+import LocalFilePicker from './LocalFilePicker'
 import type {
   OperatorActionItem,
   OperatorFieldItem,
@@ -134,6 +135,37 @@ function OperatorImage({ widget, nodes }: {
   )
 }
 
+function viewerUrl(value: unknown): string {
+  const candidates: unknown[] = [value]
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    candidates.push(record.viewer_url, record.url)
+  }
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue
+    const trimmed = candidate.trim()
+    if (/^(https?:\/\/|\/(?!\/))/i.test(trimmed)) return trimmed
+  }
+  return ''
+}
+
+function OperatorViewer({ widget, nodes }: {
+  widget: Extract<OperatorWidget, { type: 'viewer' }>
+  nodes: ReturnType<typeof useStore.getState>['nodes']
+}) {
+  const url = viewerUrl(valueFor(widget.source, nodes))
+  return (
+    <article className="bn-operator-card bn-operator-viewer-card">
+      <header><strong>{widget.title}</strong><span className={url ? 'is-live' : ''}>{url ? 'LIVE' : 'WAITING'}</span></header>
+      <div className="bn-operator-viewer-frame">
+        {url
+          ? <iframe src={url} title={widget.title} allow="clipboard-read; clipboard-write; fullscreen" referrerPolicy="no-referrer" />
+          : <div className="bn-operator-image-empty"><i aria-hidden="true" />{widget.empty ?? 'Start the workflow to open this viewer.'}</div>}
+      </div>
+    </article>
+  )
+}
+
 function statusLabel(item: OperatorStatusItem, value: unknown): string {
   if (value === true) return item.true_label ?? 'Ready'
   if (value === false) return item.false_label ?? 'Not ready'
@@ -204,6 +236,7 @@ function OperatorField({ item }: { item: OperatorFieldItem }) {
   const updateParam = useStore(state => state.updateParam)
   const storedValue = node?.data.params?.[item.param]
   const [draft, setDraft] = useState(String(storedValue ?? ''))
+  const [filePickerOpen, setFilePickerOpen] = useState(false)
 
   useEffect(() => setDraft(String(storedValue ?? '')), [storedValue])
 
@@ -253,6 +286,16 @@ function OperatorField({ item }: { item: OperatorFieldItem }) {
     }
   }
 
+  const selectFilePath = async (path: string) => {
+    setDraft(path)
+    setFilePickerOpen(false)
+    try {
+      await updateTargets(path)
+    } catch (error) {
+      notice('error', `Could not update ${item.label}`, error instanceof Error ? error.message : String(error))
+    }
+  }
+
   const swapValues = async () => {
     if (item.confirm && !window.confirm(item.confirm)) return
     const pairs = item.swap_pairs ?? []
@@ -298,6 +341,42 @@ function OperatorField({ item }: { item: OperatorFieldItem }) {
         <input type="file" accept=".json,application/json" onChange={event => void importCalibration(event)} />
         <small>{selected ? `Selected: ${selected}` : (item.placeholder ?? 'Choose an existing calibration JSON file.')}</small>
       </label>
+    )
+  }
+
+  if (item.input === 'file_path') {
+    return (
+      <div className="bn-operator-file-path-field">
+        <label>
+          <span>{item.label}</span>
+          <div className="bn-operator-file-path-control">
+            <input
+              type="text"
+              value={draft}
+              placeholder={item.placeholder}
+              onChange={event => setDraft(event.target.value)}
+              onBlur={() => void commit()}
+              onKeyDown={event => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                event.currentTarget.blur()
+              }}
+            />
+            <button type="button" onClick={() => setFilePickerOpen(true)}>
+              {item.button_label ?? 'Browse…'}
+            </button>
+          </div>
+        </label>
+        {filePickerOpen && (
+          <LocalFilePicker
+            title={item.picker_title ?? `Choose ${item.label}`}
+            initialPath={draft}
+            extensions={item.extensions ?? []}
+            onSelect={path => void selectFilePath(path)}
+            onCancel={() => setFilePickerOpen(false)}
+          />
+        )}
+      </div>
     )
   }
 
@@ -425,6 +504,7 @@ function OperatorWidgetView({ widget, nodes, busyId, bindings, onRun }: {
   onRun: (item: OperatorActionItem) => void
 }) {
   if (widget.type === 'image') return <OperatorImage widget={widget} nodes={nodes} />
+  if (widget.type === 'viewer') return <OperatorViewer widget={widget} nodes={nodes} />
   if (widget.type === 'status') return <OperatorStatus widget={widget} nodes={nodes} />
   if (widget.type === 'metrics') return <OperatorMetrics widget={widget} nodes={nodes} />
   if (widget.type === 'fields') return <OperatorFields widget={widget} />

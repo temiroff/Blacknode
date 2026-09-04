@@ -29,9 +29,11 @@ export interface OperatorFieldItem {
   node_id: string
   param: string
   label: string
-  input?: 'text' | 'number' | 'textarea' | 'calibration_file' | 'swap'
+  input?: 'text' | 'number' | 'textarea' | 'file_path' | 'calibration_file' | 'swap'
   placeholder?: string
   button_label?: string
+  picker_title?: string
+  extensions?: string[]
   confirm?: string
   min?: number
   max?: number
@@ -80,6 +82,13 @@ export type OperatorWidget =
       source: OperatorValueSource
       empty?: string
       aspect?: 'video' | 'dashboard'
+    }
+  | {
+      type: 'viewer'
+      id: string
+      title: string
+      source: OperatorValueSource
+      empty?: string
     }
   | { type: 'status'; id: string; title?: string; items: OperatorStatusItem[] }
   | { type: 'metrics'; id: string; title?: string; items: OperatorMetricItem[] }
@@ -133,7 +142,11 @@ export function isWorkflowOperatorView(value: unknown): value is WorkflowOperato
       && typeof item.node_id === 'string'
       && typeof item.param === 'string'
       && typeof item.label === 'string'
-      && (item.input === undefined || ['text', 'number', 'textarea', 'calibration_file', 'swap'].includes(String(item.input)))
+      && (item.input === undefined || ['text', 'number', 'textarea', 'file_path', 'calibration_file', 'swap'].includes(String(item.input)))
+      && (item.extensions === undefined || (
+        Array.isArray(item.extensions)
+        && item.extensions.every(extension => typeof extension === 'string')
+      ))
       && (item.apply_to === undefined || (
         Array.isArray(item.apply_to)
         && item.apply_to.every(target => isRecord(target) && typeof target.node_id === 'string' && typeof target.param === 'string')

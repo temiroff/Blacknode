@@ -19,8 +19,11 @@ def test_operator_view_contract_is_declarative_and_versioned():
     assert "region?: 'main' | 'parameters'" in contract
     assert "export type OperatorWidget" in contract
     assert "type: 'image'" in contract
+    assert "type: 'viewer'" in contract
     assert "type: 'fields'" in contract
     assert "type: 'actions'" in contract
+    assert "'file_path'" in contract
+    assert "extensions?: string[]" in contract
     assert "isWorkflowOperatorView" in contract
 
 
@@ -64,6 +67,36 @@ def test_editor_hides_builder_chrome_but_keeps_edit_workflow_escape_hatch():
     assert "Support the robot" in view
     assert ".bn-operator-view {" in styles
     assert ".bn-operator-image-frame" in styles
+    assert ".bn-operator-viewer-frame" in styles
+
+
+def test_operator_view_embeds_declared_interactive_viewer_urls():
+    view = (
+        ROOT / "editor" / "src" / "components" / "WorkflowOperatorView.tsx"
+    ).read_text(encoding="utf-8")
+    styles = (ROOT / "editor" / "src" / "index.css").read_text(encoding="utf-8")
+
+    assert "function OperatorViewer" in view
+    assert "if (widget.type === 'viewer')" in view
+    assert "if (/^(https?:\\/\\/|\\/(?!\\/))/i.test(trimmed))" in view
+    assert 'allow="clipboard-read; clipboard-write; fullscreen"' in view
+    assert 'referrerPolicy="no-referrer"' in view
+    assert ".bn-operator-viewer-frame iframe" in styles
+
+
+def test_operator_fields_can_browse_host_files():
+    contract = (ROOT / "editor" / "src" / "operatorView.ts").read_text(encoding="utf-8")
+    view = (
+        ROOT / "editor" / "src" / "components" / "WorkflowOperatorView.tsx"
+    ).read_text(encoding="utf-8")
+    styles = (ROOT / "editor" / "src" / "index.css").read_text(encoding="utf-8")
+
+    assert "picker_title?: string" in contract
+    assert "extensions?: string[]" in contract
+    assert "<LocalFilePicker" in view
+    assert "item.extensions ?? []" in view
+    assert "await updateTargets(path)" in view
+    assert ".bn-operator-file-path-control" in styles
 
 
 def test_operator_panels_use_consistent_compact_spacing_and_cyan_highlights():
