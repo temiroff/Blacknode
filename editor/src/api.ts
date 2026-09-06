@@ -1954,6 +1954,8 @@ export const api = {
     required_capabilities: requiredCapabilities,
     device_calibration: deviceCalibration,
   }, 10000),
+  updateWorkflowOperatorView: (view: import('./operatorView').WorkflowOperatorView) =>
+    req<{ metadata: WorkflowMetadata }>('PATCH', '/graph/operator-view', view, 10000),
   listGraphCalibrations: () =>
     req<{
       profiles: DeviceRobotProfile[]

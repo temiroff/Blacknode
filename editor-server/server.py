@@ -38,6 +38,7 @@ from blacknode.exporters import list_export_targets
 from blacknode.learned import registry as learned_registry
 from blacknode.mcp import tools as mcp_tools
 from blacknode.node import _NODE_REGISTRY
+from blacknode.operator_views import OperatorViewValidationError, validate_operator_view
 from blacknode.nodes import ai as ai_nodes
 import blacknode.package_index as bn_package_index
 from blacknode.packages import MANIFEST_NAME as BN_MANIFEST_NAME
@@ -2755,6 +2756,45 @@ def update_workflow_requirements(req: UpdateWorkflowRequirementsReq):
     _session.metadata = metadata
     _save()
     return {"metadata": dict(metadata)}
+
+
+@app.patch("/graph/operator-view")
+def update_workflow_operator_view(view: dict[str, Any]):
+    try:
+        validate_operator_view(view)
+    except OperatorViewValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", str(view.get("id") or "")):
+        raise HTTPException(400, "App ID must start with a lowercase letter and use letters, numbers, hyphens, or underscores.")
+    nodes = {node["id"]: node for node in get_graph()["nodes"]}
+
+    def check_references(value):
+        if isinstance(value, list):
+            for item in value:
+                check_references(item)
+        elif isinstance(value, dict):
+            if "node_id" in value:
+                node = nodes.get(value["node_id"])
+                if node is None:
+                    raise HTTPException(400, f"App references missing node: {value['node_id']}")
+                outputs = {"value"} if node["type"] == "Output" else set(node["outputs"])
+                if "port" in value and value["port"] not in outputs:
+                    raise HTTPException(400, f"App references missing output: {value['node_id']}.{value['port']}")
+                if "param" in value:
+                    definition = _NODE_REGISTRY.get(node["type"])
+                    inputs = (set(node["inputs"]) | set(node.get("params", {}))
+                              | set(getattr(definition, "_bn_inputs", []))
+                              | set(getattr(definition, "_bn_input_defaults", {})))
+                    if value["param"] not in inputs:
+                        raise HTTPException(400, f"App references missing parameter: {value['node_id']}.{value['param']}")
+            for key, item in value.items():
+                if key not in {"value", "payload"}:
+                    check_references(item)
+
+    check_references(view)
+    _session.metadata = {**_session.metadata, "operator_view": copy.deepcopy(view)}
+    _save()
+    return {"metadata": dict(_session.metadata)}
 
 
 @app.post("/nodes")

@@ -8,6 +8,36 @@ Pressing a shortcut for a workflow with `metadata.operator_view` opens its App
 surface. **Edit workflow** reveals the nodes and connections, and the **App**
 control in the workflow tab bar returns to the operator surface.
 
+## Create your own App
+
+1. Build a workflow or open a template and run it to check its result.
+2. Press **Create App** beside the workflow tabs, or choose **File → Create App…**.
+3. Give the App a name. Use **+ Parameter** to expose a text or numeric task
+   setting, **+ Result** to display a workflow output, and **+ Run button** to
+   cook a chosen output. Choose each target from the workflow's available nodes.
+4. Give the controls labels your operators understand. Results can display
+   text, metrics, status, images, or a web viewer. A run button can run once or
+   start a live service; add a confirmation message when the action requires it.
+5. Press **Save & open App**. Configure the task and press your run button to
+   see the result. Saving and opening the App does not execute the workflow.
+6. Use **Edit workflow** to change the nodes and **App** to return to the
+   controls. Press **Save** after changing parameters. **Edit App** reopens
+   the designer to change the name or controls you added.
+7. Reopen the saved workflow from **Workflows** and select **App**, or use
+   **File → Package App…** to share an installable ZIP.
+
+Parameters connected to other nodes are configured by those upstream nodes;
+the designer offers unconnected text and numeric parameters. Credential fields
+stay in the existing credential configuration. Existing App sections, primary
+run targets, settings, and safety controls are retained when adding controls.
+Advanced field types and direct service actions use the operator-view contract
+below.
+
+For a robot-learning application, link the saved workflow to a Project. Expose
+its task, dataset, and training settings, then display its progress, results,
+and viewer outputs. [Guided Projects](guided-projects.md) describes the existing
+dataset, training, and policy workflow handoffs.
+
 ## Operator view contract
 
 An operator view is declared inside workflow metadata:

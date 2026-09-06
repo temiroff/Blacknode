@@ -289,6 +289,7 @@ interface Store {
   duplicateSavedWorkflow: (slug: string) => Promise<{ name: string; slug: string }>
   deleteWorkflow: (slug: string) => Promise<void>
   saveActiveTabSnapshot: () => Promise<GraphSnapshot | null>
+  setWorkflowOperatorView: (view: import('./operatorView').WorkflowOperatorView) => Promise<void>
   setWorkflowRequirements: (
     requiredCapabilities: string[],
     deviceCalibration: { profile_id: string; hardware_id: string } | null,
@@ -2083,6 +2084,18 @@ export const useStore = create<Store>((set, get) => ({
             }
           : tab
       )),
+    }))
+  },
+
+  setWorkflowOperatorView: async (view) => {
+    const tabId = get().activeTabId
+    const result = await api.updateWorkflowOperatorView(view)
+    set(s => ({
+      ...(s.activeTabId === tabId ? { workflowMetadata: result.metadata } : {}),
+      tabs: s.tabs.map(tab => tab.id === tabId ? {
+        ...tab, dirty: true,
+        graph: tab.graph ? { ...tab.graph, metadata: cloneDeep(result.metadata) } : tab.graph,
+      } : tab),
     }))
   },
 

@@ -267,7 +267,7 @@ export default function NodePalette() {
     api.getOnboarding()
       .then(state => {
         if (active && !state.package_welcome_seen) {
-          setActiveTab('packages')
+          setActiveTab('templates')
           setShowPackageWelcome(true)
         }
       })
@@ -576,28 +576,28 @@ export default function NodePalette() {
               Welcome to Blacknode
             </div>
             <h1 id="package-welcome-title" style={{ margin: '8px 0 10px', fontSize: 24, lineHeight: 1.2 }}>
-              Prepare your robotics workspace
+              Run your first workflow
             </h1>
             <p style={{ margin: 0, color: 'var(--tx2)', fontSize: 15, lineHeight: 1.6 }}>
-              Start in Packages and install the official Blacknode capabilities for robot hardware, ROS 2, vision, CUDA, datasets, and training. Package-backed templates need their listed packages before they can run.
+              Open Text Pipeline, press Run once, and see “Hello World” on the Output node. Change the text and run it again to make it yours.
             </p>
             <p style={{ margin: '10px 0 0', color: 'var(--tx3)', fontSize: 14, lineHeight: 1.5 }}>
-              Core graph workflows are ready immediately. You can return to Packages at any time from the left sidebar.
+              This first workflow runs on your computer. Add robot hardware, simulation, vision, and AI through Packages when you are ready.
             </p>
             <div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                onClick={() => finishPackageWelcome('templates')}
+                onClick={() => finishPackageWelcome('packages')}
                 style={welcomeButtonStyle}
               >
-                Explore core templates
+                Explore packages
               </button>
               <button
                 type="button"
-                onClick={() => finishPackageWelcome('packages')}
+                onClick={() => finishPackageWelcome('templates')}
                 style={{ ...welcomeButtonStyle, padding: '7px 14px', color: 'var(--action-ink)', background: 'var(--action)', borderColor: 'var(--action)', fontWeight: 700 }}
               >
-                Explore essential packages
+                Open templates
               </button>
             </div>
           </div>

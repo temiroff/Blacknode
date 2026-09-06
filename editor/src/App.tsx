@@ -41,6 +41,7 @@ const LocalFilePicker = lazy(() => import('./components/LocalFilePicker'))
 const WorkflowOperatorView = lazy(() => import('./components/WorkflowOperatorView'))
 const CustomerAppShell = lazy(() => import('./components/CustomerAppShell'))
 const AppPackageDialog = lazy(() => import('./components/AppPackageDialog'))
+const AppDesignerDialog = lazy(() => import('./components/AppDesignerDialog'))
 
 const NODE_TYPES = {
   blacknode: BlackNode,
@@ -273,7 +274,7 @@ function WorkspaceApp() {
     beginAltDragCopy, finishAltDragCopy, undoGraph,
     checkServer, reset, newTab, insertTab, switchTab, closeTab, duplicateTab,
     openGraphAsTab, openWorkflowAsTab, setActiveTabSurface, renameTab, saveActiveWorkflow,
-    diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, stopCook, stopRuntimeServices, dismissCookStatus, applyRunReplay,
+    subnetStack, diveIntoSubnet, exitSubnet, collapseToSubnet, organizeNodes, cookNode, stopCook, stopRuntimeServices, dismissCookStatus, applyRunReplay,
     handleLearnedNodeEvent, updateParam,
   } = useStore()
 
@@ -321,6 +322,7 @@ function WorkspaceApp() {
   const [simulationViewerHeight, setSimulationViewerHeight] = useState(loadSimulationViewerHeight)
   const [fileMenuOpen, setFileMenuOpen] = useState(false)
   const [appPackageDialogOpen, setAppPackageDialogOpen] = useState(false)
+  const [appDesignerOpen, setAppDesignerOpen] = useState(false)
   const [openingAppPackageDialog, setOpeningAppPackageDialog] = useState(false)
   const [fileMenuPosition, setFileMenuPosition] = useState({ top: 0, left: 0 })
   const [simulationViewerMenuOpen, setSimulationViewerMenuOpen] = useState(false)
@@ -2066,6 +2068,13 @@ function WorkspaceApp() {
                     <small>JSON or Python</small>
                   </button>
                   {!hostedPreview && (
+                    <button type="button" role="menuitem" disabled={!serverOk || nodes.length === 0 || subnetStack.length > 0}
+                      onClick={() => { setFileMenuOpen(false); setAppDesignerOpen(true) }}>
+                      <span>{operatorView ? 'Edit App…' : 'Create App…'}</span>
+                      <small>Parameters, results & buttons</small>
+                    </button>
+                  )}
+                  {!hostedPreview && (
                     <button
                       type="button"
                       role="menuitem"
@@ -2583,6 +2592,12 @@ function WorkspaceApp() {
             +
           </button>
 
+          {!hostedPreview && subnetStack.length === 0 && (
+            <button type="button" className="bn-workflow-surface-toggle" disabled={!serverOk || nodes.length === 0}
+              onClick={() => setAppDesignerOpen(true)}>
+              {operatorView ? 'Edit App' : 'Create App'}
+            </button>
+          )}
           {operatorView && (
             <button
               type="button"
@@ -2730,6 +2745,7 @@ function WorkspaceApp() {
           currentAppId={operatorView?.id}
           onClose={() => setAppPackageDialogOpen(false)}
         />
+        {appDesignerOpen && <AppDesignerDialog key={activeTabId} onClose={() => setAppDesignerOpen(false)} />}
 
         {pendingXacroEnvironment && (
           <div

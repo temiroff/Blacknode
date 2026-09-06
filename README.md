@@ -56,7 +56,16 @@ cd Blacknode
 The launcher installs the local dependencies and opens
 `http://localhost:3000`.
 
-To try the graph first, follow the [Beginner Walkthrough](docs/walkthrough.md).
+In the welcome screen, choose **Open templates**, open **Text Pipeline**, and
+press **Run once** in the top bar. The **Output** node shows `Hello World`.
+Change a Text node's value and run again to see your own result.
+
+For a visual result, open **Generic Point Cloud Viewer** and press **Run once**
+to inspect the included colored point cloud in 3D. Both workflows run locally
+with the built-in nodes.
+
+Follow the [Beginner Walkthrough](docs/walkthrough.md) to save your work and
+choose the next task.
 
 ## Pair your first device
 
@@ -113,6 +122,18 @@ capabilities, hardware connection, calibration, and disarmed state. Open
 The optional robot-learning starter prepares collection, training, and
 simulation workflows as the Project gains the required data and artifacts. It
 never starts a physical or compute action automatically.
+
+## Develop your own App
+
+Build or customize a node workflow, press **Create App**, and choose the
+parameters, results, and run buttons your team needs. **Save & open App** turns
+that workflow into an operator interface. Switch back with **Edit workflow**
+to change its behavior, or use **File → Package App…** to share it.
+
+Projects organize your application alongside its robots, datasets, training
+runs, policies, and deployments. Start with a working workflow and extend it
+for your own task. See [Create your own App](docs/operator-apps.md#create-your-own-app)
+and [Guided Projects](docs/guided-projects.md).
 
 ## Add capabilities
 

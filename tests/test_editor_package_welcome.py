@@ -4,17 +4,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_editor_starts_in_nodes_and_first_visit_opens_packages_with_welcome():
+def test_editor_first_visit_leads_to_a_local_workflow_result():
     source = (ROOT / "editor" / "src" / "components" / "NodePalette.tsx").read_text(encoding="utf-8")
 
     assert "api.getOnboarding()" in source
     assert "!state.package_welcome_seen" in source
-    assert "setActiveTab('packages')" in source
+    assert "setActiveTab('templates')" in source
     assert "await api.setOnboarding(true)" in source
     assert "localStorage" not in source
-    assert "Prepare your robotics workspace" in source
-    assert "Explore essential packages" in source
-    assert "Explore core templates" in source
+    assert "Run your first workflow" in source
+    assert "Explore packages" in source
+    assert "Open templates" in source
     assert "useState<Tab | null>('nodes')" in source
     assert "finishPackageWelcome('templates')" in source
 

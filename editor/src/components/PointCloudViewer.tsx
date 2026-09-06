@@ -1970,8 +1970,10 @@ export default function PointCloudViewer({
           border: '1px solid rgba(86, 217, 145, 0.38)', color: '#8df0b5',
           fontFamily: 'var(--font-mono)', fontSize: 11, pointerEvents: 'none',
         }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: hasCurrentPoints ? '#56d991' : '#71808d' }} />
-          {hasCurrentPoints
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: (hasCurrentPoints || (viewerRole === 'generic' && pointCount > 0)) ? '#56d991' : '#71808d' }} />
+          {viewerRole === 'generic'
+            ? pointCount > 0 ? `POINT CLOUD · ${pointCount.toLocaleString()} POINTS` : 'WAITING FOR POINTS'
+            : hasCurrentPoints
             ? parsed.sensor_fusion?.backend === 'warp-hash-grid'
               ? `SENSOR FUSION · ${Number(parsed.sensor_fusion.matched_points ?? 0).toLocaleString()} ALIGNED`
               : parsed.reconstruction?.integration?.backend === 'warp'
@@ -2054,7 +2056,9 @@ export default function PointCloudViewer({
       }}>
         <span>
           {pointCount > 0
-            ? parsed.sensor_fusion?.backend === 'warp-hash-grid'
+            ? viewerRole === 'generic'
+              ? `${pointCount.toLocaleString()} points`
+              : parsed.sensor_fusion?.backend === 'warp-hash-grid'
               ? `${pointCount.toLocaleString()} fused sensor points`
               : parsed.reconstruction?.extraction?.backend === 'warp'
               ? `${pointCount.toLocaleString()} reconstructed surface voxels`
@@ -2064,7 +2068,7 @@ export default function PointCloudViewer({
             : currentPoints.length ? 'Live scan; map is empty' : 'Waiting for points'}
         </span>
         {currentPointCount > 0 && <span>{currentPointCount.toLocaleString()} current</span>}
-        {accumulatedScanCount > 0 && (!parsed.depth_projection || parsed.reconstruction) && <span>{accumulatedScanCount.toLocaleString()} {parsed.reconstruction ? 'RGB-D frames' : 'scans'}</span>}
+        {viewerRole !== 'generic' && accumulatedScanCount > 0 && (!parsed.depth_projection || parsed.reconstruction) && <span>{accumulatedScanCount.toLocaleString()} {parsed.reconstruction ? 'RGB-D frames' : 'scans'}</span>}
         {displayCount > 0 && displayCount !== pointCount && <span>{displayCount.toLocaleString()} displayed</span>}
         {kernelMs > 0 && <span>{kernelMs.toFixed(3)} ms Warp</span>}
         {parsed.occupancy?.backend === 'warp' && (
@@ -2120,8 +2124,8 @@ export default function PointCloudViewer({
             {finite(parsed.trajectory_evaluation.speedup) > 0 ? ` · ${finite(parsed.trajectory_evaluation.speedup).toFixed(1)}× CPU` : ''}
           </span>
         )}
-        {!parsed.depth_projection && <span>{scanCoverageDeg >= 359.5 ? `360° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay` : `${scanCoverageDeg.toFixed(1)}° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay`}</span>}
-        <span>{parsed.sensor_fusion ? '3D orbit · synchronized LiDAR and colorized depth alignment' : parsed.reconstruction ? '3D orbit · persistent pose-registered RGB-D surface' : parsed.depth_projection ? '3D orbit · calibrated metric surface' : '3D orbit · LaserScan lies on XY plane'}</span>
+        {viewerRole !== 'generic' && !parsed.depth_projection && <span>{scanCoverageDeg >= 359.5 ? `360° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay` : `${scanCoverageDeg.toFixed(1)}° scan · ${clockwiseScan ? 'CW' : 'CCW'} paced replay`}</span>}
+        <span>{viewerRole === 'generic' ? '3D orbit · point cloud' : parsed.sensor_fusion ? '3D orbit · synchronized LiDAR and colorized depth alignment' : parsed.reconstruction ? '3D orbit · persistent pose-registered RGB-D surface' : parsed.depth_projection ? '3D orbit · calibrated metric surface' : '3D orbit · LaserScan lies on XY plane'}</span>
       </div>
       <div data-bn-viewer-legend style={{
         display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'nowrap',
@@ -2129,9 +2133,9 @@ export default function PointCloudViewer({
         color: 'var(--tx3)', fontFamily: 'var(--font-mono)', fontSize: 11,
       }}>
         {showRobot && <span style={{ color: '#7cf4ff' }}>B robot {Math.round(finite(parsed.robot?.length_m, 0.25) * 100)}×{Math.round(finite(parsed.robot?.width_m, 0.22) * 100)} cm</span>}
-        {!parsed.depth_projection && <span style={{ color: '#72ff9d' }}>— active beam</span>}
-        {!parsed.depth_projection && !fullCircleScan && <span style={{ color: '#85a2b8' }}>┄ scan limits</span>}
-        <span style={{ color: '#32d8ef' }}>{parsed.sensor_fusion ? '● LiDAR cyan · RGB-D green aligned / red residual' : parsed.reconstruction ? '● reconstructed surface · aligned RGB when available' : parsed.depth_projection?.color_applied === 'rgb' ? '● projected depth · aligned RGB color' : parsed.depth_projection?.color_applied === 'ir' ? '● projected depth · aligned IR intensity' : parsed.depth_projection ? '● projected depth · distance and surface confidence color' : '● filtered laser returns'}</span>
+        {viewerRole !== 'generic' && !parsed.depth_projection && <span style={{ color: '#72ff9d' }}>— active beam</span>}
+        {viewerRole !== 'generic' && !parsed.depth_projection && !fullCircleScan && <span style={{ color: '#85a2b8' }}>┄ scan limits</span>}
+        <span style={{ color: '#32d8ef' }}>{viewerRole === 'generic' ? '● point cloud colors' : parsed.sensor_fusion ? '● LiDAR cyan · RGB-D green aligned / red residual' : parsed.reconstruction ? '● reconstructed surface · aligned RGB when available' : parsed.depth_projection?.color_applied === 'rgb' ? '● projected depth · aligned RGB color' : parsed.depth_projection?.color_applied === 'ir' ? '● projected depth · aligned IR intensity' : parsed.depth_projection ? '● projected depth · distance and surface confidence color' : '● filtered laser returns'}</span>
         {parsed.sensor_fusion && <span style={{ color: '#91f4ff' }}>calibration Δ {finite(parsed.sensor_fusion.correction?.x_m).toFixed(3)} m X · {finite(parsed.sensor_fusion.correction?.y_m).toFixed(3)} m Y · {finite(parsed.sensor_fusion.correction?.yaw_deg).toFixed(2)}° yaw</span>}
         {mapFeatures && parsed.occupancy?.fixed_origin === true && <span style={{ color: '#486070' }}>■ unknown map extent</span>}
         {mapFeatures && parsed.map_render_mode === 'occupancy-texture' && <span style={{ color: '#74e7a5' }}>GPU map texture · all cells</span>}
