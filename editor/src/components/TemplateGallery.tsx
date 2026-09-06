@@ -55,7 +55,7 @@ export default function TemplateGallery({
   const [enabling, setEnabling] = useState<{ slug: string; label: string } | null>(null)
   const [missing, setMissing] = useState<Record<string, TemplateDependencyError>>({})
   const [error, setError] = useState<string | null>(null)
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set(['Core']))
   const [query, setQuery] = useState(initialQuery)
 
   useEffect(() => {
@@ -103,7 +103,12 @@ export default function TemplateGallery({
   const refreshTemplates = async () => {
     try {
       setError(null)
-      setTemplates(await api.listTemplates())
+      const starters = ['text-pipeline', 'generic-viewer']
+      const rank = (template: TemplateMeta) => {
+        const index = starters.indexOf(template.slug)
+        return index < 0 ? starters.length : index
+      }
+      setTemplates((await api.listTemplates()).sort((a, b) => rank(a) - rank(b)))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -154,7 +159,7 @@ export default function TemplateGallery({
           detail: {
             kind: 'info',
             title: `${template.name} opened`,
-            message: 'The deployment workflow remains available in its original tab.',
+            message: 'Choose Run once in the top bar to see the result. Your previous workflow remains in its own tab.',
           },
         }))
       }
@@ -266,7 +271,7 @@ export default function TemplateGallery({
         lineHeight: 1.5,
       }}>
         {openInNewTab
-          ? 'Browse reusable workflow setups. Each one opens in its own workflow tab.'
+          ? 'Open a template, then press Run once in the top bar. Start with Text Pipeline to see a local result immediately.'
           : 'Reusable workflow components, organized by capability.'}
       </div>
 
@@ -392,6 +397,17 @@ export default function TemplateGallery({
             onMouseLeave={e => {
               if (!wasLoaded) {
                 (e.currentTarget as HTMLElement).style.borderColor = dependencyError ? 'var(--warn)' : group.color
+              }
+            }}
+            role="button"
+            tabIndex={isBusy ? -1 : 0}
+            aria-label={`Open ${template.name}`}
+            aria-disabled={isBusy}
+            onKeyDown={event => {
+              if (event.target !== event.currentTarget) return
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                if (!isBusy) void loadTemplate(template)
               }
             }}
             onClick={() => !isBusy && loadTemplate(template)}

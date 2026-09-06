@@ -1,0 +1,12 @@
+.bn-app-designer { width: min(760px, calc(100vw - 32px)); display: flex; flex-direction: column; overflow: hidden; }
+.bn-app-designer fieldset { border: 0; padding: 0 4px 0 0; margin: 0; min-width: 0; min-height: 0; overflow: auto; }
+.bn-app-designer > header, .bn-app-designer > footer { flex-shrink: 0; }
+.bn-app-designer-add { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.bn-app-designer button { border: 1px solid var(--line2); border-radius: 6px; padding: 7px 10px; background: var(--lift); color: var(--tx1); font: inherit; }
+.bn-app-designer-controls { display: grid; gap: 12px; }
+.bn-app-designer-control { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; border: 1px solid var(--line2); border-radius: 8px; padding: 12px; }
+.bn-app-designer-control > header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; }
+.bn-app-designer-control label { display: flex; flex-direction: column; gap: 5px; color: var(--tx2); font-size: 13px; min-width: 0; }
+.bn-app-designer-control input, .bn-app-designer-control select { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; border: 1px solid var(--line2); border-radius: 6px; color: var(--tx1); background: var(--lift); font: inherit; }
+.bn-app-designer-hint { font-size: 13px; line-height: 1.5; color: var(--tx2); }
+@media (max-width: 600px) { .bn-app-designer-control { grid-template-columns: 1fr; } }

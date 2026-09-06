@@ -4,12 +4,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_template_gallery_groups_are_collapsed_by_default():
+def test_template_gallery_shows_core_templates_by_default():
     source = (
         ROOT / "editor" / "src" / "components" / "TemplateGallery.tsx"
     ).read_text(encoding="utf-8")
 
-    assert "useState<Set<string>>(() => new Set())" in source
+    assert "useState<Set<string>>(() => new Set(['Core']))" in source
     assert "new Set([templateGroups[0].name])" not in source
     assert "template.group || 'Core'" in source
     assert "aria-expanded={isExpanded}" in source

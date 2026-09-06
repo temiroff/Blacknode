@@ -1,8 +1,25 @@
 # Blacknode Beginner Walkthrough
 
-This is the click-by-click path for trying every main Blacknode feature. Start
-with the no-key steps first, then add NVIDIA NIM, MCP, or Docker when the local
-workflow is working.
+Start with a visible result, then choose the capabilities your task needs.
+
+## Your first result
+
+1. Run `.\start.bat` on Windows or `./start.sh` on macOS/Linux. The launcher
+   installs dependencies and opens the editor.
+2. Choose **Open templates** in the welcome screen.
+3. Open **Text Pipeline** under **Core**.
+4. Press **Run once** in the top bar. The **Output** node displays `Hello World`.
+5. Select a **Text** node, change its `value` in **Properties**, and press
+   **Run once** again. Your changed text appears in the result.
+
+For a 3D result, open **Generic Point Cloud Viewer** and press **Run once**.
+The viewer displays the included colored point cloud; right-drag to orbit and scroll
+to zoom. Both starting workflows use built-in nodes on your computer.
+
+Open **Workflows** to name and save your graph, or **Runs** to inspect a previous
+result. For a real robot, continue with [Pair your first device](../README.md#pair-your-first-device).
+For simulation, install the Newton package from **Packages** and open one of
+its templates. The sections below cover the rest of the editor as you need it.
 
 ## What You Need
 
@@ -59,12 +76,10 @@ What this does:
 First-run time depends on network speed and whether pip/npm packages are already
 cached. Later starts normally complete in less than one minute.
 
-On the first launch of this Blacknode workspace, a welcome message opens the
-**Packages** tab. Use it to install the official packages needed by robotics,
-ROS 2, vision, CUDA, dataset, and training templates. Choose **Continue with
-core graph** when you want to begin with built-in nodes. Blacknode records the
-choice in `.blacknode/onboarding.json`; Packages stays available in the left
-sidebar.
+On the first launch, choose **Open templates** to start with built-in nodes.
+Choose **Explore packages** when you already know which robotics, ROS 2, vision,
+CUDA, dataset, or training capabilities you need. Blacknode records the choice
+in `.blacknode/onboarding.json`; Packages stays available in the left sidebar.
 
 The welcome message opens only after the backend confirms that onboarding has
 not been completed. A backend startup or connectivity error keeps the current
