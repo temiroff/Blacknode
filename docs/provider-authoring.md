@@ -213,6 +213,53 @@ Use the resolver already defined by the capability:
 
 - Calibration control discovers capability-specific provider registrations and
   opens the implementation selected by the profile.
+- Actuator Setup resolves `_bn_robot_actuator_setup_provider` by the highest unique
+  positive `match_hardware(hardware)` score for the selected USB port. Saved workflows
+  can also select the provider through the profile's joint or calibration binding.
+  `scan(config)` returns normalized `actuators`
+  including `servo_id`, `model`, `model_number`, `assignment_supported`,
+  `torque_enabled`, `raw_position`, `voltage_v`, `temperature_c`,
+  `hardware_error_flags`, `hardware_errors` and `errors`, plus optional `settings`
+  and `settings_errors`. The editor creates an `ActuatorServoSetup` card for each
+  responding ID, connected to the scanner's typed `bus` output. The owning provider's
+  scan can retain unreadable addresses with `discovery_status: unreadable`,
+  `model_number: null`, `assignment_supported: false` and an actionable `errors`
+  list. These records represent uncertain addresses rather than confirmed servos;
+  they preserve partial discovery and cannot authorize writes. The provider's
+  `assign(config, expected, new_id)` rescans under exclusive bus ownership and
+  verifies the ID write and protection state. Optional `release(config, expected)`
+  independently verifies torque off. The robot facade owns expiring single-use
+  confirmation and retirement of hardware-bound calibration. The dedicated ID
+  button uses an explicit `operator_action: assign` request after visible isolation
+  and calibration-reset instructions; its owning control refreshes discovery
+  automatically. Legacy clients retain their confirmation/token contract. Ordinary graph
+  cooks remain inert. See [Actuator Setup](actuator-setup.md).
+- The optional setup callback `read_position(config, servo_id)` performs a bounded,
+  read-only sample of one discovered address and closes its connection. It returns
+  `servo_id`, `reported_id`, `model_number`, `assignment_supported`, `raw_position`,
+  `torque_enabled`, `hardware_error_flags`, `hardware_errors`, `errors`, Unix
+  `sampled_at`, and a raw `position_range` with `min`/`max`. The editor requests
+  samples only while the calibration panel is visible and idle. The facade
+  serializes requests, rejects stale or mismatched feedback, and blocks this path
+  while a motion session owns the bus. It preserves measured values with hardware
+  warnings; calibration capture and arming keep their stricter health checks.
+- Per-actuator setup can expose `build_test_context(config, state, row)` on the
+  same provider. It converts normalized raw Min/Home/Max points into the standard
+  joint-motion profile and calibration context, including `degrees_per_tick`.
+  The facade sorts the two captured endpoints and uses an interior Home or a
+  calculated midpoint as the test origin, retaining all original captures in
+  storage. The Arm button sends `operator_action: arm-test` and
+  `save_calibration: true`; the facade validates hardware and current position,
+  persists the range, then arms. Hold accepts the full captured range; commanded
+  targets retain the inset limits at the driver boundary.
+  Legacy callers still require a prior save.
+  The robot facade persists points and named measured poses by physical USB
+  identity/provider/servo ID. Its managed test uses the existing motion service,
+  fresh feedback and a three-second UI lease. Raw
+  register conversion and model/mode validation stay in the provider.
+  New slider targets wake the controller immediately and replace pending targets.
+  Target acknowledgements and UI status may reuse
+  the worker's feedback for at most 250 ms; motion retains fresh driver checks.
 - Servo motion discovers `_bn_robot_joint_motion_provider` registrations and
   opens only the package/component selected by the profile's `joint_group`,
   `calibration_control`, or `position_feedback` binding. A session supplies
@@ -220,6 +267,16 @@ Use the resolver already defined by the capability:
   and `close()`. `hold()` seeds every configured joint from current feedback
   before torque; `command()` verifies freshness, torque, and hardware health at
   the physical driver boundary.
+- Providers with `supports_position_targets: true` also implement
+  `command_position_target(positions_deg, max_velocity_deg_s=..., deadline=...)`.
+  An armed context can select `position_target_mode: true`; the gateway checks
+  this provider capability before holding torque. It sends the latest calibrated
+  destination directly through motion arbitration, with a finite positive speed
+  ceiling enforced by the provider's position controller. The regular `command`
+  path retains software velocity limiting. Feetech setup uses a 180°/s ceiling,
+  validates model/mode, writes acceleration/goal/time/speed together, and checks
+  goal and speed readback. Its hardware warnings, stale-data and release paths
+  apply to both command modes. The mock provider supplies the same target method.
 - Managed attachments synchronize the selected package, build a process
   descriptor from provider configuration, and ask Runtime to start or reuse it.
 - Existing-topic providers remain read-only and use ROS interface checks as

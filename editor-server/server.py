@@ -2969,12 +2969,123 @@ def depth_frame(node_id: str):
     )
 
 
+def _actuator_setup_parent(node_id: str) -> str:
+    meta = _session.node_meta[node_id]
+    if meta["type"] == "ActuatorSetup":
+        return node_id
+    parents = [edge["from"] for edge in _session.graph._edges
+               if edge["to"] == node_id and edge["to_port"] == "bus"
+               and edge["from_port"] == "bus"
+               and _session.node_meta.get(edge["from"], {}).get("type") == "ActuatorSetup"]
+    if len(parents) != 1:
+        raise HTTPException(409, "Connect this servo card to one USB scanner")
+    return parents[0]
+
+
+def _sync_actuator_setup_cards(scanner_id: str, outputs: dict) -> dict:
+    scanner = _session.node_meta[scanner_id]
+    rows = outputs.get("actuators") or []
+    children = {edge["to"]: _session.node_meta[edge["to"]] for edge in _session.graph._edges
+                if edge["from"] == scanner_id and edge["from_port"] == "bus" and edge["to_port"] == "bus"
+                and _session.node_meta.get(edge["to"], {}).get("type") == "ActuatorServoSetup"}
+    by_servo = {meta.get("params", {}).get("servo_id"): node_id for node_id, meta in children.items()}
+    node_outputs = {}
+    for row in rows:
+        servo_id = row["servo_id"]
+        child_id = by_servo.get(servo_id)
+        if child_id is None:
+            index = len(children)
+            x, y = scanner.get("pos", [80, 80])
+            child = add_node(AddNodeReq(type_name="ActuatorServoSetup",
+                pos=[x + 470 + (index % 3) * 400, y + (index // 3) * 720], params={"servo_id": servo_id}))
+            child_id = child["id"]
+            connect(ConnectReq(from_id=scanner_id, from_port="bus", to_id=child_id, to_port="bus"))
+            children[child_id] = child
+            by_servo[servo_id] = child_id
+        node_outputs[child_id] = {
+            "actuator": row, "present": True, "scan_token": outputs.get("scan_token", ""),
+            "scan_count": len(rows), "scanned_at": outputs.get("scanned_at", time.time()),
+            "serial_port": scanner.get("params", {}).get("serial_port", ""),
+            "baudrate": scanner.get("params", {}).get("baudrate", 1000000),
+            "report": outputs.get("report", "") if outputs.get("assigned") or outputs.get("released")
+                      else f"Servo {servo_id} responded on the last scan",
+        }
+    for child_id in children:
+        if child_id not in node_outputs:
+            node_outputs[child_id] = {"actuator": {}, "present": False, "scan_token": "",
+                                      "report": "Not detected. Check wiring and scan the USB bus again."}
+    node_outputs[scanner_id] = outputs
+    for target_id, values in node_outputs.items():
+        for port, value in values.items():
+            _session.graph._cache[(target_id, port)] = value
+    _save()
+    return {"graph": get_graph(), "node_outputs": node_outputs}
+
+
 @app.post("/nodes/{node_id}/control")
 def control_node(node_id: str, req: NodeControlReq):
     _require_app_permission("controls", node_id, req.action, req.payload)
     meta = _session.node_meta.get(node_id)
     if meta is None:
         raise HTTPException(404, "Node not found")
+    if meta.get("type") in {"ActuatorSetup", "ActuatorServoSetup"}:
+        scanner_id = _actuator_setup_parent(node_id)
+        scanner_meta = _session.node_meta[scanner_id]
+        params = dict(scanner_meta.get("params") or {})
+        source_selection = dict(params)
+        current_graph = _session.graph
+        if req.action in {"calibrate", "monitor"}:
+            profile_id = str(meta.get("params", {}).get("profile_id") or params.get("profile_id") or "")
+            serial_port = str(params.get("serial_port") or "")
+            if not profile_id or profile_id in {"auto", "none"} or not serial_port:
+                raise HTTPException(409, "Select a profile and USB port first")
+            slug = "robot-guided-calibration" if req.action == "calibrate" else "servo-debug-monitor"
+            workflow = _read_workflow_file(_template_path(slug))
+            robot_params = workflow["node_meta"]["robot"]["params"]
+            robot_params.update(profile_id=profile_id)
+            if req.action == "calibrate":
+                robot_params.update(serial_port=serial_port, port_filter=serial_port, action="check")
+            else:
+                target = next((item for item in _local_robot_monitor_targets(profile_id)
+                               if item.get("port") == serial_port), None)
+                if target is None:
+                    raise HTTPException(409, "Selected USB port is no longer connected")
+                robot_params.update(robot_id=target["id"], robot_name=target["name"])
+                if meta.get("type") == "ActuatorServoSetup":
+                    workflow["node_meta"] = {key: value for key, value in workflow["node_meta"].items()
+                                              if key in {"robot", "servo_1"}}
+                    workflow["node_meta"]["servo_1"]["params"]["servo_id"] = meta["params"]["servo_id"]
+                    workflow["edges"] = [edge for edge in workflow["edges"]
+                                         if edge["from"] in workflow["node_meta"] and edge["to"] in workflow["node_meta"]]
+            queue_open_workflow_tab(OpenWorkflowTabReq(
+                name=workflow["name"], workflow=workflow, organize=False))
+            return {"ok": True, "node_id": node_id,
+                    "outputs": {"report": f"Opening {workflow['name']} for {serial_port}"}}
+        setup_node = _NODE_REGISTRY.get("ActuatorSetup")
+        control = getattr(setup_node, "_bn_actuator_setup_control", None)
+        if not callable(control):
+            raise HTTPException(503, "Actuator setup is unavailable; reload blacknode-robot")
+        if meta.get("type") == "ActuatorServoSetup":
+            params["servo_id"] = meta.get("params", {}).get("servo_id")
+        outputs = dict(control(params, req.action, req.payload))
+        if (current_graph is not _session.graph or _session.node_meta.get(scanner_id) is not scanner_meta
+                or scanner_meta.get("params", {}) != source_selection):
+            raise HTTPException(409, "The workflow changed during setup; return to its USB scanner and scan again")
+        if req.action == "assign" and outputs.get("assigned") and meta.get("type") == "ActuatorServoSetup":
+            for edge in list(_session.graph._edges):
+                other_id = edge["to"]
+                other = _session.node_meta.get(other_id, {})
+                if (edge["from"] == scanner_id and edge["to_port"] == "bus" and other_id != node_id
+                        and other.get("type") == "ActuatorServoSetup"
+                        and other.get("params", {}).get("servo_id") == outputs["new_id"]):
+                    remove_node(other_id)
+            meta["params"]["servo_id"] = outputs["new_id"]
+            _session.graph._nodes[node_id]["params"]["servo_id"] = outputs["new_id"]
+        if req.action == "scan" or outputs.get("assigned") or outputs.get("released"):
+            canvas = _sync_actuator_setup_cards(scanner_id, outputs)
+            # Keep the transport-only canvas snapshot out of runtime caches.
+            outputs = {**outputs, "setup_canvas": canvas}
+        return {"ok": bool(outputs.get("ok")), "node_id": node_id, "outputs": outputs}
     if meta.get("type") == "RobotServo":
         action = str(req.action or "").strip().lower()
         if action not in {"arm", "disarm", "joint-command", "status"}:

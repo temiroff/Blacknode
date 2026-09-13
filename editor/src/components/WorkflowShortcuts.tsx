@@ -42,7 +42,16 @@ const WORKFLOW_SHORTCUT_COLOR_OPTIONS: Array<{ id: WorkflowShortcutColor; label:
 ]
 
 export const WORKFLOW_SHORTCUTS_STORAGE_KEY = 'blacknode-workflow-shortcuts'
+const ACTUATOR_SETUP_SHELF_MIGRATION_KEY = 'blacknode-actuator-setup-shelf-v1'
+const ACTUATOR_SETUP_SHORTCUT: WorkflowShortcut = {
+  id: 'actuator-setup',
+  label: 'Actuator Setup',
+  templateSlug: 'actuator-setup',
+  icon: 'robot',
+  color: 'cyan',
+}
 export const DEFAULT_WORKFLOW_SHORTCUTS: WorkflowShortcut[] = [
+  ACTUATOR_SETUP_SHORTCUT,
   {
     id: 'collect-episodes',
     label: 'Collect episodes',
@@ -149,6 +158,19 @@ export default function WorkflowShortcuts() {
 
   useEffect(() => {
     try {
+      // Upgrade existing shelves once, preserving their other shortcuts and
+      // allowing the operator to customize or remove this button afterwards.
+      if (window.localStorage.getItem(ACTUATOR_SETUP_SHELF_MIGRATION_KEY) !== '1') {
+        const existingIndex = shortcuts.findIndex(shortcut => shortcut.templateSlug === 'actuator-setup')
+        const migrated = existingIndex === 0 ? shortcuts : [
+          existingIndex >= 0 ? shortcuts[existingIndex] : { ...ACTUATOR_SETUP_SHORTCUT },
+          ...shortcuts.filter((_shortcut, index) => index !== existingIndex),
+        ]
+        window.localStorage.setItem(WORKFLOW_SHORTCUTS_STORAGE_KEY, JSON.stringify(migrated))
+        window.localStorage.setItem(ACTUATOR_SETUP_SHELF_MIGRATION_KEY, '1')
+        if (migrated !== shortcuts) setShortcuts(migrated)
+        return
+      }
       window.localStorage.setItem(WORKFLOW_SHORTCUTS_STORAGE_KEY, JSON.stringify(shortcuts))
     } catch {
       // Browser privacy settings may disable local storage. Shortcuts still work

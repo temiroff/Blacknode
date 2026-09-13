@@ -17,6 +17,8 @@ import ComputeDeviceNode from './components/ComputeDeviceNode'
 import ROS2GraphExplorerNode from './components/ROS2GraphExplorerNode'
 import RobotMonitorNode from './components/RobotMonitorNode'
 import RobotServoNode from './components/RobotServoNode'
+import ActuatorSetupNode from './components/ActuatorSetupNode'
+import ActuatorServoSetupNode from './components/ActuatorServoSetupNode'
 import SubnetNode from './components/SubnetNode'
 import SubnetBreadcrumb from './components/SubnetBreadcrumb'
 import SubgraphInputNode from './components/SubgraphInputNode'
@@ -52,6 +54,8 @@ const NODE_TYPES = {
   ros2graphexplorer: ROS2GraphExplorerNode,
   robotmonitor: RobotMonitorNode,
   robotservo: RobotServoNode,
+  actuatorsetup: ActuatorSetupNode,
+  actuatorservosetup: ActuatorServoSetupNode,
   subnetnode: SubnetNode,
   subnetinput: SubgraphInputNode,
   subnetoutput: SubgraphOutputNode,
