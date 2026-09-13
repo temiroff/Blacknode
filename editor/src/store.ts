@@ -363,6 +363,8 @@ function reactNodeType(typeName: string): string {
   if (typeName === 'ROS2GraphExplorer') return 'ros2graphexplorer'
   if (typeName === 'RobotMonitor') return 'robotmonitor'
   if (typeName === 'RobotServo') return 'robotservo'
+  if (typeName === 'ActuatorSetup') return 'actuatorsetup'
+  if (typeName === 'ActuatorServoSetup') return 'actuatorservosetup'
   return OUTPUT_NODE_TYPES.has(typeName) ? 'outputnode' : MODEL_NODE_TYPES.has(typeName) ? 'modelnode' : VALUE_NODE_TYPES.has(typeName) ? 'valuenode' : 'blacknode'
 }
 
@@ -424,6 +426,8 @@ function makeReactNode(meta: BnNodeMeta): Node<NodeData> {
     ...(meta.type === 'ROS2GraphExplorer' ? { style: { width: 1040, height: 760 } } : {}),
     ...(meta.type === 'RobotMonitor' ? { style: { width: 760 } } : {}),
     ...(meta.type === 'RobotServo' ? { style: { width: 360 } } : {}),
+    ...(meta.type === 'ActuatorSetup' ? { style: { width: 380 } } : {}),
+    ...(meta.type === 'ActuatorServoSetup' ? { style: { width: 370 } } : {}),
   }
 }
 
@@ -3466,7 +3470,25 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   controlNode: async (id, action, payload = {}) => {
+    const requestTabId = get().activeTabId
     const result = await api.controlNode(id, action, payload)
+    const canvas = result.outputs.setup_canvas as {
+      graph: GraphSnapshot; node_outputs: Record<string, Record<string, unknown>>
+    } | undefined
+    if (canvas && get().activeTabId === requestTabId) {
+      set(s => {
+        const graph = parseGraph(canvas.graph.nodes, canvas.graph.edges)
+        return {
+          ...graph,
+          nodes: graph.nodes.map(node => ({ ...node, data: { ...node.data,
+            portResults: canvas.node_outputs[node.id] || s.nodes.find(old => old.id === node.id)?.data.portResults,
+          } })),
+          ...markActiveTabDirty(s),
+        }
+      })
+      return result
+    }
+    if (get().activeTabId !== requestTabId) return result
     set(s => ({
       nodes: propagateLiveTerminalValues(s.nodes.map(node => node.id === id ? {
         ...node,
