@@ -305,7 +305,8 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "FeetechBusConfig",
                         "FeetechBusProbe",
                         "FeetechCalibrationProvider",
-                        "FeetechRawMonitorProvider"
+                        "FeetechRawMonitorProvider",
+                        "FeetechActuatorSetupProvider"
                     ],
                     "adapters": {
                         "ros2": {
@@ -339,6 +340,7 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "FeetechBusProbe",
                 "FeetechCalibrationProvider",
                 "FeetechRawMonitorProvider",
+                "FeetechActuatorSetupProvider",
                 "FeetechROS2Adapter"
             ]
         },
@@ -600,6 +602,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                         "RobotMonitor",
                         "RobotRawMonitor",
                         "RobotRawMonitorMockProvider",
+                        "ActuatorSetup",
+                        "ActuatorServoSetup",
+                        "RobotActuatorSetupMockProvider",
                         "RobotROSCapabilityDiscover",
                         "RobotROSInterfaceCheck",
                         "RobotStream",
@@ -665,6 +670,9 @@ _CORE_PACKAGES: dict[str, dict[str, Any]] = {
                 "RobotProfileSave",
                 "RobotRawMonitor",
                 "RobotRawMonitorMockProvider",
+                "ActuatorSetup",
+                "ActuatorServoSetup",
+                "RobotActuatorSetupMockProvider",
                 "RobotROSCapabilityDiscover",
                 "RobotROSInterfaceCheck",
                 "RobotServo",
