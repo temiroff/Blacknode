@@ -229,12 +229,16 @@ def test_core_index_maps_official_node_types_to_git_packages():
         "FeetechBusProbe",
         "FeetechCalibrationProvider",
         "FeetechRawMonitorProvider",
+        "FeetechActuatorSetupProvider",
     ]
     assert set(drivers["components"]) == {"feetech"}
     assert drivers["components"]["feetech"]["adapters"]["ros2"]["default"] is False
     assert payload["nodes"]["FeetechROS2Adapter"]["package"] == "blacknode-drivers"
     assert payload["nodes"]["FeetechBusProbe"]["package"] == "blacknode-drivers"
     assert payload["nodes"]["FeetechCalibrationProvider"]["package"] == "blacknode-drivers"
+    assert payload["nodes"]["FeetechActuatorSetupProvider"]["package"] == "blacknode-drivers"
+    for name in ("ActuatorSetup", "ActuatorServoSetup", "RobotActuatorSetupMockProvider"):
+        assert payload["nodes"][name]["package"] == "blacknode-robot"
     assert "CUDAKernelLab" not in payload["nodes"]
     assert "CUDACustomKernel" not in payload["nodes"]
     assert payload["nodes"]["ROS2"]["package"] == "blacknode-ros2"
