@@ -7,6 +7,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "editor-server"))
 import server
 from blacknode.graph import Graph
+from blacknode.node import Bool, Dict, Int, List, Text, node
 
 
 class ActuatorSetupEditorTests(unittest.TestCase):
@@ -16,6 +17,13 @@ class ActuatorSetupEditorTests(unittest.TestCase):
         self.patchers = [
             patch.dict(server._session.node_meta, {"setup-test": self.meta}),
             patch.object(server, "_require_app_permission"),
+            patch.object(server, "_template_path", side_effect=lambda slug: slug),
+            patch.object(server, "_read_workflow_file", side_effect=lambda _path: {
+                "name": "Robot controls", "node_meta": {
+                    "robot": {"params": {}}, "control": {"params": {"action": "check"}},
+                    "servo_1": {"params": {"servo_id": 1}},
+                }, "edges": [],
+            }),
         ]
         for patcher in self.patchers:
             patcher.start()
@@ -70,9 +78,24 @@ class ActuatorSetupCanvasTests(unittest.TestCase):
     def setUp(self):
         self.session = SimpleNamespace(graph=Graph(), node_meta={}, metadata={}, entrypoint=None)
         for patcher in [patch.object(server, "_session", self.session), patch.object(server, "_save"),
-                        patch.object(server, "_require_app_permission")]:
+                        patch.object(server, "_require_app_permission"), patch.dict(server._NODE_REGISTRY)]:
             patcher.start()
             self.addCleanup(patcher.stop)
+        # Exercise editor routing with the package's public port contract, even
+        # in a core-only checkout. Provider behavior is tested by its package.
+        @node(name="ActuatorSetup",
+              inputs={"profile_id": Text(default=""), "serial_port": Text(default=""), "baudrate": Int(default=1000000)},
+              outputs={"ok": Bool, "assigned": Bool, "actuators": List, "profile": Dict, "bus": Dict, "report": Text})
+        def scanner(_ctx):
+            return {}
+        server._NODE_REGISTRY["ActuatorSetup"]._bn_actuator_setup_control = Mock()
+
+        @node(name="ActuatorServoSetup",
+              inputs={"bus": Dict, "servo_id": Int(default=1), "profile_id": Text(default="")},
+              outputs={"report": Text})
+        def servo(_ctx):
+            return {}
+
         self.scanner = server.add_node(server.AddNodeReq(type_name="ActuatorSetup",
             params={"serial_port": "COM3", "baudrate": 1000000}, pos=[80, 80]))["id"]
 
